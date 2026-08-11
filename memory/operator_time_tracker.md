@@ -619,3 +619,66 @@ ceiling. That is the correct reading (0 means uncapped, never exhausted), and th
 report keeps saying `set BRAVE_MONTHLY_QUOTA to enable headroom alerts` — which is
 now an honest ask rather than a fabricated one. Until it is set, the only protection
 against a spent plan is the 429 classifier, which is live.
+
+---
+
+## Session 2026-08-11 (continuation 4) — "nothing left undone" sweep
+
+**R-numbers shipped: 5** — R-F3884, R-F3885, R-F3886 (`0234e011`), R-F3887, R-F3888
+(`4da045d6`). All live and verified.
+
+**Theme: every mechanism found this round EXISTED, looked configured, and did
+nothing.** None were missing features; all were dead wiring that read as health.
+
+- **R-F3886 — the pre-commit staged path CRASHED, so ~12 checks failed open.**
+  `python scripts/pre-commit` died with `NameError: name 'lines' is not defined` at
+  two sites passing `lines` where the scope's variable is `added_lines`. The hook is
+  deliberately FAIL-OPEN (blocks only on an explicit `VERIFICATION FAILED`
+  sentinel), so a crash printed no sentinel and every check was silently skipped.
+  **CI stayed green because `--check-all` runs `check_all_files()`, which never
+  reaches those lines** — green in one mode, dead in the other, nothing comparing
+  them.
+- **R-F3885 — and the hook was never invoked anyway.** `core.hooksPath` was unset
+  locally AND globally, while `test_rf1958` asserted the hook file exists in "the
+  ACTIVE core.hooksPath dir" and never checked the config was SET. **TWO failures
+  had stacked**, which is why "the checks are enforced" survived as a belief:
+  activate the hook and it crashes; fix the crash and nothing calls it. Both fixed,
+  hook activated, verified blocking a real violation (exit 1) and passing clean work.
+  It then **caught a real §21a violation in my own `brave_usage.py`** (wire_failure
+  on every error path, wire_success on none) one second after being revived — and
+  later blocked a legitimate commit, which found R-F3888.
+- **R-F3884 — the Brave cost recorder had ZERO callers.**
+  `/api/aria/cost/external` still returned `by_service: {}` — verbatim the symptom
+  C-23 cites as proof Brave was unmetered — because `cost_tracker.record_brave_call()`,
+  purpose-built with a documented price and a `BRAVE_COST_PER_CALL_USD` override, was
+  never called. R-F3868 built a SECOND parallel counter and **verified it against a
+  different surface than the one whose emptiness defined the defect.** Now wired at
+  `brave_usage.record_call` (the single funnel). Live: `{"brave": {"calls": 2,
+  "cost_usd": 0.01}}`. Cap interaction checked FIRST — external spend feeds
+  `COST_MONTH_PREFIX`, the same rollup `assert_monthly_cap` reads, so Brave now
+  counts against the §17 ceiling (correct; headroom ample at ~$48/$600).
+- **R-F3887 — a READ was gated by a WRITE-coalescing interval.**
+  `get_external_summary` claimed to "surface pending coalesced records" above a bare
+  `_flush_external_pending()`, which is time-gated (~15s). **This nearly made me
+  "fix" a working feature**: I read `by_service: {}` twice and twice concluded
+  R-F3884 had failed. Probe 1 was inside the window; probe 2 was a store-less local
+  process (`state_store: no connection` → clean zero, the §17 trap verbatim). Both
+  were INSTRUMENT errors, not defects.
+- **R-F3888 — the revived hook blocked me for writing the word "empty".**
+  `WINDOWS_INCOMPATIBLE_PATTERNS` carried `pty\.`, matching the substring in
+  "empty."; and it scanned COMMENTS AS CODE, though the file's own quote-aware
+  `_strip_comment` existed for exactly that. Guard is now `(?<![\w.])` (a bare `\b`
+  still matches `self.resource.x`). A false positive in a commit gate is not small:
+  the instinct is `--no-verify`, and a guard people bypass protects nothing.
+
+**Not mine, recorded honestly:**
+`test_rf2392_brave_region_sourcing_gate2::test_brave_escalation_credits_cell_free_stack_missed`
+fails under a broad `-k` selection and passes in isolation. **Verified pre-existing**:
+it fails identically with all five of my new test files excluded, and none of them
+triggers it pairwise. Not in `docs/suite_baseline.json`. Same order-dependence family
+§16 already documents; per §16, reproduce before adding another isolation fixture.
+
+**Deliberate, and the operator should know:** `core.hooksPath` is now SET in this
+clone's `.git/config`, which is shared with the peer agent — their commits are now
+gated too. That is the repo's intent (the hook and its test both exist) and the hook
+is fail-open, but it is reversible with `git config --unset core.hooksPath`.

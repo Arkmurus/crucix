@@ -2153,6 +2153,40 @@ app.get('/api/brain-absorb/verify', requireInfraRole('poweruser', 'admin'), asyn
   res.json(cached);
 });
 
+// C-27 / R-F3884 — the brain wire's own health, readable.
+// R-F2821 instrumented this wire precisely because "a signal that silently fails
+// is still dark" (§21a) — it counts delivered/dropped/throttled and records the
+// last HTTP error instead of swallowing it. But `brainWireStats()` had NO caller
+// outside test/, so in production the counters accumulated where nothing could
+// read them and the wire was as unobservable as before the fix. An instrument
+// nobody can read is indistinguishable from health — the same shape as the three
+// Phase A gates certified by an absence (§1), route_audit returning {} for a
+// 770-route app (§16), and the cost meter reading $0.00 through a store-less
+// process (§17).
+//
+// Operator-gated, matching /api/brain-absorb/diag: it reveals whether the brain
+// is reachable and whether a token is present (R-F2775).
+app.get('/api/health/brain-wire', requireInfraRole('poweruser', 'admin'), (req, res) => {
+  const stats = errorTracker.brainWireStats();
+  // `configured` is the load-bearing field: an unset ARIA_SERVICE_URL yields all
+  // -zero counters, which is byte-identical to a healthy-but-quiet tier. Report
+  // the distinction explicitly rather than leaving the reader to infer it.
+  const healthy = stats.configured && !stats.lastError && stats.droppedNoTarget === 0;
+  res.json({
+    ...stats,
+    healthy,
+    // Never let "no signal yet" read as "delivering fine".
+    state: !stats.configured
+      ? 'unconfigured'
+      : stats.lastError
+        ? 'failing'
+        : stats.delivered > 0
+          ? 'delivering'
+          : 'no_signal_yet',
+    target_env_var: 'ARIA_SERVICE_URL',
+  });
+});
+
 // Cross-server health — does Node see fly.io and vice versa?
 // Mirrors /api/aria/health/cross on the Python side. Added 2026-04-18
 // after the DD-depth audit found that the two servers had drifted apart

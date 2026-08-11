@@ -241,6 +241,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-11T16:05:47Z"
+    },
+    {
+      "c_number": "C-27",
+      "title": "Node-tier brain wire has full instrumentation and no reader: brainWireStats() is test-only",
+      "claimed_at": "2026-08-11T17:17:31Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

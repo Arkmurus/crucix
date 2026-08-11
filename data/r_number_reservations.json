@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3889,
+  "next_available": 3891,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32806,41 +32806,64 @@
       "title": "wire Brave into the cost tracker - record_brave_call had zero callers",
       "claimed_at": "2026-08-11T16:46:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0234e011",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:24:10Z"
     },
     {
       "r_number": "R-F3885",
       "title": "precommit hook test certifies presence not activation - core.hooksPath unset",
       "claimed_at": "2026-08-11T16:46:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0234e011",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:24:10Z"
     },
     {
       "r_number": "R-F3886",
       "title": "pre-commit staged path crashes with NameError - every local check failed open",
       "claimed_at": "2026-08-11T16:50:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0234e011",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:24:10Z"
     },
     {
       "r_number": "R-F3887",
       "title": "get_external_summary is gated by the write-coalescing interval so it reports empty",
       "claimed_at": "2026-08-11T17:05:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4da045d6",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:24:11Z"
     },
     {
       "r_number": "R-F3888",
       "title": "windows-compat check matched pty inside empty and scanned comments as code",
       "claimed_at": "2026-08-11T17:13:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4da045d6",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:24:11Z"
+    },
+    {
+      "r_number": "R-F3889",
+      "title": "C-27: expose the Node-tier brain wire's own health; brainWireStats had no production reader",
+      "claimed_at": "2026-08-11T17:21:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3890",
+      "title": "make tooluse coverage and mastery explicit",
+      "claimed_at": "2026-08-11T17:21:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

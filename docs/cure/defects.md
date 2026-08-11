@@ -1884,3 +1884,68 @@ cause unknown, shipping would have been a guess. The error to avoid is not the r
 is *stopping* at it. The lesson generalises past jQuery: **when a symptom survives the
 fix for its apparent cause, suspect the same cause at a different frame before positing a
 second one.**
+
+---
+
+### C-27 · The Node tier's brain wire had full instrumentation and NO READER — **CLOSED (R-F3884, 2026-08-11)**
+
+> Claimed with `python scripts/admin/reserve_c_number.py reserve` (§26a), the
+> allocator that exists because C-18/19/22/23 each got claimed twice by writing a
+> heading.
+
+Found during a 360 review of aria-web, not by a failing test — nothing could fail.
+
+`ErrorTracker.brainWireStats()` (R-F2821) counts `delivered` / `dropped` /
+`droppedNoTarget` / `throttled` and records `lastError` instead of swallowing it.
+Its docstring states the purpose exactly:
+
+> "Observability of the wire ITSELF (§21a: a signal that silently fails is still
+> dark). Before R-F2821 this method had no res.ok check and a bare `catch {}`, so
+> a brain returning 401/404/500 was indistinguishable from a successful delivery
+> — the tier could report 'wired' while emitting nothing."
+
+**Then nothing in production ever called it.** Every call site was under `test/`
+(verified: 6 references, all in `test/errortracker-own-code-domain-rf2821.test.mjs`,
+plus one comment in `server.mjs:1868`). The counters incremented in memory where
+no operator, dashboard or probe could reach them. In production the wire was
+*exactly* as unobservable as before R-F2821 — the property that fix set out to
+guarantee held **only inside a test process**.
+
+**This is the repo's most-repeated failure shape**, and CLAUDE.md already records
+four instances: three Phase A gates "certified by an absence" (§1), `route_audit`
+returning `{}` for a 770-route app so the boot log stayed quiet (§16), the cost
+meter reading `$0.00` through a process with no store connection (§17), and
+`engine_relevance` unable to show a dead engine (§27d). **An instrument nobody can
+read is indistinguishable from health.** The novel part here is that the
+instrument was *built for that exact reason* and then left unwired to any reader —
+the fix and the defect are one layer apart.
+
+**What was at risk:** `ARIA_SERVICE_URL` unset, a rotated `ARIA_API_TOKEN` (§18
+rotates these), or a brain 500 would each leave the Node tier emitting nothing to
+the brain while every surface still read green. §21c's self-coding loop would stop
+receiving Node-tier failures and nobody would know — §19e's worst outcome, the
+operator discovering it himself.
+
+**Fix:** `GET /api/health/brain-wire`, operator-gated with `requireInfraRole`
+matching `/api/brain-absorb/diag` (R-F2775) because it reveals whether the brain is
+reachable and whether a token is set. It returns the raw counters plus an explicit
+`state` of `unconfigured | failing | delivering | no_signal_yet` — because
+all-zero counters from an unset target are byte-identical to a healthy-but-quiet
+tier, and leaving the reader to infer that difference is how this class recurs.
+
+**The load-bearing test is not the route test.** `test/brain-wire-readable-rf3884.test.mjs`
+asserts first that `brainWireStats()` has at least one call site outside `test/`.
+A route can be renamed or moved; "somebody outside test/ can read this" is the
+property that actually failed. Proven RED (2 failures) before the fix and GREEN
+(5/5) after.
+
+**Verified live, external:** the gate holds under attack — `/api/health/brain-wire`
+and the sibling `requireInfraRole` routes return 401 to an external caller, and a
+**forged `X-Forwarded-For: 127.0.0.1` also returns 401**, confirming the R-F3833
+bypass keys off the real TCP peer rather than the spoofable `req.ip`.
+
+**Precedent worth following:** R-F2860 fixed this same shape for the liveness
+observer, with the comment "an observability tool that cannot be observed is the
+very blind spot it exists to fix." That reasoning was correct and simply had not
+been applied to the brain wire. When adding instrumentation, the question is not
+"is it recorded?" but **"who reads it, and from where?"**
