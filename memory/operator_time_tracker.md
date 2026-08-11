@@ -806,3 +806,71 @@ AST guard prevents re-coupling.
 checkout. That caught a real contamination risk — an early attempt swept the shared
 `r_number_reservations.json` into my commit, and the verifier then failed on the
 PEER's unshipped R-F3897.
+
+---
+
+## Session 2026-08-11 (continuation 6) — DD pass 2: CI was red, and it was mine
+
+**6 R-numbers shipped** — R-F3900..R-F3905. The previous DD verified production and
+declared done; this pass checked CI and found my own commit had turned it red. **A
+local run and a live probe are not a full verification** — the third surface is CI,
+and it was the one I had not looked at.
+
+**Started at 11 NEW failures against the recorded baseline. Ended at 2, both named
+in §16's documented known-flaky set.**
+
+- **R-F3900 — `search_engine_health.py` SHIPPED DARK on its success branch.** It
+  carried `wire_failure` on every error path and nothing on any success path, so the
+  brain could see the health tracker BREAK but never see it WORK. Now `@wired`,
+  which covers both branches by construction. Caught by the CI wiring audit, NOT the
+  pre-commit hook — the hook scans only STAGED files and this module predated its
+  activation. The identical defect in `brave_usage.py` WAS caught by the hook. Two
+  enforcement points covering for each other, working as designed.
+- **R-F3901 — Gate B, 5 violations, and the decorators were RIGHT.** `brave_usage`
+  and `search_engine_health` were simply absent from `MODULE_GAP_TYPES`, so both fell
+  to `_default = agent_cycle_failure`. Registered as `engine_failure`: a paid search
+  API and a search-source health tracker fail as ENGINES, not as agent cycles.
+  Verbatim the R-F3428 precedent, which refused to rewrite sixty vetting decorators
+  to match a default that did not describe them.
+- **R-F3902** — `c_number_registry` read as newly orphaned because its only in-tree
+  importer is its test; the real entry point is in `scripts/`, outside the audit's
+  scan boundary. Baselined WITH its reason, and explicitly not exempted from the
+  wiring gates.
+- Also caught by a repo guard (R-F3459): my `test_rf3886` bounded a subprocess at
+  600s, above the 120s per-test budget — a hang would have killed pytest with no
+  summary instead of failing the test. Now 90s.
+
+**THE BIG ONE — THE ENTIRE NODE TIER HAD BEEN UNGATED, and finding it took three
+steps, each of which only became possible after the previous:**
+
+1. **R-F3903 — the gate refused for 8+ commits without saying why.** `npm test`
+   produced "could not parse TAP totals" and one line more. Refusing is RIGHT;
+   refusing in silence is not — nobody could act, so it stayed red across both
+   agents' work. Taught it to print the byte count, the last 40 lines, and to say
+   explicitly when the capture was EMPTY.
+2. **ONE CI run later the cause was a single unmistakable line:**
+   `Could not find '.../test/**/*.test.mjs'`. **R-F3904** — ci.yml pinned
+   `node-version: "20"`, below this project's own `"engines": {"node": ">=22"}`,
+   and Node 20's test runner DOES NOT EXPAND GLOBS. **CI had been running ZERO Node
+   tests** while the same command ran 1833 locally. Pinned by a test that checks
+   every workflow against the declared engine.
+3. **R-F3905** — with the suite finally executing, the gate reported 2 NEW and 2
+   FIXED: the SAME TWO FILES, differing only by `\` vs `/`. The baseline was recorded
+   on Windows and compared as raw strings. Normalised on BOTH sides so the existing
+   baseline keeps working — unlike the Python gate, whose second baseline
+   (`suite_baseline.ci.json`) exists for a difference that is genuinely platform-real
+   (89 vs 165). A slash is not, and a second file would have pinned the artefact.
+
+**The lesson worth carrying:** every one of these was a guard that existed and did
+nothing, and the sequence only unlocked because R-F3903 made one of them explain
+itself. **A gate that cannot say WHY it could not measure is a gate nobody can fix.**
+
+**Left open, honestly:** the 2 remaining baseline-gate failures
+(`test_rf795_brain_hook_tier_timeout`, `test_store_fact_skip_rag`) are both in §16's
+KNOWN-FLAKY set, which records what has already been ruled out (R-F3841/R-F3846) and
+says to reproduce before adding another isolation fixture. I root-caused one flake
+this session (R-F3894) by bisection; the brain-hook family is a separate documented
+investigation and I did not open it at the end of a long session.
+Also flagged, not changed: `services/wa-listener/Dockerfile` still uses
+`node:20-alpine`, below `engines>=22` — a separate image with its own deploy path and
+an active peer agent.
