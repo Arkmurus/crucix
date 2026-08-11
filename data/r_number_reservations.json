@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3908,
+  "next_available": 3909,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33034,6 +33034,15 @@
       "r_number": "R-F3907",
       "title": "node baseline holds doubled backslashes - per-char replace made a double slash",
       "claimed_at": "2026-08-11T22:20:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3908",
+      "title": "C-29 follow-through: wire the store-unreadable branch to the brain (it shipped dark)",
+      "claimed_at": "2026-08-11T23:03:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
