@@ -114,7 +114,8 @@ def deficit_weighted_sft(train: list[dict], baseline: dict, quota: int) -> tuple
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--train", type=Path, required=True)
-    ap.add_argument("--dpo", type=Path, required=True)
+    ap.add_argument("--dpo", type=Path, action="append", required=True,
+                    help="genuine preference source; repeat to retain earlier axes")
     ap.add_argument("--raw-report", type=Path, required=True)
     ap.add_argument("--eval", type=Path, required=True)
     ap.add_argument("--golden", type=Path, required=True)
@@ -125,7 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baseline-out", type=Path, required=True)
     ap.add_argument("--manifest-out", type=Path, required=True)
     args = ap.parse_args(argv)
-    train, source_dpo = load_jsonl(args.train), load_jsonl(args.dpo)
+    train = load_jsonl(args.train)
+    source_dpo = [row for path in args.dpo for row in load_jsonl(path)]
     dpo = deduplicate_preferences(source_dpo)
     forbidden = {_norm_subject(str(row.get("subject") or ""))
                  for path in (args.eval, args.golden) for row in load_jsonl(path)}
@@ -156,7 +158,8 @@ def main(argv: list[str] | None = None) -> int:
                 "deduplicated_dpo_rows": len(dpo), "calibration_rows": len(probe),
                 "calibration_quota": args.quota, "axes": sorted(ALL_AXES),
                 "protected_axes": sorted(RETENTION_AXES),
-                "input_sha256": {"train": sha(args.train), "dpo": sha(args.dpo),
+                "input_sha256": {"train": sha(args.train),
+                                  "dpo": {str(path): sha(path) for path in args.dpo},
                                   "raw_report": sha(args.raw_report), "eval": sha(args.eval),
                                   "golden": sha(args.golden)},
                 "output_sha256": {"sft": sha(args.sft_out), "dpo": sha(args.dpo_out),

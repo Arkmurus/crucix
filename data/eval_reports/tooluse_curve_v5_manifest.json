@@ -1,0 +1,56 @@
+{
+  "complete": true,
+  "calibration_is_promotion_evidence": false,
+  "sft_rows": 230,
+  "source_sft_rows": 100,
+  "sft_axis_weights": {
+    "tooluse_adverse": 1,
+    "tooluse_challenge": 1,
+    "tooluse_challenge_unavailable": 4,
+    "tooluse_contradiction": 1,
+    "tooluse_multihop": 2,
+    "tooluse_news_impact": 1,
+    "tooluse_person": 4,
+    "tooluse_resolution": 1,
+    "tooluse_trace": 1,
+    "tooluse_trace_unavailable": 4
+  },
+  "source_dpo_rows": 53,
+  "deduplicated_dpo_rows": 53,
+  "calibration_rows": 30,
+  "calibration_quota": 3,
+  "axes": [
+    "tooluse_adverse",
+    "tooluse_challenge",
+    "tooluse_challenge_unavailable",
+    "tooluse_contradiction",
+    "tooluse_multihop",
+    "tooluse_news_impact",
+    "tooluse_person",
+    "tooluse_resolution",
+    "tooluse_trace",
+    "tooluse_trace_unavailable"
+  ],
+  "protected_axes": [
+    "tooluse_adverse",
+    "tooluse_contradiction",
+    "tooluse_news_impact",
+    "tooluse_resolution"
+  ],
+  "input_sha256": {
+    "train": "6ba510c2489e046e5a1488352fd38fc6dc05b7f85c613891a80f91346c9c754b",
+    "dpo": {
+      "data\\training\\aria_tooluse_curve_v2_dpo.jsonl": "58ea445342ddd226a2a92477992f8dee77129964f1650469523ae75388958d91",
+      "data\\training\\aria_tooluse_person_delta_dpo_v1.jsonl": "b19a28ca433a3cafdb71345eb9b053c67725c96b5f963b23e02bb52891b983bc"
+    },
+    "raw_report": "0700985b66191c1f9ca967af57a07a311f2fe601e4d8c8e189c2d27414d13c81",
+    "eval": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+    "golden": "4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c"
+  },
+  "output_sha256": {
+    "sft": "6c8c466ba5abb1ed6a614a7d1160cffe977059dcb8967a83d3815cf5006a6eb6",
+    "dpo": "9425cb41de48d4e54522663174fd34d2fd1042bc26c8fd5466a113e848f6b2bd",
+    "probe": "72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c",
+    "baseline": "d4d133ba689dd5555e17fce40bf33a7d216d293e2eab2872ffee6fb53535657f"
+  }
+}
