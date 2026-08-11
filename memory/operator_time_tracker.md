@@ -502,3 +502,64 @@ a mechanism gap and the operator's call.
 
 **Not done:** the full §16 suite re-measurement — the peer was committing throughout, and
 §16 is explicit that a moving tree reads `VALID=NO`.
+
+---
+
+## Session 2026-08-11 (continuation 2) — the C-number allocator
+
+**R-number shipped: 1** — R-F3878. Built at operator direction after the C-24
+collision surfaced in the previous block.
+
+**The problem was 6× worse than the collision that prompted it.** Measured in the
+live register: 29 canonical claims under 25 distinct numbers — **C-18, C-19, C-22 and
+C-23 are each claimed twice by unrelated work.** My C-24/C-25 was not an anomaly, it
+was the norm. And the damage compounds, because the register's own cross-references
+are already broken: *"the C-18 XSS residual"* names one of two unrelated C-18s, and
+*"Deep review of C-19..C-21"* is a range over ambiguous numbers. A defect register
+whose identifiers cannot be cited has lost the property that makes it a register —
+and §26 makes it the binding record of what may be worked on at all.
+
+**Cause, exactly as §2 describes it for R-numbers:** a C-number was claimed by
+*writing a heading into a markdown file*. R-numbers stopped colliding only when they
+got an allocator; C-numbers never did.
+
+**Three design calls worth recording, each evidence-driven:**
+- **Git is NOT an allocation source here**, though copying R-F3248 was the obvious
+  move. Implemented, it moved the next number from `C-26` to **`C-296`** — `\bC-\d+\b`
+  matched the Airbus **C-295** in a commit about defence hardware and an unrelated
+  internal "C-3 gate". `R-F####` is a coined token and safe to grep; `C-` is a bigram
+  in ordinary English. It also made `peek` contradict `audit`, which is the exact lie
+  R-F3248 names. Removed, and pinned by a test so it is not helpfully re-added.
+- **The write primitives are IMPORTED from `r_number_registry`, not copied** — they
+  carry the R-F1026/R-F3187/R-F3200 fixes (per-PID temp file, Windows retry,
+  fail-open lock, read-back verification) and a copy would let the two registries
+  drift. Extracting a shared module would be tidier but §26 forbids refactoring
+  inside a fix PR.
+- **Allocation is monotonic**, never gap-filling: a gap is not evidence a number is
+  free, it may still be cited.
+
+**Two defects in my own work, both caught by verification rather than by reading:**
+1. The gate used `sys.path` while `pre_commit_checks.py` never imports `sys`, and a
+   bare `except Exception: return []` swallowed the `NameError`. **It would have
+   certified "no collisions" forever** — the R-F3791 blind-guard shape, inside the
+   fix written to stop collisions. Both failure branches now REPORT.
+2. **The gate had no trigger that fires.** It was wired into `scripts/pre-commit`,
+   which ci.yml runs — but ci.yml's push trigger carries
+   `paths-ignore: ['docs/**','data/**','**/*.md']`, and a colliding commit touches
+   ONLY `docs/cure/defects.md`, matching two of those. On the push-to-main path this
+   repo actually uses, CI would have been skipped for exactly the commits the gate
+   exists to catch. Fixed with a separate seconds-long workflow on the register
+   itself; **verified firing in CI on push** (run 31509441108, green).
+
+**Enabled, not merely wired:** `reserve_c_number.py` (reserve/peek/close/list/audit/
+backfill), CI gate proven to exit 0 clean and 1 on an injected collision, §21a brain
+wiring on both branches, CLAUDE.md §26a codifies the rule. The four existing
+collisions are baselined **shrink-only** so the gate is on today; a third claim on
+C-18 still fails. The 25 pre-existing headings were backfilled once and stamped
+`claimed_by: backfill:register`, `claimed_at: null` — imported headings, not
+reservations, because nobody reserved them and inventing a timestamp would put
+fiction in the log.
+
+**Deliberately NOT done:** renumbering the four existing collisions. Every one is
+cited by other entries and by commit history; renumbering would break more than it
+fixes, and it is the operator's call.
