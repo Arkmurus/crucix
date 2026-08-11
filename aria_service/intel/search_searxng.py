@@ -150,6 +150,52 @@ def _is_query_independent(query: str, results: list) -> bool:
     return True
 
 
+def _drop_query_independent_engines(query: str, results: list) -> tuple[list, dict]:
+    """Drop the contribution of any ENGINE that answered a different question.
+
+    R-F3853 — the same discriminator as `_is_query_independent`, applied per
+    source instead of to the merged set.
+
+    Why the whole-set check is not enough. Measured live 2026-08-11, bing answers
+    correctly for popular queries and serves a soft-404 / trending page for queries
+    it has no hits on, which SearXNG scrapes into ten well-formed results
+    ("Rosoboronexport" → 0/10 related; "BAE Systems" → 9/10). Once `yep` is enabled
+    a niche query returns ~20 good results AND ~10 bing artefacts. The merged set
+    plainly relates to the query, so the R-F3844 gate correctly passes it — and
+    carries the junk through diluted. Diluted junk is what a citation is drawn
+    from; it is how a French Chrome help page became "press coverage" (C-19).
+
+    THIS IS NOT A QUALITY FILTER, and the distinction is the reason it is safe.
+    R-F3844's docstring warns that a gate which editorialises will eventually
+    suppress real intelligence. This makes no judgement about whether a result is
+    GOOD — it asks only the same yes/no question R-F3844 asks, per engine: did
+    this source answer THIS query at all? An engine keeps every one of its results
+    the moment ONE of them relates to the query.
+
+    Single-engine sets are left ALONE: with nothing to compare against, dropping
+    the only contributor would just be the whole-set check with a worse name, and
+    that check still runs afterwards as the backstop.
+    """
+    by_engine: dict[str, list] = {}
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        by_engine.setdefault((r.get("engine") or "").strip().lower(), []).append(r)
+    if len(by_engine) < 2:
+        return results, {}
+    dropped: dict[str, int] = {}
+    for engine, rows in by_engine.items():
+        if _is_query_independent(query, rows):
+            dropped[engine or "unknown"] = len(rows)
+    if not dropped:
+        return results, {}
+    kept = [r for r in results
+            if isinstance(r, dict)
+            and (r.get("engine") or "").strip().lower() not in
+            {e for e in by_engine if (e or "unknown") in dropped}]
+    return kept, dropped
+
+
 @fail_wire(module="search_searxng", gap_type="source_failure")
 async def search(
     query: str,
@@ -270,6 +316,33 @@ async def search(
             "engine":  (r.get("engine") or "").strip(),
         })
 
+    # R-F3853 — drop any single ENGINE that answered a different question, before
+    # the whole-set check below. With yep enabled, a niche query returns real yep
+    # results alongside bing's soft-404 artefacts; the merged set relates to the
+    # query, so the R-F3844 gate passes it and the artefacts ride through diluted.
+    # See _drop_query_independent_engines for why this is not a quality filter.
+    _dropped_engines: dict[str, int] = {}
+    if normalised:
+        normalised, _dropped_engines = _drop_query_independent_engines(query, normalised)
+        if _dropped_engines:
+            logger.warning(
+                "[R-F3853] searxng: dropped query-independent engine(s) for %r: %s",
+                query[:80], _dropped_engines,
+            )
+            # §21a — a silently-degrading engine is exactly what ran unnoticed for
+            # 52 days. ARIA must know WHICH source is answering the wrong question.
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="search_searxng",
+                    detail=(f"engine(s) answered a different question for "
+                            f"{query[:80]!r}: {_dropped_engines}"),
+                    gap_type="search_backend_failure",
+                    source="search_searxng:_drop_query_independent_engines",
+                )
+            except Exception:      # pragma: no cover - observability never blocks search
+                pass
+
     # R-F3844 — a result set unrelated to the query is a BACKEND FAILURE, not a
     # result. Returning it as ok:True is what let a degraded SearXNG feed random
     # pages into DD research (and, via researcher.py's auto-registration, seed the
@@ -312,6 +385,10 @@ async def search(
         "results":    normalised,
         "count":      len(normalised),
         "query":      query,
+        # R-F3853 — reported, never silent: a caller (and the operator) can see
+        # that a source was withheld and why, rather than inferring a clean run
+        # from a smaller result count.
+        "dropped_engines": _dropped_engines,
     }
 
 
