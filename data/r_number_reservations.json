@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3897,
+  "next_available": 3898,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32914,14 +32914,24 @@
       "title": "correct the url-sink guard's R-number citation: R-F3851 belongs to peer SFT work, the guard is R-F3852",
       "claimed_at": "2026-08-11T17:59:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f271bbb7",
+      "notes": null,
+      "shipped_at": "2026-08-11T18:05:12Z"
     },
     {
       "r_number": "R-F3896",
       "title": "pre-commit --install points at the stale look-alike githooks dir; R-F1958 never closed",
       "claimed_at": "2026-08-11T18:00:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3897",
+      "title": "session close: record the aria-web session in the operator time tracker",
+      "claimed_at": "2026-08-11T18:05:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

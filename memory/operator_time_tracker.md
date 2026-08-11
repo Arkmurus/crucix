@@ -682,3 +682,64 @@ triggers it pairwise. Not in `docs/suite_baseline.json`. Same order-dependence f
 clone's `.git/config`, which is shared with the peer agent — their commits are now
 gated too. That is the repo's intent (the hook and its test both exist) and the hook
 is fail-open, but it is reversible with `git config --unset core.hooksPath`.
+
+## Session 2026-08-11 (aria-web security audit → jQuery 3 → 360 review)
+
+**Attribution:** this is the OTHER agent's session, concurrent with continuations
+1–4 above (which are the peer's). Two Claude Opus 5 agents shared the tree all day;
+per the 2026-07-30 attribution caveat these are taken from the transcript, not from
+the commit trailer.
+
+**R-numbers shipped this session: 12** — R-F3845, R-F3852, R-F3855, R-F3860,
+R-F3862, R-F3866, R-F3871, R-F3872, R-F3876, R-F3882, R-F3889, R-F3892, R-F3895.
+(R-F3879 also mine: the jQuery upgrade ATTEMPTED and correctly REVERTED — shipped
+as a reverting commit, superseded by R-F3882.) All ship-marked and verified live.
+
+**Operator hours: NOT SUPPLIED → pace_ratio deliberately blank.** The operator was
+engaged intermittently across a long span; agent wall-clock is not operator hours
+and substituting it would inflate the denominator with unattended CI builds and
+browser waits. Numerator recorded, ratio left for the operator to complete.
+
+**Theme: three defects that every green signal agreed did not exist.**
+
+- **R-F3882 — jQuery 3.7.1, and "breakage 2" was breakage 1 one frame down.**
+  R-F3879 fixed the removed `.load(fn)` shorthand, could not explain why the lead
+  form still would not bind, and reverted — the right call with the cause unknown;
+  the error was stopping there. Waypoints' `refresh()` called `.offset()`
+  unconditionally on `window`; jQuery 2 guarded it with a `typeof getClientRects`
+  check, jQuery 3 does not, and the throw escaped the enclosing
+  `$(document).ready()` at custom.js:107, so the form's binding at :124 never ran.
+  **The form was never failing to bind — its binding code never executed.** Every
+  ruling-out R-F3879 made was correct and aimed at the wrong frame. Sequential
+  markers plus a try/catch separated them: execution reached 106, not 111.
+- **C-27 / R-F3889 — an instrument built for observability, with no reader.**
+  `brainWireStats()` counts delivered/dropped/throttled and records `lastError`,
+  built by R-F2821 because "a signal that silently fails is still dark". All six
+  call sites were under `test/`. In production the wire was **exactly as
+  unobservable as before the fix**.
+- **C-28 / R-F3892 — a verdict rendered without its reason.** `ECOSYSTEM: DEGRADED`
+  displayed while the same response carried `degraded_reasons` that nothing
+  rendered. It misled this very review: with only the badge visible the obvious
+  suspect was the open `search:duckduckgo` breaker — wrong, and already displayed
+  two rows up.
+
+**Three of my own instruments were blind, each caught by self-testing it first:**
+an iframe error harness that reported `[]` for everything (setting `src` replaces
+the window and discards listeners); `read_console_messages`, which does not survive
+navigation, so four "clean" page readings meant nothing; and `document.cookie`
+reading `loggedIn:false` against an httpOnly session, one probe short of a false P0
+about customer DD data leaking. **The earlier "zero page errors" claim for R-F3882
+came from the blind harness and was withdrawn** — the conclusion stood on the
+functional diff instead.
+
+**Process, recorded because it cost real audit trail:**
+- **Two of my commits were absorbed into the peer's** (`cbcab3ac`, `30e39f29`):
+  their `git add -A` picks up anything in the index, so an explicit include-list is
+  NOT sufficient protection. The code landed under their message, losing the
+  R-number, reasoning and `Verified-by:`. Their pre-commit hook then blocked MY
+  commit over THEIR shell script. Fixed by staging and committing atomically in one
+  step; the operator's standing instruction is a `git worktree add --detach`.
+- **Four R-number collisions from writing a number before reading the registry**
+  (R-F3880, R-F3884, R-F3890 caught pre-commit; R-F3851 had already shipped and
+  needed R-F3895 to correct). §2 exists for exactly this, and I broke it four times
+  in one session.
