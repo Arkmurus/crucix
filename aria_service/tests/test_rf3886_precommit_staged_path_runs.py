@@ -96,7 +96,11 @@ def test_the_real_entry_point_runs_without_crashing():
     checker working, and this test must not depend on what happens to be staged."""
     proc = subprocess.run(
         [sys.executable, str(repo_path("scripts/pre-commit"))],
-        capture_output=True, text=True, timeout=600,
+        # R-F3459 — the inner bound must fire BEFORE the per-test budget (120s), or
+        # a hang kills the pytest process with no summary instead of failing this
+        # test. A first draft used 600s: timeout inversion, caught by that guard.
+        # 90s is generous — the staged checker runs in ~1s.
+        capture_output=True, text=True, timeout=90,
         cwd=str(repo_path(".")), encoding="utf-8", errors="replace",
     )
     blob = (proc.stdout or "") + (proc.stderr or "")

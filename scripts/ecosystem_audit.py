@@ -74,6 +74,17 @@ ORPHAN_BASELINE_NEVER = {
 # own decision; three of these (behavioural_anomaly, quarantine_network,
 # credential_self_destruct) are SECURITY subsystems with no production caller.
 ORPHAN_BASELINE_TEST_ONLY = {
+    # R-F3902 — c_number_registry is a CLI-BACKED TOOL, not dead code. Its entry
+    # point is `scripts/admin/reserve_c_number.py` (plus the CI defect-register
+    # gate), and `scripts/` is outside the tree this audit scans — so it lands here
+    # only because the TEST suite is the sole in-tree importer. Exactly the "entry
+    # point or deliberate harness" case R-F3573's own failure message names.
+    #
+    # Recorded rather than silenced: it is NOT exempt from the wiring gates — it
+    # wires success AND failure to the brain (§21a) and is registered in
+    # MODULE_GAP_TYPES (R-F3901). If a production caller ever imports it, this line
+    # should come back out, per R-F3573's anti-rot-in-both-directions rule.
+    'intel/c_number_registry.py',
     'autonomous/autonomous_deploy.py',
     'env_bootstrap.py',
     'intel/antivirus.py',

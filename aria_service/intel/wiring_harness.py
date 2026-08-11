@@ -157,6 +157,24 @@ MODULE_GAP_TYPES: dict[str, str] = {
     "factory": "engine_failure", "aria_llm_provider": "engine_failure",
     # R-F1808 — search_engine/
     "internal_search": "source_failure",
+    # ── R-F3901 — the same omission R-F3428 documents, two modules later ──
+    #
+    # GATE B reported 5 violations, all of the form
+    #     "@fail_wire on 'record_call()' gap_type='engine_failure'
+    #      but module 'brave_usage' requires 'agent_cycle_failure'"
+    # Same single cause as the vetting case above: neither module was registered
+    # here, so both fell to `_default`, which is `agent_cycle_failure` — right for
+    # the autonomous loops it was chosen for and wrong for these.
+    #
+    # THE DECORATORS ARE CORRECT AND ARE LEFT ALONE. `brave_usage` meters a PAID
+    # SEARCH API and `search_engine_health` tracks whether search SOURCES are still
+    # answering; a failure in either is an engine failure, not a failure of an agent
+    # cycle. Filing them under the autonomous loop's domain would bury a
+    # search-backend outage among agent-loop noise — precisely the mis-filing
+    # R-F3428 refused when it declined to rewrite sixty decorators to match a
+    # default that did not describe them.
+    "brave_usage": "engine_failure",
+    "search_engine_health": "engine_failure",
     # autonomous/ modules use the _default (agent_cycle_failure) — semantically
     # correct (they ARE the agent loop); no per-module override needed.
     # Default for unregistered modules

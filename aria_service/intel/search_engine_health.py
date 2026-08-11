@@ -88,6 +88,7 @@ import time
 from typing import Any
 
 from . import redis_store as rs
+from .engine_wiring import wired
 from .wire import fail_wire
 
 logger = logging.getLogger("aria.search_engine_health")
@@ -345,10 +346,26 @@ async def is_quarantined(engine: str) -> bool:
         return False
 
 
-@fail_wire(module="search_engine_health", gap_type="engine_failure")
+@wired(module="search_engine_health", summary="search engine health report")
 async def health_report(engines: list[str] | None = None) -> dict[str, Any]:
     """Queryable proprioception surface (§25.3): what does ARIA believe about each
-    of her search sources right now?"""
+    of her search sources right now?
+
+    R-F3900 — `@wired`, not `@fail_wire`, and the difference is the whole of §21a.
+    This module carried `wire_failure` on every error path and NOTHING on any
+    success path, so the brain could see the health tracker BREAK but never see it
+    WORK. "No failure signal" is not evidence of health (§1, §22) — a module that
+    only ever reports its own errors is indistinguishable from one that never ran.
+
+    Caught by the CI wiring audit, NOT by the pre-commit hook: the hook scans only
+    STAGED files, and this module was committed before the hook was activated
+    (R-F3885/R-F3896). Exactly the gap the two enforcement points exist to cover for
+    each other — the same defect was caught in `brave_usage.py` by the hook and here
+    only by CI.
+
+    `@wired` is the preferred form because it covers BOTH branches by construction:
+    a future edit cannot leave the success path dark by forgetting a call.
+    """
     if engines:
         names = list(engines)
     else:
