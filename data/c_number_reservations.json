@@ -225,6 +225,18 @@
       "status": "closed",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-26",
+      "title": "jQuery 3.7.1 attempted, measured, reverted (peer R-F3879; renumbered from a C-25 collision)",
+      "claimed_at": "2026-08-11T16:04:58Z",
+      "claimed_by": "claude-renumber-for-peer",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3879"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-11T16:05:47Z"
     }
   ]
 }

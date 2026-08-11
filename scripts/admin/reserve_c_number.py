@@ -25,7 +25,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from aria_service.intel import c_number_registry as reg
 
 
+def _utf8_stdout() -> None:
+    """Windows consoles default to cp1252, and this tool prints the register's own
+    text back at you.
+
+    THIS IS NOT COSMETIC. The first NEW collision this gate ever caught crashed the
+    audit with `UnicodeEncodeError: '\\u2190'` — the arrow in the "<- NEW" marker —
+    so the ONE code path that matters, the one that reports a collision, was the one
+    that died. The clean path printed fine, which is why it looked healthy: the
+    failure branch had never been exercised (R-F3858). Defect titles are arbitrary
+    prose and will contain characters cp1252 cannot encode, so the marker is now
+    ASCII *and* the stream is reconfigured.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main() -> int:
+    _utf8_stdout()
     p = argparse.ArgumentParser(description="C-number reservation log (R-F3878)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -72,7 +92,7 @@ def main() -> int:
         if rep["collisions"]:
             print("\nCOLLISIONS (one number, unrelated work):")
             for c, titles in rep["collisions"].items():
-                legacy = " [baselined]" if c in rep["legacy_collisions"] else "  ← NEW"
+                legacy = " [baselined]" if c in rep["legacy_collisions"] else "  <-- NEW"
                 print(f"  {c}{legacy}")
                 for t in titles:
                     print(f"      · {t[:88]}")

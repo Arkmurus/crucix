@@ -1761,7 +1761,14 @@ no `unsafe-inline`.
 
 ---
 
-### C-25 · jQuery 3.7.1 — ATTEMPTED, MEASURED, REVERTED (R-F3879, 2026-08-11)
+### C-26 · jQuery 3.7.1 — ATTEMPTED, MEASURED, REVERTED (R-F3879, 2026-08-11)
+
+> **Renumbered C-25 → C-26 by the allocator (R-F3878).** This entry was written as
+> C-25 minutes after `f5d14b7d` had taken C-25, and the collision gate shipped that
+> hour caught it — the first live catch, on a real collision rather than a fixture.
+> The number moved because this entry landed second and is cited only by its own
+> commit; the content is untouched. Claim the next one with
+> `python scripts/admin/reserve_c_number.py reserve "<title>"` (CLAUDE.md §26a).
 
 C-21 bounded the vendored jQuery 2.1.1 exposure; C-23 measured the upgrade as "looks
 mechanical" and handed it to the operator for a browser check. **That assessment was

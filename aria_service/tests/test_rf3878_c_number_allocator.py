@@ -402,3 +402,28 @@ def test_the_gate_has_a_trigger_that_actually_fires_on_the_register():
     # `audit` exits 1 only on a NEW collision, which is what makes this gate usable
     # today against four baselined ones.
     assert _re.search(r"on:\s*\n\s*push:", body), "must fire on push, not only on PRs"
+
+
+def test_the_audit_cli_can_print_a_new_collision_on_a_cp1252_console():
+    """THE FIRST LIVE CATCH CRASHED THE REPORTER.
+
+    Within an hour of shipping, the gate caught a real new collision (C-25, claimed
+    by two agents) — and `audit` died with
+    `UnicodeEncodeError: '\u2190'`, the arrow in its "<- NEW" marker, because
+    Windows consoles default to cp1252. The CLEAN path printed fine, which is exactly
+    why it looked healthy: the branch that reports a collision had never been
+    exercised (R-F3858 — a guard whose failure path is untested is a guard that fails
+    when it finally matters).
+
+    Pins both halves of the fix: the source is cp1252-safe, and stdout is
+    reconfigured anyway because defect titles are arbitrary prose."""
+    src = repo_path("scripts/admin/reserve_c_number.py").read_text(encoding="utf-8")
+    assert "reconfigure" in src, "stdout must be forced to UTF-8 for arbitrary titles"
+    try:
+        src.encode("cp1252")
+    except UnicodeEncodeError as exc:
+        raise AssertionError(
+            f"reserve_c_number.py contains a character a Windows console cannot "
+            f"encode ({exc.object[exc.start:exc.end]!r} at {exc.start}). The audit "
+            f"crashed on exactly this once already."
+        ) from None
