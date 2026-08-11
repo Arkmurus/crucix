@@ -123,6 +123,15 @@ def test_host_passes_verified_dynamic_sft_count_to_pod() -> None:
     assert 'validate_count "$SFT_FILE" 90' not in pod
 
 
+def test_host_passes_verified_dynamic_dpo_count_to_curve_pod() -> None:
+    host = (ROOT / "scripts/train/run_tooluse_dpo.sh").read_text(encoding="utf-8")
+    pod = (ROOT / "scripts/train/pod_tooluse_curve.sh").read_text(encoding="utf-8")
+    assert "EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS" in host
+    assert 'EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-0}"' in pod
+    assert 'validate_count "$DPO_FILE" "$EXPECTED_DPO_PAIRS"' in pod
+    assert 'validate_count "$DPO_FILE" 47' not in pod
+
+
 def test_recovered_dpo_must_pass_calibration_before_held_out() -> None:
     pod = (ROOT / "scripts/train/pod_tooluse_dpo.sh").read_text(encoding="utf-8")
     calibration = pod.index('log "evaluating DPO on the fixed 30-row calibration')

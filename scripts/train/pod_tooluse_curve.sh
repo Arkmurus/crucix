@@ -4,6 +4,7 @@ set -uo pipefail
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 SFT_FILE=/workspace/datasets/aria_tooluse_retention_sft.jsonl
 EXPECTED_SFT_ROWS="${EXPECTED_SFT_ROWS:-0}"
+EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-0}"
 DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl
 PROBE_FILE=/workspace/datasets/aria_tooluse_curve_probe.jsonl
 RAW_PROBE=/workspace/eval/aria_tooluse_curve_raw_probe.json
@@ -40,8 +41,9 @@ PY
 }
 for f in "$SFT_FILE" "$DPO_FILE" "$PROBE_FILE" "$RAW_PROBE" "$EVAL_FILE"; do [ -s "$f" ] || fail "missing $f"; done
 [ "$EXPECTED_SFT_ROWS" -gt 0 ] 2>/dev/null || fail "expected SFT count unavailable"
+[ "$EXPECTED_DPO_PAIRS" -gt 0 ] 2>/dev/null || fail "expected DPO count unavailable"
 validate_count "$SFT_FILE" "$EXPECTED_SFT_ROWS" || fail "SFT count"
-validate_count "$DPO_FILE" 47 || fail "DPO count"
+validate_count "$DPO_FILE" "$EXPECTED_DPO_PAIRS" || fail "DPO count"
 validate_count "$PROBE_FILE" 30 || fail "probe count"
 validate_count "$EVAL_FILE" 168 || fail "eval count"
 pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf fastapi uvicorn httpx || fail "dependencies"
