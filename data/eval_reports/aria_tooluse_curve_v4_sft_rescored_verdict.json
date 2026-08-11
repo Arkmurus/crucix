@@ -1,0 +1,7 @@
+{
+  "pass": true,
+  "reason": "positive_curve",
+  "gain": 6,
+  "protected_gain": 0,
+  "regressions": []
+}
