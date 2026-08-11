@@ -410,7 +410,7 @@
 
     function statusBadge(status) {
       const labels = { connecting:'Connecting…', qr_ready:'QR Ready', connected:'Connected', disconnected:'Disconnected', logged_out:'Logged Out' };
-      return `<span class="badge ${status}"><span class="status-dot ${status}"></span>${labels[status] || status}</span>`;
+      return `<span class="badge ${escHtml(status)}"><span class="status-dot ${escHtml(status)}"></span>${escHtml(labels[status] || status)}</span>`;
     }
 
     function formatTime(ts) {
@@ -450,9 +450,9 @@
             ${statusBadge(a.status)}
           </div>
           <div class="meta">
-            <span>ID: ${a.id.slice(0, 20)}…</span>
-            <span>Created: ${formatTime(a.created_at)}</span>
-            ${a.started_at ? `<span>Started: ${formatTime(a.started_at)}</span>` : ''}
+            <span>ID: ${escHtml(a.id.slice(0, 20))}…</span>
+            <span>Created: ${escHtml(formatTime(a.created_at))}</span>
+            ${a.started_at ? `<span>Started: ${escHtml(formatTime(a.started_at))}</span>` : ''}
           </div>
           <div class="actions">
             ${a.status === 'qr_ready' || a.status === 'connecting'

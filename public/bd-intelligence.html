@@ -141,12 +141,12 @@ document.getElementById('share-sheet').addEventListener('click', function(e) {
 });
 
 function chip(text, cls='sc-badge-muted') {
-  return `<span class="sc-badge ${cls}" style="margin:1px">${escHtml(text)}</span>`;
+  return `<span class="sc-badge ${escHtml(cls)}" style="margin:1px">${escHtml(text)}</span>`;
 }
 
 function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
   return `<div class="intel-card">
-    <div class="ic-top">${meta}<button class="ic-share" data-sharetext="${escHtml(shareTextFn||title)}" data-shareurl="${escHtml(url||'')}"><i class="bi bi-share"></i></button></div>
+    <div class="ic-top">${escHtml(meta)}<button class="ic-share" data-sharetext="${escHtml(shareTextFn||title)}" data-shareurl="${escHtml(url||'')}"><i class="bi bi-share"></i></button></div>
     <div class="ic-body">
       <div class="ic-title">${escHtml(title)}</div>
       ${summary?`<div class="ic-text">${escHtml(truncate(summary,200))}</div>`:''}
@@ -342,8 +342,8 @@ async function loadPipeline() {
       <td><strong>${escHtml(d.title||d.company||'')}</strong></td>
       <td>${escHtml(d.market||d.country||'')}</td>
       <td>${chip(d.stage||'prospect','sc-badge-muted')}</td>
-      <td>${d.value?`$${Math.round(d.value/1e6)}M`:'-'}</td>
-      <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'-'}</td>
+      <td>${escHtml(d.value?`$${Math.round(d.value/1e6)}M`:'-')}</td>
+      <td>${escHtml(d.winProb?`${Math.round(d.winProb*100)}%`:'-')}</td>
       <td><button class="ic-share" data-sharetext="${escHtml((d.market||'')+ ': '+(d.title||d.company||'')+' | Stage: '+(d.stage||'')+(d.value?' | Value: $'+Math.round(d.value/1e6)+'M':'')+(d.winProb?' | Fit(est): '+Math.round(d.winProb*100)+'%':''))}"><i class="bi bi-share"></i></button></td>
     </tr>`).join('')}
     </tbody></table></div>` :

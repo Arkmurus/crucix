@@ -367,12 +367,12 @@ Sidebar.init('vetting');
           <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
           <span class="vt-ident">
             <span class="vt-name">${esc(c.applicant_name || '(unnamed)')}</span>
-            <span class="vt-ref">${esc(c.case_id)} · ${asOf} · BS 7858:2019</span>
+            <span class="vt-ref">${esc(c.case_id)} · ${esc(asOf)} · BS 7858:2019</span>
             <span class="vt-face" data-face-for="${esc(c.case_id)}">
-              <span class="vt-facemeta">${Number(c.document_count || 0)} document(s) on file, expand for detail</span>
+              <span class="vt-facemeta">${esc(Number(c.document_count || 0))} document(s) on file, expand for detail</span>
             </span>
           </span>
-          <span class="sc-badge ${badgeCls} vt-status">${esc(badgeText)}</span>
+          <span class="sc-badge ${esc(badgeCls)} vt-status">${esc(badgeText)}</span>
           <i class="bi bi-chevron-down vt-chev" aria-hidden="true"></i>
         </summary>
         <div class="vt-body" data-body-for="${esc(c.case_id)}">
@@ -392,7 +392,7 @@ Sidebar.init('vetting');
         <div class="vt-section">
           <div class="vt-section-head">
             <span class="vt-section-name">${esc(section.title)}</span>
-            <span class="vt-section-count">${rows.length}</span>
+            <span class="vt-section-count">${esc(rows.length)}</span>
             <span class="vt-section-hint">${esc(section.hint)}</span>
           </div>
           <div>${rows.map(caseCard).join('')}</div>
@@ -404,7 +404,7 @@ Sidebar.init('vetting');
     if (orphans.length) {
       html += `<div class="vt-section">
         <div class="vt-section-head"><span class="vt-section-name">Other</span>
-        <span class="vt-section-count">${orphans.length}</span></div>
+        <span class="vt-section-count">${esc(orphans.length)}</span></div>
         <div>${orphans.map(caseCard).join('')}</div></div>`;
     }
     return html;
@@ -424,8 +424,8 @@ Sidebar.init('vetting');
                           || c.last_status === 'EVIDENCE_COMPLETE'), 'Ready / complete'],
     ];
     $('queue').innerHTML = stats.map(([tone, n, label]) => `
-      <div class="vt-qstat ${tone}">
-        <div class="vt-qstat-num">${n}</div>
+      <div class="vt-qstat ${esc(tone)}">
+        <div class="vt-qstat-num">${esc(n)}</div>
         <div class="vt-qstat-lab">${esc(label)}</div>
       </div>`).join('');
   }
@@ -436,7 +436,7 @@ Sidebar.init('vetting');
       <div class="vt-sec-head">
         <span class="vt-sec-name">${esc(name)}</span>
         ${tag ? `<span class="vt-sec-tag">${esc(tag)}</span>` : ''}
-        <span class="vt-sec-spacer"></span>${extra || ''}
+        <span class="vt-sec-spacer"></span>${esc(extra || '')}
       </div>
       <div class="vt-sec-body">${body}</div>
     </div>`;
@@ -458,9 +458,9 @@ Sidebar.init('vetting');
       <div>
         <p class="vt-vstrip-title">${esc(known[0])}</p>
         <p class="vt-vstrip-sub">${esc(known[1])}</p>
-        <p class="vt-vstrip-sub"><strong>${Number(c.blockers || 0)}</strong> blocker(s) ·
-          <strong>${Number(c.signoffs || 0)}</strong> sign-off(s) ·
-          <strong>${Number(c.actions || 0)}</strong> action(s)</p>
+        <p class="vt-vstrip-sub"><strong>${esc(Number(c.blockers || 0))}</strong> blocker(s) ·
+          <strong>${esc(Number(c.signoffs || 0))}</strong> sign-off(s) ·
+          <strong>${esc(Number(c.actions || 0))}</strong> action(s)</p>
         <p class="vt-ref" style="margin-top:5px">BS 7858:2019 · United Kingdom ·
           screening period ${esc(period[0])} → ${esc(period[1])} · assessed as of ${esc(a.as_of)}</p>
         ${pack.employment_decision_eligible ? '' :
@@ -473,11 +473,11 @@ Sidebar.init('vetting');
     const stages = a.stages || [];
     if (!stages.length) return '';
     const body = `<div class="vt-stages">${stages.map((s) => `
-      <div class="vt-stage ${esc(s.state)} ${s.key === a.current_stage ? 'current' : ''}"
+      <div class="vt-stage ${esc(s.state)} ${esc(s.key === a.current_stage ? 'current' : '')}"
            title="${esc((s.outstanding || []).join(' · ') || s.hint)}">
         <div class="vt-stage-lab"><span class="vt-stage-dot"></span>${esc(s.label)}</div>
-        <div class="vt-stage-num">${s.total ? `${s.done}/${s.total} done` : 'nothing outstanding'}${
-          s.blockers ? ` · <span style="color:#dc2626">${s.blockers} blocker(s)</span>` : ''}</div>
+        <div class="vt-stage-num">${esc(s.total ? `${s.done}/${s.total} done` : 'nothing outstanding')}${
+          s.blockers ? ` · <span style="color:#dc2626">${esc(s.blockers)} blocker(s)</span>` : ''}</div>
       </div>`).join('')}</div>
       <p class="vt-note">Derived from the file on every assessment, never advanced by hand.
         A stage completes when its evidence is present and nothing in it is still flagged.</p>`;
@@ -568,7 +568,7 @@ Sidebar.init('vetting');
             <span class="vt-state ${esc(r.state)}">${esc(r.state)}</span></div>
           <div class="vt-req-meta">${esc(count)} ·
             ${esc(r.reference || 'no reference')} · ${esc(BASIS_TEXT[r.basis] || r.basis)}
-            ${r.origin === 'MANUAL' ? ' · added by hand' : ''}</div>
+            ${esc(r.origin === 'MANUAL' ? ' · added by hand' : '')}</div>
           ${r.note ? `<div class="vt-req-meta">${esc(r.note)}</div>` : ''}
           ${r.state === 'WAIVED'
             ? `<div class="vt-req-why">Waived by ${esc(r.waived_by)}: ${esc(r.waived_reason)}.
@@ -599,10 +599,10 @@ Sidebar.init('vetting');
       byYear.get(c.year)[c.month - 1] = c.state;
     });
     const rows = [...byYear.entries()].map(([year, months]) => `
-      <div class="vt-cov-row"><span class="vt-cov-year">${year}</span>
+      <div class="vt-cov-row"><span class="vt-cov-year">${esc(year)}</span>
         ${months.map((state, i) => `<span class="vt-cov-cell ${esc(state || 'none')}"
-          title="${year}-${String(i + 1).padStart(2, '0')}: ${esc(state || 'outside the screening period')}"
-          >${MONTHS[i]}</span>`).join('')}</div>`).join('');
+          title="${esc(year)}-${esc(String(i + 1).padStart(2, '0'))}: ${esc(state || 'outside the screening period')}"
+          >${esc(MONTHS[i])}</span>`).join('')}</div>`).join('');
     return sec('Career timeline coverage',
       `${cs.verified || 0} verified · ${cs.unverified || 0} declared · ${cs.undeclared || 0} uncovered`,
       rows + `<div class="vt-legend">
@@ -643,19 +643,19 @@ Sidebar.init('vetting');
       const [colour, label] = PERIOD_STATE[e.state] || ['#78716c', String(e.state || '')];
       const docs = (e.supporting_documents || []).length;
       return `<div class="vt-find">
-        <span class="vt-pill" style="background:${colour}1f;color:${colour}">${esc(e.state)}</span>
+        <span class="vt-pill" style="background:${esc(colour)}1f;color:${esc(colour)}">${esc(e.state)}</span>
         <div class="vt-row-main">
           <p class="vt-find-msg">${esc(e.organisation || e.entry_type)}
             <span class="vt-ref">${esc(e.start)} → ${esc(e.end || 'present')}</span></p>
           <span class="vt-ref">${esc(e.entry_type)} · ${esc(label)} ·
-            ${docs} document(s)${e.referee_name ? ' · referee ' + esc(e.referee_name) : ''}</span>
+            ${esc(docs)} document(s)${esc(e.referee_name ? ' · referee ' + esc(e.referee_name) : '')}</span>
           ${e.source === 'EXTRACTED_FROM_DOCUMENT' ? `<p class="vt-note" style="margin-top:3px">
             Read from a document on this file. This is the applicant's declaration as a model read it,
             not confirmed by a person. Check it against the document before relying on it.</p>` : ''}
         </div></div>`;
     }).join('');
     return sec('Declared periods', `${entries.length} period(s)`,
-      rows + (extracted ? `<p class="vt-note">${extracted} of these were read from an uploaded
+      rows + (extracted ? `<p class="vt-note">${esc(extracted)} of these were read from an uploaded
         document. Nothing read from a document is ever recorded as verified: a document arriving
         is evidence received, and verification stays a person's decision.</p>` : ''));
   }
@@ -668,7 +668,7 @@ Sidebar.init('vetting');
           <span class="vt-pill ${esc(String(f.priority || '').toLowerCase())}">${esc(f.priority)}</span>
           <div class="vt-row-main">
             <p class="vt-find-msg">${esc(f.action)}</p>
-            <span class="vt-ref">${esc(f.code)} · ${esc(f.reference)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
+            <span class="vt-ref">${esc(f.code)} · ${esc(f.reference)}${esc(f.due_date ? ' · due ' + esc(f.due_date) : '')}</span>
           </div>
         </div>`).join('')
       : '<div class="vt-empty">No outstanding actions were returned for this assessment.</div>';
@@ -692,10 +692,10 @@ Sidebar.init('vetting');
       return `<div class="vt-row">
         <div class="vt-row-main">
           <div class="vt-row-name">${esc(d.filename || '(no filename)')}</div>
-          <span class="vt-ref">${esc(d.doc_type)}${d.issuer ? ' · ' + esc(d.issuer) : ''}${
-            d.covers_from ? ' · covers ' + esc(d.covers_from) + '→' + esc(d.covers_to || '') : ''}
-            · sighting ${esc(d.sighting)}${d.examined_by ? ' by ' + esc(d.examined_by) : ''}
-            · ${d.encrypted ? 'encrypted' : 'NOT encrypted'}</span>
+          <span class="vt-ref">${esc(d.doc_type)}${esc(d.issuer ? ' · ' + esc(d.issuer) : '')}${
+            esc(d.covers_from ? ' · covers ' + esc(d.covers_from) + '→' + esc(d.covers_to || '') : '')}
+            · sighting ${esc(d.sighting)}${esc(d.examined_by ? ' by ' + esc(d.examined_by) : '')}
+            · ${esc(d.encrypted ? 'encrypted' : 'NOT encrypted')}</span>
           ${bad ? '<div class="vt-req-why">Integrity verification FAILED. Do not rely on this copy.</div>' : ''}
         </div>
         <button class="vt-btn secondary sm" data-sighting="${esc(d.document_id)}" data-case="${esc(caseId)}">
@@ -715,12 +715,12 @@ Sidebar.init('vetting');
     const s = data.summary || {};
     const body = rows.length
       ? rows.map((r) => `<div class="vt-row">
-          <span class="vt-pill ${r.overdue ? 'deadline' : (r.is_open ? 'action' : 'info')}">${esc(r.code)}</span>
+          <span class="vt-pill ${esc(r.overdue ? 'deadline' : (r.is_open ? 'action' : 'info'))}">${esc(r.code)}</span>
           <div class="vt-row-main">
             <div class="vt-row-name">${esc(r.label)} · ${esc(r.sent_to)}</div>
-            <span class="vt-ref">sent ${esc(r.sent_at)}${r.channel ? ' by ' + esc(r.channel) : ''} ·
-              ${esc(r.status)}${r.is_open ? ` · ${r.days_outstanding} day(s) outstanding` : ''}${
-                r.overdue ? ' · OVERDUE' : ''}</span>
+            <span class="vt-ref">sent ${esc(r.sent_at)}${esc(r.channel ? ' by ' + esc(r.channel) : '')} ·
+              ${esc(r.status)}${esc(r.is_open ? ` · ${r.days_outstanding} day(s) outstanding` : '')}${
+                esc(r.overdue ? ' · OVERDUE' : '')}</span>
           </div>
         </div>`).join('')
       : '<div class="vt-empty">Nothing has been requested on this case yet. Sharing a referee link records the request automatically.</div>';
@@ -804,9 +804,9 @@ Sidebar.init('vetting');
     const pct = total ? Math.round((done / total) * 100) : 0;
     const c = a.counts || {};
     face.innerHTML =
-      `<span class="vt-bar"><span style="width:${pct}%"></span></span>` +
-      `<span class="vt-facemeta">${done}/${total} documents accepted · ` +
-      `${Number(c.blockers || 0)} blocker(s) · ${Number(c.actions || 0)} action(s)</span>`;
+      `<span class="vt-bar"><span style="width:${esc(pct)}%"></span></span>` +
+      `<span class="vt-facemeta">${esc(done)}/${esc(total)} documents accepted · ` +
+      `${esc(Number(c.blockers || 0))} blocker(s) · ${esc(Number(c.actions || 0))} action(s)</span>`;
     // Keep the badge honest after a re-assess without a full list reload.
     const card = document.querySelector(`[data-case="${CSS.escape(caseId)}"]`);
     const badge = card && card.querySelector('.vt-status');
@@ -897,7 +897,7 @@ Sidebar.init('vetting');
       // case that exists — the one answer a screening queue must never give.
       const r = await authed('/api/aria/vetting/cases?limit=500');
       if (!r.ok) {
-        $('cases').innerHTML = `<div class="vt-error">Could not load cases (HTTP ${r.status}).</div>`;
+        $('cases').innerHTML = `<div class="vt-error">Could not load cases (HTTP ${esc(r.status)}).</div>`;
         return;
       }
       CASES = (await r.json()).cases || [];
@@ -935,16 +935,16 @@ Sidebar.init('vetting');
       const rows = (d.clauses || []).map((x) => `
         <div class="vt-clause">
           <span class="vt-clause-id">${esc(x.clause)}</span> · <strong>${esc(x.title)}</strong>
-          <span class="vt-state ${x.status === 'ENCODED' ? 'ACCEPTED' : (x.status === 'OPERATOR_CONTROL' ? 'RECEIVED' : 'OUTSTANDING')}">${esc(x.status)}</span>
+          <span class="vt-state ${esc(x.status === 'ENCODED' ? 'ACCEPTED' : (x.status === 'OPERATOR_CONTROL' ? 'RECEIVED' : 'OUTSTANDING'))}">${esc(x.status)}</span>
           <div style="margin-top:3px">${esc(x.requirement)}</div>
           <div class="vt-ref" style="margin-top:3px">${esc((x.implemented_by || []).join(' · '))}${
-            x.verified_on ? ' · read against the licensed standard ' + esc(x.verified_on) : ' · NOT verified'}</div>
+            esc(x.verified_on ? ' · read against the licensed standard ' + esc(x.verified_on) : ' · NOT verified')}</div>
           ${x.note ? `<div class="vt-req-meta">${esc(x.note)}</div>` : ''}
         </div>`).join('');
       body.innerHTML =
         `<p style="font-size:13px;margin:0 0 10px"><strong>${esc(d.honest_summary)}</strong></p>` +
-        `<p class="vt-ref" style="margin-bottom:12px">${c.encoded} encoded · ${c.corroborated} corroborated against the live pack · ` +
-        `${c.claimed_not_corroborated} claiming code the pack cannot corroborate · ${c.operator_control} organisational controls</p>` +
+        `<p class="vt-ref" style="margin-bottom:12px">${esc(c.encoded)} encoded · ${esc(c.corroborated)} corroborated against the live pack · ` +
+        `${esc(c.claimed_not_corroborated)} claiming code the pack cannot corroborate · ${esc(c.operator_control)} organisational controls</p>` +
         `<div class="vt-pack vt-pack-warn"><i class="bi bi-exclamation-triangle"></i><div>
            <strong>Not modelled.</strong><ul style="margin:6px 0 0;padding-left:18px">` +
         (d.not_modelled || []).map((x) => `<li>${esc(x)}</li>`).join('') +
@@ -1304,7 +1304,7 @@ Sidebar.init('vetting');
       icon: 'bi-person-check-fill', okLabel: 'Record decision',
       fields: [
         { name: 'engine', label: 'Current assessment', type: 'static',
-          html: `<strong>${statusText}</strong>${blockers > 0
+          html: `<strong>${esc(statusText)}</strong>${blockers > 0
             ? '<br><span style="color:var(--sc-red)">Approving over open blockers requires a recorded override reason.</span>' : ''}` },
         { name: 'decision', label: 'Decision', type: 'select', required: true, autofocus: true,
           options: [
@@ -1369,7 +1369,7 @@ Sidebar.init('vetting');
         tone: 'success', icon: 'bi-check-circle-fill',
         bodyHtml:
           `<div class="sc-form-static"><strong>${escHtml(body.decision)}</strong> by ${escHtml(body.decided_by)}<br>`
-          + `Engine at decision time: ${escHtml(body.engine_status)} · ${body.engine_blockers} blocker(s)<br>`
+          + `Engine at decision time: ${escHtml(body.engine_status)} · ${esc(body.engine_blockers)} blocker(s)<br>`
           + (body.departed_from_engine
               ? '<span style="color:#c2410c">Departed from the recommendation, recorded.</span>'
               : 'Matched the recommendation.')
@@ -1553,7 +1553,7 @@ Sidebar.init('vetting');
       el.style.display = '';
       el.innerHTML = `<i class="bi bi-clock-history" aria-hidden="true"></i><div>`
         + (overdue
-          ? `<strong>${overdue} case(s) past their retention period</strong>. Dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
+          ? `<strong>${esc(overdue)} case(s) past their retention period</strong>. Dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
           : `No case is past its retention period.`)
         + ` <span class="vt-ref">reviewed as of ${esc(data.as_of)}</span></div>`;
     } catch (e) { /* retention is advisory here; never block the page */ }

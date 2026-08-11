@@ -315,7 +315,7 @@ async function loadAudit() {
       <td><strong style="font-size:12px">${escHtml(e.action||'')}</strong></td>
       <td style="font-size:12px">${escHtml(e.targetEmail||e.target||'')}${e.targetName?`<br><span style="font-size:10px;color:#9b968c">${escHtml(e.targetName)}</span>`:''}</td>
       <td style="font-size:12px">${escHtml(e.adminEmail||e.byEmail||e.by||'')}</td>
-      <td style="font-size:11px;color:#9b968c">${fmtDateTime(e.ts||e.timestamp||e.at)}</td>
+      <td style="font-size:11px;color:#9b968c">${escHtml(fmtDateTime(e.ts||e.timestamp||e.at))}</td>
     </tr>`).join('')}
   </tbody></table>` : '<p class="text-muted" style="padding:20px">No audit records.</p>';
 }

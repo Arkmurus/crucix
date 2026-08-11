@@ -30,14 +30,65 @@
 const BT = String.fromCharCode(96);
 const BS = String.fromCharCode(92);
 
-const ALREADY = /^(escapeHtml|escHtml|encodeURIComponent)\s*\(/;
+// Every escaper name in use across public/. Pages do not agree on one: app.js
+// exports the global `escHtml`, while dd-reports/watchlist define `escText`/
+// `escAttr`, vetting/leads/design-partners define `esc`, and aria-brain/explorer/
+// account/news define `escapeHtml`. Omitting a name here does not weaken the
+// guard — it makes it report ALREADY-ESCAPED sinks as unescaped, and a fixer
+// driven off that would wrap them twice and print `&amp;lt;` to users.
+const ESCAPER_NAMES = new Set([
+  'escapeHtml', 'escHtml', 'escText', 'escAttr', 'esc',
+  'encodeURIComponent', 'safeUrl', 'safeExternalUrl',
+]);
+const ALREADY = /^(escapeHtml|escHtml|escText|escAttr|esc|encodeURIComponent|safeUrl|safeExternalUrl)\s*\(/;
+
+/**
+ * True when every value the expression can emit is already escaped.
+ *
+ * `cond ? escapeHtml(x) : 'none'` does not START with an escaper, so the simple
+ * ALREADY test misses it — and wrapping it produces escapeHtml(escapeHtml(x)),
+ * which prints `&amp;lt;` to the user. Strategy: delete string literals, numbers
+ * and every escaper CALL (arguments included) from the expression; if no
+ * identifier survives, nothing unescaped can reach the DOM.
+ */
+export function isFullyEscaped(expr) {
+  if (!/[A-Za-z_$]/.test(expr)) return true;              // pure arithmetic
+  if (![...ESCAPER_NAMES].some((n) => expr.includes(n + '('))) return false;
+  let s = expr;
+  // Remove escaper calls with balanced arguments, innermost first.
+  for (let pass = 0; pass < 12; pass += 1) {
+    const before = s;
+    s = s.replace(
+      new RegExp(`\\b(${[...ESCAPER_NAMES].join('|')})\\s*\\([^()]*\\)`, 'g'), '""');
+    if (s === before) break;
+  }
+  s = s.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');   // string literals
+  s = s.replace(/\b\d+(\.\d+)?\b/g, '0');                        // numbers
+  s = s.replace(/\b(true|false|null|undefined|typeof|new|void)\b/g, '');
+  return !/[A-Za-z_$]/.test(s);
+}
 const MARKUP = /<\s*\/?\s*[a-zA-Z][^>]*>/;
+/**
+ * Markup detection for CONCATENATED builders, where a single tag is split across
+ * operands: `'<li class="' + cls + '">'`. Neither half contains a complete tag,
+ * so MARKUP misses both and a markup-emitting helper reads as a plain value.
+ *
+ * Anchored on a quote so ordinary prose ("a < b") cannot match.
+ */
+const MARKUP_FRAGMENT = /['"`]\s*<\s*\/?\s*[a-zA-Z][\w-]*/;
 /** Helpers whose return value is a markup fragment. */
 const RAW_PREFIX = ['seg(', '_grid(', 'metricRow(', 'pts.map(', 'arr.map('];
 
-/** Strip `//` line comments so a fix's own explanation is not analysed as code. */
+/**
+ * Blank out `//` line comments so a fix's own explanation is not analysed as code.
+ *
+ * LENGTH-PRESERVING on purpose: comment text is replaced by spaces rather than
+ * removed, so every offset this module reports is valid against the ORIGINAL
+ * file. A fixer driven off shrunken offsets writes into the wrong place, and the
+ * corruption is silent because the result is still valid JavaScript.
+ */
 export function stripLineComments(src) {
-  return src.replace(/(^|[^:])\/\/.*$/gm, '$1');
+  return src.replace(/(^|[^:])(\/\/[^\n]*)/g, (_, pre, comment) => pre + ' '.repeat(comment.length));
 }
 
 /** [start, end) of every top-level template literal; end is the closing backtick. */
@@ -60,13 +111,26 @@ export function templateSpans(s) {
   return out;
 }
 
-/** Every `${…}` in `body`, as {expr, start, end} with offsets relative to body. */
+/**
+ * Every `${…}` in `body`, relative to body.
+ *
+ * `innerStart` is where the UNTRIMMED expression text begins (just past `${`).
+ * The fixer needs it to reach interpolations NESTED inside a raw expression — a
+ * `.map()` that emits markup is raw, but the values it interpolates are not.
+ */
 function interpolations(body) {
   const out = [];
   const re = /\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
   let m;
   while ((m = re.exec(body)) !== null) {
-    out.push({ expr: m[1].trim(), start: m.index, end: m.index + m[0].length });
+    const inner = m[1];
+    const expr = inner.trim();
+    out.push({
+      expr,
+      start: m.index,
+      end: m.index + m[0].length,
+      innerStart: m.index + 2 + inner.indexOf(expr),
+    });
   }
   return out;
 }
@@ -158,23 +222,56 @@ export function functionBodyOf(src, name) {
 export function classifyConcatOperands(rawSrc, isRawIdent = () => false) {
   const src = stripLineComments(rawSrc);
   const out = { escaped: 0, raw: [], unescaped: [] };
-  const ESC_CALL = /^(escText|escAttr|escHtml|escapeHtml|encodeURIComponent|safeUrl)\s*\(/;
+  // Derived from the ONE list, not retyped. A second hand-maintained copy is how
+  // `esc(` — the escaper vetting/leads/design-partners use — came to be reported
+  // as unescaped here while the template classifier accepted it.
+  const ESC_CALL = new RegExp(`^(${[...ESCAPER_NAMES].join('|')})\\s*\\(`);
   /** Counts, sizes, rounded numbers, formatted dates — cannot carry markup. */
   const NUMERIC_OPERAND =
     /(\.length\b|\.size\b|^Math\.|\.toFixed\(|\.toLocaleString\(|\.toLocaleDateString\(|^Number\(|^parseInt\(|^parseFloat\(|_count\b|Count\b|^Array\.from\()/;
-  // `<literal containing markup>' + OPERAND` and `OPERAND + '<literal…>`
-  const re = /(['"])((?:(?!\1)[\s\S]){0,400}?<\s*\/?\s*[a-zA-Z][^>]*>(?:(?!\1)[\s\S]){0,400}?)\1\s*\+\s*([A-Za-z_$][\w$.]*(?:\([^()]*\))?)/g;
+  /**
+   * Read one operand starting at `i`, balancing parentheses.
+   *
+   * A regex with `\([^()]*\)` truncates `items.map(x => `<li>${x}</li>`)` to
+   * `items.map` — which then classifies as an unescaped value when it is in fact
+   * a markup-emitting call. Twelve operands across public/ hit exactly that.
+   */
+  const readOperand = (i) => {
+    const m0 = /^[A-Za-z_$][\w$.]*/.exec(src.slice(i));
+    if (!m0) return null;
+    let j = i + m0[0].length;
+    if (src[j] === '(') {
+      let depth = 0;
+      for (; j < src.length; j += 1) {
+        if (src[j] === '(') depth += 1;
+        else if (src[j] === ')') { depth -= 1; if (!depth) { j += 1; break; } }
+      }
+    }
+    return src.slice(i, j);
+  };
+
+  // `<literal containing markup>' + OPERAND`
+  const re = /(['"])((?:(?!\1)[\s\S]){0,400}?<\s*\/?\s*[a-zA-Z][^>]*>(?:(?!\1)[\s\S]){0,400}?)\1\s*\+\s*(?=[A-Za-z_$])/g;
   let m;
   while ((m = re.exec(src)) !== null) {
-    const operand = m[3].trim();
+    const operandRaw = readOperand(m.index + m[0].length);
+    if (!operandRaw) continue;
+    const operand = operandRaw.trim();
     const head = operand.split(/[.(]/)[0];
     const line = src.slice(0, m.index).split('\n').length;
     // Match on the NAME, not on captured parens: `escText(a.b(c))` has nested
     // parens, so the operand regex captures the bare name and an ESC_CALL test
     // against the full text would wrongly report an escaped sink as unescaped.
     if (ESC_CALL.test(operand) || ESC_CALL.test(head + '(')) { out.escaped += 1; continue; }
+    // Same precision the template classifier gained: a ternary whose branches
+    // are escaped is escaped, and a call to a markup-returning helper is raw.
+    if (isFullyEscaped(operand)) { out.escaped += 1; continue; }
     if (isRawIdent(operand) || isRawIdent(head)) { out.raw.push(operand); continue; }
-    if (MARKUP.test(declarationOf(src, head)) || MARKUP.test(functionBodyOf(src, head))) {
+    // MARKUP_FRAGMENT, not MARKUP: a concatenated builder splits one tag across
+    // operands, so neither half holds a complete `<tag …>`.
+    if (MARKUP_FRAGMENT.test(operand)
+        || MARKUP_FRAGMENT.test(declarationOf(src, head))
+        || MARKUP_FRAGMENT.test(functionBodyOf(src, head))) {
       out.raw.push(operand);
       continue;
     }
@@ -222,20 +319,46 @@ export function classifyHtmlInterpolations(rawSrc) {
     [...idents].filter((i) => MARKUP.test(declarationOf(src, i))),
   );
 
+  /**
+   * A call to a helper whose body emits markup returns a fragment, not a value.
+   *
+   * Resolves BOTH shapes: `function card(v) {…}` and `const card = (v) => …`.
+   * Checking only the first missed every arrow-function renderer, and an arrow
+   * renderer passed to `.map()` is the most common way these pages build lists.
+   */
+  const helperEmitsMarkup = (name) => (
+    MARKUP.test(functionBodyOf(src, name)) || MARKUP.test(declarationOf(src, name))
+  );
+  const callReturnsMarkup = (e) => {
+    for (const m of e.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (ESCAPER_NAMES.has(m[1])) continue;
+      if (helperEmitsMarkup(m[1])) return true;
+    }
+    // `rows.map(caseCard).join('')` — the MAPPER is named, never called here.
+    for (const m of e.matchAll(/\.\s*map\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+      if (helperEmitsMarkup(m[1])) return true;
+    }
+    return false;
+  };
+
   const isRaw = (e) => {
     if (rawIdents.has(e)) return true;
     const j = /^([A-Za-z_$][\w$]*)\.join\(/.exec(e);
     if (j && rawIdents.has(j[1])) return true;
     if (RAW_PREFIX.some((p) => e.startsWith(p))) return true;
-    return MARKUP.test(e);   // the expression builds markup inline
+    if (MARKUP.test(e)) return true;   // the expression builds markup inline
+    return callReturnsMarkup(e);
   };
 
   const lineOf = (idx) => src.slice(0, idx).split('\n').length;
+  // `start`/`end` are ABSOLUTE offsets into the (comment-stripped) source, so the
+  // fixer can drive off the same classifier the guard uses. Two implementations
+  // would drift and the fix would stop matching what the test accepts.
   const out = { escaped: 0, raw: [], unescaped: [] };
   for (const [a, b] of spans) {
-    for (const { expr, start } of interpolations(src.slice(a, b))) {
+    for (const { expr, start, end, innerStart } of interpolations(src.slice(a, b))) {
       if (!expr) continue;
-      if (ALREADY.test(expr)) { out.escaped += 1; continue; }
+      if (ALREADY.test(expr) || isFullyEscaped(expr)) { out.escaped += 1; continue; }
       if (isRaw(expr)) {
         out.raw.push(expr);
         // A raw expression is often `x.map(v => `<span>${v.field}</span>`)`.
@@ -247,13 +370,31 @@ export function classifyHtmlInterpolations(rawSrc) {
           const inner = classifyHtmlInterpolations(expr);
           out.escaped += inner.escaped;
           out.raw.push(...inner.raw);
+          // Rebase the nested offsets onto the outer source so a nested sink is
+          // addressable — `${g.tier}` lived exactly here.
+          const base = a + innerStart;
           for (const u of inner.unescaped) {
-            out.unescaped.push({ expr: u.expr, line: lineOf(a + start) });
+            out.unescaped.push({
+              expr: u.expr,
+              line: lineOf(base + (u.start ?? 0)),
+              start: base + u.start,
+              end: base + u.end,
+              innerStart: base + (u.innerStart ?? u.start),
+            });
           }
         }
         continue;
       }
-      out.unescaped.push({ expr, line: lineOf(a + start) });
+      out.unescaped.push({
+        expr,
+        line: lineOf(a + start),
+        start: a + start,
+        end: a + end,
+        // The fixer rewrites [innerStart, end-1) — the UNTRIMMED expression — so
+        // an interpolation whose expression starts on the NEXT line is replaced
+        // correctly rather than having the newline swallowed into the call.
+        innerStart: a + innerStart,
+      });
     }
   }
   return out;

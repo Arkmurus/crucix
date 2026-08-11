@@ -1,27 +1,31 @@
 // test/html-interpolation-guard-rf3845.test.mjs
 //
-// R-F3845 — closes the last open item from the C-18 Node-tier security audit.
+// R-F3845 — closed the C-18 XSS residual on the three audited pages.
+// R-F3850 — extends the same guard to EVERY page under public/.
 //
-// C-18 shipped with an honest caveat: aria-brain.html still interpolated ~230
-// values that were "reviewed as a class, not proven one by one". This test
-// replaces that sentence with a measurement, and — more importantly — keeps it
-// true. Every `${…}` inside an HTML-producing template literal on the three
-// audited pages must be either escaped or on a NAMED raw-markup list.
+// The invariant, for all 32 served pages: every `${…}` inside an HTML-producing
+// template literal, and every concatenation operand adjacent to markup, is
+// either escaped or justified BY NAME here.
 //
 // ── WHY A GUARD AND NOT JUST A FIX ───────────────────────────────────────────
-// The fix is 143 escapes. Without this test the 144th sink someone adds next
-// month is unescaped again and nobody finds out — which is how the R-F1919
-// inline-handler migration came to miss two handlers in this very file, and how
-// the audit's item 10 came to exist at all. Measuring once is not a control;
-// measuring on every run is.
+// The fix is 246 escapes. Without this test the next one someone adds is
+// unescaped again and nobody finds out — which is how the R-F1919 inline-handler
+// migration came to miss two handlers, and how the audit's item 10 existed at
+// all. Measuring once is not a control; measuring on every run is.
 //
-// ── THE RAW LIST IS DELIBERATELY EXPLICIT ────────────────────────────────────
-// A handful of interpolations legitimately emit markup, built earlier in the
-// same function from already-escaped parts. Escaping them double-encodes and the
-// user reads `&lt;strong&gt;`. They are enumerated below by name: adding one is
-// a deliberate edit to this list, not a silent default. The first draft of this
-// analysis escaped `sens` and broke the sensor banner — caught by the render
-// tests, which is why those are named as the counterweight to this one.
+// ── THE TWO STYLES ───────────────────────────────────────────────────────────
+// These pages do not agree on how they build HTML. aria-brain/explorer/vetting
+// use template literals; dd-reports/sources/leads concatenate strings; several
+// do both. A template-only analyser reports zero on dd-reports and looks like a
+// pass — the "guard whose universe is empty always certifies" failure CLAUDE.md
+// §16 records for route_audit. Both styles are classified.
+//
+// ── AND THE THREE ESCAPING CONVENTIONS ───────────────────────────────────────
+// `escHtml` is global via js/app.js; dd-reports/watchlist define escText/escAttr;
+// vetting/leads/design-partners define `esc`; aria-brain/explorer/account/news
+// define `escapeHtml`. The analyser knows all of them — omitting one does not
+// weaken the guard, it makes it report ALREADY-escaped sinks and a fixer driven
+// off that double-escapes them into `&amp;lt;` for the user.
 //
 // Run: node --test test/html-interpolation-guard-rf3845.test.mjs
 
@@ -42,8 +46,28 @@ function repoRoot() {
 }
 const read = (f) => fs.readFileSync(path.join(repoRoot(), f), 'utf8');
 
-/** The three files the audit sampled but did not clear. */
-const PAGES = ['public/aria-brain.html', 'public/dd-reports.html', 'public/dashboard.html'];
+/**
+ * EVERY page this server serves, discovered — not a hand-kept list.
+ *
+ * R-F3846 widened the guard from the three audited files to all of public/.
+ * A hardcoded list is the same failure as a classifier with an empty universe:
+ * the page someone adds next month is not in it, so it is never checked.
+ * `pelican/` and `vendor/` are vendored third-party themes and are excluded by
+ * name (see the R-F3840 tests for how their jQuery is bounded separately).
+ */
+const VENDORED = new Set(['pelican', 'vendor']);
+function allPages() {
+  const out = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(path.join(repoRoot(), dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) { if (!VENDORED.has(e.name)) walk(rel); continue; }
+      if (/\.html$/i.test(e.name)) out.push(rel);
+    }
+  }('public'));
+  return out.sort();
+}
+const PAGES = allPages();
 
 /**
  * Interpolations that MUST stay raw, with why.
@@ -87,7 +111,7 @@ const EXPECTED_RAW_PREFIX = {
   ],
 };
 
-describe('R-F3845 no unescaped interpolation survives on the audited pages', () => {
+describe('R-F3850 no unescaped interpolation survives on ANY page in public/', () => {
   for (const page of PAGES) {
     it(`${page} — every HTML interpolation is escaped or named raw`, () => {
       const r = classifyHtmlInterpolations(read(page));
@@ -155,25 +179,124 @@ describe('R-F3845 the raw list is exactly what was justified, no more', () => {
 // a live sink; the value of the list is that the 26th operand fails the build.
 // ─────────────────────────────────────────────────────────────────────────────
 const CONCAT_JUSTIFIED = {
-  'public/dd-reports.html': new Set([
-    // numbers and formatted dates — cannot carry markup
-    'L.count_skipped', '_cnt', 'resp.status', 'sec.subcalls',
-    'fmtDate(created)', 'lastRun',
-    // internal constant maps, never caller data
-    'typeIcon', 'm', '_si.banner', 'label',
-    // markup assembled from escaped parts
-    'chips', 'sharedBadge', '_gaps.map', '_extraGaps.map', 'sv.next_actions.map',
-    // `<`-escaped inline on the following line (weaker than escText; text position)
-    "String(rep.error || 'see report')",
+  'public/account.html': new Set([
+    '_sym(t.currency)',
+    'ctaBtn',
+    'f.txt',
+    'label',
+    't.label',
+    'value',
   ]),
-  'public/dashboard.html': new Set([
-    '_wlSize', 'n', 'dateStr',              // Number()/count/toLocaleDateString
-    'names',                                 // .map(escHtml).join(', ')
-    'why', 'emptyMsg', 'icon',               // static literals or escHtml-built
+  'public/admin.html': new Set([
+    'fmtDateTime(u.lastLogin)',
+    'initials',
+    'r',
   ]),
   'public/aria-brain.html': new Set([
-    'confClass',                             // ternary over CSS class literals
-    "missing.join('</code>, <code>')",       // joins an internal key list into markup
+    'confClass',
+  ]),
+  'public/aria.html': new Set([
+    'c',
+    'cells(row)',
+    'code.trim()',
+    'fmtTime(tsOf(c))',
+    'footHtml',
+    'html',
+    'ico',
+    "l.replace(/^[-•] /, '')",
+    "l.replace(/^\\d+\\. /, '')",
+    'statusHtml',
+  ]),
+  'public/bd-intelligence.html': new Set([
+    "a.steps.map(function(s,i){return (i+1)+'. '+escHtml(s);})",
+    'col',
+    'label',
+    'lbl',
+    'sl.patternsObserved.map(function(p){return escHtml(p);})',
+  ]),
+  'public/dashboard.html': new Set([
+    '_wlSize',
+    'dateStr',
+    'emptyMsg',
+    'icon',
+    'n',
+    'names',
+    'why',
+  ]),
+  'public/dd-reports.html': new Set([
+    'L.count_skipped',
+    "String(rep.error || 'see report')",
+    '_cnt',
+    '_si.banner',
+    'chips',
+    'fmtDate(created)',
+    'label',
+    'lastRun',
+    'm',
+    'resp.status',
+    'sec.subcalls',
+    'sharedBadge',
+    'typeIcon',
+  ]),
+  'public/design-partners.html': new Set([
+    'applied',
+    'fmtDate(acct.credentialIssuedAt)',
+    'fmtDate(e.created_at)',
+    'qualified',
+    's',
+  ]),
+  'public/lead-verify.html': new Set([
+    'html',
+  ]),
+  'public/leads.html': new Set([
+    'fmtDate(l.created_at)',
+    'fmtDate(lead.verification.expires_at)',
+    'fmtDate(lead.verified_at)',
+  ]),
+  'public/news.html': new Set([
+    'count',
+    'formatTime(a.detected_at || a.published)',
+    'known',
+    'n',
+  ]),
+  'public/sources.html': new Set([
+    'badgeClass',
+    'bigPct',
+    'c',
+    'count',
+    'empty',
+    'filled',
+    'label',
+    'lastTs',
+    'pct',
+    's.filled',
+    's.total',
+    'state.badgeClass',
+    'total',
+    'trendHtml',
+  ]),
+  'public/vault.html': new Set([
+    'Object.values(counts)',
+    'colorHint',
+  ]),
+  'public/vetting-portal.html': new Set([
+    'o.still_needed',
+  ]),
+  'public/vls-chain.html': new Set([
+    'r.status',
+    'total',
+    'v',
+  ]),
+  'public/wa-connections.html': new Set([
+    'html',
+  ]),
+  'public/watchlist.html': new Set([
+    'changes',
+    'errs',
+    'label',
+    'new',
+    'r.status',
+    'scanned',
   ]),
 };
 
@@ -198,6 +321,56 @@ describe('R-F3845 concatenation-built HTML is gated too', () => {
     assert.ok(r.escaped > 60,
       `only ${r.escaped} escaped concat operands found — the analyser has gone blind on `
       + 'the one page that builds all its markup this way');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHY "raw" IS NOT A HOLE.
+//
+// `EXPECTED_RAW` enumerates the raw expressions on aria-brain.html, the most
+// complex page. It does NOT enumerate the ~127 raw classifications across the
+// other pages, and that is deliberate rather than an omission: the classifier
+// only calls something raw on POSITIVE PROOF that it is markup — the expression
+// contains a tag, or resolves to a variable/function whose body contains one.
+//
+// The obvious worry is a markup-emitting helper that interpolates an unescaped
+// value inside itself: `function statusHtml(s){ return '<span>'+s+'</span>' }`.
+// The CALL is raw, so the call site says nothing about `s`. What makes that safe
+// is that both classifiers scan the WHOLE FILE — including function bodies — so
+// the helper's own sink is reported at its DEFINITION. These tests pin that,
+// because the argument is what the missing allowlist rests on.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('R-F3845 a raw call does not hide the sink inside the helper', () => {
+  it('an unescaped value inside a markup-returning function IS reported (concat)', () => {
+    const src = `<script>
+      function statusHtml(s) { return '<span class="pill">' + s + '</span>'; }
+      el.innerHTML = '<div>' + statusHtml(x) + '</div>';
+    </script>`;
+    const r = classifyConcatOperands(src);
+    assert.ok(r.raw.includes('statusHtml(x)'),
+      'the call itself is markup and must classify raw');
+    assert.deepEqual(r.unescaped.map((u) => u.expr), ['s'],
+      'the unescaped operand INSIDE the helper must still be reported');
+  });
+
+  it('an unescaped value inside a markup-returning function IS reported (template)', () => {
+    const src = '<script>'
+      + 'const card = (v) => `<div class="c">${v.name}</div>`;'
+      + 'el.innerHTML = `<ul>${items.map(card).join("")}</ul>`;'
+      + '</script>';
+    const r = classifyHtmlInterpolations(src);
+    assert.deepEqual(r.unescaped.map((u) => u.expr), ['v.name'],
+      'the helper body is scanned even though the call site is raw');
+    assert.ok(r.raw.some((e) => e.includes('items.map(card)')),
+      'an ARROW helper that emits markup must classify raw, like a function declaration');
+  });
+
+  it('raw requires PROOF of markup — a plain helper is never raw', () => {
+    const src = "<script>function fmt(d){ return String(d).trim(); }"
+      + " el.innerHTML = '<td>' + fmt(x) + '</td>';</script>";
+    const r = classifyConcatOperands(src);
+    assert.deepEqual(r.raw, [], 'fmt() emits no markup, so it must not be excused as raw');
+    assert.deepEqual(r.unescaped.map((u) => u.expr), ['fmt(x)']);
   });
 });
 

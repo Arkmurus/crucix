@@ -56,24 +56,24 @@ async function load() {
         <div class="sc-card-title" style="font-size:15px">
           ${o.lusophone?'<i class="bi bi-flag"></i>':''} ${escHtml(o.market)}
         </div>
-        <span class="sc-badge ${tierCls}">Tier ${escHtml(tierStr||'-')}</span>
+        <span class="sc-badge ${escHtml(tierCls)}">Tier ${escHtml(tierStr||'-')}</span>
       </div>
       <div class="sc-card-body">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-          <div style="font-size:36px;font-weight:800;color:#7c3aed">${o.score||0}</div>
+          <div style="font-size:36px;font-weight:800;color:#7c3aed">${escHtml(o.score||0)}</div>
           <div style="font-size:11px;color:#9b968c">/ 100<br>Score</div>
         </div>
         ${o.conflict?`<div style="font-size:12px;color:#3d3a34;margin-bottom:8px">
           <i class="bi bi-exclamation-triangle" style="color:#ea580c"></i>
-          ${o.conflict.events||0} conflict events · ${o.conflict.fatalities||0} fatalities
+          ${escHtml(o.conflict.events||0)} conflict events · ${escHtml(o.conflict.fatalities||0)} fatalities
         </div>`:''}
         ${(o.procurementNeeds||[]).length?`<div style="margin-bottom:10px">
           ${o.procurementNeeds.slice(0,4).map(n=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(n)}</span>`).join('')}
         </div>`:''}
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span class="sc-badge ${compliance}">${escHtml(o.complianceStatus||'-')}</span>
+          <span class="sc-badge ${escHtml(compliance)}">${escHtml(o.complianceStatus||'-')}</span>
           ${o.devFinanceActivity?`<span class="sc-badge sc-badge-blue" style="font-size:11px">Dev Finance</span>`:''}
-          ${o.explorerSignals>0?`<span class="sc-badge sc-badge-muted" style="font-size:11px">${o.explorerSignals} intel signal${o.explorerSignals!==1?'s':''}</span>`:''}
+          ${o.explorerSignals>0?`<span class="sc-badge sc-badge-muted" style="font-size:11px">${escHtml(o.explorerSignals)} intel signal${escHtml(o.explorerSignals!==1?'s':'')}</span>`:''}
         </div>
         ${note?`<p style="font-size:12px;color:#3d3a34;margin-top:12px;line-height:1.6;border-top:1px solid #e9e6df;padding-top:10px">${escHtml(truncate(note,180))}</p>`:''}
         ${(o.sources||[]).length?`<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">

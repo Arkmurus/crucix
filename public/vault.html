@@ -265,8 +265,8 @@ function statusHtml(status) {
   // R-F2076 — prefer a human label (e.g. "Needs Operator") over the raw snake_case key.
   const label = cfg.label || String(status || 'unknown').replace(/_/g, ' ');
   return `<span style="display:inline-flex;align-items:center;gap:5px">
-    <i class="bi ${cfg.icon}" style="color:${cfg.color};font-size:14px"></i>
-    <span style="color:${cfg.color};font-weight:600;text-transform:capitalize">${escHtml(label)}</span>
+    <i class="bi ${escHtml(cfg.icon)}" style="color:${escHtml(cfg.color)};font-size:14px"></i>
+    <span style="color:${escHtml(cfg.color)};font-weight:600;text-transform:capitalize">${escHtml(label)}</span>
   </span>`;
 }
 
@@ -323,7 +323,7 @@ async function loadVault() {
         : escHtml(e.site_url || '');
       return `<tr>
         <td><strong>${escHtml(e.site_name || '')}</strong><div style="font-size:11px;color:#9b968c">${escHtml(e.site_id || '')}</div></td>
-        <td><a href="${escHtml(safeHref(e.site_url || '#'))}" target="_blank" style="color:var(--sc-prime);font-size:12px;text-decoration:none" title="${escHtml(e.site_url || '')}">${urlDisplay}</a></td>
+        <td><a href="${escHtml(safeHref(e.site_url || '#'))}" target="_blank" style="color:var(--sc-prime);font-size:12px;text-decoration:none" title="${escHtml(e.site_url || '')}">${escHtml(urlDisplay)}</a></td>
         <td style="font-size:13px"><i class="bi bi-person" style="margin-right:4px;color:var(--sc-muted)"></i>${escHtml(e.agent_id || '')}</td>
         <td>${statusHtml(e.status)}</td>
         <td style="font-size:12px;color:var(--sc-muted)">${fmtDate(e.created_at)}</td>

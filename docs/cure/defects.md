@@ -1168,3 +1168,78 @@ into HTML only. It says nothing about `javascript:` URLs (that is `lib/util/safe
 and the R-F2607 client helper), inline event handlers (CSP `script-src-attr 'none'`, plus
 the R-F3839 sweep), or the other ~29 pages under `public/`, which were outside the
 audited scope and remain unmeasured.
+
+---
+
+### C-20 · The interpolation guard now covers EVERY page in public/ — **R-F3850, 2026-08-11**
+
+C-19 closed the three audited pages and stated plainly what it did not cover:
+*"the other ~29 pages under `public/`, which were outside the audited scope and remain
+unmeasured."* They are measured now.
+
+**Result across all 32 served pages** (`pelican/` and `vendor/` excluded — vendored
+third-party themes, bounded separately by the R-F3840 tests):
+
+```
+template-literal interpolations inside HTML :  0 unescaped
+concatenation operands adjacent to markup   :  0 unjustified
+```
+
+103 further interpolations escaped on seven pages — `vetting.html` (48), `explorer.html`
+(33), `opportunities.html` (7), `wa-connections.html` (6), `bd-intelligence.html` (4),
+`vault.html` (4), `admin.html` (1) — each wrapped in **that page's own** escaper. The 85
+remaining concatenation operands are justified by name, per page, in the guard.
+
+**The guard now DISCOVERS its pages** rather than reading a hand-kept list. A fixed list
+is the same defect as an empty universe: the page added next month is not on it and is
+never checked. Proven by injecting an unescaped sink into `sources.html` — a page that
+was not in the original scope — and watching the guard name it:
+`public/sources.html has 1 UNESCAPED interpolation(s) inside HTML: line 267: ${o.evil}`.
+
+**Five analyser defects had to be fixed before the numbers meant anything.** Every one
+would have produced a confident wrong answer:
+
+1. **Three escaper conventions were invisible.** The classifier knew `escapeHtml`/
+   `escHtml` but not `esc` (vetting, leads, design-partners) or `escText`/`escAttr`
+   (dd-reports, watchlist, vls-chain). `vetting.html` reported **146** unescaped sinks;
+   96 of them were already escaped with `esc()`. A fixer driven off that reading would
+   have double-wrapped 96 call sites and printed `&amp;lt;` to users. The real figure
+   was 50.
+2. **`stripLineComments` shortened the source.** Offsets computed on stripped text do not
+   address the original file, so the fixer would have written into the wrong place —
+   silently, because the result is still valid JavaScript. It is length-preserving now
+   (comments become spaces), and the fixer refuses to run if that ever stops holding.
+3. **A ternary with escaped branches read as unescaped.** `cond ? escapeHtml(x) : 'none'`
+   does not START with an escaper. `isFullyEscaped` now strips escaper calls, literals
+   and numbers and asks whether any identifier survives.
+4. **Arrow-function renderers did not resolve.** `functionBodyOf` matched only
+   `function name(){}`, so `items.map(card)` where `const card = v => \`<div>…\`` looked
+   like a plain value. Arrow helpers are the common list-rendering shape on these pages.
+5. **A concatenated tag is split across operands** — `'<li class="' + cls + '">'` — so
+   neither half contains a complete `<tag>` and a markup-emitting helper read as a plain
+   value. Detection is now quote-anchored on the tag OPENING.
+
+**Two duplicated constants caused two of those.** `ESC_CALL` inside
+`classifyConcatOperands` was a second hand-typed copy of the escaper list and never
+received `esc`; it is derived from the one set now. This is the same lesson
+`lib/vetting/portalPath.mjs` states for validators: a second copy is a test that passes
+while production is open.
+
+**Why there is no 127-entry "raw" allowlist**, and why that is not a hole: the classifier
+only calls an expression raw on POSITIVE PROOF that it is markup — it contains a tag, or
+resolves to a variable/helper whose body does. The worry is a markup-emitting helper that
+interpolates an unescaped value inside itself; what makes that safe is that both
+classifiers scan the WHOLE FILE, so the helper's own sink is reported at its DEFINITION.
+Three tests pin exactly that property, because the absent allowlist rests on it.
+
+**One page is safe by a different design, and the analyser cannot see it.**
+`public/aria.html` escapes the whole message at ENTRY (`var s = escHtml(text)`, the
+markdown renderer) and then runs markdown transforms over the already-escaped string. Its
+ten flagged operands (`code.trim()`, `l.replace(…)`, table cells) are substrings of `s`.
+Escape-at-source, not escape-at-sink — correct, and justified by name rather than
+"fixed".
+
+**Not covered, stated so nobody reads this as more than it is:** interpolation into HTML
+only. Nothing here addresses `javascript:` URLs (`lib/util/safeUrl.mjs` + the R-F2607
+client helper), inline event handlers (CSP `script-src-attr 'none'` + the R-F3839 sweep),
+the vendored `pelican/` theme, or `aria-app/**` (Next.js, its own renderer).

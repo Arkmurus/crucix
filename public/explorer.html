@@ -412,10 +412,10 @@ Sidebar.init('explorer');
       sug.innerHTML = ents.slice(0, 8).map(e => {
         const name = escapeHtml(e.name || e.entity || e.label || '');
         const meta = escapeHtml(e.country || e.type || e.score || '');
-        return `<div class="ex-sugg-item" data-name="${name}">
+        return `<div class="ex-sugg-item" data-name="${escapeHtml(name)}">
                   <i class="bi bi-search ex-sugg-icon"></i>
-                  <span>${name}</span>
-                  <span class="ex-sugg-meta">${meta}</span>
+                  <span>${escapeHtml(name)}</span>
+                  <span class="ex-sugg-meta">${escapeHtml(meta)}</span>
                 </div>`;
       }).join('');
       sug.querySelectorAll('.ex-sugg-item').forEach(it => {
@@ -550,7 +550,7 @@ Sidebar.init('explorer');
         <div class="ex-card-title">${escapeHtml(title)}</div>
         <div class="ex-card-body">${escapeHtml(truncate(text, 320))}</div>
         ${(r.tags && r.tags.length) ? `<div class="ex-card-tags">${r.tags.map(t => `<span class="ex-card-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-        ${tier ? `<div class="ex-card-tags"><span class="ex-card-tag ${tierClass(tier)}">tier ${escapeHtml(tier)}</span></div>` : ''}
+        ${tier ? `<div class="ex-card-tags"><span class="ex-card-tag ${escapeHtml(tierClass(tier))}">tier ${escapeHtml(tier)}</span></div>` : ''}
       </div>`;
   }
 
@@ -576,7 +576,7 @@ Sidebar.init('explorer');
       out.push(`<div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">Sanctions Divergence (R-F68)</div>
-          <span class="ex-card-tag tier-3">${div.matches} match(es)</span>
+          <span class="ex-card-tag tier-3">${escapeHtml(div.matches)} match(es)</span>
         </div>
         <div class="ex-card-title">${escapeHtml(div.narrative || '-')}</div>
         <div class="ex-card-body">
@@ -598,12 +598,12 @@ Sidebar.init('explorer');
         const bodyParts = mapped.map(li =>
           `<div>• <strong>${escapeHtml(li.jurisdiction)}:</strong> ${escapeHtml(li.list)}</div>`);
         if (unmappedCount > 0) {
-          bodyParts.push(`<div style="color:var(--sc-muted);font-size:0.85em">+ ${unmappedCount} other list${unmappedCount > 1 ? 's' : ''} (Wikidata / PEP annotations / regional)</div>`);
+          bodyParts.push(`<div style="color:var(--sc-muted);font-size:0.85em">+ ${escapeHtml(unmappedCount)} other list${escapeHtml(unmappedCount > 1 ? 's' : '')} (Wikidata / PEP annotations / regional)</div>`);
         }
         out.push(`<div class="ex-card">
           <div class="ex-card-head">
             <div class="ex-card-source">${escapeHtml(pm.name || '-')}</div>
-            <span class="ex-card-meta">score ${pm.score == null ? '-' : Number(pm.score)}</span>
+            <span class="ex-card-meta">score ${escapeHtml(pm.score == null ? '-' : Number(pm.score))}</span>
           </div>
           <div class="ex-card-body">${bodyParts.join('')}</div>
           ${pm.url ? `<div class="ex-card-tags"><a href="${escapeHtml(safeHref(pm.url))}" target="_blank" rel="noopener">View on OpenSanctions →</a></div>` : ''}
@@ -616,7 +616,7 @@ Sidebar.init('explorer');
       out.push(`<div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">RCA / Relatives Inherited Risk (R-F76)</div>
-          <span class="ex-card-tag tier-3">${data.rca.inherited_risks.length} relative risk(s)</span>
+          <span class="ex-card-tag tier-3">${escapeHtml(data.rca.inherited_risks.length)} relative risk(s)</span>
         </div>
         <div class="ex-card-body">
           ${data.rca.inherited_risks.slice(0, 5).map(ih => `<div style="margin-bottom:6px">${escapeHtml(ih.narrative || '-')}</div>`).join('')}
@@ -681,7 +681,7 @@ Sidebar.init('explorer');
         </div>
         <div class="ex-card-title">${escapeHtml(e.name || e.entity || '-')}</div>
         ${e.summary ? `<div class="ex-card-body">${escapeHtml(truncate(e.summary, 220))}</div>` : ''}
-        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">name-match score ${Number(e.score)}</span></div>` : ''}
+        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">name-match score ${escapeHtml(Number(e.score))}</span></div>` : ''}
       </div>
     `).join('');
     // Surface top 5 related entities in the rail
@@ -710,7 +710,7 @@ Sidebar.init('explorer');
     // zero-signal result (n_signals === 0 with a narrative).
     const failed = !data || (data.n_signals == null && !data.narrative);
     if (failed) {
-      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-shaded"></i>${data && data.error ? escapeHtml(data.error) : 'Counter-intelligence scan unavailable.'}</div>`;
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-shaded"></i>${escapeHtml(data && data.error ? escapeHtml(data.error) : 'Counter-intelligence scan unavailable.')}</div>`;
       setBadge('counter', '-');
       return;
     }
@@ -723,7 +723,7 @@ Sidebar.init('explorer');
       <div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">Counter-Intelligence Scan (R-F84)</div>
-          <span class="ex-card-tag ${n > 0 ? 'tier-3' : 'tier-1'}">${Number(n)} signal${n === 1 ? '' : 's'} · ${Number(data.window_days) || 30}d</span>
+          <span class="ex-card-tag ${escapeHtml(n > 0 ? 'tier-3' : 'tier-1')}">${escapeHtml(Number(n))} signal${escapeHtml(n === 1 ? '' : 's')} · ${escapeHtml(Number(data.window_days) || 30)}d</span>
         </div>
         <div class="ex-card-title">${escapeHtml(data.narrative || '-')}</div>
         ${patternRows.length ? `<div class="ex-card-body">
@@ -781,13 +781,13 @@ Sidebar.init('explorer');
       // entity was actually found in some corpus.
       verdict = { cls: 'green', icon: 'bi-check-circle', headline: 'Initial screen clean (multi-source)', text: '' };
     }
-    verdict.text = `<strong>${webCount}</strong> web/news result${webCount===1?'':'s'}, <strong>${sancHits}</strong> direct sanctions match${sancHits===1?'':'es'}, <strong>${inhRisk}</strong> inherited risk${inhRisk===1?'':'s'}, <strong>${enfCount}</strong> enforcement record${enfCount===1?'':'s'}, <strong>${netCount}</strong> related entit${netCount===1?'y':'ies'}, counter-intel <strong>${counterRan ? counterSignals + ' signal' + (counterSignals===1?'':'s') : 'not run'}</strong>. <em style="opacity:0.8">A green verdict requires multi-source agreement; single-tool zero is amber by default (R-F219).</em>`;
+    verdict.text = `<strong>${escapeHtml(webCount)}</strong> web/news result${escapeHtml(webCount===1?'':'s')}, <strong>${escapeHtml(sancHits)}</strong> direct sanctions match${escapeHtml(sancHits===1?'':'es')}, <strong>${escapeHtml(inhRisk)}</strong> inherited risk${escapeHtml(inhRisk===1?'':'s')}, <strong>${escapeHtml(enfCount)}</strong> enforcement record${escapeHtml(enfCount===1?'':'s')}, <strong>${escapeHtml(netCount)}</strong> related entit${escapeHtml(netCount===1?'y':'ies')}, counter-intel <strong>${escapeHtml(counterRan ? counterSignals + ' signal' + (counterSignals===1?'':'s') : 'not run')}</strong>. <em style="opacity:0.8">A green verdict requires multi-source agreement; single-tool zero is amber by default (R-F219).</em>`;
 
-    let html = `<div class="ex-verdict ${verdict.cls}">
-      <div class="ex-verdict-icon"><i class="bi ${verdict.icon}"></i></div>
+    let html = `<div class="ex-verdict ${escapeHtml(verdict.cls)}">
+      <div class="ex-verdict-icon"><i class="bi ${escapeHtml(verdict.icon)}"></i></div>
       <div>
         <div class="ex-verdict-headline">${escapeHtml(verdict.headline)} · "${escapeHtml(q)}"</div>
-        <div class="ex-verdict-text">${verdict.text}</div>
+        <div class="ex-verdict-text">${escapeHtml(verdict.text)}</div>
       </div>
     </div>`;
 
@@ -797,7 +797,7 @@ Sidebar.init('explorer');
       html += `<div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">⚠ Top sanctions signal</div>
-          <span class="ex-card-tag tier-3">${sancHits} match(es)</span>
+          <span class="ex-card-tag tier-3">${escapeHtml(sancHits)} match(es)</span>
         </div>
         <div class="ex-card-title">${escapeHtml(sanctions.divergence.narrative || '-')}</div>
       </div>`;
@@ -806,7 +806,7 @@ Sidebar.init('explorer');
       html += `<div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">⚠ Counter-intelligence alert</div>
-          <span class="ex-card-tag tier-3">${Number(counterSignals)} signal${counterSignals === 1 ? '' : 's'}</span>
+          <span class="ex-card-tag tier-3">${escapeHtml(Number(counterSignals))} signal${escapeHtml(counterSignals === 1 ? '' : 's')}</span>
         </div>
         <div class="ex-card-title">${escapeHtml(counter.narrative || '-')}</div>
       </div>`;
@@ -843,7 +843,7 @@ Sidebar.init('explorer');
       <div class="ex-action" data-action="${escapeHtml(a.rfn)}" role="button" tabindex="0"
            title="${escapeHtml(a.name)} (${escapeHtml(a.rfn)})"
            aria-label="${escapeHtml(a.name)}">
-        <div class="ex-action-icon" aria-hidden="true"><i class="bi ${a.icon}"></i></div>
+        <div class="ex-action-icon" aria-hidden="true"><i class="bi ${escapeHtml(a.icon)}"></i></div>
         <div class="ex-action-name">${escapeHtml(a.name)}</div>
         <div class="ex-action-rfn">${escapeHtml(a.rfn)}</div>
       </div>
