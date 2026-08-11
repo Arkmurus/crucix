@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3887,
+  "next_available": 3889,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32823,6 +32823,24 @@
       "r_number": "R-F3886",
       "title": "pre-commit staged path crashes with NameError - every local check failed open",
       "claimed_at": "2026-08-11T16:50:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3887",
+      "title": "get_external_summary is gated by the write-coalescing interval so it reports empty",
+      "claimed_at": "2026-08-11T17:05:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3888",
+      "title": "windows-compat check matched pty inside empty and scanned comments as code",
+      "claimed_at": "2026-08-11T17:13:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -746,7 +746,22 @@ async def record_brave_call(
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_external_summary(month: str | None = None) -> dict:
     """Return per-service external spend summary for the dashboard."""
-    await _flush_external_pending()  # R-F2483 — surface pending coalesced records
+    # R-F3887 — force=True, and the missing argument was the whole defect. This line
+    # has always CLAIMED to "surface pending coalesced records", but
+    # `_flush_external_pending()` without `force` returns immediately while
+    # `(now - _ext_last_flush) < _COST_FLUSH_INTERVAL_S`. So a READ was gated by a
+    # WRITE-coalescing interval and reported `by_service: {}` with records sitting in
+    # the in-process buffer — and those records are lost on restart, so a quiet
+    # service could go permanently unreported.
+    #
+    # It masqueraded as "Brave is unmetered": C-23 cites `by_service: {}` as the
+    # proof, R-F3884 then found `record_brave_call` had zero callers and wired it,
+    # and the endpoint STILL read empty. Two independent causes for one symptom, and
+    # fixing only the first would have looked like the fix simply not working.
+    #
+    # Forcing is safe here: this is a read-path flush of at most one interval's
+    # records, not the hot write path R-F2483 exists to coalesce.
+    await _flush_external_pending(force=True)
     agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
     return {
         "by_service": agg,

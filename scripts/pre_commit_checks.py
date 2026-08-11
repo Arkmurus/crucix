@@ -162,12 +162,28 @@ WIRING_EXEMPT_MODULES = {
 _PATTERN_AUTHORING_FILES = {"pre_commit_checks.py"}
 
 # Known Windows-incompatible patterns (R-F1268)
+#
+# R-F3888 — THE MODULE-PREFIX PATTERNS NEEDED A LEFT BOUNDARY. `pty\.` matched the
+# substring inside the ordinary English word **"empty."**, and blocked a real commit
+# whose only sin was a comment ending "...the endpoint STILL read empty. Two
+# independent causes...". `resource\.` and `fcntl\.` had the same shape and would
+# have matched `myresource.` or `self.resource.`.
+#
+# `(?<![\w.])` is the correct guard, not `\b`: a bare `\b` still matches
+# `self.resource.x` (the preceding `.` is a non-word char, so a boundary exists
+# there), which is an attribute access, not the stdlib module. Excluding a preceding
+# dot as well means only a genuine bare-module reference matches.
+#
+# A false positive here is expensive out of proportion to its size: the hook is the
+# thing standing between a defect and main, so the first instinct on a bogus block
+# is `--no-verify`, and a guard that people routinely bypass protects nothing
+# (R-F3858's lesson in the other direction — a guard that cannot come back clean).
 WINDOWS_INCOMPATIBLE_PATTERNS: list[tuple[str, str]] = [
     (r"os\.fork\s*\(", "os.fork() is not available on Windows"),
     (r"signal\.signal\s*\(", "signal.signal() has limited support on Windows"),
-    (r"fcntl\.", "fcntl is not available on Windows"),
-    (r"resource\.", "resource module is not available on Windows"),
-    (r"pty\.", "pty module is not available on Windows"),
+    (r"(?<![\w.])fcntl\.", "fcntl is not available on Windows"),
+    (r"(?<![\w.])resource\.", "resource module is not available on Windows"),
+    (r"(?<![\w.])pty\.", "pty module is not available on Windows"),
     (r"subprocess\.Popen\(.*shell\s*=\s*True", "shell=True in subprocess has quoting issues on Windows"),
     (r"os\.pathsep\s*!=\s*['\"];['\"]", "os.pathsep is ';' on Windows, not ':'"),
     # R-F1961 — REMOVED a wrong pattern that flagged `Path(...) / "str"`. That is
@@ -911,8 +927,16 @@ def check_windows_compat(
         for i, line in enumerate(lines):
             if _added is not None and (i + 1) not in _added:
                 continue
+            # R-F3888 — match CODE, not prose. This scanned the raw line, so a
+            # comment merely DISCUSSING a Windows-incompatible API was flagged as
+            # using it. `_strip_comment` already exists in this file for exactly
+            # this (it tracks quote state, so a `#` inside a string survives) and
+            # was simply never applied here.
+            code = _strip_comment(line)
+            if not code.strip():
+                continue
             for pattern, message in WINDOWS_INCOMPATIBLE_PATTERNS:
-                if re.search(pattern, line):
+                if re.search(pattern, code):
                     issues.append(
                         f"  {file_path.name}:{i + 1} — {message}\n"
                         f"    Line: {line.strip()[:100]}"
