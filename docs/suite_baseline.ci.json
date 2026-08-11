@@ -1,10 +1,10 @@
 {
- "recorded_at": "2026-08-10",
- "commit": "c83fb01",
+ "recorded_at": "2026-08-11",
+ "commit": "168674b",
  "method": "single pytest process (CLAUDE.md \u00a716 measurement)",
  "caveat": "order-dependent failures ARE visible in this mode; this is the authoritative \u00a716 figure, not a floor.",
  "valid": true,
- "tree_hash": "5605bcf220f0026a",
+ "tree_hash": "c010beb3b349770f",
  "environment": {
   "python": "3.13.14",
   "platform": "linux",
@@ -20,8 +20,8 @@
   }
  },
  "totals": {
-  "failed": 164,
-  "passed": 14584,
+  "failed": 162,
+  "passed": 14586,
   "total": 14748,
   "files": 1738
  },
@@ -99,8 +99,6 @@
   "test_rf1714_newsapi_full_onboarding.py::test_newsapi_full_chain_uses_real_creds_and_activates",
   "test_rf1762_one_cycle_publishes_gaps.py::test_one_cycle_calls_publish_latest_with_scan_results",
   "test_rf1762_one_cycle_publishes_gaps.py::test_publish_failure_does_not_break_the_cycle",
-  "test_rf1783_wiring_gates_ast.py::test_all_gates_clean_no_infra_false_positives",
-  "test_rf1785_harness_scope.py::test_expanded_scope_present_and_green",
   "test_rf1845_dd_import_prewarm.py::test_lifespan_wires_the_prewarm",
   "test_rf1893_drop_global_from_heatmap.py::test_real_regions_still_present",
   "test_rf1909_idor_owner_check.py::test_wa_account_routes_enforce_ownership_sourcepin",
@@ -149,7 +147,6 @@
   "test_rf3371_banner_claims_only_what_ships.py::test_rf3371_a_real_code_commit_still_claims_its_number",
   "test_rf3435_3436_gated_source_selection.py::test_ccj_is_required_and_blocking_because_nothing_else_answers_it",
   "test_rf3552_deploy_check_accepts_a_descendant.py::test_capability_a_descendant_build_is_accepted",
-  "test_rf3560_gap_type_overrides.py::test_no_blocking_wiring_violations_remain",
   "test_rf3638_coder_lane_visible_to_introspect.py::test_rf3638_gate_resolves_through_the_shared_predicate",
   "test_rf450_stream_footer_integration.py::test_rf3339_the_stream_doubles_match_the_real_signature",
   "test_rf450_stream_footer_integration.py::test_rf450_stream_footer_arrives_before_done_via_endpoint",
@@ -162,6 +159,8 @@
   "test_rf728_heatmap_thread.py::test_rf931_inverted_index_matches_legacy_counts",
   "test_rf738_chat_quickwins.py::test_input_hint_mentions_shortcuts",
   "test_rf771_conflict_filters.py::test_clear_route_registered_in_aria_router",
+  "test_rf795_brain_hook_tier_timeout.py::test_rf795_knowledge_timeout_skips_tier",
+  "test_rf795_brain_hook_tier_timeout.py::test_rf795_mastery_timeout_skips_tier_records_error",
   "test_rf803_coder_llm_endpoint.py::TestCoderEntrypointGates::test_falls_back_to_redis_store_adapter_when_no_app_state_redis",
   "test_rf803_coder_llm_endpoint.py::TestCoderEntrypointGates::test_starts_when_all_gates_hold",
   "test_rf821_review_ticket.py::TestStageOrDeployForceDeploy::test_force_deploy_overrides_closed_gate",
@@ -185,7 +184,6 @@
   "test_rf955_doc_caption_inline.py::test_rf955_inline_attaches_doc_to_caption_review",
   "test_rf963_voice_always_reply.py::test_rf963_voice_clause_is_in_the_mention_branch_not_autorespond",
   "test_session_2026_05_11.py::TestSelfImproveObservability::test_splits_modifiable_vs_external",
-  "test_store_fact_skip_rag.py::test_store_fact_default_runs_rag_ingest",
   "test_student_lang_weak_topic_pickup.py::test_weak_pool_includes_core_mastery_tags",
   "test_vault_website_scrape_rf2191.py::test_deep_failure_falls_back_to_probe_text",
   "test_vault_website_scrape_rf2191.py::test_vault_website_scraped_and_ingested",
