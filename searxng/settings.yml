@@ -110,11 +110,37 @@ search:
 # all-unrelated contribution is dropped while yep's real results are kept. Without
 # that, a merged 20-good + 10-junk set passes the whole-set gate and the junk rides
 # through diluted — which is how it reached a customer report in the first place.
+# ⚠️ R-F3853 POSTSCRIPT, SAME DAY (2026-08-11) — `yep` ANSWERED FOR ABOUT AN HOUR,
+# THEN 403'd THIS IP. Measured: `SearxEngineAccessDeniedException`, and still denied
+# after a 3-minute backoff. The most likely trigger is the bake-off itself — ~40
+# queries in a few minutes from one datacenter IP — so it may be viable under ARIA's
+# ordinary load and is deliberately LEFT ENABLED rather than ripped out. Re-measure
+# before trusting or removing it.
+#
+# The honest state of this instance right now: EVERY general web engine is blocked
+# (yep access-denied, mojeek access-denied, duckduckgo timeout, brave/google
+# too-many-requests, startpage CAPTCHA) and bing answers only popular queries. This
+# is not a tuning problem. A datacenter-hosted metasearch scraping consumer engines
+# is structurally a decaying asset, and the engine list will keep rotting.
+#
+# WHAT KEEPS ARIA WORKING ANYWAY — measured end-to-end through web_search.search(),
+# which fans out across MANY backends, not just this one:
+#     "Rosoboronexport sanctions"  10 results, 10 related  (google_news, semantic_scholar)
+#     "BAE Systems plc"            10 results, 10 related  (google_news, bing_news, memory)
+#     "Modirum Gespi Ltd"          10 results,  5 related  (memory, google_news, crossref)
+# So SearXNG being degraded is a REDUNDANCY loss, not a blackout. Do not conclude
+# from a SearXNG-only probe that ARIA cannot search — measure the real path.
+#
+# And the reason a degraded instance is now merely useless rather than harmful:
+# R-F3844 + R-F3853 + R-F3857 make it report a BACKEND FAILURE instead of returning
+# junk as success. Verified live post-deploy: a niche query with every engine
+# serving junk returns ok=False, count=0 — where before R-F3857 it would have
+# returned ok=True with zero results, which an adverse-media sweep reads as CLEAN.
 engines:
-  # Independent index (Ahrefs). The only general engine measured to answer NICHE
-  # queries from this IP — see the bake-off above. Do not disable without
-  # re-running it; this is currently the only thing standing between a niche
-  # research query and bing's trending page.
+  # Independent index (Ahrefs). Answered 20/20 on the niche query that defeats every
+  # other engine — then began returning 403 within the hour (see postscript above).
+  # Left enabled: when it answers it is the only thing standing between a niche
+  # research query and bing's trending page, and it costs nothing while suspended.
   - name: yep
     disabled: false
   # Correct on popular queries, soft-404 junk on niche ones. Kept for the former;

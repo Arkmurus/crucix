@@ -1445,3 +1445,44 @@ the unbounded `_verifyAttempts`/`_resetAttempts` maps; dd-reports' ad-hoc `<`-on
 escaping; the vendored jQuery 2.1.1 (bounded by C-21, not remediated); the Node-suite
 baseline gate; and escaper sprawl — six names for one job, which caused two of the
 analyser defects in this series and is a refactor needing an operator call under §26.
+
+### C-22 POSTSCRIPT (2026-08-11) — `yep` lasted an hour, and why that is survivable
+
+Two corrections to the C-22 entry above, both measured after it was written. Recorded
+here rather than edited into it, so the sequence stays legible.
+
+**1 · The engine fix did not hold.** `yep` answered 20/20 on the niche query, then began
+returning `SearxEngineAccessDeniedException` within the hour, and was still denied after a
+3-minute backoff. The likely trigger is the bake-off itself — ~40 queries in a few minutes
+from one datacenter IP — so it may be fine under ARIA's ordinary load. It is LEFT ENABLED
+for that reason; it costs nothing while suspended. **Every** general web engine is now
+blocked from this IP (yep/mojeek access-denied, duckduckgo timeout, brave/google
+too-many-requests, startpage CAPTCHA), with bing answering popular queries only. C-22
+called this out as "expect it to rot again"; the honest correction is that it rotted
+immediately, and that no engine-list tuning fixes a structural problem.
+
+**2 · The severity was overstated, because the measurement was scoped to one backend.**
+`web_search.search()` fans out across many sources. Measured end-to-end with SearXNG in
+exactly the degraded state above:
+
+    "Rosoboronexport sanctions"   10 results, 10 related   google_news, semantic_scholar
+    "BAE Systems plc"             10 results, 10 related   google_news, bing_news, memory
+    "Modirum Gespi Ltd"           10 results,  5 related   memory, google_news, crossref
+
+So a dead SearXNG is a **redundancy loss, not a blackout**. Do not conclude from a
+SearXNG-only probe that ARIA cannot search — that is the same scoping error that made a
+detached `python3` cost probe read `spent_usd: 0.0` and nearly produce a fabricated P0
+(CLAUDE.md §17). Measure the path the product actually uses.
+
+**What genuinely closed.** The protections, not the engine list. R-F3844 + R-F3853 +
+R-F3857 mean a degraded instance is now merely useless instead of harmful, which is the
+property that matters and the one that does not rot. Verified live: a niche query with
+every engine serving junk returns `ok=False, count=0` — where before R-F3857 the same
+input returned `ok=True` with zero results, which an adverse-media sweep reads as CLEAN.
+
+**Still open, and it is an operator decision, not a code one.** Restoring real free-stack
+general-web coverage needs a source that permits datacenter traffic. The options are a
+non-datacenter egress for aria-searxng, a keyed API that allows it, or spending bounded
+Brave quota on the autonomous stack (Brave is already paid and measured working, but
+R-F2318 deliberately scoped it to user-facing search to protect quota). No code change
+reaches this; §21e escalation applies.
