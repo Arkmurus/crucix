@@ -246,7 +246,7 @@ jobs:
           node --test --test-force-exit
           --import ./test/helpers/net_guard.mjs
           test/html-interpolation-guard-rf3845.test.mjs
-          test/url-sink-guard-rf3851.test.mjs
+          test/url-sink-guard-rf3852.test.mjs
           test/shared-js-executes-rf3872.test.mjs
 
       # R-F1835: DD quality scorer.  R-F1840: dropped the `|| true` that hid the

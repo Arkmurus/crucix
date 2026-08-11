@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3893,
+  "next_available": 3897,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32876,14 +32876,52 @@
       "title": "continue positive SFT from accepted parent",
       "claimed_at": "2026-08-11T17:30:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6993e918",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:47:55Z"
     },
     {
       "r_number": "R-F3892",
       "title": "C-28: render degraded_reasons on the brain control centre",
       "claimed_at": "2026-08-11T17:34:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "30e39f29",
+      "notes": null,
+      "shipped_at": "2026-08-11T17:42:52Z"
+    },
+    {
+      "r_number": "R-F3893",
+      "title": "R-F3878 tests pinned a live register COUNT and broke when the register was used",
+      "claimed_at": "2026-08-11T17:47:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3894",
+      "title": "rf1031 leaks safety._memory_cost_spent; downstream Brave escalation silently cost-shed",
+      "claimed_at": "2026-08-11T17:54:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3895",
+      "title": "correct the url-sink guard's R-number citation: R-F3851 belongs to peer SFT work, the guard is R-F3852",
+      "claimed_at": "2026-08-11T17:59:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3896",
+      "title": "pre-commit --install points at the stale look-alike githooks dir; R-F1958 never closed",
+      "claimed_at": "2026-08-11T18:00:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

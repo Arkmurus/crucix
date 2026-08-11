@@ -1,6 +1,15 @@
 // test/url-sink-guard-rf3851.test.mjs
 //
-// R-F3851 — the second DOM-XSS surface: URLs.
+// R-F3852 — the second DOM-XSS surface: URLs.
+//
+// R-F3895 (2026-08-11) corrected this file's citation and name. It was written as
+// R-F3851, which the PEER agent had already reserved for "completion only tooluse
+// SFT" — the number was claimed by writing it into a filename instead of reading
+// the registry, the exact habit CLAUDE.md §2 exists to stop. The guard's real
+// reservation is R-F3852, "scheme-allowlist guard for URL sinks + kill the
+// CSP-dead favicon". Nothing functional changed; a test that cites another
+// author's R-number corrupts the audit trail permanently, which is why it is
+// worth a rename rather than a footnote.
 //
 // R-F3845/R-F3850 proved every interpolation into HTML is escaped. Escaping is
 // the wrong tool for a URL: `javascript:alert(1)` contains no `<`, `>`, `&` or

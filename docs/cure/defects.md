@@ -1805,7 +1805,7 @@ gives `defaultPrevented: true` and the correct message.
 
 **REVERTED, and that is the right trade.** Breaking the public conversion path is worse
 than CVEs that cannot be reached: no untrusted input reaches jQuery's HTML parser on this
-page, and four tests in `test/url-sink-guard-rf3851.test.mjs` fail if that changes. The
+page, and four tests in `test/url-sink-guard-rf3852.test.mjs` fail if that changes. The
 CVEs remain PRESENT and UNREACHABLE, which is the same position C-21 recorded — but it is
 now an evidenced position rather than an assumption.
 
