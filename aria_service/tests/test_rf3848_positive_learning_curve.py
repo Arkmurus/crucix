@@ -1,0 +1,84 @@
+"""R-F3848 capability tests for monotonic staged training gates."""
+from pathlib import Path
+from scripts.train.build_positive_curve_assets import calibration_indices, deduplicate_preferences, subset_report
+from scripts.train.learning_curve_gate import progression_verdict
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_dpo_deduplicates_subject_axis_without_synthesizing_preferences() -> None:
+    rows = [{"label": "x", "subject": "Bank", "chosen": "a", "rejected": "b", "why": "e"},
+            {"label": "x", "subject": "bank", "chosen": "c", "rejected": "d", "why": "e"}]
+    assert deduplicate_preferences(rows) == rows[:1]
+
+
+def test_calibration_has_deterministic_equal_axis_quotas() -> None:
+    rows = [{"label": axis, "subject": f"{axis}-{i}"} for axis in ("tooluse_adverse", "tooluse_challenge") for i in range(4)]
+    # Use a reduced surface by monkey-shaping only known axes through padding.
+    from scripts.train.build_positive_curve_assets import ALL_AXES
+    rows = [{"label": axis, "subject": f"{axis}-{i}"} for axis in sorted(ALL_AXES) for i in range(4)]
+    indices = calibration_indices(rows, 3)
+    assert indices == calibration_indices(rows, 3)
+    assert len(indices) == 30
+
+
+def _report(counts: dict[str, int], total_each: int = 3) -> dict:
+    per = [{"label": k, "honest": v, "total": total_each} for k, v in counts.items()]
+    total = total_each * len(counts)
+    return {"complete": True, "total": total, "honest": sum(counts.values()),
+            "per_axis": per, "rows": [{}] * total}
+
+
+def test_curve_requires_strict_gain_and_zero_axis_regressions() -> None:
+    before = _report({"a": 1, "b": 1})
+    after = _report({"a": 2, "b": 1})
+    assert progression_verdict(before, after, {"b"})["pass"] is True
+    assert progression_verdict(after, after, {"b"})["pass"] is False
+    regressed = _report({"a": 3, "b": 0})
+    verdict = progression_verdict(before, regressed, {"b"})
+    assert verdict["pass"] is False and verdict["regressions"]
+
+
+def test_only_perfect_calibration_may_plateau() -> None:
+    perfect = _report({"a": 3, "b": 3})
+    verdict = progression_verdict(perfect, perfect, {"b"})
+    assert verdict["pass"] is True and verdict["reason"] == "ceiling_preserved"
+
+
+def test_incomplete_calibration_fails_closed() -> None:
+    report = _report({"a": 1})
+    report["complete"] = False
+    assert progression_verdict(report, _report({"a": 2}), set())["reason"] == "before_incomplete"
+
+
+def test_changed_calibration_rows_fail_closed() -> None:
+    before = _report({"a": 1})
+    after = _report({"a": 2})
+    before["rows"][0] = {"label": "a", "subject": "one"}
+    after["rows"][0] = {"label": "a", "subject": "two"}
+    assert progression_verdict(before, after, set())["reason"] == "calibration_rows_changed"
+
+
+def test_subset_report_is_explicitly_non_promotion_calibration() -> None:
+    raw = {"complete": True, "total": 2, "rows": [
+        {"label": "a", "subject": "one", "honest": True},
+        {"label": "a", "subject": "two", "honest": False},
+    ]}
+    result = subset_report(raw, [1])
+    assert result["complete"] is True and result["honest"] == 0
+    assert "never valid promotion evidence" in result["note"]
+
+
+def test_paid_cycle_gates_both_training_stages_before_held_out_eval() -> None:
+    pod = (ROOT / "scripts/train/pod_tooluse_curve.sh").read_text(encoding="utf-8")
+    raw_gate = pod.index('curve_gate "$RAW_PROBE"')
+    dpo_train = pod.index('python "$SCRIPTS/dpo_train.py"')
+    dpo_gate = pod.index('curve_gate /workspace/eval/aria_tooluse_curve_sft_probe.json')
+    held_out = pod.index('evaluate "$DPO_OUT" aria-tooluse-dpo "$EVAL_FILE"')
+    assert raw_gate < dpo_train < dpo_gate < held_out
+    assert pod.count("require_watchdog") >= 4
+    assert "collect_diagnostics" in pod
+    host = (ROOT / "scripts/train/run_tooluse_curve.sh").read_text(encoding="utf-8")
+    assert "EXPECTED_DPO_PAIRS=47" in host
+    assert "CYCLE_DEADLINE=14400" in host
+    assert "preflight_cycle" in host

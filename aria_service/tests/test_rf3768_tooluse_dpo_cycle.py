@@ -43,7 +43,7 @@ def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
     assert 'ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"' in code
     assert 'DPO_LOCAL="${DPO_LOCAL:-data/training/aria_tooluse_dpo_v3.jsonl}"' in code
     assert 'OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v3.tgz}"' in code
-    assert code.count("sha256sum -c -") == 4
+    assert code.count("sha256sum -c -") == 5
     assert "SFTP_UPLOAD=reput" in code and "SFTP_UPLOAD=put" in code
     assert 'timeout "$UPLOAD_SLICE" sftp' in code
     assert "DEADLINE=$UPLOAD_DEADLINE" in code

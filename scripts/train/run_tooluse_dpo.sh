@@ -11,6 +11,12 @@ SFT_LOCAL="${SFT_LOCAL:-}"
 SFT_SHA256="${SFT_SHA256:-}"
 INTERMEDIATE_LOCAL="${INTERMEDIATE_LOCAL:-}"
 INTERMEDIATE_REMOTE="${INTERMEDIATE_REMOTE:-/workspace/eval/aria_tooluse_mixed_sft.tgz}"
+PROBE_LOCAL="${PROBE_LOCAL:-}"
+BASELINE_LOCAL="${BASELINE_LOCAL:-}"
+PROBE_SHA256="${PROBE_SHA256:-}"
+BASELINE_SHA256="${BASELINE_SHA256:-}"
+DIAGNOSTICS_LOCAL="${DIAGNOSTICS_LOCAL:-}"
+DIAGNOSTICS_REMOTE="${DIAGNOSTICS_REMOTE:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
 EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
 RESUME_ADAPTER_LOCAL="${RESUME_ADAPTER_LOCAL:-}"
@@ -53,6 +59,8 @@ UPLOAD_ADAPTER_LOCAL="$ADAPTER_LOCAL"
 [ "$RESUME_MODE" = 0 ] || UPLOAD_ADAPTER_LOCAL="$RESUME_ADAPTER_LOCAL"
 REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
 [ -z "$SFT_LOCAL" ] || REQUIRED_FILES+=("$SFT_LOCAL")
+[ -z "$PROBE_LOCAL" ] || REQUIRED_FILES+=("$PROBE_LOCAL")
+[ -z "$BASELINE_LOCAL" ] || REQUIRED_FILES+=("$BASELINE_LOCAL")
 [ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
 for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
@@ -116,7 +124,7 @@ for _ in $(seq 1 40); do if TSSH -p "$PORT" root@"$HOST" 'echo ok' 2>/dev/null |
 [ "$ok" -ge 3 ] || { log "FATAL SSH unstable"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" 'mkdir -p /workspace/checkpoints /workspace/datasets /workspace/eval /workspace/logs /workspace/crucix/scripts/train' || exit 1
 RSCP(){ timeout 180 scp -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -P "$PORT" "$1" root@"$HOST":"$2" 2>/dev/null; }
-for item in "$POD_RUNNER:/workspace/pod_tooluse_dpo.sh" "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh" "scripts/train/dpo_train.py:/workspace/crucix/scripts/train/dpo_train.py" "scripts/train/sft_train.py:/workspace/crucix/scripts/train/sft_train.py" "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" "scripts/train/build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" "scripts/train/serve_eval_shim.py:/workspace/crucix/scripts/train/serve_eval_shim.py" "$DPO_LOCAL:/workspace/datasets/aria_tooluse_dpo_v3.jsonl" "$EVAL_LOCAL:/workspace/datasets/aria_tooluse_eval.jsonl"; do
+for item in "$POD_RUNNER:/workspace/pod_tooluse_dpo.sh" "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh" "scripts/train/dpo_train.py:/workspace/crucix/scripts/train/dpo_train.py" "scripts/train/sft_train.py:/workspace/crucix/scripts/train/sft_train.py" "scripts/train/learning_curve_gate.py:/workspace/crucix/scripts/train/learning_curve_gate.py" "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" "scripts/train/build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" "scripts/train/serve_eval_shim.py:/workspace/crucix/scripts/train/serve_eval_shim.py" "$DPO_LOCAL:/workspace/datasets/aria_tooluse_dpo_v3.jsonl" "$EVAL_LOCAL:/workspace/datasets/aria_tooluse_eval.jsonl"; do
   src=${item%%:*}; dst=${item#*:}; RSCP "$src" "$dst" || { log "FATAL upload $src"; exit 1; }
 done
 [ -z "$SFT_LOCAL" ] || RSCP "$SFT_LOCAL" /workspace/datasets/aria_tooluse_retention_sft.jsonl \
@@ -124,6 +132,13 @@ done
 [ -z "$SFT_LOCAL" ] || TSSH -p "$PORT" root@"$HOST" \
   "printf '%s  %s\n' '$SFT_SHA256' /workspace/datasets/aria_tooluse_retention_sft.jsonl | sha256sum -c -" \
   || { log "FATAL remote retention SFT hash mismatch"; exit 1; }
+[ -z "$PROBE_LOCAL" ] || RSCP "$PROBE_LOCAL" /workspace/datasets/aria_tooluse_curve_probe.jsonl \
+  || { log "FATAL upload $PROBE_LOCAL"; exit 1; }
+[ -z "$BASELINE_LOCAL" ] || RSCP "$BASELINE_LOCAL" /workspace/eval/aria_tooluse_curve_raw_probe.json \
+  || { log "FATAL upload $BASELINE_LOCAL"; exit 1; }
+[ -z "$PROBE_LOCAL" ] || TSSH -p "$PORT" root@"$HOST" \
+  "printf '%s  %s\n%s  %s\n' '$PROBE_SHA256' /workspace/datasets/aria_tooluse_curve_probe.jsonl '$BASELINE_SHA256' /workspace/eval/aria_tooluse_curve_raw_probe.json | sha256sum -c -" \
+  || { log "FATAL remote curve input hash mismatch"; exit 1; }
 [ "$RESUME_MODE" = 0 ] || RSCP "$RESUME_REPORT_LOCAL" /workspace/eval/aria_tooluse_dpo_eval.json \
   || { log "FATAL upload resume report"; exit 1; }
 mkdir -p "$(dirname "$STATE_FILE")"; { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
@@ -167,6 +182,13 @@ persist_intermediate(){
   mkdir -p "$(dirname "$INTERMEDIATE_LOCAL")"
   persist_adapter "$INTERMEDIATE_REMOTE" "$INTERMEDIATE_LOCAL"
 }
+persist_diagnostics(){
+  [ -n "$DIAGNOSTICS_LOCAL" ] || return 0
+  mkdir -p "$(dirname "$DIAGNOSTICS_LOCAL")"
+  RSCP_PULL "$DIAGNOSTICS_REMOTE" "${DIAGNOSTICS_LOCAL}.download" || return 1
+  tar -tzf "${DIAGNOSTICS_LOCAL}.download" >/dev/null || return 1
+  mv "${DIAGNOSTICS_LOCAL}.download" "$DIAGNOSTICS_LOCAL"
+}
 log "cycle started"; RC=""
 for i in $(seq 1 100); do
   RC=$(TSSH -p "$PORT" root@"$HOST" 'cat /workspace/eval/_cycle_status 2>/dev/null' 2>/dev/null | tr -d '\r[:space:]'); [ -n "$RC" ] && break
@@ -174,11 +196,12 @@ for i in $(seq 1 100); do
   STATE=$(pod_state); [ "$STATE" = NOT_RUNNING ] && break; [ "$STATE" = UNREADABLE ] && log "control plane unreadable"; sleep 90
 done
 harvest_logs(){ mkdir -p data/eval_reports; RSCP_PULL /workspace/logs/tooluse_dpo_cycle.log data/eval_reports/aria_tooluse_dpo_cycle.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_train.log data/eval_reports/aria_tooluse_dpo_train.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_eval.log data/eval_reports/aria_tooluse_dpo_eval.log || true; }
-[ "$RC" = 0 ] || { persist_intermediate || true; harvest_logs; log "FATAL cycle rc=${RC:-missing}; diagnostics harvested"; exit 1; }
+[ "$RC" = 0 ] || { persist_intermediate || true; persist_diagnostics || true; harvest_logs; log "FATAL cycle rc=${RC:-missing}; diagnostics harvested"; exit 1; }
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
 persist_report /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
 persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1
 persist_intermediate || exit 1
+persist_diagnostics || exit 1
 "$PYBIN" - "$REPORT_LOCAL" <<'PY' || exit 1
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8")); n=168
