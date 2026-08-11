@@ -52,6 +52,26 @@ def test_delta_collection_contains_only_new_axis_subject_evidence() -> None:
     assert select_novel_rows(current, prior) == current[1:]
 
 
+def test_measured_regression_axes_join_targets_without_dropping_defaults() -> None:
+    queue = build_balanced_queue(
+        _rows(), eval_entities={"held-out"}, target_limit=16, retention_limit=6,
+        target_labels=TARGET_LABELS | {"tooluse_adverse", "tooluse_contradiction"},
+    )
+    counts = Counter(row["label"] for row in queue)
+    assert counts["tooluse_adverse"] == 16
+    assert counts["tooluse_contradiction"] == 16
+    assert counts["tooluse_person"] == 16
+    assert counts["tooluse_news_impact"] == 6
+
+
+def test_queue_refuses_unknown_or_empty_target_axes() -> None:
+    with pytest.raises(ValueError, match="unknown target"):
+        build_balanced_queue(_rows(), eval_entities={"held-out"},
+                             target_labels={"not_an_axis"})
+    with pytest.raises(ValueError, match="empty"):
+        build_balanced_queue(_rows(), eval_entities={"held-out"}, target_labels=set())
+
+
 def test_balanced_queue_refuses_held_out_entity() -> None:
     rows = _rows()
     rows[0]["subject"] = "Held Out plc"

@@ -35,12 +35,19 @@ def build_balanced_queue(
     eval_entities: set[str],
     target_limit: int = 16,
     retention_limit: int = 6,
+    target_labels: set[str] | None = None,
 ) -> list[dict]:
     """Select every axis deterministically while refusing held-out entities."""
     if not eval_entities:
         raise ValueError("eval_entities is empty; contamination is unchecked")
     if target_limit < 1 or retention_limit < 1:
         raise ValueError("queue limits must be positive")
+    targets = TARGET_LABELS if target_labels is None else target_labels
+    unknown = targets - EXPECTED_LABELS
+    if unknown:
+        raise ValueError(f"unknown target axes: {sorted(unknown)}")
+    if not targets:
+        raise ValueError("target axes are empty")
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in train:
         label = str(row.get("label") or "")
@@ -52,7 +59,7 @@ def build_balanced_queue(
 
     selected: list[dict] = []
     for label in sorted(EXPECTED_LABELS):
-        limit = target_limit if label in TARGET_LABELS else retention_limit
+        limit = target_limit if label in targets else retention_limit
         selected.extend(grouped[label][:limit])
     contaminated = sorted({
         str(row.get("subject") or "")
@@ -93,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--target-limit", type=int, default=16)
     parser.add_argument("--retention-limit", type=int, default=6)
+    parser.add_argument("--coverage-ledger", type=Path,
+                        help="Promote measured priority axes while retaining default targets")
     parser.add_argument("--exclude-file", type=Path,
                         help="Write only axis/subject rows absent from this JSONL")
     args = parser.parse_args(argv)
@@ -101,11 +110,21 @@ def main(argv: list[str] | None = None) -> int:
         _norm_subject(str(row.get("subject") or ""))
         for row in _read_jsonl(args.eval_file)
     } - {""}
+    target_labels = set(TARGET_LABELS)
+    if args.coverage_ledger:
+        ledger = json.loads(args.coverage_ledger.read_text(encoding="utf-8"))
+        if ledger.get("complete") is not True:
+            raise ValueError("coverage ledger is incomplete")
+        priorities = {str(label) for label in ledger.get("priority_order") or []}
+        if not priorities:
+            raise ValueError("coverage ledger has no measured priorities")
+        target_labels |= priorities
     queue = build_balanced_queue(
         _read_jsonl(args.train),
         eval_entities=held,
         target_limit=args.target_limit,
         retention_limit=args.retention_limit,
+        target_labels=target_labels,
     )
     if args.exclude_file:
         queue = select_novel_rows(queue, _read_jsonl(args.exclude_file))
