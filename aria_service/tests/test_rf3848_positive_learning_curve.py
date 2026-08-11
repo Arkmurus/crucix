@@ -112,3 +112,12 @@ def test_paid_cycle_gates_both_training_stages_before_held_out_eval() -> None:
     assert "EXPECTED_DPO_PAIRS=47" in host
     assert "CYCLE_DEADLINE=14400" in host
     assert "preflight_cycle" in host
+
+
+def test_host_passes_verified_dynamic_sft_count_to_pod() -> None:
+    host = (ROOT / "scripts/train/run_tooluse_dpo.sh").read_text(encoding="utf-8")
+    pod = (ROOT / "scripts/train/pod_tooluse_curve.sh").read_text(encoding="utf-8")
+    assert 'EXPECTED_SFT_ROWS=$("$PYBIN" -c' in host
+    assert "EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS" in host
+    assert 'validate_count "$SFT_FILE" "$EXPECTED_SFT_ROWS"' in pod
+    assert 'validate_count "$SFT_FILE" 90' not in pod

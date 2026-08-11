@@ -64,6 +64,13 @@ REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
 [ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
 for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
+EXPECTED_SFT_ROWS=0
+if [ -n "$SFT_LOCAL" ]; then
+  EXPECTED_SFT_ROWS=$("$PYBIN" -c "import sys; print(sum(bool(x.strip()) for x in open(sys.argv[1], encoding='utf-8')))" "$SFT_LOCAL") \
+    || { log "FATAL cannot count SFT rows"; exit 1; }
+  [ "$EXPECTED_SFT_ROWS" -gt 0 ] 2>/dev/null \
+    || { log "FATAL SFT row count is not positive"; exit 1; }
+fi
 if [ "$RESUME_MODE" = 0 ]; then
   if [ "$FRESH_BASE" = 1 ]; then
     printf '%s  %s\n%s  %s\n' "$DPO_SHA256" "$DPO_LOCAL" "$EVAL_SHA256" "$EVAL_LOCAL" \
@@ -157,7 +164,7 @@ if [ "$FRESH_BASE" != 1 ]; then
   TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 fi
 TSSH -p "$PORT" root@"$HOST" "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
-POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
+POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
