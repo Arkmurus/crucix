@@ -179,3 +179,29 @@ collection coverage.
 5. Any next candidate must first preserve the 30/30 calibration ceiling and then
    improve or preserve every axis on n=168. A regression is rejection, regardless
    of training loss or reward margin.
+
+### Positive continuation results after handoff
+
+- The immutable v5 adapter scored 155/168 on the unchanged held-out set versus
+  the current-validator incumbent at 137/168. It regressed adverse 26->24 and
+  contradiction 27->26, so it is not promotion eligible. The explicit ledger
+  records 10/10 evidence coverage, 6/10 mastered axes, and priority order:
+  adverse, contradiction, challenge, multihop.
+- Positive-only v6 continued v5 on 120 balanced rows. Its mandatory calibration
+  gate rejected 30/30 -> 26/30 before held-out evaluation. Citation grammar and
+  multihop subject retention failed. The v6 partial adapter is prohibited.
+- R-F3898 commit `3e3c08ee` added a structural full-replay curriculum: all 230
+  accepted-parent rows followed by the 120-row delta, 350 positive rows across
+  all ten axes, zero DPO. Strict preflight verified 350/168 rows, 65/50 disjoint
+  entities, zero overlap with 480 golden entities, all 518 renders, max 2,711
+  tokens. The affected verifier passed 228 tests with 2 expected failures.
+- Pod `maamoxx5npglea` ran the v7 full-replay continuation and is EXITED. The
+  gate again rejected 30/30 -> 26/30: contradiction 3->1 and news-impact 3->1;
+  held-out evaluation did not start. Diagnostics are
+  `data/eval_reports/aria_tooluse_positive_replay_v7_diagnostics.tgz`; the v7
+  partial adapter is prohibited.
+- Binding conclusion: do not run another narrow continuation SFT or DPO cycle.
+  v5 remains the sole eligible parent. The next work must structurally separate
+  tool-payload metadata from citeable source identifiers and teach contradiction
+  synthesis that says "no sanctions matches" without asserting CLEAN when
+  adverse evidence exists. Prove those contracts on calibration before GPU spend.
