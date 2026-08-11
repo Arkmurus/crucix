@@ -7,6 +7,22 @@
  * No top header: each tab owns the full viewport height. Alerts + the account
  * menu now live at the bottom of the rail.
  */
+// R-F3871 — escapeText lives at MODULE scope.
+//
+// It was declared inside Sidebar.init(), so it was invisible to Sidebar.html(),
+// where R-F3866 added escaping to the nav renderer. The result was
+// `ReferenceError: escapeText is not defined` thrown from link() during
+// Sidebar.init on EVERY page — which aborted page initialisation and left the
+// dashboard and its content blank.
+//
+// The escaping was right; the SCOPE was not. Same character set as every other
+// escaper in the tree (see test/escaper-equivalence-rf3863.test.mjs).
+function escapeText(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 const Sidebar = {
   init(activePage) {
     document.getElementById('sidebar-placeholder').innerHTML = this.html(activePage);
@@ -273,12 +289,6 @@ const Sidebar = {
         markBtn.disabled = false;
         markBtn.textContent = 'Mark all read';
       });
-    }
-
-    function escapeText(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-      }[c]));
     }
 
     refreshBadge();
