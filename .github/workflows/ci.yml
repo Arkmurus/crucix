@@ -180,7 +180,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # R-F3904 — was "20", BELOW this project's own declared minimum.
           # package.json says `"engines": {"node": ">=22"}` and both production
