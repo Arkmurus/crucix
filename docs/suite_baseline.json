@@ -1,10 +1,10 @@
 {
- "recorded_at": "2026-08-09",
- "commit": "e68f0088",
+ "recorded_at": "2026-08-11",
+ "commit": "168674b2",
  "method": "single pytest process (CLAUDE.md \u00a716 measurement)",
  "caveat": "order-dependent failures ARE visible in this mode; this is the authoritative \u00a716 figure, not a floor.",
  "valid": true,
- "tree_hash": "8acea472e2979109",
+ "tree_hash": "246808c0f5c460cf",
  "environment": {
   "python": "3.13.14",
   "platform": "win32",
@@ -20,10 +20,10 @@
   }
  },
  "totals": {
-  "failed": 89,
-  "passed": 14610,
-  "total": 14699,
-  "files": 1731
+  "failed": 90,
+  "passed": 14666,
+  "total": 14756,
+  "files": 1738
  },
  "failures": [
   "test_bucket_b.py::TestSanctionsRelationshipEnrichment::test_enrich_attaches_inherited_risk",
@@ -72,13 +72,14 @@
   "test_rf2395_capability_test_gate_genuine.py::test_tests_disabled_forces_stage_only_never_autodeploy",
   "test_rf2432_truncating_fixer_blocked_end_to_end.py::test_complete_fix_autodeploys_when_all_gates_pass",
   "test_rf2432_truncating_fixer_blocked_end_to_end.py::test_truncating_fixer_cannot_autodeploy_truncation_guard_backstops",
-  "test_rf2507_brain_queue_integration.py::test_drain_failure_retries",
   "test_rf2568_reconcile_wiring.py::test_dd_reconcile_silent_on_success",
   "test_rf2621_synthesis_timeout_bluf.py::test_completed_green_synthesis_is_not_downgraded_to_amber_or_red",
   "test_rf2673_design_partner_funnel.py::test_gate7_renders_qualified_not_total",
   "test_rf2709_programme_namefirst_pgov1.py::test_rf2709_live_challenger4_attack_warns_llm",
   "test_rf2709_programme_namefirst_pgov1.py::test_rf2709_namefirst_variants_all_warn",
   "test_rf3358_node_tier_mapped.py::test_rf3358_python_assignments_are_untouched",
+  "test_rf3362_operational_gap_staleness.py::test_gaps_carry_age_days",
+  "test_rf3362_operational_gap_staleness.py::test_summary_reports_staleness",
   "test_rf3435_3436_gated_source_selection.py::test_ccj_is_required_and_blocking_because_nothing_else_answers_it",
   "test_rf450_stream_footer_integration.py::test_rf3339_the_stream_doubles_match_the_real_signature",
   "test_rf450_stream_footer_integration.py::test_rf450_stream_footer_arrives_before_done_via_endpoint",
