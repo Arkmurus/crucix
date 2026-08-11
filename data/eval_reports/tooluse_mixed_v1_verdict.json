@@ -1,0 +1,32 @@
+{
+  "promote": false,
+  "overall_gain": -7,
+  "missing_axes": [],
+  "regressions": [
+    {
+      "label": "tooluse_adverse",
+      "before": 26,
+      "after": 25,
+      "lost": 1,
+      "n": 28
+    },
+    {
+      "label": "tooluse_challenge",
+      "before": 16,
+      "after": 8,
+      "lost": 8,
+      "n": 24
+    }
+  ],
+  "reason": "retention_gate_failed",
+  "incumbent_sha256": "f5e82dab16fefc49178f4254d67f24480e5a1f0af27bc2c3a5e180e2ab97681b",
+  "candidate_sha256": "063d0733669b443dba8da6c78447d189a5f6641cb974704407c4e061160cef4c",
+  "train_sha256": "7d2c4103a4b05ee09c7d784b1ea100a70ac316ad9a3ac80fbf7c54ba79421ae5",
+  "failure_contracts": {
+    "other": 30,
+    "procedural_state": 2,
+    "responsiveness": 7
+  },
+  "intervention": "collect_train_generations_for_dpo",
+  "training_output_written": false
+}
