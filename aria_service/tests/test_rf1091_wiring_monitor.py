@@ -209,14 +209,36 @@ class TestWAConnectionHealth:
 
     @pytest.mark.asyncio
     async def test_check_wires_to_brain(self, mock_redis, mock_wire):
-        """check_wa_connection_health calls wire_success or wire_failure."""
+        """C-30 — a verdict WHEN EARNED; abstention when the check cannot tell.
+
+        This test used to assert that `check_wa_connection_health` ALWAYS calls
+        wire_success or wire_failure. That requirement is what forced the defect:
+        with only a passive read of capability_gaps, zero disconnect signals is
+        equally consistent with a healthy listener and with a dark signal path, so
+        an obligation to emit *something* was discharged by emitting `wire_failure`
+        — and a healthy WA listener was reported as permanently failing while a
+        constantly-dropping one was reported as healthy.
+
+        DO NOT "fix" a failure here by restoring the always-emit requirement; that
+        reintroduces the inversion. The honest contract is: emit a verdict when
+        there is evidence, and report `determinate: False` when there is not.
+        """
         from aria_service.intel.wiring_monitor import check_wa_connection_health
 
         mock_ws, mock_wf = mock_wire
         result = await check_wa_connection_health()
 
-        called = mock_ws.called or mock_wf.called
-        assert called, "Neither wire_success nor wire_failure was called"
+        if result.get("determinate"):
+            assert mock_ws.called or mock_wf.called, (
+                "evidence was observed but no verdict reached the brain"
+            )
+        else:
+            assert not mock_wf.called, (
+                "C-30: no evidence, yet a FAILURE was asserted to the brain"
+            )
+            assert not mock_ws.called, (
+                "C-30: no evidence, yet SUCCESS was asserted to the brain"
+            )
 
 
 # ── M4: Brain signal path integrity ────────────────────────────────────────────

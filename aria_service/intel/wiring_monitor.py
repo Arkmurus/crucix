@@ -378,26 +378,40 @@ async def check_wa_connection_health() -> dict[str, Any]:
         result["error"] = str(e)[:200]
         result["healthy"] = False
 
-    # Wire to brain
-    if result["wa_auth_lost_signals"] == 0 and result["wa_disconnected_signals"] == 0:
+    # C-30 — THE VERDICT WAS INVERTED. This block used to fire `wire_failure` when
+    # it found ZERO disconnect signals and `wire_success` when it found some, so a
+    # WhatsApp listener that had never dropped was reported as permanently FAILING
+    # and one that was dropping constantly was reported as HEALTHY.
+    #
+    # The docstring above already concedes the check cannot tell "never
+    # disconnected" from "these signals are dark" — and the old code resolved that
+    # ambiguity by asserting the failure. Absence of evidence is not evidence, in
+    # either direction: it is INDETERMINATE, and saying so is the only honest
+    # option available to a passive reader of capability_gaps.
+    observed = result["wa_auth_lost_signals"] + result["wa_disconnected_signals"]
+    result["determinate"] = observed > 0
+
+    if observed > 0:
+        # A REAL, OBSERVED problem: the listener has been losing its connection.
+        result["healthy"] = False
         wire_failure(
             module="wiring_monitor:M3",
             detail=(
-                "WA connection health: zero auth_lost or disconnected signals "
-                "found in capability_gaps. Either the WA listener has never "
-                "disconnected (unlikely) or these signals are dark (G3 gap)."
+                f"WA connection health: {result['wa_auth_lost_signals']} auth_lost "
+                f"and {result['wa_disconnected_signals']} disconnected signals in "
+                "capability_gaps — the listener has been dropping."
             ),
             gap_type="engine_failure",
             source="wiring_monitor:check_wa_connection_health",
         )
     else:
-        wire_success(
-            module="wiring_monitor:M3",
-            summary=(
-                f"WA connection health: {result['wa_auth_lost_signals']} auth_lost, "
-                f"{result['wa_disconnected_signals']} disconnected signals seen"
-            ),
-            source_id="wiring_monitor:check_wa_connection_health",
+        # No verdict. Neither branch is earned, so neither is emitted; a caller
+        # reads `determinate: False` and knows this monitor abstained rather than
+        # mistaking silence for either health or failure.
+        result["note"] += (
+            " No auth_lost/disconnected signals observed: INDETERMINATE — this "
+            "passive check cannot distinguish a healthy listener from a dark "
+            "signal path, so it abstains rather than asserting either."
         )
 
     return result
@@ -420,15 +434,32 @@ async def check_wa_connection_health() -> dict[str, Any]:
 # 0.5s-budgeted loop test fail under load. The test was right to be sensitive:
 # the defect is synchronous file I/O in an async loop, not a slow test.
 @lru_cache(maxsize=8)
-def _cached_source(path: str) -> str:
-    """Read a source file ONCE per process. Empty string if unreadable, which
-    preserves every caller's existing behaviour (a missing file reads as
-    'token not present')."""
+def _read_source(path: str) -> tuple[str, bool]:
+    """C-31 — ``(content, readable)``. Read a source file ONCE per process.
+
+    The second element is the whole point. `_cached_source` collapses an
+    unreadable file to `""`, so "the token is not in this file" and "there is no
+    such file" become the same answer — and every caller that greps for a wiring
+    token then concludes the token is ABSENT. That is how M4 came to report the
+    Node tier as unwired: aria-intel ships the PYTHON service, the three files it
+    greps are Node-tier and simply are not in the image, and their absence was
+    read as evidence of a defect.
+
+    Returning readability separately lets a caller say UNKNOWN, which is the only
+    honest verdict about a file it cannot open.
+    """
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            return fh.read()
+            return fh.read(), True
     except Exception:
-        return ""
+        return "", False
+
+
+def _cached_source(path: str) -> str:
+    """Content only — retained for callers that legitimately want 'absent reads as
+    empty'. Anything forming a VERDICT about wiring must use `_read_source` and
+    honour the readability flag instead."""
+    return _read_source(path)[0]
 
 
 async def test_brain_signal_path() -> dict[str, Any]:
@@ -446,6 +477,8 @@ async def test_brain_signal_path() -> dict[str, Any]:
         "path_healthy": False,
         "detail": "",
     }
+    # C-31 — set by any file this check cannot open. See `_read_source`.
+    _unreadable = False
 
     # Check that the brain/signal endpoint exists in routes
     try:
@@ -490,19 +523,22 @@ async def test_brain_signal_path() -> dict[str, Any]:
         tracker_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "lib", "observability", "errorTracker.mjs"
         )
-        tracker_content = _cached_source(tracker_file)
+        tracker_content, _readable = _read_source(tracker_file)
+        _unreadable = _unreadable or not _readable
         result["errorTracker_wired"] = (
             "/api/aria/brain/signal" in tracker_content
         )
     except Exception as e:
         result["tracker_check_error"] = str(e)[:200]
+        _unreadable = True
 
     # Check that WA listener is wired
     try:
         wa_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "services", "wa-listener", "aria_wa_listener.mjs"
         )
-        wa_content = _cached_source(wa_file)
+        wa_content, _readable = _read_source(wa_file)
+        _unreadable = _unreadable or not _readable
         result["wa_listener_wired"] = "/api/aria/brain/signal" in wa_content
         result["wa_listener_has_auth_loss_dark"] = (
             "loggedOut" in wa_content
@@ -511,19 +547,42 @@ async def test_brain_signal_path() -> dict[str, Any]:
         )
     except Exception as e:
         result["wa_check_error"] = str(e)[:200]
+        _unreadable = True
 
     # Check zoom service
     try:
         zoom_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "services", "aria_zoom_service.py"
         )
-        zoom_content = _cached_source(zoom_file)
+        zoom_content, _readable = _read_source(zoom_file)
+        _unreadable = _unreadable or not _readable
         result["zoom_uses_bare_brain_signal"] = (
             "/api/brain/signal" in zoom_content
             and "/api/aria/brain/signal" not in zoom_content
         )
     except Exception as e:
         result["zoom_check_error"] = str(e)[:200]
+        _unreadable = True
+
+    # C-31 — could this process actually SEE what it is judging?
+    result["inspectable"] = not _unreadable
+
+    if _unreadable:
+        # UNKNOWN, and it must stay unknown. aria-intel ships the Python service,
+        # so the Node-tier files are legitimately absent here — that is not
+        # evidence the Node tier is unwired, and C-27/R-F3889 measured that wire
+        # LIVE and made it readable at /api/health/brain-wire. Asserting a failure
+        # from a file we cannot open produced a permanently-red monitor whose
+        # message named an already-wired module: a wrong cause pointing at a wrong
+        # fix. No verdict is wired here — `inspectable: False` IS the finding, and
+        # a monitor that is red no matter what teaches everyone to ignore it.
+        result["path_healthy"] = None
+        result["detail"] = (
+            "Node-tier sources not present in this image — brain-signal path is "
+            "UNVERIFIABLE from here, not broken. Verify cross-tier wiring via "
+            "GET /api/health/brain-wire on aria-web (C-27/R-F3889)."
+        )
+        return result
 
     # Overall health
     result["path_healthy"] = (
@@ -691,20 +750,32 @@ async def run_all_checks() -> dict[str, Any]:
     }
 
     # Composite health
-    m4_healthy = results["M4_brain_signal_path"].get("path_healthy", False)
+    # C-31 — `path_healthy` is TRI-STATE now: True / False / None (could not
+    # inspect). `None` must not be folded into "has issues", which is what a bare
+    # truthiness test does and is exactly the conflation this fix removes.
+    m4_state = results["M4_brain_signal_path"].get("path_healthy", False)
+    m4_unknown = m4_state is None
+    m4_healthy = m4_state is True
     m5_healthy = results["M5_coder_loop"].get("healthy", True)
     m2_gaps = len([m for m in results["M2_compliance_probe"].values() if m.get("gap")])
     m1_unbalanced = len(results["M1_wire_balance"].get("unbalanced", []))
 
+    # An unverifiable M4 does not by itself degrade the composite — a monitor that
+    # abstained has reported nothing to be alarmed about. It is surfaced instead,
+    # so "unknown" stays visible rather than silently counting as either state.
     results["composite_health"] = (
         "healthy"
-        if (m4_healthy and m5_healthy and m2_gaps == 0 and m1_unbalanced == 0)
+        if ((m4_healthy or m4_unknown) and m5_healthy and m2_gaps == 0 and m1_unbalanced == 0)
         else "degraded"
+    )
+    _m4_word = (
+        "UNVERIFIABLE from this image (Node tier absent — check /api/health/brain-wire)"
+        if m4_unknown else ("healthy" if m4_healthy else "has issues")
     )
     results["composite_detail"] = (
         f"M1: {m1_unbalanced} unbalanced modules. "
         f"M2: {m2_gaps} compliance screeners with dark failures. "
-        f"M4: brain signal path {'healthy' if m4_healthy else 'has issues'}. "
+        f"M4: brain signal path {_m4_word}. "
         f"M5: coder loop {'healthy' if m5_healthy else 'degraded'}."
     )
 

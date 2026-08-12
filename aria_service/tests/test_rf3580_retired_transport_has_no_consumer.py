@@ -123,9 +123,18 @@ def test_the_monitor_does_not_re_read_source_files_every_cycle():
 
     from aria_service.intel import wiring_monitor
 
+    # C-31 moved the memoised seam: `_read_source` returns (content, readable) and
+    # carries the lru_cache; `_cached_source` is now a thin content-only wrapper so
+    # existing callers keep "absent reads as empty". The GUARD is unchanged in
+    # intent — one read per path per process — so it follows the cache.
+    assert hasattr(wiring_monitor, "_read_source")
+    assert hasattr(wiring_monitor._read_source, "cache_info"), (
+        "_read_source is not memoised — every monitor cycle re-reads the files"
+    )
     assert hasattr(wiring_monitor, "_cached_source")
-    assert hasattr(wiring_monitor._cached_source, "cache_info"), (
-        "_cached_source is not memoised — every monitor cycle re-reads the files"
+    wrapper_src = function_source(wiring_monitor, "_cached_source")
+    assert "with open(" not in wrapper_src, (
+        "_cached_source opens files directly again, bypassing the memoised read"
     )
     src = function_source(wiring_monitor, "test_brain_signal_path")
     assert "with open(" not in src, (

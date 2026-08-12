@@ -2121,3 +2121,79 @@ The SUCCESS path is deliberately left quiet: `registry_health_report` backs a po
 dashboard panel, and emitting per read would be the `source_atlas_update` storm that
 `defence_source_seed.skip_if_populated` exists to prevent. A test guards that too, so
 the wiring cannot later be "improved" into a flood.
+
+### C-30 · wiring_monitor M3's verdict was INVERTED — a healthy WA listener reported as permanently failing — **CLOSED (R-F3909, 2026-08-11)**
+
+Found live: `GET /api/aria/brain/stats` showed `wiring_monitor:M3` at 3 total / 3
+fail, `success_rate: 0.0`. It was not detecting anything.
+
+`check_wa_connection_health` counts `wa_auth_lost` / `wa_disconnected` entries in
+capability_gaps and then did:
+
+```python
+if auth_lost == 0 and disconnected == 0:  wire_failure(...)
+else:                                     wire_success(...)
+```
+
+**A listener that had never dropped was reported as FAILING; one dropping constantly
+was reported as HEALTHY.** The returned dict simultaneously said `healthy: True`
+while wiring a failure, so the function contradicted itself.
+
+The cause is visible in its own docstring, which concedes the check cannot tell the
+two cases apart — *"Either the WA listener has never disconnected (unlikely) or these
+signals are dark"* — and then resolves that ambiguity by asserting the failure.
+**Absence of evidence is not evidence, in either direction.**
+
+`test_rf1091::test_check_wires_to_brain` **required** the defect: it asserted the
+function ALWAYS calls wire_success or wire_failure. An obligation to emit a verdict,
+held by a check that cannot earn one, is discharged by emitting a wrong one. The test
+now asserts the surviving intent — a verdict when there is evidence, `determinate:
+False` when there is not — and says explicitly not to restore the always-emit rule.
+
+### C-31 · wiring_monitor M4 judged files that are not in its own image — **CLOSED (R-F3909, 2026-08-11)**
+
+Also 3 total / 3 fail. `test_brain_signal_path` greps three source files to decide
+whether the cross-tier brain wire is intact. Measured **inside the running aria-intel
+container**:
+
+```
+MISSING lib/observability/errorTracker.mjs
+MISSING services/wa-listener/aria_wa_listener.mjs
+MISSING services/aria_zoom_service.py
+-> errorTracker_wired: false, wa_listener_wired: false, path_healthy: false
+```
+
+aria-intel ships the **Python** service; those are Node-tier files and are not in the
+image. So M4 reported *"the Node tier is not wired to the brain"* when it simply could
+not SEE the Node tier — and that conclusion is **provably false**: C-27 / R-F3889
+measured that wire live and made it readable at `/api/health/brain-wire`.
+
+The mechanism was documented as a feature. `_cached_source` returned `""` for an
+unreadable file, with the comment *"preserves every caller's existing behaviour (a
+missing file reads as 'token not present')"* — so **"there is no such file" and "the
+token is absent from this file" became the same answer**, and every wiring grep built
+on it concluded ABSENT. The failure message then named `errorTracker.mjs` as unwired,
+which would send an engineer to wire something already wired: a wrong cause pointing
+at a wrong fix.
+
+**Fix:** `_read_source` returns `(content, readable)` and carries the memoisation;
+`_cached_source` remains a thin content-only wrapper for callers that legitimately
+want "absent reads as empty". Anything forming a **verdict** must honour the flag.
+`path_healthy` is now tri-state (`True` / `False` / `None` = could not inspect), and
+`run_all_checks` reads it with `is True` / `is None` rather than truthiness — a bare
+truthy test folds `None` into "degraded" and re-creates the permanently-red signal one
+level up. An unverifiable M4 no longer degrades the composite; it is surfaced in
+`composite_detail` pointing at `/api/health/brain-wire` instead.
+
+**Both are C-29 INVERTED.** C-29 was absence rendered as health; these are absence
+rendered as failure. In every case the honest answer is UNKNOWN — the check could not
+measure — and a monitor that cannot distinguish "no evidence" from "evidence of
+failure" must say so rather than pick one. A guard that is red no matter what carries
+no information and trains everyone to scroll past it, so the day M4 has something real
+to say nobody will be listening (the same reasoning recorded for C-28). A test pins
+that M4 can still go RED on a genuinely dark Node tier and GREEN on a wired one —
+before this fix it could do neither.
+
+The `_cached_source` memoisation guard in `test_rf3580` followed the cache to
+`_read_source`, unchanged in intent (one read per path per process), plus a new
+assertion that the wrapper never opens files directly.
