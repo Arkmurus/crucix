@@ -118,7 +118,17 @@ assert all(x.get("chosen") and x.get("rejected") and x["chosen"]!=x["rejected"] 
 print(f"verified {expected} non-degenerate DPO pairs")
 PY
 POD_ID=""; HOST=""; PORT=""
-release(){ [ -z "$POD_ID" ] || { log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }; }
+release(){
+  [ -n "$POD_ID" ] || return 0
+  log "stopping pod $POD_ID"
+  for attempt in 1 2 3; do
+    curl.exe -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true
+    if [ "$(pod_state)" = NOT_RUNNING ]; then log "verified pod $POD_ID stopped"; return 0; fi
+    log "stop unverified attempt $attempt/3"; sleep 10
+  done
+  log "FATAL pod $POD_ID stop unverified after 3 attempts"
+  return 1
+}
 trap release EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -138,7 +148,20 @@ mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
 KEYF=/tmp/rpkey_tooluse_dpo; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
 SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
-TSSH(){ timeout 75 $SSH "$@"; }; ok=0
+TSSH(){ timeout 75 $SSH "$@"; }
+arm_watchdog(){
+  local command=$1
+  for attempt in 1 2 3; do
+    TSSH -p "$PORT" root@"$HOST" "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; $command" >/dev/null 2>&1 || true
+    if TSSH -p "$PORT" root@"$HOST" 'if test -s /workspace/eval/_watchdog_pid; then kill -0 "$(cat /workspace/eval/_watchdog_pid)"; else exit 1; fi' >/dev/null 2>&1; then
+      log "watchdog arm verified"; return 0
+    fi
+    log "watchdog arm unverified attempt $attempt/3"; sleep 5
+  done
+  log "FATAL watchdog arm not live after 3 attempts"
+  return 1
+}
+ok=0
 for _ in $(seq 1 40); do if TSSH -p "$PORT" root@"$HOST" 'echo ok' 2>/dev/null | grep -q ok; then ok=$((ok+1)); else ok=0; fi; [ "$ok" -ge 3 ] && break; sleep 5; done
 [ "$ok" -ge 3 ] || { log "FATAL SSH unstable"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" 'mkdir -p /workspace/checkpoints /workspace/datasets /workspace/eval /workspace/logs /workspace/crucix/scripts/train' || exit 1
@@ -161,7 +184,7 @@ done
 [ "$RESUME_MODE" = 0 ] || RSCP "$RESUME_REPORT_LOCAL" /workspace/eval/aria_tooluse_dpo_eval.json \
   || { log "FATAL upload resume report"; exit 1; }
 if [ "$FRESH_BASE" != 1 ]; then
-  TSSH -p "$PORT" root@"$HOST" "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
+  arm_watchdog "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
   log "uploading recovered SFT adapter with bounded resumable slices"; UPLOAD_OK=0
   for slice in $(seq 1 "$UPLOAD_SLICES"); do
     if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' >/dev/null 2>&1; then SFTP_UPLOAD=reput; else SFTP_UPLOAD=put; fi
@@ -174,7 +197,7 @@ if [ "$FRESH_BASE" != 1 ]; then
   UPLOAD_ADAPTER_SHA256=$(sha256sum "$UPLOAD_ADAPTER_LOCAL" | awk '{print $1}')
   TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 fi
-TSSH -p "$PORT" root@"$HOST" "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
+arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
 POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1

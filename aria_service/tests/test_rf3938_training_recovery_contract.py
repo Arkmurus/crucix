@@ -79,3 +79,15 @@ def test_failed_cycle_reports_only_artifacts_that_were_recovered() -> None:
     assert "DIAGNOSTICS_SAVED=0" in driver
     assert "if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi" in driver
     assert "recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED" in driver
+
+
+def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:
+    """R-F3939: tokens and POST responses alone must never claim safety."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert 'kill -0 "$(cat /workspace/eval/_watchdog_pid)"' in driver
+    assert "curl.exe -s -X POST" in driver
+    assert 'kill \\$(cat /workspace/eval/_watchdog_pid)' in driver
+    assert 'log "watchdog arm verified"' in driver
+    assert 'if [ "$(pod_state)" = NOT_RUNNING ]; then' in driver
+    assert 'log "verified pod $POD_ID stopped"' in driver
+    assert "stop unverified after 3 attempts" in driver
