@@ -33293,8 +33293,8 @@
       "title": "C-36 follow-through: the page never rendered signal_direction/metric_note, so the operator still read a one-way counter as reliability",
       "claimed_at": "2026-08-12T11:17:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
+      "status": "shipped",
+      "commit_sha": "a91a7a2f",
       "notes": null
     },
     {
@@ -33302,8 +33302,8 @@
       "title": "C-37: brain/stats success_rate cannot distinguish a failure-only module from one failing every call",
       "claimed_at": "2026-08-12T11:21:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
+      "status": "shipped",
+      "commit_sha": "a91a7a2f",
       "notes": null
     },
     {
@@ -33321,8 +33321,8 @@
       "title": "C-37 residual: success_rate returns 0 when the denominator is zero, so no-measurable-signals renders as a measured rate",
       "claimed_at": "2026-08-12T11:52:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
+      "status": "shipped",
+      "commit_sha": "172f800c",
       "notes": null
     }
   ]
