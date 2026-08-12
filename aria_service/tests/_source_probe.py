@@ -229,6 +229,96 @@ def module_source(module_or_path) -> str:
     return _parse(str(path))[0]
 
 
+def code_only(src: str) -> str:
+    """`src` with COMMENTS and DOCSTRINGS blanked — for assertions about CODE.
+
+    R-F3937 — A STRUCTURAL TEST THAT GREPS SOURCE WILL EVENTUALLY MATCH ITS OWN
+    EXPLANATION. This repo documents heavily and deliberately: the clearest comments
+    quote the very defect they removed. A substring assertion then flags the
+    explanation as the offence, and the test fails on a file that is correct.
+
+    It happened three times in one day, in three unrelated modules:
+      * R-F3873's comment contained the literal `if normalised:` it was asserting
+        did NOT precede a call — the guard matched its own prose and blocked a
+        commit.
+      * R-F3920's docstring named `gc.get_objects` / `tracemalloc` to explain why
+        they are avoided; the test asserting they are absent matched that sentence.
+      * R-F3935's target quoted the removed truncation
+        `db["facts"] = db["facts"][:MAX_FACTS]` verbatim, so a §7 guard asserting it
+        was gone found it in the comment recording its removal.
+    Each was then patched locally — twice with a hand-rolled stripper — which is the
+    duplication that says the fix belongs here instead. 217 test files call
+    `function_source`/`module_source`; every one of them is exposed.
+
+    NOT a naive line filter. `ln.startswith("#")` (my first two attempts) misses a
+    TRAILING comment on a code line and wrongly strips a line inside a multi-line
+    string that happens to begin with `#`. This tokenises, so `#` inside a string
+    literal is untouched, and blanks docstrings via the AST rather than guessing.
+
+    Line numbers and column positions are PRESERVED — comments become blank lines,
+    docstrings become blank lines — so a caller can still report `file:line` and any
+    ordering assertion (`X appears before Y`) stays meaningful.
+    """
+    import io
+    import tokenize
+
+    lines = src.splitlines()
+
+    # 1. Docstrings, via the AST — a docstring is a string EXPRESSION that is the
+    #    first statement of a module, class or function. Found structurally, never
+    #    by looking for triple quotes.
+    try:
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, "body", None)
+            if not body:
+                continue
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                start = first.lineno - 1
+                end = (first.end_lineno or first.lineno) - 1
+                for i in range(start, min(end + 1, len(lines))):
+                    lines[i] = ""
+    except SyntaxError:
+        pass          # unparseable source still gets comment stripping below
+
+    # 2. Comments, via tokenize — quote-aware by construction.
+    try:
+        stripped = "\n".join(lines)
+        out = list(stripped.splitlines())
+        for tok in tokenize.generate_tokens(io.StringIO(stripped).readline):
+            if tok.type != tokenize.COMMENT:
+                continue
+            row, col = tok.start
+            if 0 < row <= len(out):
+                out[row - 1] = out[row - 1][:col].rstrip()
+        return "\n".join(out)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # Fall back to the docstring-stripped text rather than returning nothing:
+        # a helper that silently yields "" would make every assertion pass, which
+        # is the blind-guard failure this exists to prevent.
+        return "\n".join(lines)
+
+
+def function_code(module_or_path, name: str) -> str:
+    """`function_source` with comments and docstrings blanked (R-F3937).
+
+    Use this for "does the code do X" assertions. Use `function_source` only when
+    the prose itself is the subject (e.g. asserting a rationale is documented).
+    """
+    return code_only(function_source(module_or_path, name))
+
+
+def module_code(module_or_path) -> str:
+    """`module_source` with comments and docstrings blanked (R-F3937)."""
+    return code_only(module_source(module_or_path))
+
+
 def invalidate() -> None:
     """Drop the parse cache. Call when a test deliberately rewrites a source file."""
     _parse.cache_clear()

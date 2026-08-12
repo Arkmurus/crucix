@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3940,
+  "next_available": 3942,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33326,6 +33326,15 @@
       "notes": null
     },
     {
+      "r_number": "R-F3937",
+      "title": "source assertions match prose - 217 test files exposed, no shared code-only helper",
+      "claimed_at": "2026-08-12T12:16:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
       "r_number": "R-F3938",
       "title": "training deadline floor and truthful crash harvest",
       "claimed_at": "2026-08-12T13:03:41Z",
@@ -33344,6 +33353,24 @@
       "commit_sha": "101528ec",
       "notes": null,
       "shipped_at": "2026-08-12T14:07:13Z"
+    },
+    {
+      "r_number": "R-F3940",
+      "title": "rate-slot refund credits the hour bucket at refund time, not acquisition",
+      "claimed_at": "2026-08-12T13:31:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3941",
+      "title": "census sibling probes read an unbuilt index as measured-empty (R-F3932 siblings)",
+      "claimed_at": "2026-08-12T13:31:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "renumbered from R-F3939, which a peer agent shipped concurrently"
     }
   ]
 }

@@ -245,10 +245,12 @@ def test_unresponsive_is_recorded_even_when_there_are_zero_results():
     That is precisely the case the operator needs to see."""
     from aria_service.tests._source_probe import function_source
 
-    src = function_source(sx, "search")
-    # Match STATEMENTS, not prose. A substring scan finds the guard quoted inside a
-    # comment and reports a false position — the same literal-matching fragility
-    # R-F3858 was shipped to fix.
+    # R-F3937 — the SHARED code_only stripper. This test previously hand-rolled a
+    # statement match because a substring scan found the guard quoted inside a
+    # comment (my own, added in the same commit) and reported a false position.
+    from aria_service.tests._source_probe import function_code
+
+    src = function_code(sx, "search")
     lines = src.splitlines()
     call_at = [i for i, ln in enumerate(lines)
                if "_extract_unresponsive(data)" in ln and not ln.strip().startswith("#")]

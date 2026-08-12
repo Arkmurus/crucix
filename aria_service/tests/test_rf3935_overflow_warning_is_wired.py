@@ -27,19 +27,19 @@ from __future__ import annotations
 import pytest
 
 from aria_service.intel import knowledge as k
+from aria_service.tests._source_probe import code_only as _code_only
 from aria_service.tests._source_probe import module_source
 
-
-def _code_only(src: str) -> str:
-    """Source with comment lines removed.
-
-    Every assertion here MUST read code, not prose: R-F239's comment quotes the
-    removed truncation (`db["facts"] = db["facts"][:MAX_FACTS]`) verbatim, so a
-    plain substring scan flags the explanation as the offence. That is the R-F3888
-    defect, which blocked a real commit earlier today.
-    """
-    return "\n".join(ln for ln in src.splitlines()
-                     if not ln.lstrip().startswith("#"))
+# R-F3937 — this file used to hand-roll `_code_only` as
+# `ln.lstrip().startswith("#")`. Every assertion here MUST read code, not prose:
+# R-F239's comment quotes the removed truncation
+# (`db["facts"] = db["facts"][:MAX_FACTS]`) verbatim, so a plain substring scan
+# flags the explanation as the offence — the R-F3888 defect, which blocked a real
+# commit. The line filter was the SECOND hand-rolled copy of that idea in one day,
+# and it was wrong in two ways the shared tokenising helper is not: it misses a
+# TRAILING comment on a code line, and it strips a line inside a multi-line string
+# that happens to begin with `#`. It also never stripped DOCSTRINGS, so moving
+# R-F239's explanation into one would have silently re-broken this guard.
 
 
 def _warn_branch(src: str) -> str:
@@ -118,3 +118,18 @@ def test_the_helper_can_actually_fail():
     stripped = _code_only("# a comment\nreal_code = 1\n  # indented comment\nx = 2")
     assert "real_code = 1" in stripped
     assert "a comment" not in stripped
+
+
+def test_the_shared_helper_beats_the_line_filter_it_replaced():
+    """R-F3937 — the two cases the old local `startswith('#')` filter got wrong.
+
+    Pinned here, not just in the R-F3937 suite, because THIS file's assertions are
+    the ones that would silently go wrong if the helper regressed to a line scan.
+    """
+    trailing = _code_only('x = 1  # db["facts"] = db["facts"][:MAX_FACTS]\n')
+    assert "x = 1" in trailing
+    assert "MAX_FACTS]" not in trailing, "a TRAILING comment must be stripped too"
+
+    in_string = _code_only('s = """\n# not a comment\n"""\n')
+    assert "# not a comment" in in_string, (
+        "a '#' inside a string literal is data, not a comment")
