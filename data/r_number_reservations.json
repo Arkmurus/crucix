@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3924,
+  "next_available": 3925,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33193,6 +33193,15 @@
       "r_number": "R-F3923",
       "title": "fix citation contract calibration regressions",
       "claimed_at": "2026-08-12T08:23:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3924",
+      "title": "gc.collect on the event loop at 6.7GB, freeing 0.0MB every time for two R-numbers",
+      "claimed_at": "2026-08-12T09:26:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

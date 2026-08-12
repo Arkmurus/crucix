@@ -77,6 +77,66 @@ class MemoryLeakDetector:
         self.snapshots: list[dict[str, Any]] = []
         self._running = False
         self._last_gc_at: float = 0.0
+        #: R-F3924 — consecutive collections that reclaimed essentially nothing.
+        self._ineffective_gc_runs: int = 0
+
+    #: R-F3924 — below this a collection reclaimed nothing worth the heap walk.
+    _GC_EFFECTIVE_MB = 1.0
+    #: After this many consecutive no-op collections, stop paying every 5 minutes.
+    _GC_GIVE_UP_AFTER = 3
+    _GC_BASE_INTERVAL_S = 300
+    _GC_BACKOFF_INTERVAL_S = 3600
+
+    def _gc_interval_s(self) -> int:
+        """How long to wait before the next collection.
+
+        R-F3924 — widens once GC is PROVEN ineffective on this process. Not a
+        cooldown guess: it is driven by the measured `freed_mb` of the collections
+        already performed. A remedy that has reclaimed nothing three times running
+        has demonstrated that the memory is live, and repeating it every 5 minutes
+        is a full heap walk bought for zero.
+        """
+        if self._ineffective_gc_runs >= self._GC_GIVE_UP_AFTER:
+            return self._GC_BACKOFF_INTERVAL_S
+        return self._GC_BASE_INTERVAL_S
+
+    def _note_gc_outcome(self, freed_mb: float) -> None:
+        """Record whether a collection actually reclaimed anything, and SAY SO once.
+
+        The transition is the news: a single honest signal when GC is established as
+        the wrong remedy, not a line every five minutes. §21a — it reaches the brain,
+        because "the memory is live, collection cannot help" is exactly what the
+        coder and the operator need to know instead of an endless `freed 0.0MB`.
+        """
+        if freed_mb >= self._GC_EFFECTIVE_MB:
+            self._ineffective_gc_runs = 0
+            return
+        self._ineffective_gc_runs += 1
+        if self._ineffective_gc_runs != self._GC_GIVE_UP_AFTER:
+            return          # announce the transition once, not every cycle
+        logger.warning(
+            "[memory_leak_detector] R-F3924 — GC reclaimed <%.1fMB on %d consecutive "
+            "runs; the memory is LIVE, not garbage. Backing off to %ds. Collection is "
+            "not the remedy here — read the subsystem census on the leak signal.",
+            self._GC_EFFECTIVE_MB, self._ineffective_gc_runs,
+            self._GC_BACKOFF_INTERVAL_S,
+        )
+        try:
+            wire_failure(
+                module="memory_leak_detector",
+                detail=(
+                    f"GC ineffective {self._ineffective_gc_runs}x consecutively at "
+                    f"RSS above {_THRESHOLD_MB}MB — the retained memory is reachable, "
+                    f"so collection cannot reclaim it. Backed off to "
+                    f"{self._GC_BACKOFF_INTERVAL_S}s. The fix is to find what holds "
+                    f"the references (see the subsystem census on the leak gap), not "
+                    f"to collect more often."
+                ),
+                gap_type="performance",
+                source="memory_leak_detector:_note_gc_outcome",
+            )
+        except Exception:      # pragma: no cover - telemetry never blocks the loop
+            pass
 
     async def run_forever(self) -> None:
         """Sample memory and analyse growth continuously."""
@@ -115,7 +175,8 @@ class MemoryLeakDetector:
                 # Check threshold — trigger GC if over
                 if rss > self.threshold_bytes and rss > 0:
                     elapsed_since_gc = now - self._last_gc_at
-                    if elapsed_since_gc > 300:  # Don't GC more than once per 5min
+                    # R-F3924 — the interval widens once GC is proven ineffective.
+                    if elapsed_since_gc > self._gc_interval_s():
                         logger.warning(
                             "[memory_leak_detector] RSS %.1fMB exceeds threshold %dMB — triggering GC",
                             snapshot["rss_mb"], _THRESHOLD_MB,
@@ -139,7 +200,12 @@ class MemoryLeakDetector:
                         except Exception:
                             pass
 
-                        gc.collect()
+                        # R-F3924 — OFF THE EVENT LOOP. A full gc.collect() walks
+                        # every tracked object; at 6.7GB live that is exactly the
+                        # traversal R-F3920 refused to add to this same loop, and the
+                        # starvation class R-F2144/R-F2200 already paid for. It ran
+                        # synchronously here every 5 minutes.
+                        await asyncio.to_thread(gc.collect)
                         self._last_gc_at = now
 
                         # Sample again after GC to see if it helped
@@ -149,6 +215,15 @@ class MemoryLeakDetector:
                             "[memory_leak_detector] GC freed %.1fMB (RSS: %.1fMB → %.1fMB)",
                             freed_mb, snapshot["rss_mb"], rss_after / (1024 * 1024) if rss_after else 0,
                         )
+                        # R-F3924 — STOP PAYING FOR A REMEDY THAT MEASURABLY DOES
+                        # NOT WORK. `GC freed 0.0MB` means the memory is LIVE —
+                        # reachable state — so collection cannot reclaim it by
+                        # construction. R-F1332 recorded this exact symptom at
+                        # 2588.4MB and added torch-cache clearing; live 2026-08-12 it
+                        # is back at 6690MB, freeing 0.0MB every pass. Repeating a
+                        # proven no-op forever is the band-aid §1 forbids, and it is
+                        # not free: it is a full heap walk every 5 minutes.
+                        self._note_gc_outcome(freed_mb)
 
                 # Analyse growth every 10 samples
                 if len(self.snapshots) >= 10 and len(self.snapshots) % 10 == 0:
