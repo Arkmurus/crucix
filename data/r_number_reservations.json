@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3933,
+  "next_available": 3935,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33213,68 +33213,94 @@
       "title": "C-38 findings 5+7: extract the real URL instead of reconstructing one from a registrable domain",
       "claimed_at": "2026-08-12T10:31:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36b2372b",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:32Z"
     },
     {
       "r_number": "R-F3926",
       "title": "C-38 findings 2+3: M3 poisons its own input and latches red; M4 discards the one check it can make",
       "claimed_at": "2026-08-12T10:33:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36b2372b",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:32Z"
     },
     {
       "r_number": "R-F3927",
       "title": "C-38 findings 1+8: a failed scan reported scan_complete, and the keyspace was read twice per request",
       "claimed_at": "2026-08-12T10:38:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36b2372b",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:32Z"
     },
     {
       "r_number": "R-F3928",
       "title": "R-F3919 stole check_and_increment_rate's fail_wire decorator - the R-F3842 class",
       "claimed_at": "2026-08-12T10:43:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "58e535e8",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:03Z"
     },
     {
       "r_number": "R-F3929",
       "title": "C-38 findings 4+9: unconfigured feeds read as degraded 0%, and retired feeds resurrected by the name union",
       "claimed_at": "2026-08-12T10:46:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36b2372b",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:32Z"
     },
     {
       "r_number": "R-F3930",
       "title": "process memory + subsystem census not queryable - diagnosis only on threshold crossing",
       "claimed_at": "2026-08-12T10:52:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "58e535e8",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:04Z"
     },
     {
       "r_number": "R-F3931",
       "title": "C-38 findings 6+10: phantom contract dependency and the unfixed pre-push interpreter resolution",
       "claimed_at": "2026-08-12T10:54:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36b2372b",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:12:32Z"
     },
     {
       "r_number": "R-F3932",
       "title": "census reports an unhydrated knowledge cache as facts=0",
       "claimed_at": "2026-08-12T11:05:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a1d0dd8",
+      "notes": null,
+      "shipped_at": "2026-08-12T11:19:15Z"
+    },
+    {
+      "r_number": "R-F3933",
+      "title": "C-36 follow-through: the page never rendered signal_direction/metric_note, so the operator still read a one-way counter as reliability",
+      "claimed_at": "2026-08-12T11:17:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3934",
+      "title": "C-37: brain/stats success_rate cannot distinguish a failure-only module from one failing every call",
+      "claimed_at": "2026-08-12T11:21:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

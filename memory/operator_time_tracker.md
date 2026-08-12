@@ -1037,3 +1037,57 @@ and every previous attempt here (R-F1332, R-F1435) did exactly that and did not 
 **Next session should:** read the leak gap once RSS crosses 6144MB again — it will
 now carry `Subsystem sizes (delta since last detection): facts=… topic_index=…
 content_index=… asyncio_tasks=…` and name the growth directly.
+
+---
+
+## Session 2026-08-12 (cont.) — CI regression caught, and the leak finally diagnosable
+
+**4 R-numbers** — R-F3928, R-F3930, R-F3932 (live at `6a1d0dd8`), plus the R-F3924
+follow-through. Two were defects in my OWN work from earlier the same day.
+
+**R-F3928 — I stole a decorator, and CI's gate A caught it.** R-F3919 inserted
+`release_rate_slot` immediately above `check_and_increment_rate`; the edit anchored
+on the `async def` rather than the decorator above it, so the pre-existing
+`@fail_wire` moved to the NEW function and `check_and_increment_rate` was silently
+un-wired. Bisected: gate A returns `[]` at `18694be3~1`, the violation at `18694be3`.
+**This is §16's R-F3842 defect reproduced verbatim** ("three wiring-gate failures
+caused by my own stolen-decorator defect"), which is exactly why that gate must never
+be muted or baselined. A decorator theft is invisible in review — both functions look
+decorated — and it un-wires a path that WAS wired, so the module reports health it no
+longer measures. A test now pins the CLASS: every public async function in safety.py
+must be wired or HARD_EXEMPT. **Rule recorded at the call site: when inserting a
+function above another, anchor on the DECORATOR, not the `def`.**
+
+**R-F3930 — "what is my memory doing?" had no answer on demand.** The detector's
+findings were reachable only by waiting for RSS to cross 6144MB. After the deploy
+restart (RSS 4792MB) the diagnosis was unavailable for HOURS and a session could not
+tell "healthy" from "not yet measured". Extended `/api/aria/memory/health` (an
+existing, already-wired endpoint — no new route to go dark) with process RSS, the
+subsystem census, and a delta since the previous call.
+
+**R-F3932 — and the very first live reading exposed a defect in that new code.** It
+returned `facts: 0` at 2552MB, because `(_cache or {})` collapsed an UNHYDRATED cache
+into the same 0 as an empty one. The absence-reads-as-a-measurement defect, inside
+the diagnostic built to surface it, one hour after shipping. `None` now means NOT
+LOADED, `0` means MEASURED AND EMPTY. **This mattered enormously**: acting on
+`facts: 0` would have concluded knowledge was not the consumer and sent the whole
+investigation the wrong way.
+
+**THE LEAK, FINALLY MEASURED** (two live readings, 45s apart, post-hydration):
+
+    rss_mb:        5325.0 -> 5227.4      (DOWN 98MB)
+    facts:         499,812  (delta 0)
+    topic_index:   499,812  (delta 0)
+    content_index: 472,221  (delta 0)
+    asyncio_tasks: 106 -> 81 (delta -25)
+
+**~500k facts across three in-memory structures (~1.47M entries) is the dominant
+consumer.** Over this window it did not grow and RSS actually FELL — so this is not a
+runaway leak; it is a large, intended working set (§7: no TTL, no eviction, ARIA does
+not forget). The earlier 115MB/interval was growth toward that steady state, not
+unbounded escape.
+
+**Left for the next session, with evidence rather than a hunch:** whether §7's
+"overflow → cold storage" is actually offloading, given ~500k facts resident. The
+instrument now attributes any future growth episode automatically — no waiting on a
+threshold, no guessing.
