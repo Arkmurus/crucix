@@ -992,3 +992,48 @@ guard exists to catch.
 **Verified pre-existing, not mine:** `coder_demo_seeded_defect::test_clamps_above_100`
 and `rf851_constitution_no_autodeploy` fail identically on clean origin/main without
 my change (checked in a separate worktree).
+
+---
+
+## Session 2026-08-12 (cont.) — the memory thread, followed to its evidence
+
+**R-F3924 shipped** (`5d407376`, live). The plan was "run another monitor, let
+R-F3920's census name the growing subsystem, fix that". The monitor answered a
+different and better question first.
+
+**WHAT THE WATCH ACTUALLY FOUND: nothing fired for 30 minutes.** Probed directly —
+`python 4792MB`. The deploy had restarted the process, and RSS was BELOW the 6144MB
+threshold, so no detection could occur. That is itself the cleanest measurement of
+the session:
+
+    fresh process (post-restart) : 4792 MB
+    before the restart          : 6690 MB
+    -> ~1.9 GB accumulated over a process lifetime
+
+Also worth recording: the box is **16GB with 10.9GB available**. 6.7GB is not an
+imminent OOM. This was never a fire — which matters, because it means the right move
+was instrumentation, not an emergency prune (§7 forbids eviction anyway).
+
+**R-F3924 — the remedy was worse than the disease, twice over.**
+    RSS 6690.5MB exceeds threshold 6144MB — triggering GC
+    GC freed 0.0MB (RSS: 6690.5MB → 6690.5MB)
+  1. `gc.collect()` ran SYNCHRONOUSLY ON THE MONITORING LOOP. A full collection walks
+     every tracked object; at 6.7GB that is exactly the traversal R-F3920 refused to
+     add to this same loop hours earlier, and exactly the R-F2144/R-F2200 starvation
+     class. Every 5 minutes. Now `asyncio.to_thread`.
+  2. It kept paying for a remedy that MEASURABLY does not work. `freed 0.0MB` means
+     the memory is LIVE — reachable — so collection cannot reclaim it by
+     construction. **R-F1332 recorded this exact symptom at 2588.4MB** and added
+     torch-cache clearing; it is back at 6690MB, 2.6x the RSS. Backoff is now driven
+     by the measured `freed_mb`, resets the moment a collection works (a latch would
+     be the stale-forever class), and announces the transition ONCE to the brain.
+
+**HONEST STATE OF THE LEAK ITSELF: not yet diagnosed, and deliberately not guessed.**
+R-F3920's census fires on the next threshold crossing, which is hours away at the
+observed rate. The instrumentation is deployed and wired; the answer arrives on the
+process's schedule, not mine. §1 forbids picking a cache to blame without evidence,
+and every previous attempt here (R-F1332, R-F1435) did exactly that and did not hold.
+
+**Next session should:** read the leak gap once RSS crosses 6144MB again — it will
+now carry `Subsystem sizes (delta since last detection): facts=… topic_index=…
+content_index=… asyncio_tasks=…` and name the growth directly.

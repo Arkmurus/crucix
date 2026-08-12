@@ -33203,9 +33203,10 @@
       "title": "gc.collect on the event loop at 6.7GB, freeing 0.0MB every time for two R-numbers",
       "claimed_at": "2026-08-12T09:26:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5d407376",
+      "notes": null,
+      "shipped_at": "2026-08-12T10:04:04Z"
     }
   ]
 }
