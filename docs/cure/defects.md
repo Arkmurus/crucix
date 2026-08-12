@@ -2727,3 +2727,16 @@ marks the entries whose rate carries no information and points the reader at
 `fail`/`total`, which do. Purely additive — `success_rate` stays a number and every
 existing field is untouched, pinned by a test. A module with zero signals is
 deliberately NOT flagged: that would be inventing a claim about an absence.
+
+
+**C-37 residual (R-F3936) — the same defect at the other end of the expression.**
+Found LIVE minutes after the C-37 deploy, in the verification output itself:
+`deploy` reported `success_rate: 0.0, fail: 0, total: 1`. `success_rate` falls back
+to `0` when `total - skip == 0` — there is nothing to divide — so a module whose only
+signals were SKIPS reads exactly like one that failed every call.
+`only_failures_recorded` does not cover it (there are no failures), and folding it in
+would make that flag lie. It has its own flag, `no_measurable_signals`, again purely
+additive: `success_rate` stays numeric because this module's own tests pin it.
+
+Worth recording that the residual surfaced from *reading the live verification output*
+rather than from the tests — the same way most of this sweep's real findings did.

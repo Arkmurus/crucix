@@ -366,10 +366,11 @@
       "claimed_by": "claude",
       "status": "closed",
       "r_numbers": [
-        "R-F3934"
+        "R-F3934",
+        "R-F3936"
       ],
       "notes": null,
-      "closed_at": "2026-08-12T11:34:34Z"
+      "closed_at": "2026-08-12T11:54:35Z"
     },
     {
       "c_number": "C-38",

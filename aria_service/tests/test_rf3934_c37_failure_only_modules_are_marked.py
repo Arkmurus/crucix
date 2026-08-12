@@ -131,3 +131,47 @@ async def test_the_flag_is_additive_and_breaks_no_existing_field(monkeypatch) ->
     for field in ("total", "success", "fail", "skip", "success_rate", "status"):
         assert field in entry, f"{field} disappeared from the module entry"
     assert isinstance(entry["success_rate"], (int, float))
+
+
+@pytest.mark.asyncio
+async def test_a_module_with_only_skips_is_marked_unmeasurable(monkeypatch) -> None:
+    """C-37 RESIDUAL (R-F3936) — the same defect at the other end of the expression.
+
+    `success_rate` falls back to `0` when `total - skip == 0`, i.e. when there is
+    nothing to divide. Found LIVE after the C-37 deploy: `deploy` reported
+    `success_rate: 0.0, fail: 0, total: 1` — neither a failure nor a rate, yet
+    indistinguishable from a module that failed every call.
+
+    `only_failures_recorded` does not cover it (there are no failures), so it needs
+    its own flag rather than being quietly folded into one that would then be lying.
+    """
+    fake = {
+        "all_skipped": {"total": 3, "success": 0, "fail": 0, "skip": 3,
+                        "last_signal_at": 1_780_000_000},
+        "_global": {},
+    }
+    _with_stats(monkeypatch, fake)
+
+    entry = _module_entry(await brain_hook.get_stats(), "all_skipped")
+    assert entry["success_rate"] == 0
+    assert entry["no_measurable_signals"] is True, (
+        "a rate computed from an empty denominator was published as a measurement"
+    )
+    assert entry["only_failures_recorded"] is False, (
+        "there were no failures - do not mislabel skips as failures"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_measured_module_is_not_marked_unmeasurable(monkeypatch) -> None:
+    """The flag must be able to be False, or it carries no information."""
+    fake = {
+        "real": {"total": 5, "success": 4, "fail": 1, "skip": 0,
+                 "last_signal_at": 1_780_000_000},
+        "_global": {},
+    }
+    _with_stats(monkeypatch, fake)
+
+    entry = _module_entry(await brain_hook.get_stats(), "real")
+    assert entry["no_measurable_signals"] is False
+    assert entry["success_rate"] == 0.8

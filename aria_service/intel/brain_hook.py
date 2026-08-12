@@ -2097,6 +2097,16 @@ async def get_stats() -> dict:
             "only_failures_recorded": (
                 val.get("success", 0) == 0 and val.get("fail", 0) > 0
             ),
+            # C-37 residual (R-F3936) — the SAME defect at the other end of the
+            # expression. `success_rate` falls back to `0` when `total - skip == 0`,
+            # i.e. when there is nothing to divide: a module whose only signals were
+            # SKIPS reports 0.0 exactly like one that failed every call. Found live —
+            # `deploy` read `success_rate: 0.0, fail: 0, total: 1`, which is neither a
+            # failure nor a rate. Flagged rather than changing `success_rate`'s type,
+            # which is a published field this module's own tests pin as numeric.
+            "no_measurable_signals": (
+                (val.get("total", 0) - val.get("skip", 0)) <= 0
+            ),
             "last_signal_ago_h": round(hours_ago, 1) if hours_ago is not None else None,
             "status": status,
         }
