@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3944,
+  "next_available": 3945,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33395,6 +33395,15 @@
       "commit_sha": "3f791641",
       "notes": null,
       "shipped_at": "2026-08-12T16:48:47Z"
+    },
+    {
+      "r_number": "R-F3944",
+      "title": "R-F3942/3943 shipped two dark public helpers; gate A caught them after the deploy",
+      "claimed_at": "2026-08-12T17:01:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

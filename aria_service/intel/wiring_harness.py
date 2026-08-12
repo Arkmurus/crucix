@@ -295,6 +295,13 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     },
     "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
                     "is_configured": "@property — config check",
+                    # R-F3942 — MERGED into this entry, never a second "fallback.py"
+                    # key (exactly the hazard the R-F3429 note just below describes).
+                    # This function IS the reporter: it reads env, decides whether
+                    # Rule One is breached, and emits its own wire_failure on the
+                    # breach branch. Wrapping it in @fail_wire would nest a failure
+                    # wire inside the function whose whole job is to emit one.
+                    "rule_one_status": "IS the §21a reporter — emits its own wire_failure (R-F3942)",
                     # R-F3429 — accessors, MERGED into this entry rather than given
                     # their own "fallback.py" key: a duplicate dict key silently keeps
                     # the LAST one, which would have discarded the stream and
@@ -373,6 +380,10 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         # R-F3429 — merged, not a second key (see the fallback.py note above).
         "default_deepseek_model": "env read with a literal default",
         "backup_deepseek_model": "env read with a literal default (R-F3035)",
+        # R-F3943 — MERGED, same category as its two neighbours above: a bool env
+        # read with a literal default, no I/O, total over its input. It gates the
+        # second DeepSeek chain slot (default off).
+        "deepseek_backup_enabled": "env read with a literal default (R-F3943)",
     },
     # R-F1792 — @property accessors. Wrapping a property changes its semantics
     # and these are trivial computed accessors, not failure paths (reasoned
