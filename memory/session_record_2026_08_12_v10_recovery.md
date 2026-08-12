@@ -24,3 +24,22 @@ Lesson: a safety control is not armed because the command returned a token, and
 a paid resource is not stopped because a stop request was sent. Both claims
 require state read-back. A recovered adapter that fails calibration is evidence,
 not a continuation parent.
+
+## Closed continuation boundary
+
+**Resume trigger: `CITATION-PHOENIX`**
+
+When the operator sends that exact phrase, continue from this boundary:
+
+1. Do not rerun or promote the rejected v10 calibration child.
+2. Treat the 24/30 diagnostic as the live learning target: unsupported citation
+   identifiers on adverse/news-impact/person, especially `brain_hook:web_search`,
+   invented dates, and URLs absent from tool payloads.
+3. Build the next intervention from genuine train-split model failures, preserve
+   the unchanged calibration and n=168 held-out gates, and run strict
+   contamination/cost/push checks before any GPU spend.
+4. Re-probe RunPod state and current repository HEAD at resume time; this record
+   is a pointer, not a live-status claim.
+
+Session closed after commit `5920ce8b`, with both observed pods verified
+`EXITED` and no candidate promoted.
