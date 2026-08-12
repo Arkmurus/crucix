@@ -33065,9 +33065,10 @@
       "title": "repair tooluse citation and contradiction contracts",
       "claimed_at": "2026-08-12T06:19:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fcbd00b9",
+      "notes": null,
+      "shipped_at": "2026-08-12T06:44:59Z"
     },
     {
       "r_number": "R-F3911",
