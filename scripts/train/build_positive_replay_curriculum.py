@@ -13,7 +13,14 @@ from collections import Counter
 from pathlib import Path
 
 from scripts.train.build_mixed_tooluse_cycle import ALL_AXES
-from scripts.train.build_tooluse_corpus import _norm_subject
+from scripts.train.build_tooluse_corpus import (
+    _CLEAN_DENIAL_RE,
+    _CLEAN_VERDICT_RE,
+    _CITATION_SOURCES_KEY,
+    _citation_tokens,
+    _norm_subject,
+    apply_citation_source_contract,
+)
 
 _CITATION = re.compile(r"\[from ([^\]]+)\]")
 
@@ -35,11 +42,31 @@ def _final_answer(row: dict) -> str:
 def validate_reference_contract(row: dict) -> None:
     """Reject the two output-contract failures observed in the v6 child."""
     answer = _final_answer(row)
+    citeable: set[str] = set()
+    has_explicit_contract = False
+    for message in row.get("messages") or []:
+        if message.get("role") != "tool":
+            continue
+        try:
+            payload = json.loads(message.get("content") or "{}")
+        except (TypeError, ValueError):
+            continue
+        explicit = payload.get(_CITATION_SOURCES_KEY)
+        if isinstance(explicit, list):
+            has_explicit_contract = True
+            citeable |= {str(source).strip().casefold() for source in explicit}
     for citation in _CITATION.findall(answer):
-        if citation.startswith(("memory:", "aria_search")) or "credibility" in citation:
-            raise ValueError(f"invalid citation token: {citation}")
+        for token in _citation_tokens(citation):
+            normal = token.casefold()
+            if normal.startswith(("memory:", "aria_search")) or "credibility" in normal:
+                raise ValueError(f"invalid citation token: {token}")
+            if has_explicit_contract and normal not in citeable:
+                raise ValueError(f"citation is absent from citation_sources: {token}")
     label = str(row.get("label") or "")
     subject = str(row.get("subject") or "").strip()
+    if label == "tooluse_contradiction" and _CLEAN_VERDICT_RE.search(answer) \
+            and not _CLEAN_DENIAL_RE.search(answer):
+        raise ValueError("contradiction answer asserts a CLEAN verdict")
     if label == "tooluse_multihop" and subject.casefold() not in answer.casefold():
         raise ValueError(f"multihop answer omits subject: {subject}")
 
@@ -49,7 +76,7 @@ def build_replay_curriculum(parent: list[dict], delta: list[dict],
     """Return complete parent replay followed by the positive delta."""
     if not parent or not delta:
         raise ValueError("parent and delta curricula must both be non-empty")
-    rows = [*parent, *delta]
+    rows = [apply_citation_source_contract(row) for row in (*parent, *delta)]
     contaminated = sorted({str(row.get("subject") or "") for row in rows
                            if _norm_subject(str(row.get("subject") or "")) in forbidden_entities})
     if contaminated:
@@ -70,6 +97,8 @@ def build_replay_curriculum(parent: list[dict], delta: list[dict],
         "total_axis_counts": dict(sorted(total_axes.items())),
         "all_axes_retained": True,
         "dpo_rows": 0,
+        "citation_source_contract": "explicit_allowlist_v1",
+        "contradiction_contract": "no_match_is_not_clean_v1",
     }
     return rows, manifest
 

@@ -153,9 +153,11 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Call the tool that can establish the fact. Do not answer a screening "
     "question without screening.\n"
-    "2. Cite a claim inline as [from <source>] whenever the tool returned a source "
-    "for it: an outlet domain (reuters.com), a sanctions list (ofac_sdn), or a "
-    "registry record (companies_house:07524813).\n"
+    "2. Tool results expose citeable identifiers only in `citation_sources`. Cite "
+    "a claim inline as [from <source>] using an EXACT identifier from that list: "
+    "an outlet domain (reuters.com), a sanctions list (ofac_sdn), or a registry "
+    "record (companies_house:07524813). Other fields are payload metadata, not "
+    "sources.\n"
     "3. NEVER cite a tool name. The tool is HOW you looked; it is not a source. "
     "If the tool returned no source identifier - a clean screen names no lists - "
     "state what the tool returned and cite nothing, rather than inventing one.\n"
@@ -166,6 +168,7 @@ SYSTEM_PROMPT = (
 # `[from <source>]` — the established citation contract (see the memory note that
 # this suffix on Finding.source is load-bearing; consumers parse it).
 _CITE_RE = re.compile(r"\[from ([^\]]+)\]")
+_CITATION_SOURCES_KEY = "citation_sources"
 
 
 def _citation_tokens(citation: str) -> list[str]:
@@ -307,6 +310,52 @@ def _sources_in(payload: dict) -> set[str]:
             if isinstance(v, str) and v.strip():
                 out.add(v.strip())
     return out
+
+
+def _payload_with_citation_sources(payload: Any, tool_name: str) -> dict:
+    """Return a tool payload with a machine-readable citation allowlist.
+
+    Search payloads also contain fields such as ``source=aria_search`` and
+    ``credibility_tier``. Those describe retrieval mechanics; they are not
+    evidence identities. Keeping the allowlist in a dedicated field prevents
+    a model from having to infer which source-shaped payload token is citeable.
+    """
+    out = dict(payload) if isinstance(payload, dict) else {}
+    citeable: set[str] = set()
+    if tool_name == "web_search":
+        citeable = _independent_sources(out)
+    elif tool_name == "screen":
+        citeable = _sources_in(out)
+    elif tool_name in {"companies_house_search", "companies_house_officers"}:
+        numbers = {str(out.get("company_number") or "").strip()}
+        numbers |= {
+            str(result.get("company_number") or "").strip()
+            for result in (out.get("results") or []) if isinstance(result, dict)
+        }
+        citeable = {f"companies_house:{number}" for number in numbers if number}
+    out[_CITATION_SOURCES_KEY] = sorted(citeable)
+    return out
+
+
+def apply_citation_source_contract(trace: dict) -> dict:
+    """Copy a trace and annotate every JSON tool result with citation sources."""
+    copied = dict(trace)
+    copied["messages"] = [dict(message) for message in trace.get("messages") or []]
+    for message in copied["messages"]:
+        if message.get("role") == "system":
+            message["content"] = SYSTEM_PROMPT
+            continue
+        if message.get("role") != "tool":
+            continue
+        try:
+            payload = json.loads(message.get("content") or "{}")
+        except (TypeError, ValueError):
+            continue
+        message["content"] = json.dumps(
+            _payload_with_citation_sources(payload, str(message.get("name") or "")),
+            ensure_ascii=False,
+        )
+    return copied
 
 
 def _registry_cite(number: object) -> str:
@@ -602,6 +651,10 @@ def validate_trace(trace: Any) -> list[str]:
                 errs.append("tool content is not valid JSON — the model cannot learn to read it")
     allowed: set[str] = set()
     for p in payloads:
+        explicit = p.get(_CITATION_SOURCES_KEY)
+        if isinstance(explicit, list):
+            allowed |= {str(source).strip() for source in explicit if str(source).strip()}
+            continue
         allowed |= _sources_in(p)
         # R-F3374 — a retrieval payload's citable sources are the OUTLETS it
         # returned, not sanctions list names. Without this the generic rule
@@ -776,12 +829,13 @@ def validate_trace(trace: Any) -> list[str]:
                 "asserted a CLEAN verdict while the search returned adverse coverage — "
                 "a no-match screen answers 'not on the lists I checked', never 'not a problem'"
             )
-        for cited in _CITE_RE.findall(final):
-            if cited.strip() not in indep:
-                errs.append(
-                    f"cites outlet {cited.strip()!r}, which the search did not return "
-                    f"(available: {sorted(indep) or 'none'})"
-                )
+        for citation in _CITE_RE.findall(final):
+            for cited in _citation_tokens(citation):
+                if _norm_cite(cited) not in {_norm_cite(source) for source in indep}:
+                    errs.append(
+                        f"cites outlet {cited!r}, which the search did not return "
+                        f"(available: {sorted(indep) or 'none'})"
+                    )
         # An outlet can also be smuggled in as PROSE ("Bloomberg reports…"), which
         # carries no `[from …]` marker and so slips past the citation check while
         # reading to a human exactly like a citation. Domain-shaped tokens are
@@ -1811,6 +1865,8 @@ def write_rows_guarded(
     legitimately remove rows and blocking those would train people to pass
     --allow-shrink reflexively, which disarms the guard that matters.
     """
+    rows = [apply_citation_source_contract(row) if row.get("messages") else row
+            for row in rows]
     out.parent.mkdir(parents=True, exist_ok=True)
     prior = 0
     if out.exists():
