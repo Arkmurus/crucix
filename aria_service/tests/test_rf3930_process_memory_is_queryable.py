@@ -87,3 +87,47 @@ def test_the_endpoint_reports_process_memory_and_cannot_break_the_store_report()
     assert "except Exception" in src, (
         "a diagnostics failure must not break the store report this endpoint "
         "already provides")
+
+
+# ── R-F3932: not-loaded is not empty ───────────────────────────────────────────
+
+def test_an_unhydrated_cache_reports_none_not_zero(monkeypatch):
+    """THE DEFECT, caught on the first live reading of this very report: `facts: 0`
+    at 2552MB on a freshly booted process, because `(_cache or {})` collapsed an
+    UNHYDRATED cache into the same 0 as an empty one.
+
+    It matters concretely — "2.5GB with zero facts" invites the conclusion that
+    knowledge is not the consumer, when it may simply not have loaded yet. A wrong
+    cause pointing at a wrong fix."""
+    import aria_service.intel.knowledge as k
+
+    monkeypatch.setattr(k, "_cache", None, raising=False)
+    assert mld.subsystem_census()["facts"] is None, (
+        "an unhydrated knowledge cache must report None, not 0 (R-F3932)")
+
+    monkeypatch.setattr(k, "_cache", {"facts": []}, raising=False)
+    assert mld.subsystem_census()["facts"] == 0, (
+        "a genuinely empty cache must report 0 — the distinction is the point")
+
+    monkeypatch.setattr(k, "_cache", {"facts": [1, 2, 3]}, raising=False)
+    assert mld.subsystem_census()["facts"] == 3
+
+
+def test_the_delta_skips_subsystems_that_were_not_loaded(monkeypatch):
+    """Subtracting against None would crash or invent a number; both are worse than
+    reporting the pair as not comparable."""
+    import aria_service.intel.knowledge as k
+
+    mld._LAST_REPORT_CENSUS = {}
+    monkeypatch.setattr(k, "_cache", None, raising=False)
+    mld.process_memory_report()                     # prime with facts=None
+
+    monkeypatch.setattr(k, "_cache", {"facts": [1]}, raising=False)
+    r = mld.process_memory_report()                 # must not raise
+    delta = r["subsystems_delta_since_last_call"]
+    assert isinstance(delta, dict)
+    assert "facts" not in delta, "None -> int is not a comparable delta"
+    # ...and the comparable ones survive. (asyncio_tasks is absent here because
+    # asyncio.all_tasks() raises outside a running loop, so that probe is correctly
+    # omitted rather than reported as a number it could not obtain.)
+    assert "topic_index" in delta, "comparable subsystems must still be reported"

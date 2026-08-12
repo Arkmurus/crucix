@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "next_available": 3933,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33269,7 +33270,15 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3932",
+      "title": "census reports an unhydrated knowledge cache as facts=0",
+      "claimed_at": "2026-08-12T11:05:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
-  ],
-  "next_available": 3932
+  ]
 }

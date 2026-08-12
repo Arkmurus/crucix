@@ -70,26 +70,40 @@ def _get_rss_bytes() -> int:
 _LAST_REPORT_CENSUS: dict[str, int] = {}
 
 
-def subsystem_census() -> dict[str, int]:
+def subsystem_census() -> dict[str, int | None]:
     """Current sizes of ARIA's known in-memory growth candidates.
 
     Bounded len() probes only — see `_subsystem_census_delta` for why this must never
     walk the object graph on a 6.7GB heap. Each probe is individually guarded so one
     unavailable subsystem cannot blind the rest.
+
+    R-F3932 — `None` MEANS NOT LOADED; `0` MEANS MEASURED AND EMPTY. The first live
+    reading of this report returned `facts: 0` at 2552MB RSS on a freshly booted
+    process, because the probe was `len((_k._cache or {}).get("facts", []))` — an
+    UNHYDRATED cache (`_cache is None`, knowledge not yet read from disk) collapsed
+    into the same 0 as a genuinely empty one.
+
+    That is the absence-reads-as-a-measurement defect this whole detector exists to
+    surface, reproduced inside its own diagnostic an hour after it shipped. It
+    matters concretely: "2.5GB with zero facts" invites the conclusion that knowledge
+    is not the memory consumer, when the truth may simply be that it has not loaded
+    yet — a wrong cause pointing at a wrong fix.
     """
-    out: dict[str, int] = {}
+    out: dict[str, int | None] = {}
 
     def _probe(name, fn):
         try:
             v = fn()
-            if isinstance(v, int):
-                out[name] = v
+            # None is a REPORTED value ("not loaded"), not a dropped probe.
+            out[name] = v if (v is None or isinstance(v, int)) else None
         except Exception:
-            pass
+            pass          # a raising probe is genuinely unmeasurable — omit it
 
     def _facts():
         from . import knowledge as _k
-        return len((_k._cache or {}).get("facts", []))
+        if _k._cache is None:
+            return None       # not hydrated yet — NOT the same as empty
+        return len(_k._cache.get("facts", []))
 
     def _topic():
         from . import knowledge as _k
@@ -130,7 +144,11 @@ def process_memory_report() -> dict[str, Any]:
     rss = _get_rss_bytes()
     census = subsystem_census()
     prev, _LAST_REPORT_CENSUS = _LAST_REPORT_CENSUS, dict(census)
-    delta = ({k: v - prev[k] for k, v in census.items() if k in prev}
+    # R-F3932 — a subsystem that was NOT LOADED on either reading has no delta.
+    # Subtracting against None would either crash or invent a number; both are worse
+    # than saying "not comparable".
+    delta = ({k: v - prev[k] for k, v in census.items()
+              if k in prev and isinstance(v, int) and isinstance(prev[k], int)}
              if prev else None)
     rss_mb = round(rss / (1024 * 1024), 1) if rss else None
     return {
