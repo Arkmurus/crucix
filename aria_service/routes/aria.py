@@ -24512,9 +24512,25 @@ async def memory_query_ep(body: _MemoryQueryBody):
 async def memory_health_ep():
     """Which memory stores are currently reachable and how large they are.
     Closes the perimeter-visibility gap — ARIA's self-awareness stack
-    reads this to know when a store is unavailable."""
+    reads this to know when a store is unavailable.
+
+    R-F3930 — also reports PROCESS memory. The two are different things sharing a
+    name, and the process side had no surface at all: the leak detector's findings
+    were reachable only by waiting for RSS to cross its threshold and reading a log
+    line. After a deploy restart (RSS 4792MB, threshold 6144MB) the diagnosis was
+    unavailable for hours and a session could not tell "healthy" from "not yet
+    measured". Extending this endpoint rather than adding a new one keeps the answer
+    where someone looking for "memory health" will actually look — and no new route
+    ships dark (§21a).
+    """
     router_obj = _get_memory_router()
-    return {"stores": router_obj.health_check()}
+    out = {"stores": router_obj.health_check()}
+    try:
+        from ..intel.memory_leak_detector import process_memory_report
+        out["process"] = process_memory_report()
+    except Exception as e:      # never let diagnostics break the store report
+        out["process"] = {"error": f"unavailable: {e}"}
+    return out
 
 
 @router.post("/memory/classify")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3930,
+  "next_available": 3932,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33248,6 +33248,24 @@
       "r_number": "R-F3929",
       "title": "C-38 findings 4+9: unconfigured feeds read as degraded 0%, and retired feeds resurrected by the name union",
       "claimed_at": "2026-08-12T10:46:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3930",
+      "title": "process memory + subsystem census not queryable - diagnosis only on threshold crossing",
+      "claimed_at": "2026-08-12T10:52:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3931",
+      "title": "C-38 findings 6+10: phantom contract dependency and the unfixed pre-push interpreter resolution",
+      "claimed_at": "2026-08-12T10:54:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

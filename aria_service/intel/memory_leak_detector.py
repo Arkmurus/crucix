@@ -65,6 +65,89 @@ def _get_rss_bytes() -> int:
     return 0
 
 
+#: R-F3930 — module-level so the census is answerable WITHOUT the running detector
+#: instance. Absolute sizes are useful on their own; the delta needs a prior reading.
+_LAST_REPORT_CENSUS: dict[str, int] = {}
+
+
+def subsystem_census() -> dict[str, int]:
+    """Current sizes of ARIA's known in-memory growth candidates.
+
+    Bounded len() probes only — see `_subsystem_census_delta` for why this must never
+    walk the object graph on a 6.7GB heap. Each probe is individually guarded so one
+    unavailable subsystem cannot blind the rest.
+    """
+    out: dict[str, int] = {}
+
+    def _probe(name, fn):
+        try:
+            v = fn()
+            if isinstance(v, int):
+                out[name] = v
+        except Exception:
+            pass
+
+    def _facts():
+        from . import knowledge as _k
+        return len((_k._cache or {}).get("facts", []))
+
+    def _topic():
+        from . import knowledge as _k
+        return len(_k._topic_index)
+
+    def _content():
+        from . import knowledge as _k
+        return len(_k._content_index)
+
+    def _tasks():
+        return len(asyncio.all_tasks())
+
+    _probe("facts", _facts)
+    _probe("topic_index", _topic)
+    _probe("content_index", _content)
+    _probe("asyncio_tasks", _tasks)
+    return out
+
+
+def process_memory_report() -> dict[str, Any]:
+    """R-F3930 — ANSWER "what is my memory doing?" ON DEMAND.
+
+    THE GAP THIS CLOSES. The detector's findings were reachable only by waiting for
+    RSS to cross the threshold and reading a log line or a capability gap. Nothing
+    exposed `get_status()`, so after a deploy restart — RSS back down at 4792MB with
+    the threshold at 6144MB — the diagnosis was simply unavailable for hours, and a
+    session could not tell "healthy" from "not yet measured". That is the §25
+    proprioception rule applied to the process itself: ARIA must be able to answer
+    what her own memory is doing, not just be told when it is already bad.
+
+    Deliberately independent of the running detector instance (which lives on
+    self_healing): the probes are stateless, so plumbing a singleton through would
+    add coupling for nothing. The DELTA is against the previous CALL of this
+    function, and is absent on the first one rather than being reported as zero —
+    "no prior reading" and "no change" are different facts (§22).
+    """
+    global _LAST_REPORT_CENSUS
+    rss = _get_rss_bytes()
+    census = subsystem_census()
+    prev, _LAST_REPORT_CENSUS = _LAST_REPORT_CENSUS, dict(census)
+    delta = ({k: v - prev[k] for k, v in census.items() if k in prev}
+             if prev else None)
+    rss_mb = round(rss / (1024 * 1024), 1) if rss else None
+    return {
+        "rss_mb": rss_mb,
+        "threshold_mb": _THRESHOLD_MB,
+        # None when RSS is unreadable (non-Linux): "could not measure" is never
+        # "measured and fine" (§22).
+        "over_threshold": (None if rss_mb is None else rss_mb > _THRESHOLD_MB),
+        "subsystems": census,
+        "subsystems_delta_since_last_call": delta,
+        "note": (
+            "Bounded len() probes — never a heap walk (R-F3920). A delta of None "
+            "means this is the first reading, not that nothing changed."
+        ),
+    }
+
+
 class MemoryLeakDetector:
     """Detects and reports memory growth patterns.
 
