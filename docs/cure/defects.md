@@ -2529,3 +2529,42 @@ must arm itself automatically.
 This is the same family as the rest of the sweep — C-29 (absence read as health),
 C-30/C-31 (absence read as failure), C-34 (a guard that could not fail). Here, a number
 that cannot move was presented as a measurement that can.
+
+### C-37 · `brain/stats` cannot distinguish a failure-only module from one failing every call — **OPEN (found R-F3922 DD sweep, 2026-08-11)**
+
+Live on aria-intel, `GET /api/aria/brain/stats` reports eight modules at
+`success_rate: 0.0`:
+
+```
+health_precompute, deploy, llm_recovery_probe, autonomous_safety,
+llm_deepseek, llm_deepseek_backup, llm_chain_exhausted, search_searxng
+```
+
+`success_rate = success / (total - skip)`. For a module that only ever calls
+`wire_failure` and never `wire_success`, **every recorded signal is a failure by
+construction**, so the rate is structurally `0.0` whether it fired once or ten
+thousand times. Verified statically: `aria_service/llm/openai_compat.py` — the emitter
+for every `llm_*` module — contains **zero** `wire_success` calls, and
+`main.py::_health_precompute_loop` likewise wires only failures.
+
+The list is therefore **mixed**, and the surface gives the reader no way to tell which
+is which: `search_searxng` *does* have `wire_success` calls, so its `0.0` is a genuine
+measurement, while `llm_deepseek`'s `0.0` says nothing at all. An operator scanning this
+panel sees eight broken subsystems; several are simply failure-only reporters doing
+exactly what they were built to do.
+
+Same family as the rest of this sweep — C-29 (absence read as health), C-30/C-31
+(absence read as failure), C-36 (a number that cannot move sold as one that can). Here a
+rate that cannot vary is presented as a measured rate.
+
+**NOT fixed in this pass, deliberately.** The honest fix is not to guess from the data —
+"never succeeded" and "cannot succeed" are indistinguishable in the counters. The
+distinction is a **static** property of the module's wiring, and it is already computed:
+`wiring_monitor` **M1 audits wire_success/wire_failure balance across all intel modules**
+and knows which are failure-only. Reusing M1's output to mark such modules
+(`failure_only: true`, rate suppressed) is the correct fix and follows this session's
+repeated lesson — check for the existing measure before building a second one (C-29,
+C-33). It is deferred because it couples two live surfaces and this sweep had already
+shipped six fixes; it should not be written at the end of a long session.
+
+Until then: read `fail` and `total` on this panel, not `success_rate`.
