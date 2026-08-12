@@ -2197,3 +2197,49 @@ before this fix it could do neither.
 The `_cached_source` memoisation guard in `test_rf3580` followed the cache to
 `_read_source`, unchanged in intent (one read per path per process), plus a new
 assertion that the wrapper never opens files directly.
+
+### C-32 · The web_atlas reliability EMA is a ONE-WAY RATCHET — **OPEN, blocked on a policy decision (investigated R-F3909, 2026-08-11)**
+
+`web_atlas.record_correction(source_url, topic)` is the only negative reliability
+signal in the system and **has no caller anywhere in the tree**. Consequence: scores
+can only ever rise. `suspend_failing_sources`, which C-29 un-blinded, is therefore
+still unreachable in practice — not because it is broken now, but because nothing can
+ever push a family below the threshold. "Reliability" that cannot fall is a misnomer,
+and "never silently trust a failing source" remains unenforceable.
+
+**Why it is NOT being closed by wiring an existing signal.** Every contradiction
+signal in the tree was examined and **none attributes fault to a specific source**:
+
+- `deep_researcher` Rule B — two facts on the same topic disagree, so the fact is
+  downgraded to UNCERTAIN. Which source was *wrong* is never adjudicated. Penalising
+  both would punish the correct one; picking one would be arbitrary.
+- `deep_researcher` Rule C — an entity has CONTRADICTED past-verified facts. Again a
+  claim-level state, not a verdict about the source that carried it.
+- `dd_orchestrator` R-F3455 — the adverse-media **conclusion** is contradicted by the
+  report's own cited sources. Here the sources are RIGHT and ARIA's conclusion was
+  wrong; feeding this back as a source correction would invert the blame exactly.
+- `training_data.record_correction` — a user correcting ARIA's *response*. Carries no
+  source URL at all.
+
+Wiring any of these would **fabricate attribution**: recording a negative reliability
+judgement against a source that may well have been correct. Because the score feeds
+`suspend_failing_sources`, the concrete harm is auto-SUSPENDING a legitimate source
+with a fabricated `degradation_reason` — precisely the harm R-F3254 was written to
+stop, arriving by a new route. R-F2735's own docstring already reached this conclusion
+for `gate_demoted`: *"Penalising it would dishonestly mark correct regional press as
+unreliable for not being OFAC."* The same reasoning holds here.
+
+**The decision needed (operator/§21e escalation — this cannot be expressed as a Gap):**
+what counts as evidence that a SOURCE, rather than a claim, was wrong? Plausible
+candidates, none currently implemented:
+1. a source contradicted by a strictly higher tier (e.g. tier_2 contradicted by a
+   tier_1a registry) — the tier ordering supplies the adjudication the fact-level
+   signals lack;
+2. an explicit operator/analyst judgement on a report finding, carrying the URL;
+3. a source that goes 404/dead — but note this is already `source_uptime_monitor`'s
+   job, and conflating reachability with *accuracy* would repeat the C-31 error of
+   answering a different question than the one asked.
+
+Until one is chosen, the EMA should be read as **"confirmations accumulated"**, not as
+reliability, and nothing should be auto-suspended on it. Recorded here so the next
+session does not "fix" the ratchet by wiring the nearest available signal.
