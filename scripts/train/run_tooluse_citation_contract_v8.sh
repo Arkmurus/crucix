@@ -26,6 +26,7 @@ test "$(hash "$DPO")" = 9425cb41de48d4e54522663174fd34d2fd1042bc26c8fd5466a113e8
 test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
 
 FRESH_BASE=0 EXPECTED_DPO_PAIRS=53 \
+  HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   POD_RUNNER=scripts/train/pod_tooluse_sft_continue.sh \
   ADAPTER_LOCAL="$PARENT" ADAPTER_SHA256="$(hash "$PARENT")" \
   SFT_LOCAL="$SFT" SFT_SHA256="$(hash "$SFT")" \

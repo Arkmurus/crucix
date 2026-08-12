@@ -28,6 +28,7 @@ def test_v8_launch_pins_every_cpu_approved_input() -> None:
     ):
         assert expected in code
     assert code.count('test "$(hash') == 6
+    assert "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1" in code
 
 
 def test_v8_launch_uses_positive_only_runner_and_guarded_outputs() -> None:
