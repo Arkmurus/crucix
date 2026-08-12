@@ -359,6 +359,29 @@ Never report "done" for a code change without saying whether it actually reached
   python -c "from aria_service.intel.coding_rag_indexer import query_constitutional_constraints as q; print(chr(10).join('- ' + r['rule'] for r in q('modifying <module> <task>', top_k=5)))"
   ```
   **R-F2623:** `query_constitutional_constraints` is **SYNC** and returns `list[{rule, metadata}]` — the previous snippet here wrapped it in `asyncio.run(...)`, which raised `TypeError: An asyncio.Future, a coroutine or an awaitable is required` **every time**, so this binding step silently never ran. From an **async** context wrap it in `asyncio.to_thread()` (chromadb's `query()` blocks — see the function's own docstring), never `await` it directly.
+
+  ⚠️ **R-F3911 — THIS STEP HAS NOW FAILED SILENTLY THREE TIMES, ALL IN ONE FUNCTION.**
+  R-F2623 (TypeError, never ran) · R-F3099 (collection built but never populated from
+  the CLI, so it returned `[]` every session — its docstring calls that "a mandatory
+  step certified by an absence") · and **chromadb being absent entirely**, where
+  `_ensure()` is False and it returned `[]`, indistinguishable from "no rule applies".
+  **On win32/ARM64 there is NO chromadb wheel (§16), so the declared dev environment
+  CANNOT have it** — installing it would green one workstation and leave CI,
+  production and every other developer just as dark, which is the band-aid §1 forbids
+  applied to the very mechanism that exists to remind us of §1.
+  **The rules were never the missing piece:** `CONSTITUTIONAL_RULES` is a plain list
+  of 31 dicts already in the process; only the RANKING needed a vector store. An
+  unavailable or empty store now degrades to a lexical match over the real rules,
+  labelled `retrieval_mode: "lexical"`, `degraded: True`. **It never returns an empty
+  list because the store is missing** — only a present, working store that genuinely
+  matched nothing can do that.
+  Ask which mode served (do not infer it — the output looks the same either way):
+  ```python
+  python -c "from aria_service.intel.coding_rag_indexer import constitutional_retrieval_status as s; print(s())"
+  ```
+  `mode: lexical, degraded: True` is the **EXPECTED local reading on this box**, not a
+  fault to chase. Do not "fix" it by installing chromadb, and do not restore a bare
+  `return []` on the unavailable path.
   This is especially important when modifying a module I haven't touched before, or when the task involves deploy/wiring/safety-sensitive paths. The RAG also stores past fixes (`coding_fixes`) and failures (`coding_failures`) — query those too when the task is similar to a past fix.
 - **Open (Claude<->ARIA bridge — R-F1313, binding)**: a Claude session is the ONLY thing that services Claude's side of the bridge, and a fresh session does not remember the last one — so at session start ALWAYS run `python scripts/agent_bridge.py inbox` to read ARIA's queued messages, review them against live code, and reply via `... reply <id> "..."`. The mailbox + per-reader `_seen` state persist on disk across sessions (nothing is lost; only unread messages surface), but the polling must be re-initiated every session. Do this before picking up other work so ARIA is never left waiting across a session boundary. Channel charter: operator-owned, auditable, engineering-scoped (R-numbers/diffs/tests/build_rev); Claude reviews and surfaces to the operator.
 - **Open (deploy-sync — R-F1315/R-F1478, binding; UPDATED 2026-06-10)**: ARIA's autonomous `ci_deploy` **now reaches Fly and deploys successfully** — the earlier "CI path dead / stale `FLY_API_TOKEN`" premise is **RESOLVED**. VERIFIED 2026-06-10: while Claude manually deployed `b2beb5f5`, the live build_rev advanced `b2beb5f5`→`9cc42d8e` *via ARIA's own ci_deploy* (she commits as `Arkmurus` with a `deploy: … [deploy]` tag and the app actually advanced). So her pushed commits usually reach the server on their own; the session-start **manual deploy is now a FALLBACK, not the default.** Two consequences to handle: **(1)** her ci_deploy RACES a concurrent manual deploy and makes catch-all `git add -A` `[deploy]` commits that swept runtime files into git — **R-F1478** race-proofed the post-deploy health check (`live_health_check.py --expected-sha <the-sha-this-deploy-shipped>`, immune to her overwriting `.last_deploy_sha` mid-deploy — without it every manual deploy false-failed, cry-wolf) and gitignored the artifacts she was sweeping in (`data/*.db`, `data/_*.md`); an open Gap tasks ARIA to **scope her ci_deploy commits** (no blanket `git add -A`). **(2)** Still verify sync at session start: `git fetch origin`, compare `git rev-parse --short origin/main` to the live build_rev (`curl https://aria-intel.fly.dev/health/live`); if the server is BEHIND origin (her ci_deploy hasn't run/failed), compile-check every changed file (`py_compile`/.py, `node --check`/.mjs — NEVER deploy a non-compiling commit, cf. R-F1316) then deploy the touched apps via `scripts/deploy.ps1` (`-Intel`/`-Wa`/`-Web` per the diff; flyctl is operator-authed locally, canary+rollback+build_rev verify) and confirm the live build_rev advanced. Note: a tooling-only change (no `aria_service/` diff) needs no redeploy — check `git diff --stat <old> <new> -- aria_service/` before deploying.

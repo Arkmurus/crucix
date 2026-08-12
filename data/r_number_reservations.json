@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3910,
+  "next_available": 3912,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33026,32 +33026,53 @@
       "title": "C-29 fix: reliability EMA producer/consumer key-space mismatch",
       "claimed_at": "2026-08-11T22:18:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d0272584",
+      "notes": null,
+      "shipped_at": "2026-08-11T22:53:08Z"
     },
     {
       "r_number": "R-F3907",
       "title": "node baseline holds doubled backslashes - per-char replace made a double slash",
       "claimed_at": "2026-08-11T22:20:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "abeaa88f",
+      "notes": null,
+      "shipped_at": "2026-08-11T22:29:13Z"
     },
     {
       "r_number": "R-F3908",
       "title": "C-29 follow-through: wire the store-unreadable branch to the brain (it shipped dark)",
       "claimed_at": "2026-08-11T23:03:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1eb48455",
+      "notes": null,
+      "shipped_at": "2026-08-12T06:05:42Z"
     },
     {
       "r_number": "R-F3909",
       "title": "C-30/C-31: wiring_monitor M3 inverted + M4 blind to its own image",
       "claimed_at": "2026-08-12T06:16:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3910",
+      "title": "repair tooluse citation and contradiction contracts",
+      "claimed_at": "2026-08-12T06:19:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3911",
+      "title": "constitutional RAG returns [] when chromadb is absent - the S20 binding step no-ops",
+      "claimed_at": "2026-08-12T06:26:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

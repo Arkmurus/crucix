@@ -702,6 +702,105 @@ def query_codebase_context(module_name: str, top_k: int = 5, min_similarity: flo
     return []
 
 
+#: R-F3911 — retrieval modes, reported on every result so a caller can never mistake
+#: a degraded answer for a semantic one.
+CONST_MODE_SEMANTIC = "semantic"
+CONST_MODE_LEXICAL = "lexical"
+
+
+def _lexical_constitutional_match(query: str, top_k: int) -> list[dict]:
+    """Rank the IN-CODE constitutional rules by term overlap. No vector store.
+
+    R-F3911 — THE RULES NEVER NEEDED CHROMADB; ONLY THE RANKING DID.
+    `CONSTITUTIONAL_RULES` is a plain Python list of 31 dicts carrying the full
+    text of every clause. When the vector store is unavailable, returning `[]` threw
+    away constraints that were sitting in the process the whole time.
+
+    Deliberately dumb: substring/term overlap, ties broken by declaration order. It
+    does not pretend to be semantic search — it is labelled `lexical` precisely so
+    nobody reads it as one. A crude ranking that DELIVERS the constraints beats a
+    sophisticated one that delivers nothing.
+
+    NEVER RETURNS EMPTY. If no term matches, the top_k rules come back in
+    declaration order with `matched_terms: 0`, because §20's purpose is to surface
+    constraints the session might not recall — and "no constraints apply" is a
+    conclusion this function is not entitled to draw from a failed keyword match.
+    """
+    import re as _re
+
+    try:
+        from .constitutional_rules import CONSTITUTIONAL_RULES
+    except Exception as e:      # pragma: no cover - the rules are a plain module
+        logger.warning("[R-F3911] constitutional rules unreadable: %s", e)
+        return []
+
+    terms = {t for t in _re.split(r"[^a-z0-9]+", (query or "").lower()) if len(t) > 2}
+    scored: list[tuple[int, int, dict]] = []
+    for idx, rule in enumerate(CONSTITUTIONAL_RULES):
+        blob = " ".join(
+            str(rule.get(k, "")) for k in
+            ("name", "clause_number", "description", "constraint", "consequence")
+        ).lower()
+        score = sum(1 for t in terms if t in blob)
+        scored.append((-score, idx, rule))
+    scored.sort()
+
+    out: list[dict] = []
+    for neg_score, _idx, rule in scored[: max(1, top_k)]:
+        out.append({
+            # Same shape the semantic path returns, so §20's snippet (`r['rule']`)
+            # and every other consumer keep working unchanged.
+            "rule": _format_rule(rule),
+            "metadata": {
+                "name": rule.get("name", ""),
+                "clause_number": rule.get("clause_number", ""),
+            },
+            "retrieval_mode": CONST_MODE_LEXICAL,
+            "degraded": True,
+            "matched_terms": -neg_score,
+        })
+    return out
+
+
+def _format_rule(rule: dict) -> str:
+    """One rule as the text a reader needs, matching what sync writes to chroma."""
+    return (
+        f"{rule.get('clause_number', '')} [{rule.get('name', '')}] "
+        f"{rule.get('description', '')} CONSTRAINT: {rule.get('constraint', '')} "
+        f"CONSEQUENCE: {rule.get('consequence', '')}"
+    ).strip()
+
+
+def constitutional_retrieval_status() -> dict:
+    """Which mode WOULD serve right now, and why — §25 proprioception for §20.
+
+    Exists so a session can ask "is my binding priming step actually semantic?"
+    instead of inferring it from output that looks the same either way.
+    """
+    try:
+        from .constitutional_rules import CONSTITUTIONAL_RULES
+        rules_available = len(CONSTITUTIONAL_RULES)
+    except Exception:
+        rules_available = 0
+    ok = False
+    try:
+        ok = bool(_ensure())
+    except Exception:
+        ok = False
+    return {
+        "mode": CONST_MODE_SEMANTIC if ok else CONST_MODE_LEXICAL,
+        "degraded": not ok,
+        "vector_store_available": ok,
+        "rules_in_code": rules_available,
+        "reason": "" if ok else (
+            "chromadb/vector store unavailable — serving the in-code "
+            "CONSTITUTIONAL_RULES by term overlap. On win32/ARM64 no chromadb wheel "
+            "exists (CLAUDE.md §16), so this is the EXPECTED local mode, not a fault "
+            "to fix by installing a package that cannot be installed."
+        ),
+    }
+
+
 def query_constitutional_constraints(query: str, top_k: int = 3, min_similarity: float = 0.0) -> list[dict]:
     """Retrieve constitutional rules semantically.
 
@@ -731,8 +830,23 @@ def query_constitutional_constraints(query: str, top_k: int = 3, min_similarity:
     """
     global _CONST_LAZY_SYNC_TRIED
 
+    # R-F3911 — THE THIRD RECURRENCE OF THE SAME FAILURE IN THIS ONE FUNCTION.
+    # R-F2623 fixed a TypeError that made the §20 step never run. R-F3099 fixed an
+    # empty collection that made it return `[]` on every session — "a mandatory step
+    # certified by an absence", in the words above. Both left THIS branch: when
+    # chromadb itself is unavailable, `_ensure()` is False and the binding step
+    # returned an empty list, indistinguishable from "no constraints apply".
+    #
+    # On win32/ARM64 that is not a misconfiguration anyone can fix — no chromadb
+    # wheel exists for the platform (§16), so the declared dev environment CANNOT
+    # have it. Installing it would "fix" one workstation and leave CI, production
+    # and every other developer exactly as dark.
+    #
+    # The rules were never the missing piece: CONSTITUTIONAL_RULES is a plain list
+    # in this process. Only the RANKING needed a vector store. So degrade to a
+    # lexical match over the real rules and LABEL it, rather than returning nothing.
     if not _ensure():
-        return []
+        return _lexical_constitutional_match(query, top_k)
 
     if not _CONST_LAZY_SYNC_TRIED:
         try:
@@ -762,12 +876,19 @@ def query_constitutional_constraints(query: str, top_k: int = 3, min_similarity:
                     out.append({
                         "rule": doc,
                         "metadata": meta,
+                        "retrieval_mode": CONST_MODE_SEMANTIC,
+                        "degraded": False,
                     })
-            return out
+            if out:
+                return out
     except Exception as e:
         logger.debug("[CodingRAG] query_constitutional_constraints failed: %s", e)
 
-    return []
+    # R-F3911 — a store that is PRESENT but answered with nothing (empty collection,
+    # a query error, or every hit filtered by min_similarity) is still an absence the
+    # caller cannot distinguish from "no rule applies". §20 is binding, so it gets
+    # the rules either way; the label says which path served.
+    return _lexical_constitutional_match(query, top_k)
 
 
 def record_precommit_failure(

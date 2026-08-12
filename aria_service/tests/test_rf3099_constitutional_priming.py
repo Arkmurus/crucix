@@ -111,8 +111,19 @@ def test_populated_collection_does_no_needless_sync(monkeypatch):
     assert len(out) == 3
 
 
-def test_sync_failure_degrades_to_the_old_behaviour_not_an_exception(primed, monkeypatch):
-    """A failing sync must never break the caller — it degrades to empty."""
+def test_sync_failure_degrades_gracefully_not_an_exception(primed, monkeypatch):
+    """A failing sync must never break the caller.
+
+    R-F3911 UPDATE — this asserted `out == []`. That was the best R-F3099 could do
+    at the time, but the empty list WAS the residual defect: §20 makes this priming
+    step binding, and a caller cannot distinguish "the store is broken" from "no rule
+    applies". A failing sync now degrades to a LEXICAL match over the in-code
+    CONSTITUTIONAL_RULES, labelled `degraded: True`.
+
+    The INTENT of this test is preserved exactly — do not raise into the caller — and
+    that is what it now asserts. Do not restore `== []`: it would re-dark the one
+    mechanism that exists to remind a session of the constitution.
+    """
     def _boom():
         raise RuntimeError("chromadb unavailable")
 
@@ -120,7 +131,9 @@ def test_sync_failure_degrades_to_the_old_behaviour_not_an_exception(primed, mon
 
     out = cri.query_constitutional_constraints("modifying <module>", top_k=5)
 
-    assert out == [], "a failed sync must degrade to empty, not raise"
+    assert isinstance(out, list), "a failed sync must degrade, not raise"
+    assert out, "a failed sync must still surface the constitutional rules (R-F3911)"
+    assert all(r.get("degraded") for r in out), "the degraded path must say so"
 
 
 def test_lazy_sync_is_attempted_at_most_once_per_process(primed, monkeypatch):
