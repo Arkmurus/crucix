@@ -71,12 +71,30 @@ def validate_reference_contract(row: dict) -> None:
         raise ValueError(f"multihop answer omits subject: {subject}")
 
 
+def reinforce_axes(rows: list[dict], axes: set[str], minimum_rows: int) -> list[dict]:
+    """Deterministically replay sparse measured axes up to the requested floor."""
+    if minimum_rows < 1:
+        raise ValueError("reinforcement minimum must be positive")
+    reinforced = list(rows)
+    for axis in sorted(axes):
+        candidates = [row for row in rows if str(row.get("label") or "") == axis]
+        if not candidates:
+            raise ValueError(f"cannot reinforce absent axis: {axis}")
+        needed = max(0, minimum_rows - len(candidates))
+        reinforced.extend(candidates[index % len(candidates)] for index in range(needed))
+    return reinforced
+
+
 def build_replay_curriculum(parent: list[dict], delta: list[dict],
-                            forbidden_entities: set[str]) -> tuple[list[dict], dict]:
+                            forbidden_entities: set[str], *,
+                            reinforce: set[str] | None = None,
+                            reinforcement_floor: int = 0) -> tuple[list[dict], dict]:
     """Return complete parent replay followed by the positive delta."""
     if not parent or not delta:
         raise ValueError("parent and delta curricula must both be non-empty")
     rows = [apply_citation_source_contract(row) for row in (*parent, *delta)]
+    if reinforce:
+        rows = reinforce_axes(rows, reinforce, reinforcement_floor)
     contaminated = sorted({str(row.get("subject") or "") for row in rows
                            if _norm_subject(str(row.get("subject") or "")) in forbidden_entities})
     if contaminated:
@@ -99,6 +117,8 @@ def build_replay_curriculum(parent: list[dict], delta: list[dict],
         "dpo_rows": 0,
         "citation_source_contract": "explicit_allowlist_v1",
         "contradiction_contract": "no_match_is_not_clean_v1",
+        "reinforced_axes": sorted(reinforce or set()),
+        "reinforcement_floor": reinforcement_floor if reinforce else 0,
     }
     return rows, manifest
 
@@ -112,11 +132,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--golden", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--manifest-out", type=Path, required=True)
+    parser.add_argument("--reinforce-axis", action="append", default=[])
+    parser.add_argument("--reinforcement-floor", type=int, default=0)
     args = parser.parse_args(argv)
     forbidden = {_norm_subject(str(row.get("subject") or ""))
                  for path in (args.eval, args.golden) for row in load_jsonl(path)}
     rows, manifest = build_replay_curriculum(
-        load_jsonl(args.parent), load_jsonl(args.delta), forbidden)
+        load_jsonl(args.parent), load_jsonl(args.delta), forbidden,
+        reinforce=set(args.reinforce_axis),
+        reinforcement_floor=args.reinforcement_floor)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
                         encoding="utf-8", newline="\n")
