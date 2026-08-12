@@ -262,17 +262,63 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
   every call. **The correct architecture is already in place and is two-track**: DD pins
   Claude (`ARIA_DD_LLM_PROVIDER` defaults to `anthropic`, R-F2917) and CANNOT degrade
   (`ARIA_NON_DEGRADING_PINS=anthropic`, R-F3034/R-F3767), while everything else runs
-  DeepSeek. `ARIA_PREFERENCE_ONLY_PROVIDERS` is deliberately `""` so Anthropic ALSO
-  sits in the general chain as the only cross-vendor fallback — that is what keeps chat
-  up during DeepSeek's soft timeouts, it costs ~$21/mo, and R-F3767 split the flags
-  precisely so buying that resilience does not surrender the DD pin. Do not "tidy" it
-  back to `anthropic`.
-- **Anthropic billing is HEALTHY (verified 2026-08-11).** Live call → HTTP 200, real
-  `usage`, on `claude-sonnet-4-5`/`4-6`; `/v1/models` lists opus-5/sonnet-5 too. A
-  `serving_provider: deepseek` reading is NORMAL (deepseek is chain head), and DeepSeek
-  soft-cooling on `timeout` for 10–41s then logging "recovered — resetting failure
-  stats" is §14 cooling, not an outage. Do not diagnose an Anthropic billing failure
-  from either signal; probe the key directly.
+  DeepSeek.
+
+- 🔴 **RULE ONE — ANTHROPIC AND BRAVE ARE FOR DD REPORTS ONLY (operator, 2026-08-12).**
+  Verbatim: *"anthropic API calls must be only active on DD reports, when a new DD
+  report is been actioned, as well as for brave API, that was the rule number one."*
+  This RESTATES the 2026-08-11 directive already recorded at `web_search.py:167`
+  ("Brave (and Anthropic) are the designated tools for DD reports, **and nothing
+  else**"). It is not a cost preference — breaking it took DD down.
+
+  **THE PREVIOUS TEXT HERE INSTRUCTED THE OPPOSITE AND CAUSED AN OUTAGE.** It read:
+  "`ARIA_PREFERENCE_ONLY_PROVIDERS` is deliberately `""` so Anthropic ALSO sits in the
+  general chain … it costs ~$21/mo … Do not 'tidy' it back to `anthropic`." So the one
+  file every session reads first told each of them to preserve the exact setting that
+  was draining the account, and to distrust anyone who fixed it.
+
+  **MEASURED 2026-08-12, live:** month-to-date `$73.34`, of which **anthropic
+  `$39.10` — 53% of all spend from 2.6% of calls** (614 of 23,765). Almost all of it
+  `claude-opus-4-8`: **540 calls / `$38.74`**. DD's share: **8 calls / `$0.04`**. So
+  ~`$39` of Claude spend was work the rule forbids, and the "~$21/mo" estimate above
+  was already a ~5× understatement at a 12-day run rate. It exhausted the credit
+  balance — probed directly: *"Your credit balance is too low to access the Anthropic
+  API"* — and because DD pins Claude NON-DEGRADABLY, **DD went down**. Cheap general
+  traffic consumed the budget reserved for the one paid product.
+
+  **THE MECHANISM, and why an empty string is not a harmless value.**
+  `fallback.py:991` builds the general order as
+  `[p for p in self.providers if p.name.lower() not in preference_only_providers()]`.
+  The CODE DEFAULT is `{"anthropic"}` → Claude is absent from the general order and
+  reachable ONLY by explicit name (how DD pins it). Setting the secret to EMPTY makes
+  that set empty, so Claude re-enters the general chain and serves any call whose
+  primary is cooling — and DeepSeek soft-cools on timeouts many times a day.
+
+  **CORRECT LIVE STATE (verified 2026-08-12 after the fix):**
+    * `ARIA_PREFERENCE_ONLY_PROVIDERS` — **UNSET**. Do not set it. Leave the code
+      default governing; an override exists only to deviate, and we do not want to.
+    * `ARIA_NON_DEGRADING_PINS=anthropic` — keep. R-F3767 split the two flags so the
+      DD pin survives independently; this is the half that must never be cleared.
+    * `ARIA_STUDENT_BRAVE_BUDGET=0` — the student loop's Pass-2 Brave escalation was
+      the matching Brave leak (§27e used to bless it at ≤3/session). Rule One
+      supersedes that. Brave is DD-only.
+    * `/health` → `active_providers: ["deepseek","deepseek_backup"]` with **anthropic
+      absent from the list entirely**. That absence IS the check — if Claude ever
+      appears in `active_providers` or `cooling_providers`, it is back in the general
+      chain and Rule One is broken.
+- ⚠️ **Anthropic billing: CREDITS EXHAUSTED as of 2026-08-12 — OPERATOR ACTION.**
+  Supersedes the 2026-08-11 "billing is HEALTHY" reading, which was true when written.
+  Probed directly from inside the machine: HTTP 400,
+  *"Your credit balance is too low to access the Anthropic API. Please go to Plans &
+  Billing to upgrade or purchase credits."* The 24h billing cooldown is therefore
+  **CORRECT, not stale** — do NOT clear it with
+  `/api/aria/admin/llm/cooldown/clear?provider=anthropic`; with no credits that just
+  re-burns calls into a 400. **DD is DOWN until credits are purchased** (it pins
+  Claude and cannot degrade — an honest outage beats a DeepSeek verdict wearing a
+  Claude badge, R-F3034). **Fix the config BEFORE topping up**, or new credits drain
+  the same way. A `serving_provider: deepseek` reading remains NORMAL (deepseek is
+  chain head), and DeepSeek soft-cooling on `timeout` for 10–41s then "recovered" is
+  §14 cooling, not an outage — probe the key directly before diagnosing either.
 - Autonomy gate: **OPEN AT L3 FULL** as of 2026-05-22 R-F794 per operator direction "finish all". Live secrets on fly aria-intel: `ARIA_AUTONOMOUS_ENABLED=1`, `ARIA_AUTONOMY_LEVEL=3`, `ARIA_AUTONOMOUS_DRY_RUN=0`, `ARIA_OUTPUT_HARVEST_ENABLED=1`, `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`. Reverses R-F462 for `change_type=bug_fix` only. 24h observation gates SKIPPED by operator choice — code-enforced `$300` cap + `safety.py` per-task guardrails remain. Watch `/api/aria/cost/monthly/status` daily; pause via `POST /api/aria/autonomous/pause` if burn spikes.
 - ARIA-Coder (R-F802-R-F805 shipped 2026-05-22): autonomous self-coding pipeline (gap detect → plan → validate → review → stage). DORMANT — needs `ARIA_CODER_ENABLED=1` to fire. Outputs flow through existing self_improve.stage_improvement (`/api/aria/self/staged`) honouring R-F462. See [[aria_coder_buildout_2026_05_22]] for activation steps + emergency stop. Claude review hook (`ARIA_CODER_CLAUDE_REVIEW_ENABLED`) is forward-looking until Anthropic billing tops up.
 
@@ -700,10 +746,16 @@ control", the answer is **SearXNG, and buy nothing.** Four reasons, in order of 
    lie** (R-F3844/3853/3857 + the §27d health gate).
 3. **The free stack is not starved** — measured 10/10 related on the niche queries
    that broke SearXNG, via news/academic/memory backends.
-4. **The bounded-escalation pattern already exists** and is correct: the student
-   loop's Brave use is Pass-2 ONLY (free stack failed to ground the region),
-   ≤3/session (`ARIA_STUDENT_BRAVE_BUDGET`), auto-shed when daily spend nears the
-   cap (R-F2392/R-F2961). **Leave it; do not widen it.**
+4. ~~**The bounded-escalation pattern already exists** and is correct: the student
+   loop's Brave use is Pass-2 ONLY … **Leave it; do not widen it.**~~
+   🔴 **REVOKED 2026-08-12 by RULE ONE (§17).** The operator's rule is that Brave —
+   like Anthropic — is active **only when a DD report is being actioned**, which the
+   2026-08-11 directive already recorded at `web_search.py:167` as "and nothing else".
+   A bounded non-DD escalation is still non-DD. **`ARIA_STUDENT_BRAVE_BUDGET=0` is
+   set live**; the budget knob is the whole lever (`student.py:1406` gates on
+   `_brave_budget > 0`), so no code change was needed and the Pass-2 code path stays
+   intact should the rule ever be relaxed deliberately. Do not restore a non-zero
+   default. Points 1–3 above stand: SearXNG remains tier 2 and Brave stays DD-only.
 
 **The sovereignty play is ARIA's own index, and it already compounds.** §15 is live:
 every paid search writes to `rag_store` + `intel_ledger` + `brain_hook`, so DD's

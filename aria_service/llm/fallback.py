@@ -119,10 +119,83 @@ def preference_only_providers() -> set[str]:
     the note at the degrade branch in complete()). Set
     ARIA_PREFERRED_MAY_DEGRADE=1 to restore the old behaviour without a deploy.
 
-    Empty string disables the mechanism (every provider serves normally).
+    Empty string disables the mechanism (every provider serves normally) — and
+    R-F3942 makes that state SAY SO rather than pass silently. See
+    `rule_one_status()`.
     """
     raw = os.getenv("ARIA_PREFERENCE_ONLY_PROVIDERS", "anthropic")
     return {p.strip().lower() for p in (raw or "").split(",") if p.strip()}
+
+
+#: R-F3942 — announce a Rule One breach ONCE per process, not per health poll.
+_RULE_ONE_BREACH_ANNOUNCED = False
+
+
+def rule_one_status() -> dict:
+    """Is Anthropic confined to DD? (RULE ONE, operator 2026-08-12.)
+
+    "anthropic API calls must be only active on DD reports, when a new DD report
+    is been actioned, as well as for brave API, that was the rule number one."
+
+    WHY THIS EXISTS. The rule was broken for days and NOTHING said so. The live
+    secret `ARIA_PREFERENCE_ONLY_PROVIDERS` was set to the EMPTY STRING, which
+    this module documents as "disables the mechanism" — so Claude re-entered the
+    general order and served any call whose primary was cooling, which DeepSeek
+    does many times a day. It surfaced only when the credit balance ran out and
+    took DD down with it (DD pins Claude non-degradably). Measured at that point:
+    anthropic $39.10 of a $73.34 month — 53% of spend from 2.6% of calls, 540 of
+    them on `claude-opus-4-8` — against DD's own 8 calls and $0.04.
+
+    An empty override is therefore not a neutral value; it is a policy change
+    with a bill attached, and it was invisible. The general-chain composition was
+    observable on /health all along, but only as a provider list — nothing named
+    the RULE, so nobody reading it knew a list containing "anthropic" was a
+    breach. This states the policy itself.
+
+    Reports rather than enforces, deliberately: `preference_only_providers()` is
+    on the hot path of every completion and must stay a pure, cheap read. §21a —
+    a breach also reaches the brain, once per process, so it is actionable
+    without anyone thinking to poll a health field.
+    """
+    global _RULE_ONE_BREACH_ANNOUNCED
+    pref = preference_only_providers()
+    key_present = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    confined = "anthropic" in pref
+    # A breach only MATTERS when a key exists — without one Claude cannot serve
+    # regardless, and crying breach would be a guard that fires on nothing.
+    breached = key_present and not confined
+
+    if breached and not _RULE_ONE_BREACH_ANNOUNCED:
+        _RULE_ONE_BREACH_ANNOUNCED = True
+        logger.warning(
+            "[R-F3942] RULE ONE BREACH — anthropic is NOT preference-only "
+            "(ARIA_PREFERENCE_ONLY_PROVIDERS=%r). Claude is in the GENERAL chain "
+            "and will serve non-DD calls whenever the primary cools. Unset that "
+            "variable to restore the code default.",
+            os.getenv("ARIA_PREFERENCE_ONLY_PROVIDERS"),
+        )
+        try:
+            # Imported LOCALLY, as every other wire_failure call in this module
+            # is — engine_wiring is not safe to import at fallback's module scope.
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="fallback",
+                detail=("RULE ONE breach: anthropic is in the general LLM chain "
+                        "(preference_only=%s). Non-DD traffic can spend Claude "
+                        "credits; DD pins Claude non-degradably, so exhausting "
+                        "them takes DD down." % sorted(pref)),
+                gap_type="engine_failure",
+            )
+        except Exception as e:      # pragma: no cover - signalling is best-effort
+            logger.debug("[R-F3942] rule-one signal failed: %s", e)
+
+    return {
+        "rule": "anthropic and brave are for DD reports only (operator 2026-08-12)",
+        "anthropic_key_present": key_present,
+        "anthropic_confined_to_dd": confined,
+        "breached": breached,
+        "preference_only_providers": sorted(pref),
+    }
 
 
 # R-F3767 — §21a. Returns a SET, so a failure reads as an EMPTY set — i.e. "no
@@ -1691,6 +1764,10 @@ class FallbackProvider(LLMProvider):
                 p.name for p in self.providers
                 if (p.name or "").lower() in _pref_only
             ),
+            # R-F3942 — the POLICY, not just the provider lists. A reader could
+            # already see anthropic sitting in chain_order; nothing told them that
+            # was a breach of Rule One rather than intended redundancy.
+            "rule_one": rule_one_status(),
             # Published BESIDE preference_only because they are now two separate
             # questions, and the difference is invisible from outside without it.
             # With preference_only empty and this holding anthropic, the chain is

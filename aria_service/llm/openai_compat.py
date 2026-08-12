@@ -34,11 +34,50 @@ def default_deepseek_model() -> str:
     return (os.getenv("ARIA_DEEPSEEK_CHAT_MODEL") or "deepseek-v4-flash").strip()
 
 
+def deepseek_backup_enabled() -> bool:
+    """Is the second DeepSeek chain slot wanted at all? (R-F3943)
+
+    OPERATOR DIRECTIVE 2026-08-12: "just remove deepseek back up, we do not need
+    a backup". DEFAULT OFF, and off is the honest default on the merits:
+
+      * It is NOT redundancy. Both slots are built from the same
+        `DEEPSEEK_API_KEY` on the same account (`verification_gate._vendor_of`
+        exists precisely because treating them as two providers let a "second
+        opinion" come from the same account). An account, key, billing or
+        network failure takes both.
+      * It costs ~3x the primary per token. Measured 2026-08-12 month-to-date:
+        primary `deepseek-v4-flash` 126.5M tokens / $24.41 = **$0.193/M**;
+        backup `deepseek-v4-pro` 17.1M tokens / $9.77 = **$0.572/M**. It served
+        1,584 calls nobody asked it to serve.
+      * It only ever guarded MODEL RETIREMENT (R-F3035) — a real event, but one
+        that is loud (R-F3036 makes a dead chain loud) and fixed by changing
+        one env var, not by paying 3x continuously to keep a warm spare.
+
+    Re-enable deliberately with ARIA_DEEPSEEK_BACKUP_ENABLED=1. Only explicit
+    truthy words count, so a typo cannot silently restore paid traffic — the
+    inverse of `_dd_brave_only`'s default-ON reasoning, because here the safe
+    default is the one that does NOT spend.
+    """
+    raw = (os.getenv("ARIA_DEEPSEEK_BACKUP_ENABLED") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def backup_deepseek_model() -> str:
     """A DIFFERENT DeepSeek model id, so retiring one cannot zero the chain
     (R-F3035). Same provider and key — this protects against a model
     retirement, which is what actually happened, not against an account or
-    network failure."""
+    network failure.
+
+    R-F3943 — returns "" when the backup slot is DISABLED (the default), which
+    is what removes it from the chain. Note this function could not previously
+    be turned off by configuration at all: `os.getenv(...) or "deepseek-v4-pro"`
+    treats an EMPTY env var as unset, so `ARIA_DEEPSEEK_BACKUP_MODEL=""` still
+    returned the hardcoded id. The only way to drop the slot was to set the
+    backup model equal to the primary and rely on the `!=` test in
+    `create_fallback_chain` — a coincidence, not a switch.
+    """
+    if not deepseek_backup_enabled():
+        return ""
     return (os.getenv("ARIA_DEEPSEEK_BACKUP_MODEL") or "deepseek-v4-pro").strip()
 
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3942,
+  "next_available": 3944,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33375,6 +33375,24 @@
       "commit_sha": "4b81097a",
       "notes": "renumbered from R-F3939, which a peer agent shipped concurrently",
       "shipped_at": "2026-08-12T16:02:42Z"
+    },
+    {
+      "r_number": "R-F3942",
+      "title": "Rule One is unenforced: an empty preference-only override silently puts Anthropic in the general chain",
+      "claimed_at": "2026-08-12T16:24:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3943",
+      "title": "deepseek_backup has no off-switch: same-account second slot, 3x cost per token, cannot be disabled by config",
+      "claimed_at": "2026-08-12T16:25:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
