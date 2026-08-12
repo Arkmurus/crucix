@@ -135,6 +135,25 @@ data/_*.md
 
 # stray/scratch from ARIA sessions
 /exit
+
+# PID-like strays at repo ROOT from a mistyped shell redirect. Found 2026-08-12:
+# a file literally named `72540` containing `113852` — two PIDs, one as the
+# filename, from a redirect that was meant to be an argument. No script in the
+# tree produces it, so there is nothing to fix upstream; the hazard is that
+# `git add -A` (which ci_deploy has historically used — see R-F1478 above) would
+# commit it. Same class as `/exit` above.
+#
+# Digit-runs are enumerated rather than globbed as `/[0-9]*` so this can only
+# ever match an ALL-NUMERIC name. `/[0-9]*` would also swallow legitimate files
+# like `2026_plan.md`, and an ignore rule that hides real work is worse than the
+# stray it prevents.
+/[0-9]
+/[0-9][0-9]
+/[0-9][0-9][0-9]
+/[0-9][0-9][0-9][0-9]
+/[0-9][0-9][0-9][0-9][0-9]
+/[0-9][0-9][0-9][0-9][0-9][0-9]
+/[0-9][0-9][0-9][0-9][0-9][0-9][0-9]
 /_*.py
 
 # R-F1808 IAST run artifacts
