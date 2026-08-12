@@ -34,9 +34,16 @@ DPO_SHA256="${DPO_SHA256:-ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa3692
 EVAL_SHA256=d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
 # Separate measured envelopes: prior 311 MB upload <=64 min; 168-row eval ~74 min.
 UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"; CYCLE_DEADLINE="${CYCLE_DEADLINE:-7200}"
+MIN_CYCLE_DEADLINE="${MIN_CYCLE_DEADLINE:-0}"
 UPLOAD_SLICE="${UPLOAD_SLICE:-720}"; UPLOAD_SLICES="${UPLOAD_SLICES:-7}"
 GRACE="${GRACE:-900}"; COLLECT_GRACE="${COLLECT_GRACE:-900}"
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
+case "$CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
+case "$MIN_CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
+[ "$CYCLE_DEADLINE" -ge "$MIN_CYCLE_DEADLINE" ] || {
+  log "FATAL cycle deadline ${CYCLE_DEADLINE}s is below required workload envelope ${MIN_CYCLE_DEADLINE}s"
+  exit 3
+}
 jget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
 pmget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print((d.get('portMappings') or {}).get('22') or '')" 2>/dev/null; }
 pod_state(){
@@ -206,8 +213,22 @@ for i in $(seq 1 100); do
   if [ $((i % 5)) -eq 0 ]; then mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"; persist_intermediate || true; persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "${OUTPUT_LOCAL}.partial" || true; persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.partial" || true; fi
   STATE=$(pod_state); [ "$STATE" = NOT_RUNNING ] && break; [ "$STATE" = UNREADABLE ] && log "control plane unreadable"; sleep 90
 done
-harvest_logs(){ mkdir -p data/eval_reports; RSCP_PULL /workspace/logs/tooluse_dpo_cycle.log data/eval_reports/aria_tooluse_dpo_cycle.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_train.log data/eval_reports/aria_tooluse_dpo_train.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_eval.log data/eval_reports/aria_tooluse_dpo_eval.log || true; }
-[ "$RC" = 0 ] || { persist_intermediate || true; persist_diagnostics || true; harvest_logs; log "FATAL cycle rc=${RC:-missing}; diagnostics harvested"; exit 1; }
+harvest_logs(){
+  mkdir -p data/eval_reports
+  local saved=0
+  if RSCP_PULL /workspace/logs/tooluse_dpo_cycle.log data/eval_reports/aria_tooluse_dpo_cycle.log; then saved=1; fi
+  if RSCP_PULL /workspace/logs/tooluse_dpo_train.log data/eval_reports/aria_tooluse_dpo_train.log; then saved=1; fi
+  if RSCP_PULL /workspace/logs/tooluse_dpo_eval.log data/eval_reports/aria_tooluse_dpo_eval.log; then saved=1; fi
+  return $((1-saved))
+}
+if [ "$RC" != 0 ]; then
+  INTERMEDIATE_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0
+  if persist_intermediate; then INTERMEDIATE_SAVED=1; fi
+  if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi
+  if harvest_logs; then LOGS_SAVED=1; fi
+  log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED"
+  exit 1
+fi
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
 persist_report /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
 persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1
