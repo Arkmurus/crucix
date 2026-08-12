@@ -33330,18 +33330,20 @@
       "title": "training deadline floor and truthful crash harvest",
       "claimed_at": "2026-08-12T13:03:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f63ec46",
+      "notes": null,
+      "shipped_at": "2026-08-12T14:07:13Z"
     },
     {
       "r_number": "R-F3939",
       "title": "verify watchdog arm and pod stop readback",
       "claimed_at": "2026-08-12T13:45:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "101528ec",
+      "notes": null,
+      "shipped_at": "2026-08-12T14:07:13Z"
     }
   ]
 }
