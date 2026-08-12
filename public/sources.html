@@ -207,6 +207,14 @@
       <div class="sc-card-title"><i class="bi bi-graph-up-arrow"></i> Registry reliability (measured observations)</div>
       <span id="reghealth-total" class="sc-pill sc-pill-info" style="font-size:12px">-</span>
     </div>
+    <!-- C-36 / R-F3933 - THE DIRECTION OF THE SIGNAL, stated where it is read.
+         C-36 added `signal_direction` + `metric_note` to the API and nothing rendered
+         them, so the operator kept seeing "Registry reliability" with healthy /
+         degraded / failing / dead bands over a number that CANNOT FALL - an
+         instrument with no reader, the C-27 shape, inside the fix for it. Populated
+         by loadRegistryHealth(); hidden until the API answers so it can never assert
+         a direction it has not been told. -->
+    <div id="reghealth-direction" style="display:none;margin:0 22px;padding:10px 14px;border-radius:8px;font-size:12.5px;line-height:1.5"></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 22px">
       <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="reghealth-healthy">-</div><div class="sc-stat-label">Healthy (&ge;0.80)</div></div></div>
       <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="reghealth-degraded">-</div><div class="sc-stat-label">Degraded (&ge;0.60)</div></div></div>
@@ -776,6 +784,35 @@ async function loadRegistryHealth() {
       unknown('Registry health endpoint unreachable. This is NOT a clean reading.');
       return;
     }
+    // C-36 / R-F3933 — render the direction of the signal. `positive_only` means
+    // `web_atlas.record_correction` still has no caller (C-32), so the score can only
+    // RISE: a high value means "cited and gate-cleared this often", NOT "verified not
+    // to fail". Without this the bands above imply a two-sided measurement the number
+    // cannot deliver. Only ever renders what the API states — never inferred here.
+    // Wrapped, and `.style` guarded: this banner ANNOTATES the measurement, so it
+    // must never be able to break it. Unguarded, `dirEl.style.display` threw when
+    // the element lacked a style object and the throw propagated to the catch
+    // below, replacing the whole table with "endpoint unreachable" — a decorative
+    // caption turning a working panel into a false outage report.
+    try {
+      const dirEl = document.getElementById('reghealth-direction');
+      if (dirEl && dirEl.style) {
+        const dir = d.signal_direction;
+        if (dir === 'positive_only' || dir === 'bidirectional') {
+          const oneWay = dir === 'positive_only';
+          dirEl.style.display = 'block';
+          dirEl.style.background = oneWay ? 'rgba(234,88,12,0.08)' : 'rgba(22,163,74,0.08)';
+          dirEl.style.color = oneWay ? '#9a3412' : '#166534';
+          dirEl.innerHTML =
+            '<strong>' + (oneWay ? 'Confirmations only: this score cannot fall.'
+                                 : 'Bidirectional: contradictions are recorded.') + '</strong> ' +
+            escHtml(d.metric_note || '');
+        } else {
+          dirEl.style.display = 'none';
+        }
+      }
+    } catch (_e) { /* never let the caption break the panel */ }
+
     setTxt('reghealth-total', d.total_sources + ' families');
     setTxt('reghealth-healthy', d.healthy_count ?? '?');
     setTxt('reghealth-degraded', d.degraded_count ?? '?');

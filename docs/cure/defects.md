@@ -2681,3 +2681,49 @@ CAN measure", and two cases of a fix reintroducing the original conflation one l
 down. Fixture-first caught none of them — they were found by review, because each was a
 *correct-looking* implementation of the right idea. That is the argument for the review
 pass, not for more tests.
+
+
+**C-36 follow-through (R-F3933) — the honesty fields had NO READER.** C-36 added
+`signal_direction` and `metric_note` to the API and nothing rendered them:
+`grep -c` on `public/sources.html` returned **0**. So the operator, who reads the page
+and not the JSON, still saw *"Registry reliability (measured observations)"* with
+healthy / degraded / failing / dead bands over a counter that cannot fall, and `0.995`
+still read as "verified not to fail". That is C-27's producer-with-no-consumer shape
+occurring **inside the fix written to cure exactly that class** — and every assertion
+C-36 made about the API was true, which is why no test caught it. Found by self-audit.
+
+The banner renders only what the API states (never inferred), stays hidden when the
+field is absent so an older aria-intel build cannot make it assert a direction, and
+routes `metric_note` through `escHtml` per the R-F3845 guard.
+
+Two defects in that fix, caught by the Node suite before it shipped:
+- `dirEl.style.display` threw when the element had no style object, and the throw
+  propagated to the panel's catch — **replacing the whole table with "endpoint
+  unreachable"**. A decorative caption turned a working panel into a false outage
+  report. Now guarded and wrapped: the annotation can never break the measurement.
+- the banner copy used em-dashes, which R-F3278 forbids in displayed copy.
+
+**C-37 RESOLUTION (R-F3934, 2026-08-11) — CLOSED.**
+
+Eight modules read `success_rate: 0.0` live. For a module that only ever calls
+`wire_failure`, every recorded signal is a failure **by construction**, so the rate is
+`0.0` whether it fired once or ten thousand times. Verified statically:
+`aria_service/llm/openai_compat.py` — the emitter for every `llm_*` module — contains
+**zero** `wire_success` calls, as does `main.py::_health_precompute_loop`.
+
+The list is MIXED, which is what made it dangerous: `search_searxng` *does* wire
+success, so its `0.0` is a genuine measurement. An operator scanning the panel saw
+eight broken subsystems; several were failure-only reporters working exactly as built.
+
+**The planned fix did not survive contact.** The register entry proposed reusing
+`wiring_monitor` M1's wire-balance AST scan. M1 globs `intel/*.py` only, so it never
+sees `llm/openai_compat.py` or `main.py`, and it keys results by FILE NAME while the
+brain's module keys are runtime strings — `llm_deepseek` is built as
+`f"llm_{self.name}"` and corresponds to no file at all. Any mapping between them would
+have been invented, which is the defect, not the cure.
+
+So the fix reports the ambiguity instead of guessing it: `only_failures_recorded`
+marks the entries whose rate carries no information and points the reader at
+`fail`/`total`, which do. Purely additive — `success_rate` stays a number and every
+existing field is untouched, pinned by a test. A module with zero signals is
+deliberately NOT flagged: that would be inventing a claim about an absence.

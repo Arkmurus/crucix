@@ -353,19 +353,23 @@
       "claimed_by": "claude",
       "status": "closed",
       "r_numbers": [
-        "R-F3922"
+        "R-F3922",
+        "R-F3933"
       ],
       "notes": null,
-      "closed_at": "2026-08-12T08:22:51Z"
+      "closed_at": "2026-08-12T11:34:34Z"
     },
     {
       "c_number": "C-37",
       "title": "brain/stats success_rate cannot distinguish a failure-only module from one failing every call — 8 modules read as 0.0 and several are 0.0 by construction",
       "claimed_at": "2026-08-12T09:07:23Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3934"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T11:34:34Z"
     },
     {
       "c_number": "C-38",

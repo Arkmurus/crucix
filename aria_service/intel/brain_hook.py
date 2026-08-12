@@ -2080,6 +2080,23 @@ async def get_stats() -> dict:
             "skip": val.get("skip", 0),
             "success_rate": round(val["success"] / (val["total"] - val.get("skip", 0)), 2)
                 if (val.get("total", 0) - val.get("skip", 0)) > 0 else 0,
+            # C-37 (R-F3934) — `success_rate: 0.0` MEANS TWO DIFFERENT THINGS and the
+            # reader could not tell them apart. Measured live: eight modules read 0.0,
+            # and several are 0.0 BY CONSTRUCTION — `llm/openai_compat.py`, the emitter
+            # for every `llm_*` module, contains no `wire_success` call at all, as does
+            # `main.py::_health_precompute_loop`. For those the rate can never be
+            # anything else, however healthy the module is. Others (search_searxng DOES
+            # wire success) genuinely measure. An operator scanning this saw eight
+            # broken subsystems; several were failure-only reporters working as built.
+            #
+            # This does NOT guess which case it is — the counters cannot say, and a
+            # static scan cannot map runtime module labels like `llm_deepseek` (built
+            # as f"llm_{self.name}") back to a file. It reports the ambiguity instead:
+            # when nothing but failures has ever been recorded, the RATE carries no
+            # information and `fail`/`total` are the signal to read.
+            "only_failures_recorded": (
+                val.get("success", 0) == 0 and val.get("fail", 0) > 0
+            ),
             "last_signal_ago_h": round(hours_ago, 1) if hours_ago is not None else None,
             "status": status,
         }
