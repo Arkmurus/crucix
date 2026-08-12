@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "next_available": 3920,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33084,9 +33085,10 @@
       "title": "C-34: pre-commit hook must fail closed when the checker did not run",
       "claimed_at": "2026-08-12T06:45:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e951fb71",
+      "notes": null,
+      "shipped_at": "2026-08-12T07:42:15Z"
     },
     {
       "r_number": "R-F3913",
@@ -33112,37 +33114,49 @@
       "title": "C-35: reliability producer reuses canonical provenance extraction",
       "claimed_at": "2026-08-12T06:52:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e951fb71",
+      "notes": null,
+      "shipped_at": "2026-08-12T07:42:16Z"
     },
     {
       "r_number": "R-F3916",
       "title": "regional_snapshot agent had no contract — test_rf1580 red on main; contract added + identity default in the invariant",
       "claimed_at": "2026-08-12T06:59:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e951fb71",
+      "notes": null,
+      "shipped_at": "2026-08-12T07:42:16Z"
     },
     {
       "r_number": "R-F3917",
       "title": "C-33: /api/source-health reads volatile in-memory counters while durable sweep history sits beside it",
       "claimed_at": "2026-08-12T07:05:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e951fb71",
+      "notes": null,
+      "shipped_at": "2026-08-12T07:42:16Z"
     },
     {
       "r_number": "R-F3918",
       "title": "C-33 completion: learning store lives on the ephemeral app dir, wiped by every deploy — move to the /data volume",
       "claimed_at": "2026-08-12T07:23:01Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e951fb71",
+      "notes": null,
+      "shipped_at": "2026-08-12T07:42:17Z"
+    },
+    {
+      "r_number": "R-F3919",
+      "title": "reproduce-symptom gate discards a gap AFTER it consumed a rate slot",
+      "claimed_at": "2026-08-12T07:37:01Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
     }
-  ],
-  "next_available": 3919
+  ]
 }

@@ -201,6 +201,56 @@ def _memory_rate_incr() -> int:
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
+async def release_rate_slot(*, coder: bool = False) -> bool:
+    """R-F3919 — refund a slot an attempt consumed and then did NO WORK with.
+
+    THE INVARIANT THIS RESTORES is stated in `can_task_run`'s own docstring:
+    "rate limit is the LAST check that increments state". R-F897 enforced it for
+    over-cap attempts ("the bucket only ever reflects EXECUTED firings") and
+    R-F3823 enforced it for duplicates, moving the dedupe READ above the limiter
+    because "an attempt that was about to be discarded had already consumed a fix
+    slot".
+
+    THE SAME INVARIANT IS BROKEN AGAIN, one level up, by a gate that cannot move
+    above the limiter. `self_coder.fix_gap` acquires a slot and THEN runs the
+    R-F1460 reproduce-symptom gate, which exists to discard gaps whose symptom
+    cannot be reproduced — i.e. FALSE POSITIVES, work that never happened.
+
+    Measured live 2026-08-12 over 15 monitoring cycles, cap=6/hour:
+        7x  stage=reproducing_symptom
+        4x  "not fixed: Reproduce-symptom gate"     <- 4 of 6 slots, on non-gaps
+        10x "not fixed: Safety guardrail: rate_limit_exceeded:6"
+    while gap_detector went 105 -> 110 -> 127 actionable gaps. The §21c P0
+    verbatim: "it can see gaps but can't act".
+
+    WHY REFUND RATHER THAN MOVE THE GATE UP (the R-F3823 remedy). The dedupe check
+    is a cheap READ, so it could sit above the limiter. The reproduce gate RUNS A
+    TEST — moving it above `can_task_run` would execute work before the engine-pause
+    and cost-cap checks, which is exactly backwards. So the slot is taken first and
+    given back when, and only when, the attempt turns out to be a no-op.
+
+    DELIBERATELY NARROW. This is not a general "undo" for any failure: an attempt
+    that reached the LLM, or failed validation, DID consume the budget it was
+    metering and must keep its slot. Only a gap discarded as not-real refunds.
+
+    Never raises, never drives the bucket below zero, and returns whether the
+    refund actually landed so a caller can log the truth rather than assume it.
+    """
+    key_fmt = _CODER_RATE_KEY_FMT if coder else _RATE_KEY_FMT
+    key = key_fmt.format(hour=int(time.time() // 3600))
+    try:
+        current = await rs.get(key)
+        # A bucket that is absent or already at zero has nothing to refund —
+        # decrementing it would manufacture budget, which is the opposite failure.
+        if current is None or int(current) <= 0:
+            return False
+        await rs.incr(key, -1)
+        return True
+    except Exception as e:      # pragma: no cover - refund is best-effort
+        logger.debug("[R-F3919] rate slot refund failed for %s: %s", key, e)
+        return False
+
+
 async def check_and_increment_rate(*, key_fmt: str | None = None,
                                    cap: int | None = None) -> tuple[bool, int]:
     """Token-bucket rate limit with hourly buckets.

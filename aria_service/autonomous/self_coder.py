@@ -859,6 +859,32 @@ class ARIACoder:
                     "[aria_coder] R-F1460 reproduce_symptom FAILED for %s: %s",
                     gap.gap_id, symptom_msg,
                 )
+                # R-F3919 — GIVE THE SLOT BACK. This gate exists to discard gaps
+                # whose symptom cannot be reproduced, i.e. FALSE POSITIVES — no LLM
+                # tokens spent, no fix attempted, nothing executed. But the slot was
+                # already taken by can_task_run above, so every false positive was
+                # permanently eating budget.
+                #
+                # At the live cap (ARIA_CODER_MAX_FIXES_PER_HOUR=6) that is fatal,
+                # not merely wasteful. Measured over 15 cycles: 4 reproduce-gate
+                # rejections against 6 slots, with 10 subsequent attempts blocked by
+                # `rate_limit_exceeded:6` while the backlog grew 105 -> 127. The
+                # §21c P0 — "sees gaps but cannot act".
+                #
+                # Same invariant R-F897 and R-F3823 each restored: the bucket must
+                # reflect EXECUTED firings. Best-effort; a failed refund only costs
+                # the slot we were already losing.
+                try:
+                    from . import safety as _safety_refund
+                    _refunded = await _safety_refund.release_rate_slot(coder=True)
+                    logger.info(
+                        "[aria_coder] R-F3919 rate slot %s after reproduce-gate "
+                        "discard of %s",
+                        "REFUNDED" if _refunded else "refund skipped (empty bucket)",
+                        gap.gap_id,
+                    )
+                except Exception as _e:      # pragma: no cover
+                    logger.debug("[R-F3919] refund unavailable: %s", _e)
                 return FixResult(
                     success=False, fix_id=fix_id, gap_id=gap.gap_id,
                     failure_reason=f"Reproduce-symptom gate: {symptom_msg}",
