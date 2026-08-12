@@ -2450,3 +2450,35 @@ register entry hours earlier — was to BUILD persistence. The durable record al
 existed, was already written on every sweep, and was already imported. Check for an
 existing producer before adding one; the same instinct nearly re-implemented what
 C-29's fix also found already present.
+
+**C-33 COMPLETION (R-F3918) — the "durable" store was on the EPHEMERAL app dir.**
+R-F3917 pointed the health summary at `source_history.json` on the strength of that
+file being persistent. **It was not, and that was asserted rather than measured** — the
+C-29 lesson arriving one turn later in a new place.
+
+Measured on live aria-web minutes after the R-F3917 deploy:
+
+```
+/app/runs/learning/   -> every file stamped Aug 12 07:21   (the deploy minute)
+/data/                -> files from Jul 3, Jul 11, Aug 1   (genuinely persistent)
+source_history.json   -> sources: 50, GDELT sweeps=1 totalOk=1
+                         oldest sweep 2026-08-12T07:21:30Z  <- AFTER the deploy
+```
+
+`LEARNING_DIR = join(process.cwd(), 'runs', 'learning')` resolves **inside the container
+image**, which Fly replaces wholesale on every deploy; the volume is mounted at `/data`
+(`fly.web.toml`). So the store survived an in-container process restart but **not a
+deploy** — and deploys are the dominant restart cause, i.e. exactly the window C-33
+exists to close. R-F3917 alone would have shipped a fix that looked right and closed
+nothing.
+
+Fixed by following the convention already used at four sites in this tier
+(`existsSync('/data') ? '/data' : <local>`), extracted as `resolveLearningDir()` so the
+choice is testable without a mounted volume. A test asserts the module actually USES it
+— a correct helper nothing calls is worth nothing (C-27's "instrument with no reader").
+Local dev keeps the `runs/learning` fallback. Note the first deploy after this starts a
+fresh history; nothing is lost, because nothing was ever being kept.
+
+**This also moves the rest of the learning store onto the volume** — alert outcomes,
+confidence weights, patterns, opportunities. All were being wiped every deploy too, so
+the migration cannot lose data that was surviving; it stops the loss.

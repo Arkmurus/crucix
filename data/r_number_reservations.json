@@ -33133,7 +33133,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3918",
+      "title": "C-33 completion: learning store lives on the ephemeral app dir, wiped by every deploy — move to the /data volume",
+      "claimed_at": "2026-08-12T07:23:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ],
-  "next_available": 3918
+  "next_available": 3919
 }
