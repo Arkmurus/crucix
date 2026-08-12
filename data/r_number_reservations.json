@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3925,
+  "next_available": 3930,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33207,6 +33207,51 @@
       "commit_sha": "5d407376",
       "notes": null,
       "shipped_at": "2026-08-12T10:04:04Z"
+    },
+    {
+      "r_number": "R-F3925",
+      "title": "C-38 findings 5+7: extract the real URL instead of reconstructing one from a registrable domain",
+      "claimed_at": "2026-08-12T10:31:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3926",
+      "title": "C-38 findings 2+3: M3 poisons its own input and latches red; M4 discards the one check it can make",
+      "claimed_at": "2026-08-12T10:33:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3927",
+      "title": "C-38 findings 1+8: a failed scan reported scan_complete, and the keyspace was read twice per request",
+      "claimed_at": "2026-08-12T10:38:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3928",
+      "title": "R-F3919 stole check_and_increment_rate's fail_wire decorator - the R-F3842 class",
+      "claimed_at": "2026-08-12T10:43:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3929",
+      "title": "C-38 findings 4+9: unconfigured feeds read as degraded 0%, and retired feeds resurrected by the name union",
+      "claimed_at": "2026-08-12T10:46:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

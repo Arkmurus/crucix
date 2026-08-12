@@ -251,6 +251,20 @@ async def release_rate_slot(*, coder: bool = False) -> bool:
         return False
 
 
+# R-F3928 — RESTORED. R-F3919 inserted `release_rate_slot` immediately above this
+# function and, because the edit anchored on the `async def` line rather than the
+# decorator above it, `check_and_increment_rate` SILENTLY LOST its @fail_wire to the
+# new neighbour. Gate A caught it: "safety.py:254 public async function
+# 'check_and_increment_rate()' has no @fail_wire and is not in HARD_EXEMPT".
+#
+# This is the exact defect §16 already records — "R-F3842: three wiring-gate failures
+# caused by my own stolen-decorator defect" — reproduced verbatim, which is why the
+# gate that catches it must never be muted or baselined. A decorator theft is
+# invisible in review (both functions look decorated) and silently un-wires a path
+# that was wired, so the module keeps reporting health it no longer measures.
+#
+# WHEN INSERTING A FUNCTION ABOVE ANOTHER, ANCHOR ON THE DECORATOR, NOT THE `def`.
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_increment_rate(*, key_fmt: str | None = None,
                                    cap: int | None = None) -> tuple[bool, int]:
     """Token-bucket rate limit with hourly buckets.
