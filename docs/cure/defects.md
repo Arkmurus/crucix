@@ -2274,3 +2274,39 @@ recorded when the scout ADMITS A NEW SOURCE. With ~192 families already seeded a
 validator gate in front, that path is rare-to-never. The producer is wired; its trigger
 condition is simply not being met. Worth revisiting as a question about scout yield,
 not as a dark path.
+
+### C-33 · Node feed-health "reliability" resets to zero on every restart — **OPEN (investigated R-F3909, 2026-08-11)**
+
+`/sources.html`'s **Operational feed health** panel reports a reliability percentage
+per briefing integration, computed in `server.mjs`:
+
+```js
+const sourceHealth = {};                       // server.mjs — plain object, no persistence
+const reliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
+```
+
+`sourceHealth` is an **in-process object with no durable backing**. Every aria-web
+restart or deploy resets it to `{}`, so the percentages are scoped to *process
+lifetime*, not history. Measured 2026-08-11: uptime 16,091s (~4.5h) against a 5-minute
+sweep cadence — so the displayed figures were computed over roughly 53 sweeps, and a
+source that has been failing for weeks reads as whatever it did since the last deploy.
+
+The page footer states *"Reliability = successful sweeps ÷ (success + fail)"* without
+that scope, and R-F2519 added a `degradedInLastN` rolling window over the last 10
+sweeps — which also empties on restart. So a chronically flapping feed is laundered
+clean by a deploy, and deploys are frequent.
+
+This is a milder cousin of C-29: not an unreadable instrument, but one whose window
+silently shrinks to "since last boot" while being presented as a reliability history.
+It cannot report a false *green* out of nowhere — a fresh process shows `null` /
+not-checked until the first sweep, which R-F2719 already buckets honestly — but it
+does forget every failure it has ever seen.
+
+**Not fixed here, deliberately.** It is a change to the aria-web tier, which has its
+own deploy workflow (`deploy-fly.yml` is aria-intel ONLY), and it needs a persistence
+decision rather than a patch: the Node tier is files-only per §6 (`MemoryManager` over
+`RUNS_DIR/memory/hot.json`; Upstash is gone), so the natural home is a small durable
+counter file written on sweep completion and rehydrated at boot — with a bounded
+window so it does not become an unbounded all-time average that dilutes new
+regressions, which is the exact failure R-F3364 fixed for the DD layer-stats counters
+by day-bucketing them. Reuse that shape; do not write a flat all-time counter.
