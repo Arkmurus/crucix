@@ -122,6 +122,11 @@ _REGISTRY_KEY = "crucix:aria:search:engine_registry"
 #: and an alert that fires hundreds of times is an alert that gets muted.
 _BLOCK_ALERT_PREFIX = "crucix:aria:search:engine_block_alerted:"
 _BLOCK_ALERT_TTL_S = 3600
+#: R-F3921 — past this, a last_event is history, not a verdict. An engine nobody
+#: queries (disabled upstream, or simply idle) must not read `blocked` forever. Set
+#: comfortably above the block-alert TTL so an engine under genuine sustained refusal
+#: keeps re-stamping its state and stays visible.
+_STATE_STALE_S = 6 * 3600
 
 
 def _key(engine: str) -> str:
@@ -408,9 +413,37 @@ async def health_report(engines: list[str] | None = None) -> dict[str, Any]:
         if state is None:
             entry["serving"] = None       # could not measure != measured and passed
         else:
-            entry["serving"] = state.get("last_event") == "served"
-            entry["unresponsive_count"] = int(state.get("unresponsive_count") or 0)
+            # R-F3921 — A STALE EVENT IS NOT A CURRENT VERDICT.
+            #
+            # `serving` reads a last-writer-wins key, so an engine that stops being
+            # ASKED freezes at whatever it last did — forever. Observed live: after
+            # R-F3883 DISABLED `google cse` in searxng, it kept reporting
+            # `blocked: true` on `engine_relevance`, because a disabled engine can
+            # never write "served" again. §27d makes this surface binding, so a
+            # future session would read "Google is blocking us" when in fact WE
+            # turned it off — a wrong cause pointing at a wrong fix, which is the
+            # §18 OpenSanctions defect in miniature.
+            #
+            # "Blocked" must mean REFUSING US RECENTLY, not "refused once and was
+            # never asked again". Past the window the verdict goes back to None
+            # (unknown), which is the honest reading for a source nobody is
+            # querying — and it is exactly the stale-forever class this module was
+            # written to kill (R-F3865: "a permanent ban would make this module the
+            # next stale hand-maintained list").
+            age = None
+            try:
+                age = time.time() - float(state.get("at") or 0)
+            except (TypeError, ValueError):
+                age = None
             entry["last_event_at"] = state.get("at")
+            if age is not None:
+                entry["last_event_age_s"] = round(age, 1)
+            if age is not None and age > _STATE_STALE_S:
+                entry["serving"] = None
+                entry["stale"] = True
+            else:
+                entry["serving"] = state.get("last_event") == "served"
+            entry["unresponsive_count"] = int(state.get("unresponsive_count") or 0)
             if state.get("last_unresponsive_reason"):
                 entry["last_unresponsive_reason"] = state["last_unresponsive_reason"]
         out[name] = entry
