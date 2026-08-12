@@ -2361,3 +2361,59 @@ WARNING: `core.hooksPath` is an ABSOLUTE path to the main checkout
 file. This fix therefore takes effect for worktree commits only once the main
 checkout has pulled it — not when the worktree branch has it. That is also why the
 four commits in this session kept using the old hook after the fix was written.
+
+### C-35 · The reliability producer ignored the provenance the rest of the DD already reads — **CLOSED (R-F3915, 2026-08-11)**
+
+C-29 made the registry reliability EMA readable; it then measured **one family across
+the module's lifetime** despite 63 DD layer-runs in seven days. This is why.
+
+`_record_source_reliability` skipped any finding whose `url` was None. But
+`Finding.url` was introduced by R-F2691 as **purely additive** — its own comment gives
+both the constraint and the scale: *"All optional → every existing construction site
+keeps working unchanged"*, across *"~127 construction sites"*. Almost all predate it
+and still carry provenance the original way, embedded in `source` as
+``"bailii [from https://www.bailii.org/ew/cases/...]"``.
+
+That suffix is **not** decoration. R-F2691 measured it as load-bearing: `origin_key` /
+`_is_tier_1a_source` resolve it to `pub:bailii.org`, which is what clears the R-5005
+Tier-1a gate — a bare ``"bailii"`` yields `external_unclassified` and FAILS it. The DD
+pipeline already treats it as authoritative provenance. Only the reliability producer
+refused to look at it.
+
+**The fix is NOT a 127-site sweep.** R-F2691 correctly scoped that as separate work
+because it touches the tier gate, and a careless pass would silently re-tier findings
+across every report. The surgical fix makes the *producer* read provenance the way the
+rest of the system already does, **reusing `registrable_domain` and `origin_key`
+rather than writing a second parser** — a second parser is exactly how C-29 happened:
+two components each deciding independently what a source key looks like, then drifting
+apart. The synthesized `https://{registrable_domain}/` means `web_atlas._source_family`
+and the tier gate agree by construction.
+
+Attribution is never invented: `origin_key` already distinguishes an external
+publisher (`pub:…`) from internal compute (`ghost_scorer`, `network_walker` →
+`internal`) and from the unclassifiable, so it is the gate rather than a hand-written
+blocklist. Tests pin that internal labels, blank sources and bare labels record
+nothing, that the R-5005 confidence gate is unchanged (C-35 widens WHERE provenance is
+read, never WHAT qualifies), and that per-(family, layer) dedup still holds.
+
+**C-32 addendum — the negative half is now definitively BLOCKED, with new evidence.**
+The operator approved the tier-contradiction policy, and implementing it was attempted.
+It cannot be done safely, and the reason is stronger than "no source attribution":
+
+> `deep_researcher` Rule B — the only in-run contradiction detector — decides that two
+> facts on the same topic contradict each other when they share **fewer than five
+> words** (`len(overlap_words) < 5`). That is a crude lexical heuristic with an obvious
+> false-positive mode: *two differently-worded statements of the SAME fact register as
+> a contradiction.* It also never inspects either fact's source.
+
+So a tier-contradiction signal would have to be built on a detector that cannot
+reliably tell disagreement from paraphrase, and its output would feed
+`suspend_failing_sources`. The concrete failure is auto-suspending a **correct** source
+because two of its facts were phrased differently — a fabricated `degradation_reason`
+in a compliance product, which is the exact harm R-F3254 exists to prevent.
+
+Closing C-32 therefore requires building two things that do not exist, in order:
+a contradiction detector that is actually reliable (semantic, not word-overlap), and
+source-level adjudication on top of it. Both are **features**, not defect fixes, and
+§26 forbids them under the freeze. Until then the EMA reads as "confirmations
+accumulated" and nothing should be auto-suspended on it.

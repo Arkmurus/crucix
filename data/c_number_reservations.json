@@ -328,6 +328,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-12T06:51:28Z"
+    },
+    {
+      "c_number": "C-35",
+      "title": "DD reliability producer requires Finding.url and ignores the [from url] provenance that origin_key/registrable_domain already read — ~127 sites invisible",
+      "claimed_at": "2026-08-12T06:52:51Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3915"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T06:55:21Z"
     }
   ]
 }

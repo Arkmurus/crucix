@@ -12377,6 +12377,57 @@ async def _dd_interactive_keepalive() -> None:
             pass
         await asyncio.sleep(4)
 
+def _finding_provenance_url(f: Any) -> Optional[str]:
+    """C-35 — the finding's attributable source location, or None.
+
+    Prefers R-F2691's structured `Finding.url`. When absent — which is the case at
+    almost all of the ~127 construction sites, because R-F2691 was deliberately
+    PURELY ADDITIVE — falls back to the provenance embedded in the `source` string as
+    ``"bailii [from https://www.bailii.org/...]"``.
+
+    That suffix is not decoration. R-F2691 measured it as load-bearing: `origin_key` /
+    `_is_tier_1a_source` resolve it to `pub:bailii.org`, which is what clears the
+    R-5005 Tier-1a gate, where a bare ``"bailii"`` yields `external_unclassified` and
+    fails. The DD pipeline already treats it as authoritative provenance; before this,
+    only the reliability producer refused to read it, and that is why the EMA recorded
+    ONE family across its entire lifetime despite 63 layer-runs in seven days.
+
+    REUSES the canonical resolvers rather than parsing the suffix here. A second
+    parser is precisely how C-29 happened — two components each deciding what a source
+    key looks like, then drifting apart — so `registrable_domain` does the extraction
+    and `origin_key` draws the line on what counts as an external publisher at all.
+
+    Returns None for internal compute labels (`ghost_scorer`, `network_walker`) and
+    anything unclassifiable: crediting those would enter ARIA's own machinery into the
+    source registry as if it were an outside source.
+    """
+    url = getattr(f, "url", None)
+    if url:
+        return str(url)
+
+    source = str(getattr(f, "source", "") or "").strip()
+    if not source:
+        return None
+    try:
+        from .dd_independent_verifier import origin_key, registrable_domain
+    except Exception:
+        return None
+    try:
+        # `pub:` is the ONLY origin class that names an external publisher. 'internal',
+        # 'external_unclassified' and the bare authority labels ('sanctions:ofac') do
+        # not resolve to a fetchable domain, so they attribute to nothing.
+        if not origin_key(source).startswith("pub:"):
+            return None
+        domain = registrable_domain(source)
+    except Exception:
+        return None
+    if not domain or "." not in domain:
+        return None
+    # web_atlas keys reliability on `_source_family(url)`, so hand it a URL built from
+    # the same registrable domain the tier gate resolved — the two agree by construction.
+    return f"https://{domain}/"
+
+
 async def _record_source_reliability(report: "ARKDDReport") -> int:
     """R-F2735 (Batch C) — feed the web_atlas reliability EMA from DD verdicts.
 
@@ -12418,9 +12469,9 @@ async def _record_source_reliability(report: "ARKDDReport") -> int:
             # Only a gate-CLEARED CONFIRMED finding means the source's claim held up.
             if getattr(f, "confidence", "") != "CONFIRMED" or getattr(f, "gate_demoted", False):
                 continue
-            url = getattr(f, "url", None)
+            url = _finding_provenance_url(f)
             if not url:
-                continue  # honesty: no structured url → cannot attribute reliability
+                continue  # honesty: no attributable publisher → record nothing
             try:
                 family = web_atlas._source_family(url)
             except Exception:
