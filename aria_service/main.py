@@ -2627,10 +2627,39 @@ async def lifespan(app: FastAPI):
         "library_consolidation", "student_brain",
         "Archive stale reasoning cases (daily)",
     ), name="register_agent_library_consolidation"))
+    # R-F3916 — regional_snapshot was registered as an agent (R-F2957) with NO
+    # contract, so test_rf1580's invariant went red on main. The invariant is worth
+    # keeping: a contract is what makes an agent's expected inputs, outputs and
+    # failure modes observable, and an uncontracted agent is unobservable by
+    # definition. Written from what the loop ACTUALLY does (main.py
+    # `_regional_snapshot_loop`), not from the one-line registration blurb.
+    _regional_snapshot_contract = AgentContract(
+        agent_id="regional_snapshot",
+        version="1.0.0",
+        directives=[
+            "Record a timestamped regional-mastery snapshot (floor / mean / cells>=0.70 / per-cell) to a bounded ring, 4x/day",
+            "Drive the brier (topic-mastery) snapshot, which has no other periodic caller",
+            "Force-flush deferred regional mastery so a chat-only update cannot sit unwritten (R-F2963)",
+            "Skip the cycle while the engine is paused, and defer under load-shed rather than contend with chat/DD",
+            "First snapshot 35 min after boot, so the heatmap is warm rather than empty",
+        ],
+        inputs=["Regional mastery heatmap", "Topic mastery (brier)", "load_governor pressure", "engine pause flag"],
+        outputs=["Regional mastery time-series ring", "Brier snapshot", "regional_snapshot heartbeat"],
+        error_modes=[
+            "store_unreachable - snapshot skipped, ring keeps prior history, never truncated",
+            "engine_paused - cycle skipped by design, not a failure",
+            "load_shed - cycle deferred one hour, not a failure",
+        ],
+        dependencies=["student"],
+        check_interval_s=21600,   # 6h — matches the loop's 4x/day cadence
+        critical=False,
+    )
+
     # R-F2957 — regional-mastery compounding snapshot (gate #2 observability)
     _bg_task(asyncio.create_task(_register_agent(
         "regional_snapshot", "student_brain",
         "Regional mastery time-series snapshot + brier snapshot (4×/day)",
+        contract=_regional_snapshot_contract,   # R-F3916
     ), name="register_agent_regional_snapshot"))
 
     # Register proactive watch
@@ -2731,6 +2760,7 @@ async def lifespan(app: FastAPI):
         check_interval_s=3600,
         critical=False,
     )
+
     _bg_task(asyncio.create_task(_register_agent(
         "web_integrity", "monitoring",
         "24/7 endpoint monitoring, input/output validation, error pattern detection",
@@ -2907,6 +2937,7 @@ async def lifespan(app: FastAPI):
             _web_integrity_contract,
             _autonomous_scheduler_contract,
             _wiring_monitor_contract,
+            _regional_snapshot_contract,   # R-F3916
         ):
             try:
                 await _CR.register_contract(_c)

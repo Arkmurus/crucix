@@ -33115,7 +33115,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3916",
+      "title": "regional_snapshot agent had no contract — test_rf1580 red on main; contract added + identity default in the invariant",
+      "claimed_at": "2026-08-12T06:59:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ],
-  "next_available": 3916
+  "next_available": 3917
 }

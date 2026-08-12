@@ -63,8 +63,14 @@ def test_every_registered_agent_has_a_contract():
             "autonomous_scheduler": "autonomous_scheduler",
             "wiring_monitor": "wiring_monitor",
         }
-        if inner in mapping:
-            contracted_agents.add(mapping[inner])
+        # R-F3916 — default to IDENTITY. The map exists only for the handful of
+        # contract vars whose name differs from the agent id (`_research_contract`
+        # -> `research_engine`); every other entry was an identity pair listed by
+        # hand, so a new agent whose contract var matches its id was silently
+        # treated as uncontracted. That is how `regional_snapshot` went red.
+        # Identity default cannot mask a genuine mismatch: a contract named for the
+        # wrong agent still leaves the registered id in `missing`.
+        contracted_agents.add(mapping.get(inner, inner))
 
     # The invariant: every registered agent must have a contract
     missing = registered_agents - contracted_agents
