@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3912,
+  "next_available": 3915,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33056,24 +33056,51 @@
       "title": "C-30/C-31: wiring_monitor M3 inverted + M4 blind to its own image",
       "claimed_at": "2026-08-12T06:16:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9cf5596e",
+      "notes": null,
+      "shipped_at": "2026-08-12T06:35:52Z"
     },
     {
       "r_number": "R-F3910",
       "title": "repair tooluse citation and contradiction contracts",
       "claimed_at": "2026-08-12T06:19:46Z",
       "claimed_by": "claude",
-      "status": "shipped",
-      "commit_sha": "fcbd00b9",
-      "notes": null,
-      "shipped_at": "2026-08-12T06:44:59Z"
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     },
     {
       "r_number": "R-F3911",
       "title": "constitutional RAG returns [] when chromadb is absent - the S20 binding step no-ops",
       "claimed_at": "2026-08-12T06:26:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3912",
+      "title": "C-34: pre-commit hook must fail closed when the checker did not run",
+      "claimed_at": "2026-08-12T06:45:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3913",
+      "title": "launch citation-contract positive SFT with immutable gates",
+      "claimed_at": "2026-08-12T06:48:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3914",
+      "title": "store_fact rag test counts GLOBAL ingests so an unrelated cascade fails it",
+      "claimed_at": "2026-08-12T06:48:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

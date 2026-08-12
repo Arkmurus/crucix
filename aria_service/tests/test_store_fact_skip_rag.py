@@ -119,10 +119,33 @@ def test_store_fact_default_runs_rag_ingest():
         ))
 
     assert result.get("action") in ("created", "updated", "superseded")
-    # Default — RAG ingest must have fired
-    assert len(ingest_calls) == 1, (
-        f"store_fact default should call rag_store.ingest_fact once; "
-        f"got {len(ingest_calls)} calls"
+
+    # R-F3914 — assert OUR fact was ingested, not that the process made exactly one
+    # ingest call in total.
+    #
+    # THE FLAKE THIS FIXES, root-caused by bisection rather than muted. This asserted
+    # `len(ingest_calls) == 1` and failed intermittently in CI and in a full local
+    # run with "got 2 calls". The second call was:
+    #
+    #     'Verified fact: test_topic (GENERAL_CLAIM) — PENDING_CORROBORATION'
+    #
+    # i.e. verified_intel emitting a brain signal (verified_intel.py:495) →
+    # brain_hook.absorb → store_fact → rag_store.ingest_fact, cascading INSIDE this
+    # test's patch window. That cascade is real, correct behaviour that has nothing
+    # to do with what this test measures; it only appears once enough earlier tests
+    # have primed it, which is why removing ANY ONE of 13 unrelated files made the
+    # failure vanish — a cumulative threshold, not a single polluter.
+    #
+    # Counting a GLOBAL side-effect makes a unit test hostage to every unrelated
+    # cascade in the process. The contract being tested is "store_fact ingests the
+    # fact it was given by default", so that is what is asserted — and it is now
+    # immune to whatever else the process legitimately does.
+    ours = [c for c in ingest_calls if c[1].get("topic") == "test_topic"
+            and str(c[1].get("content", "")).startswith("some content")]
+    assert len(ours) == 1, (
+        f"store_fact default must ingest ITS OWN fact exactly once; got "
+        f"{len(ours)} matching of {len(ingest_calls)} total ingest calls. "
+        f"All calls: {[c[1].get('content', '')[:60] for c in ingest_calls]}"
     )
 
 
