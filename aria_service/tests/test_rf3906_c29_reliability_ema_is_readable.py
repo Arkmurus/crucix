@@ -90,6 +90,13 @@ class SharedFakeStore:
             return []  # scan_keys CANNOT signal failure — it returns []
         return [k for k in self.data if fnmatch.fnmatch(k, pattern)][:count]
 
+    async def scan_keys_strict(self, pattern: str, count: int = 200):
+        """C-38 — the strict contract this fake must mirror: same result as
+        `scan_keys`, but a store failure RAISES instead of returning []."""
+        if self.fail_reads:
+            raise StoreReadError(f"scan failed: {pattern}")
+        return await self.scan_keys(pattern, count)
+
 
 @pytest.fixture
 def store(monkeypatch):
@@ -316,6 +323,39 @@ async def test_suspend_never_fires_on_an_unreadable_store(store) -> None:
     # ordinary caller idiom below cannot raise TypeError when the store is down.
     assert isinstance(result["suspended"], int)
     assert (result["suspended"] > 0) is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_scan_is_never_reported_as_a_complete_one(store) -> None:
+    """C-38 finding 1 — the defect C-29 cured, reintroduced one layer down.
+
+    `scan_complete` was `len(keys) < CAP`, which is True when `scan_keys` returned []
+    because the SCAN FAILED — and `scan_keys` swallows backend errors and returns []
+    exactly as it does for an empty keyspace. The report then asserted
+    `store_readable: true, scan_complete: true, unmeasured_count: 194`: a positive
+    statement that no source has ever been validated, from an instrument that could
+    not read. WEEKLY-CORE-META embeds the same fabricated zero.
+
+    The fix reads through `scan_keys_strict`, which raises. Do NOT "simplify" it back
+    to `scan_keys` — the empty list is indistinguishable from success.
+    """
+    _seed_family(store, "example.gov", topics=["registry"])
+    await wa.record_ingest("https://example.gov/x", "identity", success=True)
+
+    async def _boom(pattern, count=200):
+        raise StoreReadError(f"SCAN {pattern} failed: database is locked")
+
+    store.scan_keys_strict = _boom  # type: ignore[method-assign]
+
+    report = await sv.registry_health_report()
+
+    assert report.get("store_readable") is False, (
+        "a FAILED reliability scan was reported as a successful, complete one"
+    )
+    assert report.get("unmeasured_count") is None, (
+        "counts must be unknowable, never 0, when the scan did not run"
+    )
+    assert report.get("total_sources") is None
 
 
 @pytest.mark.asyncio

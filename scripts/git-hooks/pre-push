@@ -17,11 +17,29 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # This closes the confabulation hole a RAW `git push` (R-F1770) slipped through.
 PUSH_REFS="$(cat)"
 
+# C-38 (R-F3931) — C-34 fixed this resolution in pre-commit and NOT here, which is
+# why every push in that session needed a manual PATH shim. `--show-toplevel` is the
+# WORKTREE root and a worktree has no .venv, so this fell through to `python3` — on
+# Windows the App Execution Alias shim, which exits non-zero (measured 49). Under
+# `set -e` that ABORTS the hook and blocks the push outright: pre-push fails CLOSED,
+# so the same missing interpreter that made pre-commit skip everything makes this
+# refuse everything. `--git-common-dir` points at the MAIN checkout's .git for every
+# worktree, so its parent is the main working tree.
+MAIN_ROOT=""
+_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$_COMMON_DIR" ]; then
+    MAIN_ROOT="$(dirname "$_COMMON_DIR")"
+fi
+
 # Detect available Python interpreter — prefer repo venv.
 if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
     PY="$REPO_ROOT/.venv/Scripts/python.exe"
 elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
     PY="$REPO_ROOT/.venv/bin/python"
+elif [ -n "$MAIN_ROOT" ] && [ -x "$MAIN_ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$MAIN_ROOT/.venv/Scripts/python.exe"
+elif [ -n "$MAIN_ROOT" ] && [ -x "$MAIN_ROOT/.venv/bin/python" ]; then
+    PY="$MAIN_ROOT/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     PY=python3
 else

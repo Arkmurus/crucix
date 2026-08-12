@@ -96,3 +96,30 @@ test('C-33: server.mjs still parses', () => {
   // Cheap guard — a syntax error here takes the whole web tier down at boot.
   assert.ok(SERVER.includes('function getSourceHealthSummary('));
 });
+
+// ---- C-38 / R-F3929 - two defects the high-effort review found in R-F3917 ----
+
+test('C-38: an unconfigured feed keeps its null reliability', () => {
+  const body = fn('getSourceHealthSummary');
+  assert.ok(
+    /not_configured/.test(body) && /unconfigured/.test(body),
+    'C-38 finding 4: durable reliability overrode the R-F2719 disabled-excluded null. ' +
+      'recordSourceSweep counts an unconfigured sweep as a FAILURE (ok = status === "ok", ' +
+      'no carve-out), so its durable ema goes to 0 and Comtrade/CSL get reclassified ' +
+      'from "no API key was ever set" to "degraded, 0%, dead".',
+  );
+  assert.ok(
+    /unconfigured \? null/.test(body),
+    'the unconfigured branch must yield null, not 0 - classifySourceHealth buckets on null',
+  );
+});
+
+test('C-38: retired feeds are not resurrected by the durable union', () => {
+  const body = fn('getSourceHealthSummary');
+  assert.ok(
+    /freshEnough|DURABLE_LIVE_WINDOW_MS/.test(body),
+    'C-38 finding 9: source_history.json is never pruned, so unioning its names ' +
+      'resurrects retired integrations as live feeds with a non-null reliability, ' +
+      'inflating totalTracked. A durable-only name needs a recency test.',
+  );
+});

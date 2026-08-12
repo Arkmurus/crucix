@@ -61,6 +61,11 @@ class Store:
     async def scan_keys(self, pattern, count=200):
         return [k for k in self.data if fnmatch.fnmatch(k, pattern)][:count]
 
+    async def scan_keys_strict(self, pattern: str, count: int = 200):
+        """C-38 — the strict contract this fake must mirror: same result as
+        `scan_keys`, but a store failure RAISES instead of returning []."""
+        return await self.scan_keys(pattern, count)
+
 
 @pytest.fixture
 def store(monkeypatch):

@@ -2568,3 +2568,116 @@ C-33). It is deferred because it couples two live surfaces and this sweep had al
 shipped six fixes; it should not be written at the end of a long session.
 
 Until then: read `fail` and `total` on this panel, not `success_rate`.
+
+
+### C-38 · A high-effort review of the C-29..C-36 fixes found 10 CONFIRMED defects, 7 of them inside the fixes themselves — **CLOSED (R-F3925/3926/3927/3929/3931, 2026-08-11)**
+
+36 candidates from 4 finder angles, 27 independent verifier agents, 2 refuted, **10
+reported and every one confirmed**. The dominant class is the one this whole sweep was
+about: *an instrument that cannot see is indistinguishable from a clean reading* —
+this time reintroduced by the fixes for it.
+
+**1 — a FAILED scan reported itself COMPLETE (R-F3927).** C-29's `scan_complete` was
+`len(keys) < CAP`, which is True when `scan_keys` returned `[]` because the scan
+FAILED: `scan_keys` swallows backend errors and returns `[]` exactly as it does for an
+empty keyspace (redis_store logs the SCAN exception then falls through to the in-memory
+glob; state_store catches the SQL error and returns `[]`). A Redis SCAN error, or a
+SQLite lock on the range scan while point GETs still succeed, produced
+`store_readable: true, scan_complete: true, unmeasured_count: 194` — a positive
+assertion that no source has ever been validated, from an instrument that never ran.
+**The exact conflation C-29 cured, one layer down.** Fixed by adding
+`scan_keys_strict` to both store layers, mirroring the existing R-F1392
+`get_strict`/`get_json_strict` contract; the caller turns the raise into the honest
+store-unreadable report.
+
+**2 — M4 could never report a failure it was fully able to detect (R-F3926).** C-31's
+blanket early return on any unreadable file discarded `endpoint_exists`, which is
+checked against `routes/aria.py` — present in the image, needing no Node file. If
+`/api/aria/brain/signal` were deleted, M4 computed False, threw it away, emitted
+nothing, and `run_all_checks` folded `None` into `(m4_healthy or m4_unknown)` and
+reported a **healthy composite while the endpoint was gone**. C-31 correctly stopped M4
+asserting what it could not see and overshot into not reporting what it could. Honesty
+is per-check, not a blanket verdict. The repair itself had to be careful: an unreadable
+route file must NOT read as a deleted endpoint, so readability is now tracked
+separately and the failure only fires when the file was actually read.
+
+**3 — M3 poisoned its own input and latched red forever (R-F3926).**
+`check_wa_connection_health` counts gaps containing `auth_lost`/`disconnect`, and
+C-30's new failure detail was literally *"N auth_lost and M disconnected signals…"*,
+which `record_gap` stores **into the list the check reads**. One real drop — or any
+unrelated gap mentioning "disconnect" — made the count self-sustaining; the changing
+detail defeated the 1h dedupe, so counts grew hourly and the coder loop was fed a
+perpetual phantom `engine_failure`. C-30 had also deleted the `wire_success` branch, so
+**no path could ever emit a healthy M3 signal**. A guard that cannot go green is as
+useless as one that cannot go red — C-30's own principle, applied to C-30. Fixed by
+skipping this check's own gaps, keyed on the `source` field `record_gap` actually
+serialises (there is **no `module` field** — a skip on the module name would have
+looked right and matched nothing in production), plus wording the detail so it no
+longer contains its own trigger tokens.
+
+**5 — internal module labels were enrolled as external publishers (R-F3925).** C-35
+gated on `origin_key(...).startswith("pub:")` believing `pub:` meant "external
+publisher". `origin_key` tests for a DOT **before** it tests `_is_internal`, so every
+dotted internal label passes: measured, `origin_key('sources.ofac_sdn')` →
+`'pub:sources.ofac_sdn'`. That is the commonest `Finding.source` shape in
+dd_orchestrator, so ARIA's own compute labels would have been written into web_atlas as
+external source families with reliability scores.
+
+**7 — one publisher split across two families, several merged into one (R-F3925).**
+The fallback rebuilt a URL from `registrable_domain`, which strips subdomains, while the
+`f.url` branch keeps the full netloc: Companies House resolved to
+`find-and-update.company-information.service.gov.uk` on one path and `service.gov.uk` on
+the other, so it accumulated two EMAs with half the samples each while every unrelated
+`*.service.gov.uk` merged into the second.
+
+Both vanish by **extracting the real URL** from the `[from <url>]` suffix instead of
+reconstructing one. `_source_family` then derives the family for both paths, so they
+cannot disagree, and a bare label simply carries no URL. The lesson is C-29's own: a
+reconstruction is a SECOND derivation of the same fact. Reusing
+`origin_key`/`registrable_domain` *felt* like reusing the canonical resolver, but they
+answer a different question (independence grouping) — **borrowing an answer to a
+different question is how this defect class keeps recurring.** Neither had reached
+production: verified live before fixing, `topics_tracked: 1` with only the legitimate
+Companies House family, because no DD had finalised since the C-35 deploy.
+
+**4 — unconfigured feeds were reclassified as degraded 0% (R-F3929).**
+`updateSourceHealth` buckets `not_configured`/`disabled_no_key`/… as `disabled`, never
+`fail`, so reliability stays `null` — which is exactly what puts them in R-F2719's
+`unconfigured` bucket. `recordSourceSweep` has **no such carve-out** (`ok = status ===
+'ok'`), so every sweep of an unconfigured feed increments `totalFail` and drives its
+durable EMA to 0. Letting durable win turned Comtrade/CSL from *"no API key was ever
+set"* into *"degraded, 0%, dead"* — **the precise conflation R-F2719 was written to
+remove**, live on aria-web.
+
+**9 — retired feeds resurrected (R-F3929).** `source_history.json` is never pruned, so
+unioning its names revived renamed/retired integrations with a non-null reliability,
+filing them as healthy/degraded rather than not-checked and inflating `totalTracked`.
+Durable-only names now need a 24h recency test — which is what separates "retired
+months ago" from "not yet swept since this boot".
+
+**6 — a phantom contract dependency (R-F3931).** `regional_snapshot` declared
+`dependencies=["student"]`; no `AgentContract(agent_id="student")` exists anywhere, and
+`validate_contract` appends a `dependency_no_contract` violation and LPUSHes it on
+EVERY pass — permanent and unfixable. `dependencies` names other CONTRACTED AGENTS, not
+imported modules.
+
+**8 — a doubled full-keyspace read on a polled endpoint (R-F3927).**
+`_any_negative_signal_recorded` walked every reliability key and, by the module's own
+reasoning, could never short-circuit while C-32 is unwired — then
+`_measured_reliability` re-read the identical keys. R-F703 records a live event-loop
+wedge from exactly this shape on a health endpoint, and C-35 exists to grow the measured
+set, so it scaled the wrong way. Detection now rides the read the loop already performs.
+
+**10 — C-34 fixed pre-commit and left pre-push behind (R-F3931).** pre-push carries the
+identical worktree-blind resolution and runs under `set -e`, so the Store shim's
+non-zero exit ABORTS it: pre-commit failed OPEN (checks silently skipped), pre-push
+fails CLOSED (nothing can be pushed) — **which is why every push in the C-34 session
+needed a manual PATH shim.** The same `--git-common-dir` resolution now applies to both.
+
+**What this says about the sweep.** Seven of ten defects were introduced by the fixes,
+and every one is the family the fixes were written to eliminate, displaced by a step: a
+cure for "asserts what it cannot measure" that overshot into "cannot report what it
+CAN measure", and two cases of a fix reintroducing the original conflation one layer
+down. Fixture-first caught none of them — they were found by review, because each was a
+*correct-looking* implementation of the right idea. That is the argument for the review
+pass, not for more tests.

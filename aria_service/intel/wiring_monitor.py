@@ -362,6 +362,23 @@ async def check_wa_connection_health() -> dict[str, Any]:
         for gap in gaps:
             if isinstance(gap, str):
                 gap_lower = gap.lower()
+                # C-38 — SKIP THIS MONITOR'S OWN OUTPUT.
+                #
+                # The failure branch below writes a detail containing the very tokens
+                # this loop greps for ("N auth_lost and M disconnected signals..."),
+                # and `record_gap` stores it in THIS list. So one real drop — or any
+                # unrelated gap mentioning "disconnect", e.g. a store "connection
+                # disconnected" error — made the count self-sustaining: the monitor
+                # re-read its own alarm every hour, the counts grew, the changing
+                # detail defeated the 1h dedupe, and it could never return to health.
+                # An instrument must not be able to measure itself.
+                # `record_gap` serialises `source`, NOT `module` (capability_gaps.py
+                # entry fields), and this check is wired with
+                # source="wiring_monitor:check_wa_connection_health" — so THAT is the
+                # marker that actually appears in the stored JSON. Matching on the
+                # module name instead would look correct and skip nothing in prod.
+                if "check_wa_connection_health" in gap_lower:
+                    continue
                 if "wa_auth_lost" in gap_lower or "loggedout" in gap_lower:
                     result["wa_auth_lost_signals"] += 1
                 if "wa_disconnected" in gap_lower or "disconnect" in gap_lower:
@@ -396,10 +413,14 @@ async def check_wa_connection_health() -> dict[str, Any]:
         result["healthy"] = False
         wire_failure(
             module="wiring_monitor:M3",
+            # C-38, defence in depth — the wording deliberately avoids the literal
+            # tokens this check greps for ("auth_lost", "disconnect"). The source-tag
+            # skip above is the primary fix; this ensures that if the tag ever changes
+            # the alarm still cannot re-trigger itself.
             detail=(
-                f"WA connection health: {result['wa_auth_lost_signals']} auth_lost "
-                f"and {result['wa_disconnected_signals']} disconnected signals in "
-                "capability_gaps — the listener has been dropping."
+                f"WA connection health: {result['wa_auth_lost_signals']} auth-loss "
+                f"and {result['wa_disconnected_signals']} drop events observed in "
+                "capability_gaps — the listener has been losing its session."
             ),
             gap_type="engine_failure",
             source="wiring_monitor:check_wa_connection_health",
@@ -485,13 +506,22 @@ async def test_brain_signal_path() -> dict[str, Any]:
         route_file = os.path.join(
             os.path.dirname(__file__), "..", "routes", "aria.py"
         )
-        route_content = _cached_source(route_file)
+        # C-38 — readability tracked SEPARATELY. `_cached_source` collapses an
+        # unreadable file to "", which would make "the route file could not be read"
+        # indistinguishable from "the endpoint has been deleted" — and the branch
+        # below turns the latter into a wire_failure. That is the C-29 conflation, so
+        # it must not be reintroduced in the very check that reports it.
+        route_content, _route_readable = _read_source(route_file)
+        result["route_file_readable"] = _route_readable
+        _unreadable = _unreadable or not _route_readable
         result["endpoint_exists"] = (
             'def brain_signal_ep' in route_content
             or 'brain/signal' in route_content
         )
     except Exception as e:
         result["endpoint_check_error"] = str(e)[:200]
+        result["route_file_readable"] = False
+        _unreadable = True
 
     # ── R-F3580 — the brain_signal_consumer checks are REMOVED with the module ──
     #
@@ -566,6 +596,35 @@ async def test_brain_signal_path() -> dict[str, Any]:
 
     # C-31 — could this process actually SEE what it is judging?
     result["inspectable"] = not _unreadable
+
+    # C-38 — REPORT WHAT IS DETERMINATE, EVEN WHEN THE REST IS UNREADABLE.
+    #
+    # `endpoint_exists` is checked against routes/aria.py, which is PRESENT in this
+    # image and needs no Node-tier file. C-31's blanket early return threw it away, so
+    # if /api/aria/brain/signal were removed or renamed M4 computed False, emitted
+    # nothing, and `run_all_checks` folded None into `(m4_healthy or m4_unknown)` and
+    # reported a healthy composite while the endpoint was gone.
+    #
+    # C-31 was right that absent Node files are UNKNOWN, not broken. It overshot into
+    # "cannot report what it CAN measure" — the mirror of the defect it fixed. Honesty
+    # is per-check, not a blanket verdict in either direction.
+    # Only assert a MISSING endpoint when the route file was actually READ. If it was
+    # unreadable, `endpoint_exists` is False for want of evidence, not because the
+    # route is gone — asserting a failure there would be the same defect one level in.
+    if result.get("route_file_readable") and not result.get("endpoint_exists", False):
+        result["inspectable"] = not _unreadable
+        result["path_healthy"] = False
+        result["detail"] = (
+            "/api/aria/brain/signal is MISSING from routes/aria.py — the brain-signal "
+            "endpoint itself is gone. This is determinate regardless of the Node tier."
+        )
+        wire_failure(
+            module="wiring_monitor:M4",
+            detail=result["detail"],
+            gap_type="engine_failure",
+            source="wiring_monitor:test_brain_signal_path",
+        )
+        return result
 
     if _unreadable:
         # UNKNOWN, and it must stay unknown. aria-intel ships the Python service,

@@ -321,7 +321,21 @@ function getSourceHealthSummary() {
     // Fail soft to the in-process view — never lose the panel over a store read.
   }
 
-  const names = new Set([...Object.keys(sourceHealth), ...durableByName.keys()]);
+  // C-38 (finding 9) — a durable-only name is only a LIVE feed if it was swept
+  // recently. source_history.json is never pruned, so a retired or renamed
+  // integration keeps its entry forever; unioning names blindly resurrected it with
+  // a non-null reliability, so classifySourceHealth filed a feed that is no longer
+  // swept at all as healthy/degraded and inflated totalTracked. Recency is what
+  // separates "retired months ago" from "not yet swept since this boot".
+  const DURABLE_LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const freshEnough = (d) => {
+    const last = d && (d.lastOk || 0);
+    return typeof last === 'number' && last > 0 && (Date.now() - last) < DURABLE_LIVE_WINDOW_MS;
+  };
+  const names = new Set([
+    ...Object.keys(sourceHealth),
+    ...[...durableByName.keys()].filter(n => freshEnough(durableByName.get(n))),
+  ]);
 
   return [...names].map(name => {
     const h = sourceHealth[name] || { ok: 0, fail: 0, disabled: 0, lastStatus: null, lastMs: 0, recent: [] };
@@ -331,10 +345,23 @@ function getSourceHealthSummary() {
     const recent = h.recent || [];
     const degradedInLastN = recent.filter(v => v === 0).length;  // R-F2519 F2
 
+    // C-38 (finding 4) — AN UNCONFIGURED FEED HAS NO RELIABILITY, and must keep the
+    // null that R-F2719 depends on. updateSourceHealth deliberately buckets
+    // not_configured / disabled_no_key / disabled_no_watchlist / activation_required
+    // as `disabled` (never `fail`), so ok+fail stays 0 and reliability stays null,
+    // which is what puts them in the `unconfigured` bucket. recordSourceSweep has NO
+    // such carve-out — `ok = status === 'ok'` — so every sweep of an unconfigured
+    // feed increments totalFail and drives its durable ema to 0. Letting durable win
+    // there reclassified Comtrade/CSL from "no API key was ever set" to "degraded,
+    // 0%, dead", re-creating the exact conflation R-F2719 removed.
+    const NOT_CONFIGURED = ['not_configured', 'disabled_no_key', 'disabled_no_watchlist', 'activation_required'];
+    const unconfigured = NOT_CONFIGURED.includes(String(h.lastStatus || ''))
+      || ((h.disabled || 0) > 0 && total === 0);
+
     // Durable wins when it has samples; the in-process figure is the fallback for a
     // source swept in this process but not yet written to history.
-    const durable = !!d && d.reliability !== null && d.reliability !== undefined;
-    const reliability = durable ? d.reliability : processReliability;
+    const durable = !unconfigured && !!d && d.reliability !== null && d.reliability !== undefined;
+    const reliability = unconfigured ? null : (durable ? d.reliability : processReliability);
 
     return {
       name,

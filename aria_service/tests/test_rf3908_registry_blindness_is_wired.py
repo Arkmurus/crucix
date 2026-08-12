@@ -137,6 +137,10 @@ async def test_a_healthy_read_does_not_spam_the_brain(captured) -> None:
         async def scan_keys(self, p, count=200):
             return [k for k in data if fnmatch.fnmatch(k, p)][:count]
 
+        async def scan_keys_strict(self, p, count=200):
+            # C-38 — healthy store: strict scan behaves as the ordinary one.
+            return await self.scan_keys(p, count)
+
     import aria_service.intel.source_validator as _sv
 
     original = _sv.rs

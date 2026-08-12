@@ -2650,7 +2650,14 @@ async def lifespan(app: FastAPI):
             "engine_paused - cycle skipped by design, not a failure",
             "load_shed - cycle deferred one hour, not a failure",
         ],
-        dependencies=["student"],
+        # C-38 (R-F3931) — EMPTY, deliberately. The first draft declared
+        # dependencies=["student"], but no AgentContract with agent_id="student"
+        # exists anywhere in the tree, and `ContractRegistry.validate_contract`
+        # (agent_contract.py:497-505) appends a `dependency_no_contract` violation
+        # for every unresolvable name and LPUSHes it on EVERY validation pass — a
+        # permanent, unfixable violation accumulating forever. `dependencies` names
+        # OTHER CONTRACTED AGENTS, not the modules a loop imports.
+        dependencies=[],
         check_interval_s=21600,   # 6h — matches the loop's 4x/day cadence
         critical=False,
     )

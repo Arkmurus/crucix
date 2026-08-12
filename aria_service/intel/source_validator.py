@@ -1016,7 +1016,13 @@ async def _observed_reliability_keys(
     would report a wedged store as "nobody has ever measured anything" — C-29
     relocated rather than cured.
     """
-    keys = await rs.scan_keys(f"{_K_RELIABILITY_PREFIX}*", count=_RELIABILITY_SCAN_CAP)
+    # C-38 — STRICT scan. `scan_keys` returns [] on a backend failure exactly as it
+    # does for an empty keyspace, so `complete = len(keys) < CAP` was True for a scan
+    # that never ran — and the report then asserted `scan_complete: true` with every
+    # source unmeasured. That is precisely the conflation this function was written to
+    # cure, reintroduced one layer down. `scan_keys_strict` raises instead; the caller
+    # turns that into the honest store-unreadable report.
+    keys = await rs.scan_keys_strict(f"{_K_RELIABILITY_PREFIX}*", count=_RELIABILITY_SCAN_CAP)
     complete = len(keys) < _RELIABILITY_SCAN_CAP
     known = {f for f in (known_families or ()) if isinstance(f, str)}
     by_family: dict[str, list[str]] = {}
@@ -1085,13 +1091,20 @@ async def _measured_reliability(
         keys = [f"{_K_RELIABILITY_PREFIX}{fam}:{t}" for t in topics[:10]]
 
     scores: list[float] = []
+    saw_negative = False
     for key in keys:
         rel = await rs.get_json(key)
         if rel:
-            scores.append(float(rel.get("score", 0.5)))
+            score = float(rel.get("score", 0.5))
+            scores.append(score)
+            # C-38 — reported from the read we are ALREADY doing. A separate
+            # pre-pass re-read every one of these keys, doubling per-request store
+            # reads on a polled endpoint (R-F703's wedge shape).
+            if int(rel.get("contradicted") or 0) > 0 or score < 0.5:
+                saw_negative = True
     if not scores:
-        return None, 0
-    return sum(scores) / len(scores), len(scores)
+        return None, 0, saw_negative
+    return sum(scores) / len(scores), len(scores), saw_negative
 
 
 async def registry_health_report() -> dict:
@@ -1133,8 +1146,33 @@ async def registry_health_report() -> dict:
             "unmeasured": [],
         }
 
-    observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
-    negative_signal_seen = await _any_negative_signal_recorded(observed_by_family)
+    try:
+        observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
+    except StoreReadError as e:
+        # C-38 — a FAILED scan is not an empty atlas. Same honest report as an
+        # unreadable index: the counts are unknowable, not zero.
+        logger.warning("[C-38] registry_health_report: reliability scan failed: %s", e)
+        await _report_registry_blindness("registry_health_report:scan", e)
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "store_readable": False,
+            "error": f"reliability scan failed: {e}",
+            "total_sources": None,
+            "healthy_count": None, "degraded_count": None, "failing_count": None,
+            "dead_count": None, "unmeasured_count": None,
+            "top_performers": [], "degraded": [], "failing": [], "dead": [],
+            "unmeasured": [],
+        }
+
+    # C-38 (finding 8) — negative-signal detection is folded into the per-family loop
+    # below instead of a separate pre-pass. The pre-pass re-read every reliability key
+    # that `_measured_reliability` then read again, roughly DOUBLING store reads on a
+    # polled endpoint — and it could never short-circuit while C-32 is unwired, so the
+    # full walk always ran. CLAUDE.md R-F703 records a live event-loop wedge from
+    # exactly this shape, and C-35 exists to grow the measured set, so it scaled the
+    # wrong way. `_measured_reliability` already reads each record; it now reports what
+    # it saw.
+    negative_signal_seen = False
 
     healthy: list[dict] = []
     degraded: list[dict] = []
@@ -1153,9 +1191,10 @@ async def registry_health_report() -> dict:
         # have been reached, so fall back to the legacy tag probe rather than
         # asserting "unmeasured" from an incomplete read.
         if observed is None and not scan_complete:
-            overall, samples = await _measured_reliability(fam, topics)
+            overall, samples, _neg = await _measured_reliability(fam, topics)
         else:
-            overall, samples = await _measured_reliability(fam, topics, observed or [])
+            overall, samples, _neg = await _measured_reliability(fam, topics, observed or [])
+        negative_signal_seen = negative_signal_seen or _neg
         bucket_rec = {
             "family": fam,
             "tier": rec.get("tier"),
@@ -1286,9 +1325,9 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
         topics = rec.get("topics") or []
         observed = observed_by_family.get(fam)
         if observed is None and not scan_complete:
-            overall, _samples = await _measured_reliability(fam, topics)
+            overall, _samples, _neg = await _measured_reliability(fam, topics)
         else:
-            overall, _samples = await _measured_reliability(fam, topics, observed or [])
+            overall, _samples, _neg = await _measured_reliability(fam, topics, observed or [])
         if overall is None:
             # R-F3254 — YOU CANNOT DEMOTE WHAT YOU NEVER MEASURED. This branch
             # used to receive the 0.5 prior, which survives the default 0.40

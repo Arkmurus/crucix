@@ -706,6 +706,39 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     return [k for k in list(_mem_store.keys()) if fnmatch.fnmatch(k, pattern)][:count]
 
 
+async def scan_keys_strict(pattern: str, count: int = 200) -> list[str]:
+    """C-38 — like `scan_keys`, but a store-layer failure RAISES StoreReadError.
+
+    `scan_keys` returns `[]` on a backend error exactly as it does for a genuinely
+    empty keyspace (the Redis path logs the SCAN exception and falls through to the
+    in-memory glob; the SQLite path catches and returns []). Any caller that turns an
+    empty result into a statement about the world therefore publishes a fabricated
+    measurement whenever the scan fails — which is how `registry_health_report` came
+    to report `scan_complete: true, unmeasured_count: 194` from a scan that never ran.
+
+    This mirrors the R-F1392 `get_strict` / `get_json_strict` contract: an empty list
+    means genuinely nothing matched; a failure is raised so the caller can say so.
+    """
+    if _use_sqlite():
+        from . import state_store as _ss
+        try:
+            return await _ss.scan_keys_strict(pattern, count)
+        except _ss.StateReadError as e:
+            raise StoreReadError(str(e)) from e
+    if _client:
+        try:
+            keys: list[str] = []
+            async for key in _client.scan_iter(match=pattern, count=count):
+                keys.append(key)
+                if len(keys) >= count:
+                    break
+            return keys
+        except Exception as e:
+            raise StoreReadError(f"Redis SCAN {pattern} failed: {e}") from e
+    import fnmatch
+    return [k for k in list(_mem_store.keys()) if fnmatch.fnmatch(k, pattern)][:count]
+
+
 async def scan_keys_null_ttl(pattern: str, count: int = 500) -> list[str]:
     """R-F2629 — keys matching `pattern` that carry NO TTL.
 

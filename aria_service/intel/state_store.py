@@ -3601,6 +3601,29 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     return matched
 
 
+async def scan_keys_strict(pattern: str, count: int = 200) -> list[str]:
+    """C-38 — `scan_keys` that RAISES StateReadError instead of returning [] on failure.
+
+    `scan_keys` swallows a dead connection and a failed SQL range scan alike, returning
+    the same empty list a genuinely empty keyspace produces. A caller that reports on
+    the result then cannot tell "nothing matched" from "the scan did not run", and
+    publishes the first while meaning the second. Mirrors the `get_strict` contract.
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise StateReadError("state_store: no read connection for SCAN")
+    try:
+        await _flush_write_queue()
+        if _HOTCOLD_SPLIT and _cold_queue is not None:
+            await _flush_cold_queue()
+    except Exception:
+        pass
+    try:
+        return await scan_keys(pattern, count)
+    except Exception as e:  # pragma: no cover - scan_keys catches internally
+        raise StateReadError(f"state_store: SCAN {pattern} failed: {e}") from e
+
+
 async def scan_keys_null_ttl(pattern: str, count: int = 500) -> list[str]:
     """R-F2629 — keys matching `pattern` that carry NO TTL (expires_at IS NULL).
 

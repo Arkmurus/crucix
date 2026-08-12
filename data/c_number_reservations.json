@@ -366,6 +366,22 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-38",
+      "title": "code review of the C-29..C-36 fixes found 10 confirmed defects, 7 of them inside the fixes themselves",
+      "claimed_at": "2026-08-12T10:30:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3925",
+        "R-F3926",
+        "R-F3927",
+        "R-F3929",
+        "R-F3931"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T10:56:09Z"
     }
   ]
 }

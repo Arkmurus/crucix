@@ -12377,6 +12377,13 @@ async def _dd_interactive_keepalive() -> None:
             pass
         await asyncio.sleep(4)
 
+# C-38 — matches the url R-F2691 embeds as `"{name} [from {url}]"`. Deliberately
+# requires a scheme: that is what distinguishes real provenance from a dotted internal
+# module label like `sources.ofac_sdn`, which no amount of domain-parsing can tell
+# apart from a hostname.
+_PROVENANCE_URL_RE = re.compile(r"https?://[^\s\]\)>,]+", re.IGNORECASE)
+
+
 def _finding_provenance_url(f: Any) -> Optional[str]:
     """C-35 — the finding's attributable source location, or None.
 
@@ -12408,24 +12415,31 @@ def _finding_provenance_url(f: Any) -> Optional[str]:
     source = str(getattr(f, "source", "") or "").strip()
     if not source:
         return None
-    try:
-        from .dd_independent_verifier import origin_key, registrable_domain
-    except Exception:
-        return None
-    try:
-        # `pub:` is the ONLY origin class that names an external publisher. 'internal',
-        # 'external_unclassified' and the bare authority labels ('sanctions:ofac') do
-        # not resolve to a fetchable domain, so they attribute to nothing.
-        if not origin_key(source).startswith("pub:"):
-            return None
-        domain = registrable_domain(source)
-    except Exception:
-        return None
-    if not domain or "." not in domain:
-        return None
-    # web_atlas keys reliability on `_source_family(url)`, so hand it a URL built from
-    # the same registrable domain the tier gate resolved — the two agree by construction.
-    return f"https://{domain}/"
+    # C-38 — EXTRACT THE REAL URL; never reconstruct one.
+    #
+    # The first version of this gated on `origin_key(source).startswith("pub:")` and
+    # then rebuilt a URL from `registrable_domain`. Review found both halves wrong:
+    #
+    #   * `origin_key` tests for a DOT before it tests `_is_internal`, so every dotted
+    #     internal label passed the gate — `origin_key('sources.ofac_sdn')` is
+    #     `'pub:sources.ofac_sdn'`. That is the commonest `Finding.source` shape in
+    #     this module, so ARIA's own compute labels would have been enrolled into
+    #     web_atlas as external publishers with reliability scores.
+    #   * `registrable_domain` STRIPS SUBDOMAINS while the `f.url` branch above keeps
+    #     the full netloc, so one publisher landed in two families
+    #     (`find-and-update.company-information.service.gov.uk` vs `service.gov.uk`)
+    #     and every unrelated `*.service.gov.uk` was merged into the second.
+    #
+    # Both vanish by taking the url that is already in the string. `_source_family`
+    # then derives the family for BOTH paths, so they cannot disagree, and a bare
+    # label simply has no url and is skipped — no adjudication needed.
+    #
+    # The lesson is C-29's: a reconstruction is a SECOND derivation of the same fact.
+    # `origin_key`/`registrable_domain` are canonical for INDEPENDENCE GROUPING, which
+    # is a different question; borrowing an answer to a different question is how this
+    # defect class keeps recurring.
+    match = _PROVENANCE_URL_RE.search(source)
+    return match.group(0).rstrip(".,;)]}\"'") if match else None
 
 
 async def _record_source_reliability(report: "ARKDDReport") -> int:

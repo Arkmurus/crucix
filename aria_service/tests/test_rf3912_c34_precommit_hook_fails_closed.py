@@ -198,3 +198,22 @@ def test_hook_resolves_the_venv_from_the_main_checkout_not_just_the_worktree() -
         "hook resolves the interpreter only from the worktree root, so the repo "
         "venv is invisible inside a worktree and it falls through to the shim"
     )
+
+
+def test_pre_push_resolves_the_venv_the_same_way() -> None:
+    """C-38 finding 10 — C-34 fixed pre-commit and left pre-push behind.
+
+    pre-push carries the identical four-branch block and runs under `set -e`, so in a
+    worktree it falls through to the Store shim, the shim exits non-zero, and the hook
+    ABORTS — blocking the push outright. pre-commit failing open meant checks were
+    silently skipped; pre-push failing closed means nothing can be pushed at all,
+    which is why every push in the C-34 session needed a manual PATH shim.
+    """
+    push_hook = repo_path("scripts/git-hooks/pre-push")
+    if not push_hook.exists():
+        return
+    body = push_hook.read_text(encoding="utf-8")
+    assert "--git-common-dir" in body, (
+        "pre-push still resolves the interpreter only from the worktree root — the "
+        "same defect C-34 fixed in pre-commit, and it fails CLOSED here"
+    )

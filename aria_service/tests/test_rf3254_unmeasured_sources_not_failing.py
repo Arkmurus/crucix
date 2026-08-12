@@ -72,6 +72,12 @@ class FakeStore:
         keys = [f"aria:atlas:reliability:{suffix}" for suffix in self.reliability]
         return [k for k in keys if _fn.fnmatch(k, pattern)][:count]
 
+    async def scan_keys_strict(self, pattern: str, count: int = 200) -> list[str]:
+        """C-38 — the strict contract this fake must mirror: same result as
+        `scan_keys`, but a store failure RAISES rather than returning []. This
+        fake never fails, so it delegates."""
+        return await self.scan_keys(pattern, count)
+
 
 def _atlas(monkeypatch, families: dict[str, dict], reliability: dict[str, float]):
     store = FakeStore(families, reliability)
