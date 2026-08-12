@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "next_available": 3924,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33153,37 +33154,49 @@
       "title": "reproduce-symptom gate discards a gap AFTER it consumed a rate slot",
       "claimed_at": "2026-08-12T07:37:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccbdcaef",
+      "notes": null,
+      "shipped_at": "2026-08-12T09:09:09Z"
     },
     {
       "r_number": "R-F3920",
       "title": "leak detector announces growth but cannot say what grew - undiagnosable",
       "claimed_at": "2026-08-12T07:47:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccbdcaef",
+      "notes": null,
+      "shipped_at": "2026-08-12T09:09:09Z"
     },
     {
       "r_number": "R-F3921",
       "title": "a disabled engine reads as blocked forever - stale last_event never clears",
       "claimed_at": "2026-08-12T07:55:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccbdcaef",
+      "notes": null,
+      "shipped_at": "2026-08-12T09:09:10Z"
     },
     {
       "r_number": "R-F3922",
       "title": "C-36: label the reliability EMA honestly as confirmations-only and stop suspend acting on a one-way metric",
       "claimed_at": "2026-08-12T07:58:59Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ccbdcaef",
+      "notes": null,
+      "shipped_at": "2026-08-12T09:15:06Z"
+    },
+    {
+      "r_number": "R-F3923",
+      "title": "fix citation contract calibration regressions",
+      "claimed_at": "2026-08-12T08:23:53Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
     }
-  ],
-  "next_available": 3923
+  ]
 }

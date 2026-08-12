@@ -931,3 +931,64 @@ checks), R-F3888 (a false positive matching `pty` inside "empty"), R-F3896 (`--i
 targeting a stale Aug-3 copy and DE-installing the working hook). The fail-open
 contract is deliberate — a tooling bug must never wedge every commit — and the crash,
 not the fail-open, was the defect.
+
+---
+
+## Session 2026-08-12 (cont.) — 15-cycle live monitor, then the three findings fixed in order
+
+**3 R-numbers, all live at `ccbdcaef`** — R-F3919, R-F3920, R-F3921. Driven by a
+15-cycle production log monitor rather than by the backlog.
+
+**What the monitor established first (the health baseline):** 0 ERRORs, 0 CRITICALs
+across all 15 cycles · no restarts (one build_rev throughout) · web_integrity 9/9
+every cycle · cost `$70.10 of $600` (11.7%). The zero-ERROR run matters for Phase A
+gate #3, which needs 7 clean days.
+
+**1. R-F3919 (P0) — false-positive gaps ate the coder's budget and never gave it back.**
+    7x  stage=reproducing_symptom
+    4x  "not fixed: Reproduce-symptom gate"        <- 4 of 6 hourly slots
+   10x  "not fixed: Safety guardrail: rate_limit_exceeded:6"
+   gap_detector: 105 -> 110 -> 127 actionable gaps in the same window
+  `fix_gap` takes a slot via `can_task_run`, THEN runs the R-F1460 reproduce gate
+  whose whole job is to discard gaps that are not real. **Third break of one
+  invariant** — `can_task_run`'s own docstring: "rate limit is the LAST check that
+  increments state" (R-F897 rolled back the over-cap incr; R-F3823 moved dedupe above
+  the limiter). The reproduce gate RUNS A TEST, so it cannot move above the
+  engine-pause/cost-cap checks — hence a refund, not a reorder. **No limit bump**
+  (§1): the cap stays 6; what changed is that the 6 are spent on real gaps.
+
+**2. R-F3920 — the leak detector announced growth it could not diagnose.**
+  `LEAK DETECTED — growth=114.84MB/interval, current=6681.6MB`, RSS climbing
+  6569 -> 6628 -> 6690MB against a 6144MB threshold, and **`GC freed 0.0MB` every
+  pass** — the memory is LIVE, so its one remedy cannot work by construction. The gap
+  it recorded carried only rate and totals, so neither a human nor the coder (which
+  DID pick it up) could act. Now carries a subsystem census DELTA (facts,
+  topic_index, content_index, asyncio tasks). Deliberately NOT `gc.get_objects()`
+  /tracemalloc — those walk millions of objects on the monitoring loop, and this repo
+  has paid for event-loop starvation twice (R-F2144, R-F2200); a len() probe is O(1)
+  AND more actionable ("facts +8,214" names a subsystem, "dict +190,000" does not).
+  **The cause is deliberately not guessed** — the next detection will name it.
+
+**3. Academic-tier breakers — MEASURED, and deliberately NOT changed.** With wayback
+  OPEN and semantic_scholar + openalex cycling OPEN->HALF_OPEN->OPEN, two DD-shaped
+  queries both returned 10/10: memory:facts 7 + aria_search 3, and memory:documents 3
+  + aria_search 7. Absorbed by ARIA's own index exactly as §27e records. §1 forbids
+  changing what measurement says is working.
+
+**R-F3921 — found BY that measurement, and it was my own defect.** The live surface
+  read `blocked: ['google cse', ...]` — but R-F3883 had DISABLED google cse, and a
+  disabled engine can never write "served" again, so the verdict was permanent. §27d
+  makes that surface binding, so a future session would read "Google is blocking us"
+  when we turned it off. "Blocked" now means REFUSING US RECENTLY; past 6h the
+  verdict returns to None with `stale: true` and `last_event_age_s`. Symmetric — a
+  stale SERVING state expires too, or R-F3873's defect returns from the other side.
+  **Verified live:** `blocked: []`, `google cse: serving=None stale=True
+  age_s=60000.5`, every queried engine serving with fresh ages.
+
+**Both hooks earned their keep again:** pre-commit blocked one of my commits for a
+fake store defining a method named `set` — exactly the builtin-shadowing shape that
+guard exists to catch.
+
+**Verified pre-existing, not mine:** `coder_demo_seeded_defect::test_clamps_above_100`
+and `rf851_constitution_no_autodeploy` fail identically on clean origin/main without
+my change (checked in a separate worktree).
