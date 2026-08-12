@@ -2482,3 +2482,50 @@ fresh history; nothing is lost, because nothing was ever being kept.
 **This also moves the rest of the learning store onto the volume** — alert outcomes,
 confidence weights, patterns, opportunities. All were being wiped every deploy too, so
 the migration cannot lose data that was surviving; it stops the loss.
+
+### C-36 · A positive-only counter was surfaced as "reliability" and armed an auto-suspend path — **CLOSED (R-F3922, 2026-08-11)**
+
+C-32 established that `web_atlas.record_correction` — the only negative reliability
+signal — has no caller, so the EMA can only ever RISE. C-32 stays open because closing
+it needs a reliable contradiction detector plus source-level adjudication. **But two
+things were wrong TODAY, independent of that missing capability, and both are closeable
+without it.**
+
+**1. The label overclaimed.** `/api/aria/source_validator/health` presented the number
+as reliability and the page renders it as *"Registry reliability (measured
+observations)"* with healthy / degraded / failing / dead bands. A quantity that cannot
+decrease is not a reliability score — it is an accumulation of confirmations. A reader
+trusting the word "reliability" concludes a `0.995` source has been **verified not to
+fail**, when nothing in the system is capable of recording that it did.
+
+**2. The consumer overclaimed, and was armed.** `suspend_failing_sources` exists to
+enforce *"never silently trust a failing source"* and is reachable at
+`POST /api/aria/source_validator/suspend_failing` with any caller-supplied threshold.
+Against a one-way metric that enforcement is theatre — it cannot fire, and its silence
+is indistinguishable from "checked, nothing to suspend". Worse, it sits armed: the
+moment anyone wires a negative signal carelessly (the obvious next step, and exactly
+what C-32 warns against) it starts suspending sources on that signal's first bad day,
+writing a `degradation_reason` that reads as a considered verdict.
+
+**Fix.** The report now carries `signal_direction` (`positive_only` / `bidirectional`)
+and a `metric_note` saying what the number actually counts. `suspend_failing_sources`
+**declines loudly** — `enforceable: False` with the reason — instead of silently never
+firing.
+
+**Enforceability is derived from RECORDED EVIDENCE, never a flag.** It arms itself the
+moment a genuine contradiction exists, so closing C-32 cannot silently leave
+enforcement off, and nobody can arm it by hand while the metric is still one-way. It
+keys on `contradicted > 0` **or** a score below the neutral prior — `record_ingest`
+seeds every record at 0.5 and only a failure can push it under, so a sub-prior score is
+itself proof of a recorded contradiction. Checking both means the logic does not depend
+on one field surviving in the record, which is what the pre-existing R-F3254 fixtures
+rely on. (The first draft checked only the counter and broke that honesty test — the
+test was right and the guard was too narrow.)
+
+`test_suspend_becomes_enforceable_the_moment_a_correction_is_recorded` is the
+**executable acceptance test for C-32**: wire a real negative signal and the suspender
+must arm itself automatically.
+
+This is the same family as the rest of the sweep — C-29 (absence read as health),
+C-30/C-31 (absence read as failure), C-34 (a guard that could not fail). Here, a number
+that cannot move was presented as a measurement that can.

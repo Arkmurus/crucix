@@ -270,10 +270,11 @@
       "claimed_by": "claude",
       "status": "closed",
       "r_numbers": [
-        "R-F3906"
+        "R-F3906",
+        "R-F3908"
       ],
       "notes": null,
-      "closed_at": "2026-08-11T22:41:13Z"
+      "closed_at": "2026-08-12T07:47:48Z"
     },
     {
       "c_number": "C-30",
@@ -315,10 +316,11 @@
       "claimed_by": "claude",
       "status": "closed",
       "r_numbers": [
-        "R-F3917"
+        "R-F3917",
+        "R-F3918"
       ],
       "notes": null,
-      "closed_at": "2026-08-12T07:13:17Z"
+      "closed_at": "2026-08-12T07:47:49Z"
     },
     {
       "c_number": "C-34",
@@ -343,6 +345,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-12T06:55:21Z"
+    },
+    {
+      "c_number": "C-36",
+      "title": "a POSITIVE-ONLY counter is surfaced as reliability and feeds an auto-suspend path — the number cannot fall, so the label and the consumer both overclaim",
+      "claimed_at": "2026-08-12T07:58:58Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3922"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T08:22:51Z"
     }
   ]
 }

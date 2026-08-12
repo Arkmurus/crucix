@@ -964,6 +964,37 @@ async def _report_registry_blindness(surface: str, err: Exception) -> None:
 _RELIABILITY_SCAN_CAP = 20000
 
 
+async def _any_negative_signal_recorded(observed: dict[str, list[str]]) -> bool:
+    """C-36 — has ANY source ever been recorded as contradicted?
+
+    Keys on real evidence (`contradicted > 0` in a reliability record), never on a
+    flag or a config switch. That matters: the moment C-32's negative signal is
+    genuinely wired, enforcement arms itself from the data, with nobody having to
+    remember to flip anything — and it cannot be armed by hand while the metric is
+    still one-way.
+    """
+    for keys in observed.values():
+        for key in keys[:50]:
+            rec = await rs.get_json(key)
+            if not rec:
+                continue
+            if int(rec.get("contradicted") or 0) > 0:
+                return True
+            # A score BELOW the neutral prior is itself recorded evidence of a
+            # contradiction: `record_ingest` seeds every record at 0.5 and moves it
+            # toward 1.0 on success and 0.0 on failure, so nothing but a failure can
+            # ever put it under 0.5. Checking the score as well as the counter means
+            # this does not depend on one particular field surviving in the record —
+            # which is what the R-F3254 fixtures, written before that counter existed,
+            # rely on.
+            try:
+                if float(rec.get("score", 0.5)) < 0.5:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 async def _observed_reliability_keys(
     known_families: list | None = None,
 ) -> tuple[dict[str, list[str]], bool]:
@@ -1103,6 +1134,7 @@ async def registry_health_report() -> dict:
         }
 
     observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
+    negative_signal_seen = await _any_negative_signal_recorded(observed_by_family)
 
     healthy: list[dict] = []
     degraded: list[dict] = []
@@ -1155,6 +1187,25 @@ async def registry_health_report() -> dict:
         # False means some observations may be missing from the measured set.
         "store_readable": True,
         "scan_complete": scan_complete,
+        # C-36 — SAY WHICH WAY THIS NUMBER CAN MOVE. `web_atlas.record_correction` is
+        # the only negative signal and has no caller (C-32), so the EMA can only rise.
+        # A quantity that cannot decrease is not a reliability score, and the bands
+        # below (healthy / degraded / failing / dead) imply a two-sided measurement it
+        # cannot deliver: 0.995 means "confirmed this often", NOT "verified not to
+        # fail". Flip this to "bidirectional" only when a genuine contradiction signal
+        # is wired — and let the DATA say so (see `_any_negative_signal_recorded`),
+        # never a hand-set flag.
+        "signal_direction": (
+            "bidirectional" if negative_signal_seen else "positive_only"
+        ),
+        "metric_note": (
+            "Confirmations accumulated, not reliability: no contradiction signal is "
+            "recorded anywhere in the system (C-32), so this score cannot fall. "
+            "Treat a high value as 'cited and gate-cleared this often', not as "
+            "'verified not to fail'."
+            if not negative_signal_seen else
+            "Bidirectional: contradictions are now recorded, so this score can fall."
+        ),
         "total_sources": len(families_idx),
         "healthy_count": len(healthy),
         "degraded_count": len(degraded),
@@ -1196,6 +1247,37 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
                 "families": [], "error": f"store unreadable: {e}"}
 
     observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
+
+    # C-36 — REFUSE LOUDLY INSTEAD OF NEVER FIRING.
+    #
+    # This function exists to enforce "never silently trust a failing source". Against
+    # a one-way metric (C-32: `record_correction` has no caller, so the EMA can only
+    # rise) that enforcement is theatre — it cannot fire, and its silence is
+    # indistinguishable from "checked, nothing to suspend".
+    #
+    # It is also ARMED: reachable at POST /api/aria/source_validator/suspend_failing
+    # with any caller-supplied threshold. The moment someone wires a negative signal
+    # carelessly — the obvious next step, and exactly what C-32 warns against — it
+    # would start suspending sources on that signal's first bad day, writing a
+    # `degradation_reason` that reads as a considered verdict.
+    #
+    # So: decline, and say why. Enforceability is derived from RECORDED EVIDENCE, so
+    # it arms itself automatically when C-32 is genuinely closed, and cannot be armed
+    # by hand while the metric is still one-way.
+    if not await _any_negative_signal_recorded(observed_by_family):
+        return {
+            "ok": True,
+            "enforceable": False,
+            "suspended": 0,
+            "families": [],
+            "reason": (
+                "declined: no negative signal is recorded anywhere (C-32) — the "
+                "reliability EMA can only rise, so a threshold test on it cannot "
+                "identify a failing source. Suspending on it would be a verdict "
+                "with no evidence behind it."
+            ),
+        }
+
     suspended: list[str] = []
     for fam in families_idx:
         rec = await rs.get_json(f"aria:atlas:source:{fam}")
@@ -1262,6 +1344,10 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
                 )
             except Exception:
                 pass
-    return {"suspended": len(suspended), "families": suspended}
+    # C-36 — `enforceable: True` is EARNED here: this branch is only reached when a
+    # contradiction has actually been recorded, so the threshold test has evidence
+    # behind it. Same shape on both returns so a caller never has to guess.
+    return {"ok": True, "enforceable": True,
+            "suspended": len(suspended), "families": suspended}
 
 # R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.
