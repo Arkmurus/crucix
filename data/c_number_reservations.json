@@ -313,9 +313,12 @@
       "title": "Node feed-health reliability is in-memory only — resets to zero on every restart while the page presents it as reliability",
       "claimed_at": "2026-08-12T06:38:31Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3917"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T07:13:17Z"
     },
     {
       "c_number": "C-34",

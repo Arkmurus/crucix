@@ -2417,3 +2417,36 @@ a contradiction detector that is actually reliable (semantic, not word-overlap),
 source-level adjudication on top of it. Both are **features**, not defect fixes, and
 §26 forbids them under the freeze. Until then the EMA reads as "confirmations
 accumulated" and nothing should be auto-suspended on it.
+
+**C-33 RESOLUTION (R-F3917, 2026-08-11) — it was never a persistence problem.**
+The entry above proposed adding a durable counter under `RUNS_DIR`. That would have
+been building something that already exists.
+
+`recordSourceSweep()` is called on **every** sweep, one line after
+`updateSourceHealth()` in `server.mjs`, and persists `source_history.json`: a bounded
+96-entry timestamped ring per source, plus totals and an EMA. `getSourceHistory()`
+already derives a restart-surviving reliability from the last 48 of those sweeps —
+and is **already imported into server.mjs** (line 30). `getSourceHealthSummary()`
+simply read the volatile in-memory object sitting beside it.
+
+**So C-33 is C-29 in the Node tier**: a producer and a consumer that must agree, with
+nothing forcing them to, and the consumer reading the wrong one. The correct fix adds
+no storage at all — it points the existing consumer at the existing durable record.
+
+Two properties are deliberate and pinned by tests:
+- **The window stays BOUNDED (48 sweeps), not all-time.** R-F3364 records that a flat
+  all-time counter dilutes a new regression into a growing historical denominator, so
+  the alarm gets blinder the longer it runs. A test asserts no `totalOk/totalFail`
+  ratio is reintroduced.
+- **The scope is STATED, not implied** — each row now carries `durable` and
+  `windowSweeps`. A percentage whose window is invisible is precisely what let "since
+  last boot" pass for a reliability history.
+
+`null` reliability still survives untouched, because R-F2719 depends on it to bucket
+unconfigured and not-yet-checked feeds separately rather than counting them healthy.
+
+**Lesson worth carrying:** the first instinct here — and the one written into this
+register entry hours earlier — was to BUILD persistence. The durable record already
+existed, was already written on every sweep, and was already imported. Check for an
+existing producer before adding one; the same instinct nearly re-implemented what
+C-29's fix also found already present.

@@ -296,12 +296,59 @@ function updateSourceHealth(timingMap) {
 }
 
 function getSourceHealthSummary() {
-  return Object.entries(sourceHealth).map(([name, h]) => {
-    const total      = h.ok + h.fail;
-    const reliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
+  // C-33 (R-F3917) — READ THE DURABLE RECORD, which already exists.
+  //
+  // `sourceHealth` is an in-process object with no backing, so every restart or
+  // deploy reset these percentages to zero while the page presented them as a
+  // reliability history. Measured: ~4.5h uptime against a 5-minute sweep, i.e. the
+  // panel was showing ~53 sweeps and had forgotten everything before the last
+  // deploy — so a chronically flapping feed is laundered clean by shipping.
+  //
+  // Nothing here needed new storage. `recordSourceSweep()` runs on EVERY sweep, one
+  // line after `updateSourceHealth()`, and persists `source_history.json` (a bounded
+  // 96-entry timestamped ring per source). `getSourceHistory()` already derives a
+  // restart-surviving reliability from the last 48 of those, and server.mjs already
+  // imports it. This is C-29 in the Node tier: a producer and a consumer that must
+  // agree, with nothing forcing them to.
+  //
+  // The durable window is deliberately BOUNDED rather than all-time: R-F3364 records
+  // that a flat all-time counter dilutes a new regression into a growing historical
+  // denominator, so the alarm gets blinder the longer it runs.
+  let durableByName = new Map();
+  try {
+    durableByName = new Map(getSourceHistory().map(s => [s.name, s]));
+  } catch {
+    // Fail soft to the in-process view — never lose the panel over a store read.
+  }
+
+  const names = new Set([...Object.keys(sourceHealth), ...durableByName.keys()]);
+
+  return [...names].map(name => {
+    const h = sourceHealth[name] || { ok: 0, fail: 0, disabled: 0, lastStatus: null, lastMs: 0, recent: [] };
+    const d = durableByName.get(name);
+    const total = h.ok + h.fail;
+    const processReliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
     const recent = h.recent || [];
     const degradedInLastN = recent.filter(v => v === 0).length;  // R-F2519 F2
-    return { name, ok: h.ok, fail: h.fail, disabled: h.disabled || 0, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs, degradedInLastN, recentWindow: recent.length };
+
+    // Durable wins when it has samples; the in-process figure is the fallback for a
+    // source swept in this process but not yet written to history.
+    const durable = !!d && d.reliability !== null && d.reliability !== undefined;
+    const reliability = durable ? d.reliability : processReliability;
+
+    return {
+      name,
+      ok: h.ok, fail: h.fail, disabled: h.disabled || 0,
+      reliability,
+      lastStatus: h.lastStatus, lastMs: h.lastMs,
+      degradedInLastN, recentWindow: recent.length,
+      // The scope of the number, stated rather than implied. A percentage whose
+      // window is invisible is exactly what let "since last boot" pass for history.
+      durable,
+      windowSweeps: durable ? Math.min(48, (d.totalOk || 0) + (d.totalFail || 0)) : total,
+      ema: d ? d.ema : null,
+      consecutiveFails: d ? d.consecutiveFails : 0,
+    };
   }).sort((a, b) => (a.reliability ?? 100) - (b.reliability ?? 100)); // worst first
 }
 

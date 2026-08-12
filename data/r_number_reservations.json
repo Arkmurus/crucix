@@ -33124,7 +33124,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3917",
+      "title": "C-33: /api/source-health reads volatile in-memory counters while durable sweep history sits beside it",
+      "claimed_at": "2026-08-12T07:05:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ],
-  "next_available": 3917
+  "next_available": 3918
 }
