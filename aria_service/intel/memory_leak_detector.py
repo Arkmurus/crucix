@@ -221,6 +221,7 @@ class MemoryLeakDetector:
         try:
             from . import capability_gaps as _cg
             import asyncio as _aio
+            census = self._subsystem_census_delta()
             _aio.create_task(_cg.record_gap(
                 gap_type="performance",
                 severity=3,
@@ -230,11 +231,80 @@ class MemoryLeakDetector:
                     f"{analysis['growth_rate_mb_per_interval']:.1f}MB per interval, "
                     f"current={analysis['current_memory_mb']:.1f}MB, "
                     f"peak={analysis['peak_memory_mb']:.1f}MB"
+                    # R-F3920 — WHAT grew, not just that something did.
+                    f"\nSubsystem sizes (delta since last detection): {census}"
                 ),
                 source="memory_leak_detector",
             ))
         except Exception:
             pass
+
+    def _subsystem_census_delta(self) -> str:
+        """R-F3920 — WHICH subsystem grew. Without this the leak is undiagnosable.
+
+        THE DEFECT THIS CLOSES. Live 2026-08-12: this detector reported
+        `LEAK DETECTED — growth=114.84MB/interval, current=6681.6MB` and recorded a
+        gap carrying only the rate and the totals. Nobody — human or the autonomous
+        coder, which DID pick that gap up — could act on it, because nothing said
+        what was growing. An alarm that cannot be diagnosed is the same shape as the
+        Node gate that refused without saying why (R-F3903): correct, and useless.
+
+        WHY A TARGETED CENSUS AND NOT `gc.get_objects()` / tracemalloc. A generic
+        object histogram on a 6.7GB process walks millions of tracked objects and
+        can block for seconds. This runs on the monitoring loop, and this repo has
+        already paid for event-loop starvation twice (R-F2144, R-F2200). So it reads
+        a handful of ARIA'S OWN known growth candidates by len() — O(1) each, no
+        allocation, no traversal — which is also *more* actionable than a type
+        histogram: "facts +8,214" names a subsystem, "dict +190,000" does not.
+
+        The DELTA is the signal. Absolute sizes at 223k facts say nothing about a
+        leak; what changed between two detections is the thing to chase.
+
+        Every probe is individually guarded: a subsystem that is absent, renamed or
+        mid-import contributes "?" rather than taking the whole census down. A
+        diagnosis that fails closed on one bad probe is no diagnosis.
+        """
+        probes: dict[str, int] = {}
+
+        def _probe(name: str, fn) -> None:
+            try:
+                v = fn()
+                if isinstance(v, int):
+                    probes[name] = v
+            except Exception:
+                pass          # one unavailable subsystem must not blind the rest
+
+        def _knowledge_facts() -> int:
+            from . import knowledge as _k
+            return len((_k._cache or {}).get("facts", []))
+
+        def _topic_idx() -> int:
+            from . import knowledge as _k
+            return len(_k._topic_index)
+
+        def _content_idx() -> int:
+            from . import knowledge as _k
+            return len(_k._content_index)
+
+        def _tasks() -> int:
+            import asyncio as _a
+            return len(_a.all_tasks())
+
+        _probe("facts", _knowledge_facts)
+        _probe("topic_index", _topic_idx)
+        _probe("content_index", _content_idx)
+        _probe("asyncio_tasks", _tasks)
+
+        prev = getattr(self, "_last_census", None)
+        self._last_census = dict(probes)
+        if not probes:
+            return "(no subsystem readable)"
+        if not prev:
+            return " ".join(f"{k}={v}" for k, v in probes.items()) + " (first sample — no delta yet)"
+        return " ".join(
+            f"{k}={v}({d:+d})" if (d := v - prev.get(k, v)) else f"{k}={v}"
+            for k, v in probes.items()
+        )
 
     def get_status(self) -> dict[str, Any]:
         """Return current status for the orchestrator."""
