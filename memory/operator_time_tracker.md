@@ -874,3 +874,60 @@ investigation and I did not open it at the end of a long session.
 Also flagged, not changed: `services/wa-listener/Dockerfile` still uses
 `node:20-alpine`, below `engines>=22` — a separate image with its own deploy path and
 an active peer agent.
+
+---
+
+## Session 2026-08-12 — constitutional RAG repaired; the known flake root-caused
+
+**2 R-numbers** — R-F3911 (`db459423`, live), R-F3914 (`2acdda08`).
+
+**R-F3911 — §20's BINDING constitutional priming had returned NOTHING, three times
+over, all in one function.** R-F2623 (TypeError, never ran) · R-F3099 (collection
+built but never populated from the CLI — its own docstring calls that "a mandatory
+step certified by an absence") · and chromadb being absent entirely, where
+`_ensure()` is False and it returned `[]`, indistinguishable from "no rule applies".
+- **Installing chromadb was the wrong fix and the peer agent was right to refuse it.**
+  On win32/ARM64 no wheel exists (§16), so the declared dev environment CANNOT have
+  it; installing would green one workstation and leave CI, production and every other
+  developer just as dark — the §1 band-aid, applied to the mechanism that exists to
+  remind us of §1.
+- **The rules were never the missing piece.** `CONSTITUTIONAL_RULES` is a plain list
+  of 31 dicts already in the process; only the RANKING needed a vector store. An
+  unavailable OR present-but-empty store now degrades to a lexical match over the
+  real rules, labelled `retrieval_mode: lexical`, `degraded: True`, `matched_terms:N`.
+- It can no longer return `[]` because the store is missing, and a query matching no
+  terms still returns top_k with `matched_terms: 0` — "no keyword hit" is not a
+  licence to conclude "no constraints apply". `constitutional_retrieval_status()`
+  makes the mode queryable (§25) rather than inferred.
+- **Measured on this box, where the step had been dark: it now returns 5 real rules.**
+
+**R-F3914 — the §16 known flake, root-caused by bisection rather than muted.**
+§16 recorded three disproven hypotheses and said the next step was bisection over the
+collection order, "expensive but tractable". Reproduction went from a **7-hour full
+suite to 22 files in 25 seconds**, and the cause was not a polluter at all:
+
+    got 2 ingest calls; the second was
+    'Verified fact: test_topic (GENERAL_CLAIM) — PENDING_CORROBORATION'
+
+`verified_intel.py:495` → `brain_hook.absorb` → `store_fact` → `ingest_fact`,
+cascading INSIDE the test's patch window. Real, correct behaviour, unrelated to what
+the test measures — appearing only once enough earlier tests have primed it. The
+delta-debug found **13 of 22 files individually "necessary"**: a CUMULATIVE THRESHOLD,
+which is precisely why three single-polluter hypotheses were all disproven.
+**The defect was the assertion.** `len(ingest_calls) == 1` counts a GLOBAL
+side-effect, making a unit test hostage to every unrelated cascade. It now asserts its
+OWN fact was ingested once.
+
+**Method note worth keeping:** my first bisect matched on "any failure" and converged
+on an unrelated known-baseline test; the second assumed a single polluter and kept an
+untested half. Both were wrong. What worked: bisect on the SPECIFIC test, verify BOTH
+halves before descending, then delta-debug for necessity — and read the traceback,
+which named the mechanism in one line after hours of hypothesising.
+
+**Peer overlap flagged:** the other agent lists "C-34: fix the fail-open pre-commit
+hook". That chain was repaired today — R-F3885 (`core.hooksPath` unset), R-F3886 (the
+staged path CRASHED, and because the hook is fail-open that silently skipped ~12
+checks), R-F3888 (a false positive matching `pty` inside "empty"), R-F3896 (`--install`
+targeting a stale Aug-3 copy and DE-installing the working hook). The fail-open
+contract is deliberate — a tooling bug must never wedge every commit — and the crash,
+not the fail-open, was the defect.

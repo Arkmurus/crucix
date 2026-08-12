@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3915,
+  "next_available": 3916,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33075,9 +33075,10 @@
       "title": "constitutional RAG returns [] when chromadb is absent - the S20 binding step no-ops",
       "claimed_at": "2026-08-12T06:26:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "db459423",
+      "notes": null,
+      "shipped_at": "2026-08-12T06:53:12Z"
     },
     {
       "r_number": "R-F3912",
@@ -33101,6 +33102,16 @@
       "r_number": "R-F3914",
       "title": "store_fact rag test counts GLOBAL ingests so an unrelated cascade fails it",
       "claimed_at": "2026-08-12T06:48:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2acdda08",
+      "notes": null,
+      "shipped_at": "2026-08-12T06:53:12Z"
+    },
+    {
+      "r_number": "R-F3915",
+      "title": "C-35: reliability producer reuses canonical provenance extraction",
+      "claimed_at": "2026-08-12T06:52:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
