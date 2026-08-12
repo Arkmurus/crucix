@@ -230,6 +230,21 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     "reasoning_library.py": {
         "is_degraded_or_error_response": "PURE — str→bool predicate, no I/O, total over its input",
     },
+    # R-F3940 — the two key-derivation helpers extracted from safety.py. Same PURE
+    # category as the entry above, and for the same reason: no I/O, no store, total
+    # over their inputs, and they sit on the hottest path in the module (every rate
+    # check derives a key), so wiring them would fire a brain signal per ordinary
+    # call and bury the signals that mean something.
+    #
+    # They are EXEMPT, NOT DARK. What they are part of is fully wired: the callers
+    # that can actually fail — check_and_increment_rate, release_rate_slot,
+    # can_task_run — all carry @fail_wire, and release_rate_slot additionally
+    # reports its refund outcome on BOTH branches (§21a). Extracting a pure helper
+    # out of a wired function must not be allowed to look like new dark surface.
+    "safety.py": {
+        "current_hour_bucket": "PURE — no-arg int derivation from the clock, no I/O",
+        "rate_bucket_key": "PURE — string formatting of a key, no I/O, total",
+    },
     # routes/aria.py — ASYNC GENERATORS + STREAM endpoints
     "aria.py": {
         "chat_stream_ep": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",

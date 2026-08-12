@@ -817,10 +817,19 @@ class ARIACoder:
         # burned. Uses the same primitives as the autonomous task engine
         # so the operator's existing pause / per-task-pause / firings-
         # per-hour ceiling all apply uniformly to the coder.
+        # R-F3940 — NAME THE BUCKET WE ARE ABOUT TO CHARGE. The refund below can
+        # run minutes later (the reproduce gate runs a test), so re-deriving "now"
+        # there would credit a different hour once the clock ticks over. Captured
+        # here and passed to BOTH the charge and the refund.
+        _charged_bucket_key: str | None = None
         try:
             from . import safety as _safety
+            _charged_hour = _safety.current_hour_bucket()
+            _charged_bucket_key = _safety.rate_bucket_key(
+                coder=True, hour_bucket=_charged_hour)
             allowed, reason = await _safety.can_task_run(
                 task_id="aria_coder_fix", entity=gap.gap_id, coder=True,  # R-F901: own budget
+                hour_bucket=_charged_hour,
             )
             if not allowed:
                 logger.info(
@@ -876,7 +885,10 @@ class ARIACoder:
                 # the slot we were already losing.
                 try:
                     from . import safety as _safety_refund
-                    _refunded = await _safety_refund.release_rate_slot(coder=True)
+                    # R-F3940 — refund the bucket we actually charged, not
+                    # whichever hour it happens to be now.
+                    _refunded = await _safety_refund.release_rate_slot(
+                        coder=True, bucket_key=_charged_bucket_key)
                     logger.info(
                         "[aria_coder] R-F3919 rate slot %s after reproduce-gate "
                         "discard of %s",

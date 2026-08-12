@@ -190,7 +190,7 @@ def _memory_rate_incr() -> int:
     """Increment the in-memory rate counter for the current hour bucket.
     Resets across hour boundaries automatically. Returns the new count."""
     global _memory_rate_hour, _memory_rate_count
-    hour_bucket = int(time.time() // 3600)
+    hour_bucket = current_hour_bucket()
     if hour_bucket != _memory_rate_hour:
         _memory_rate_hour = hour_bucket
         _memory_rate_count = 0
@@ -200,8 +200,55 @@ def _memory_rate_incr() -> int:
 
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
+def current_hour_bucket() -> int:
+    """The hour index every rate-bucket key is derived from.
+
+    R-F3940 — ONE derivation. `int(time.time() // 3600)` was open-coded in five
+    places, and the moment two of them ran at different TIMES they silently
+    referred to different buckets. That is not a style point: it is exactly how
+    R-F3919's refund came to credit a bucket it had never charged.
+    """
+    return int(time.time() // 3600)
+
+
+def rate_bucket_key(*, coder: bool = False, key_fmt: str | None = None,
+                    hour_bucket: int | None = None) -> str:
+    """THE hourly rate-bucket key. Pass `hour_bucket` to name a SPECIFIC hour.
+
+    R-F3940 — every caller that must refer to the bucket it already charged has
+    to be able to NAME it, rather than re-deriving "now" and hoping the clock has
+    not moved. `can_task_run`/`check_and_increment_rate` take the same
+    `hour_bucket` for exactly that reason: charge and refund then provably address
+    one bucket, with no window between them for the hour to tick.
+    """
+    fmt = key_fmt or (_CODER_RATE_KEY_FMT if coder else _RATE_KEY_FMT)
+    hb = current_hour_bucket() if hour_bucket is None else hour_bucket
+    return fmt.format(hour=hb)
+
+
+def _wire_refund_outcome(*, landed: bool, detail: str) -> None:
+    """Report a refund outcome to the brain WITHOUT being able to change it.
+
+    R-F3940 — these are fire-and-forget signals and must never alter the result
+    they describe. Called bare inside `release_rate_slot`'s try/except, a wiring
+    error (a wrong signature, a sink outage) is caught by the broad handler and
+    turns a refund that ACTUALLY LANDED into a reported failure — an instrument
+    corrupting the measurement it exists to report, which is the class this whole
+    module is written against. Caught here so it cannot.
+    """
+    try:
+        if landed:
+            wire_success(module="safety", summary="rate slot refunded", detail=detail)
+        else:
+            wire_failure(module="safety", detail=detail,
+                         gap_type="agent_cycle_failure")
+    except Exception as e:      # pragma: no cover - signalling is best-effort
+        logger.debug("[R-F3940] refund signal failed: %s", e)
+
+
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
-async def release_rate_slot(*, coder: bool = False) -> bool:
+async def release_rate_slot(*, coder: bool = False,
+                            bucket_key: str | None = None) -> bool:
     """R-F3919 — refund a slot an attempt consumed and then did NO WORK with.
 
     THE INVARIANT THIS RESTORES is stated in `can_task_run`'s own docstring:
@@ -235,16 +282,34 @@ async def release_rate_slot(*, coder: bool = False) -> bool:
 
     Never raises, never drives the bucket below zero, and returns whether the
     refund actually landed so a caller can log the truth rather than assume it.
+
+    R-F3940 — REFUND THE BUCKET THAT WAS CHARGED. This used to re-derive the key
+    from `time.time()` AT REFUND TIME, but the slot was charged back at
+    `can_task_run`, and the thing in between is the R-F1460 reproduce gate, which
+    RUNS A TEST. Straddle an hour boundary and the refund credited the NEW hour:
+    the charged hour stayed over-counted (the budget loss R-F3919 exists to stop)
+    while the new hour was handed a slot nobody paid for — the same
+    manufactured-budget failure the zero-guard below was written to prevent,
+    arriving through the key instead of the count. Callers now pass the
+    `bucket_key` that `check_and_increment_rate` returned.
     """
-    key_fmt = _CODER_RATE_KEY_FMT if coder else _RATE_KEY_FMT
-    key = key_fmt.format(hour=int(time.time() // 3600))
+    key = bucket_key or rate_bucket_key(coder=coder)
     try:
         current = await rs.get(key)
         # A bucket that is absent or already at zero has nothing to refund —
         # decrementing it would manufacture budget, which is the opposite failure.
         if current is None or int(current) <= 0:
+            # §21a — a refund that does NOT land means a slot was permanently
+            # lost, which is the P0 R-F3919 was written to end. Say so; a silent
+            # False here is how the original leak stayed invisible for so long.
+            _wire_refund_outcome(
+                landed=False,
+                detail=(f"rate slot refund did not land for {key} — bucket "
+                        f"absent or already zero; one slot is permanently lost"),
+            )
             return False
         await rs.incr(key, -1)
+        _wire_refund_outcome(landed=True, detail=f"rate slot refunded to {key}")
         return True
     except Exception as e:      # pragma: no cover - refund is best-effort
         logger.debug("[R-F3919] rate slot refund failed for %s: %s", key, e)
@@ -266,11 +331,16 @@ async def release_rate_slot(*, coder: bool = False) -> bool:
 # WHEN INSERTING A FUNCTION ABOVE ANOTHER, ANCHOR ON THE DECORATOR, NOT THE `def`.
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_increment_rate(*, key_fmt: str | None = None,
-                                   cap: int | None = None) -> tuple[bool, int]:
+                                   cap: int | None = None,
+                                   hour_bucket: int | None = None) -> tuple[bool, int]:
     """Token-bucket rate limit with hourly buckets.
 
     Returns (allowed, current_count_after_increment).
     The bucket key has a 3600s TTL so it self-cleans.
+
+    R-F3940 — `hour_bucket` lets a caller that may LATER refund name the bucket
+    it is charging, instead of both sides independently asking what time it is.
+    Defaults to now, so every existing caller is unchanged.
 
     R-F901 — key_fmt/cap let a dedicated caller (the ARIA-Coder) use a SEPARATE
     hourly bucket from the shared 87-task budget. Without this the coder shared
@@ -281,8 +351,9 @@ async def check_and_increment_rate(*, key_fmt: str | None = None,
     """
     key_fmt = key_fmt or _RATE_KEY_FMT
     cap = cap if cap is not None else MAX_FIRINGS_PER_HOUR
-    hour_bucket = int(time.time() // 3600)
-    key = key_fmt.format(hour=hour_bucket)
+    if hour_bucket is None:
+        hour_bucket = current_hour_bucket()
+    key = rate_bucket_key(key_fmt=key_fmt, hour_bucket=hour_bucket)
     try:
         # Increment first, then check — this is atomic via INCR
         new_count = await rs.incr(key)
@@ -1003,8 +1074,13 @@ async def resume_task(task_id: str) -> None:
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def can_task_run(
     task_id: str, entity: str, *, coder: bool = False, slot: int | None = None,
+    hour_bucket: int | None = None,
 ) -> tuple[bool, str]:
     """Run all five guardrails. Returns (allowed, reason_if_blocked).
+
+    R-F3940 — pass `hour_bucket` (from `current_hour_bucket()`) when the caller
+    may later refund the slot, so the charge and the refund name the SAME bucket
+    even if the hour ticks over during the work in between.
 
     Use this at the top of every task execution path. The five checks
     are ordered cheapest-first so we exit early on the most likely
@@ -1051,9 +1127,10 @@ async def can_task_run(
     if coder:
         allowed_rate, count = await check_and_increment_rate(
             key_fmt=_CODER_RATE_KEY_FMT, cap=CODER_MAX_FIXES_PER_HOUR,
+            hour_bucket=hour_bucket,
         )
     else:
-        allowed_rate, count = await check_and_increment_rate()
+        allowed_rate, count = await check_and_increment_rate(hour_bucket=hour_bucket)
     if not allowed_rate:
         return False, f"rate_limit_exceeded:{count}"
     # R-F2635 — `slot` ties dedupe to the SCHEDULE. Cron-driven callers pass
@@ -1070,7 +1147,7 @@ async def can_task_run(
 async def get_safety_state() -> dict[str, Any]:
     """One-shot view of every safety counter for the admin /status endpoint."""
     today = time.strftime("%Y-%m-%d", time.gmtime())
-    hour_bucket = int(time.time() // 3600)
+    hour_bucket = current_hour_bucket()
     out: dict[str, Any] = {
         "thresholds": {
             "max_firings_per_hour": MAX_FIRINGS_PER_HOUR,
@@ -1083,7 +1160,7 @@ async def get_safety_state() -> dict[str, Any]:
     except Exception as e:
         out["engine_paused_error"] = str(e)[:200]
     try:
-        rate_count = await rs.get(_RATE_KEY_FMT.format(hour=hour_bucket))
+        rate_count = await rs.get(rate_bucket_key(hour_bucket=hour_bucket))
         out["current_hour_firings"] = int(rate_count) if rate_count else 0
     except Exception as e:
         out["current_hour_firings_error"] = str(e)[:200]
