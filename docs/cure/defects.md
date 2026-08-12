@@ -2243,3 +2243,34 @@ candidates, none currently implemented:
 Until one is chosen, the EMA should be read as **"confirmations accumulated"**, not as
 reliability, and nothing should be auto-suspended on it. Recorded here so the next
 session does not "fix" the ratchet by wiring the nearest available signal.
+
+**C-32 addendum — why the POSITIVE producer is also nearly silent (root-caused
+R-F3909, not fixed).** C-29 recorded that the R-F2735 producer had yielded one family
+across its lifetime despite 63 DD layer-runs in 7 days, and left the cause open. It is
+now established, and it is not the gate's logic.
+
+`_record_source_reliability` skips any finding without a structured `url`. But
+`Finding.url` was introduced by **R-F2691 as PURELY ADDITIVE** — its own comment
+states the constraint and the scale: *"All optional → every existing construction site
+keeps working unchanged"*, across *"~127 construction sites"*. Most predate R-F2691 and
+never adopted it, so they build findings whose provenance still lives only in the
+free-text `[from {url}]` suffix. The producer sees `url is None` and skips them. Only
+the few updated sites — identity/Companies House among them — can ever record.
+
+So the reliability EMA is starved at BOTH ends: almost nothing can raise a score
+(this), and nothing at all can lower one (C-32 proper). R-F2691 already names the fix
+and scopes it as separate work: *"Making those two functions prefer `url` is the real
+fix and is a separate R-number (it touches the tier gate + ~127 construction sites)."*
+That remains the right call — it touches the R-5005 Tier-1a gate, so a careless sweep
+would silently re-tier findings across every report. Do not attempt it as a side-effect
+of a reliability fix.
+
+**Coverage surfaces are empty for a related reason, and it is NOT a wiring defect
+(checked R-F3909).** `/api/aria/atlas/coverage` and `/atlas/gaps` both return `[]`
+(`coverage_cells: 0`). `web_atlas.update_coverage` has three live callers in
+`source_scout`, and the scout is scheduled (`autonomous_scheduler.py:261`) — but every
+call sits behind `gated.get("added")` or `queued_pending`, i.e. coverage is only
+recorded when the scout ADMITS A NEW SOURCE. With ~192 families already seeded and the
+validator gate in front, that path is rare-to-never. The producer is wired; its trigger
+condition is simply not being met. Worth revisiting as a question about scout yield,
+not as a dark path.
