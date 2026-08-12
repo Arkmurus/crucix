@@ -40,4 +40,4 @@ FRESH_BASE=0 EXPECTED_DPO_PAIRS=53 \
   STATE_FILE=data/eval_reports/.tooluse_citation_contract_v8_pod_state \
   REMOTE_DPO_OUT=/workspace/checkpoints/aria_tooluse_citation_contract_v8 \
   CYCLE_DEADLINE=14400 \
-  bash scripts/train/run_tooluse_dpo.sh
+  exec bash scripts/train/run_tooluse_dpo.sh

@@ -113,6 +113,9 @@ PY
 POD_ID=""; HOST=""; PORT=""
 release(){ [ -z "$POD_ID" ] || { log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }; }
 trap release EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 for i in $(seq 1 15); do
   POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
   [ -n "$POD_ID" ] || { log "create rejected $i/15"; sleep 90; continue; }
@@ -124,6 +127,8 @@ for i in $(seq 1 15); do
   [ -n "$HOST" ] && [ -n "$PORT" ] && break; release; POD_ID=""; sleep 90
 done
 [ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ] || { log "BLOCKED no GPU capacity"; exit 2; }
+mkdir -p "$(dirname "$STATE_FILE")"
+{ echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
 KEYF=/tmp/rpkey_tooluse_dpo; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
 SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
 TSSH(){ timeout 75 $SSH "$@"; }; ok=0
@@ -148,7 +153,6 @@ done
   || { log "FATAL remote curve input hash mismatch"; exit 1; }
 [ "$RESUME_MODE" = 0 ] || RSCP "$RESUME_REPORT_LOCAL" /workspace/eval/aria_tooluse_dpo_eval.json \
   || { log "FATAL upload resume report"; exit 1; }
-mkdir -p "$(dirname "$STATE_FILE")"; { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
 if [ "$FRESH_BASE" != 1 ]; then
   TSSH -p "$PORT" root@"$HOST" "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
   log "uploading recovered SFT adapter with bounded resumable slices"; UPLOAD_OK=0

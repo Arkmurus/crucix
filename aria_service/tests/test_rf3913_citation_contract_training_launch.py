@@ -48,8 +48,16 @@ def test_v8_launch_uses_positive_only_runner_and_guarded_outputs() -> None:
 
 
 def test_v8_launch_inherits_bounded_cleanup_and_artifact_harvest() -> None:
+    wrapper = (ROOT / "scripts/train/run_tooluse_citation_contract_v8.sh").read_text(
+        encoding="utf-8")
     host = (ROOT / "scripts/train/run_tooluse_dpo.sh").read_text(encoding="utf-8")
+    assert "exec bash scripts/train/run_tooluse_dpo.sh" in wrapper
     assert "trap release EXIT" in host
+    assert "trap 'exit 143' TERM" in host
+    state_write = host.index('echo "POD_ID=$POD_ID"')
+    ssh_stability = host.index('SSH unstable')
+    watchdog = host.index('pod_selfstop_watch_v04.sh')
+    assert state_write < ssh_stability < watchdog
     assert "pod_selfstop_watch_v04.sh" in host
     assert "persist_diagnostics" in host
     assert "persist_adapter" in host
