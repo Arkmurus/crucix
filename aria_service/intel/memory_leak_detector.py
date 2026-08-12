@@ -95,7 +95,12 @@ def subsystem_census() -> dict[str, int | None]:
         try:
             v = fn()
             # None is a REPORTED value ("not loaded"), not a dropped probe.
-            out[name] = v if (v is None or isinstance(v, int)) else None
+            # R-F3941 — but an UNEXPECTED TYPE is not "not loaded" either. Mapping
+            # it to None claimed a subsystem was unhydrated when the probe had in
+            # fact returned something nonsensical. Omit it, exactly as a raising
+            # probe is omitted: the honest reading is "no measurement".
+            if v is None or isinstance(v, int):
+                out[name] = v
         except Exception:
             pass          # a raising probe is genuinely unmeasurable — omit it
 
@@ -107,10 +112,19 @@ def subsystem_census() -> dict[str, int | None]:
 
     def _topic():
         from . import knowledge as _k
+        # R-F3941 — the indices have their OWN unbuilt sentinel, and it is
+        # documented at knowledge.py:99 as `_index_count: int = -1  # (-1 = unbuilt)`.
+        # Before it is built both dicts are `{}`, so a bare len() reported an
+        # UNBUILT index as a measured zero — the identical defect R-F3932 fixed
+        # one probe up, on the same reading.
+        if _k._index_count < 0:
+            return None
         return len(_k._topic_index)
 
     def _content():
         from . import knowledge as _k
+        if _k._index_count < 0:
+            return None       # unbuilt — NOT measured-and-empty (R-F3941)
         return len(_k._content_index)
 
     def _tasks():

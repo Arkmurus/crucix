@@ -119,6 +119,15 @@ def test_the_delta_skips_subsystems_that_were_not_loaded(monkeypatch):
     import aria_service.intel.knowledge as k
 
     mld._LAST_REPORT_CENSUS = {}
+    # R-F3941 — the indices must be BUILT for topic_index to be a comparable
+    # subsystem. This test used to leave `_index_count` at its unbuilt -1 and still
+    # expect `topic_index` in the delta, which only held because an UNBUILT index
+    # was reporting a false 0. It was therefore asserting the presence of the very
+    # defect R-F3941 removed — so the setup is corrected here rather than the
+    # assertion, which states the real intent and still holds.
+    monkeypatch.setattr(k, "_index_count", 0, raising=False)
+    monkeypatch.setattr(k, "_topic_index", {}, raising=False)
+    monkeypatch.setattr(k, "_content_index", {}, raising=False)
     monkeypatch.setattr(k, "_cache", None, raising=False)
     mld.process_memory_report()                     # prime with facts=None
 
@@ -131,3 +140,27 @@ def test_the_delta_skips_subsystems_that_were_not_loaded(monkeypatch):
     # asyncio.all_tasks() raises outside a running loop, so that probe is correctly
     # omitted rather than reported as a number it could not obtain.)
     assert "topic_index" in delta, "comparable subsystems must still be reported"
+
+
+def test_an_unbuilt_index_is_not_a_comparable_subsystem(monkeypatch):
+    """R-F3941 — the counterpart of the test above, and the reason its setup changed.
+
+    With the indices UNBUILT, topic_index reports None on both readings, so it is
+    correctly absent from the delta. Pinned here so a future edit cannot quietly
+    restore the false 0 by reverting the `_index_count` setup above.
+    """
+    import aria_service.intel.knowledge as k
+
+    mld._LAST_REPORT_CENSUS = {}
+    monkeypatch.setattr(k, "_index_count", -1, raising=False)   # unbuilt
+    monkeypatch.setattr(k, "_topic_index", {}, raising=False)
+    monkeypatch.setattr(k, "_content_index", {}, raising=False)
+    monkeypatch.setattr(k, "_cache", {"facts": [1]}, raising=False)
+
+    mld.process_memory_report()
+    r = mld.process_memory_report()
+
+    assert r["subsystems"]["topic_index"] is None
+    assert "topic_index" not in (r["subsystems_delta_since_last_call"] or {}), (
+        "an UNBUILT index has nothing to compare — reporting a delta would invent "
+        "growth that was really just hydration (R-F3941)")
