@@ -1548,6 +1548,66 @@ async def store_fact(topic: str, content: str, source: str = "user",
                 "NOT truncating (infinite-memory rule). Plan cold-storage offload.",
                 _fact_count, WARN_FACTS,
             )
+            # ── R-F3935 — THIS WARNING WAS DARK, AND IT IS THE ONLY SAFETY
+            # MECHANISM PROTECTING THE INFINITE-MEMORY POLICY. ────────────────
+            #
+            # R-F239's own comment (line ~76) promises "the operator gets a
+            # brain_hook absorb prompting offload to cold storage". The code did
+            # `logger.warning` and nothing else. §21a is explicit that a console
+            # log is DARK, not wired — so at 1M facts ARIA would write one line
+            # per 100 writes into fly logs nobody reads, RSS would keep growing,
+            # and the operator would never be told. §19e calls that the worst
+            # outcome: a blocker the operator has to discover himself.
+            #
+            # §7 makes the OFFLOAD a deliberate operator action ("overflow → cold
+            # storage, never delete"), and that stays manual on purpose — an
+            # automatic offload invented here would be the deletion-adjacent
+            # behaviour §7 exists to prevent (cf. R-F173, reversed by R-F238).
+            # What must NOT be manual is the NOTICE. Wiring it makes the one
+            # automated guarantee actually arrive.
+            #
+            # Throttled with the log line (1 per 100 over-threshold writes), so a
+            # standing overflow cannot flood the gap ledger — an alert that fires
+            # continuously is one that gets muted.
+            try:
+                from . import capability_gaps as _cg
+                import asyncio as _aio
+                _t = _aio.create_task(_cg.record_gap(
+                    gap_type="performance",
+                    severity=3,
+                    title=(
+                        f"Knowledge base at {_fact_count} facts — cold-storage "
+                        f"offload needed (warn threshold {WARN_FACTS})"
+                    ),
+                    detail=(
+                        f"§7 infinite memory: nothing is being truncated or evicted, "
+                        f"which is correct. But the working set is now {_fact_count} "
+                        f"facts and grows with RSS — see /api/aria/memory/health "
+                        f"(process.subsystems.facts). The remedy is an OPERATOR-"
+                        f"PLANNED cold-storage offload, not deletion and not a "
+                        f"higher threshold. Raise ARIA_KB_WARN_FACTS only after the "
+                        f"offload, never instead of it."
+                    ),
+                    source="knowledge:fact_count_overflow",
+                ))
+                _t.add_done_callback(
+                    lambda t: t.exception() if not t.cancelled() else None)
+            except Exception:      # pragma: no cover - never block a fact write
+                pass
+            try:
+                from .engine_wiring import wire_failure as _wf3935
+                _wf3935(
+                    module="knowledge",
+                    detail=(
+                        f"fact count {_fact_count} exceeds warn threshold "
+                        f"{WARN_FACTS}; cold-storage offload is an operator action "
+                        f"and has not happened"
+                    ),
+                    gap_type="performance",
+                    source="knowledge:fact_count_overflow",
+                )
+            except Exception:      # pragma: no cover
+                pass
     await _save()
     # Index for semantic search — runs sync model.encode() under the hood,
     # which holds the GIL. Must be off the event loop or it will block the

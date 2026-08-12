@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3935,
+  "next_available": 3937,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33301,6 +33301,24 @@
       "r_number": "R-F3934",
       "title": "C-37: brain/stats success_rate cannot distinguish a failure-only module from one failing every call",
       "claimed_at": "2026-08-12T11:21:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3935",
+      "title": "the infinite-memory overflow warning is dark - logger only, never reaches the brain",
+      "claimed_at": "2026-08-12T11:27:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3936",
+      "title": "C-37 residual: success_rate returns 0 when the denominator is zero, so no-measurable-signals renders as a measured rate",
+      "claimed_at": "2026-08-12T11:52:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
