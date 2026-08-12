@@ -316,6 +316,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-34",
+      "title": "pre-commit hook is FAIL-OPEN on 'checker did not run' — in a worktree the venv is absent, python resolves to the Windows Store shim, and every check is silently skipped",
+      "claimed_at": "2026-08-12T06:45:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3912"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-12T06:51:28Z"
     }
   ]
 }

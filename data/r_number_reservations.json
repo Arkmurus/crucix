@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
-  "next_available": 3916,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33117,5 +33116,6 @@
       "commit_sha": null,
       "notes": null
     }
-  ]
+  ],
+  "next_available": 3916
 }

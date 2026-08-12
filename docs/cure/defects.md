@@ -2310,3 +2310,54 @@ counter file written on sweep completion and rehydrated at boot — with a bound
 window so it does not become an unbounded all-time average that dilutes new
 regressions, which is the exact failure R-F3364 fixed for the DD layer-stats counters
 by day-bucketing them. Reuse that shape; do not write a flat all-time counter.
+
+### C-34 · The pre-commit hook silently skipped EVERY check — and could not have blocked a real failure either — **CLOSED (R-F3912, 2026-08-11)**
+
+Observed across four real commits in this session. Each printed
+
+```
+Python was not found; run without arguments to install from the Microsoft Store...
+```
+
+and then committed successfully. **No check ran.** Those commits were sound only
+because the checks had been run by hand.
+
+**Fault 1 — interpreter resolution is worktree-blind.** The hook resolved the venv
+against `git rev-parse --show-toplevel`, which inside a git worktree is the WORKTREE
+root, and a worktree has no `.venv`. It then fell through to `command -v python3`,
+which on Windows is the App Execution Alias shim — a stub that prints an
+advertisement and exits without running anything. CLAUDE.md now makes worktrees the
+normal way to work in this repo (a peer agent holds the main checkout dirty), so the
+hook was broken in **exactly the configuration the project tells every session to
+use**. Fixed by also resolving `--git-common-dir`'s parent, which is the main
+checkout for every worktree.
+
+**Fault 2 — and this is the one that matters.** The hook blocked only on an explicit
+`VERIFICATION FAILED` sentinel and exited 0 otherwise, so output containing no
+sentinel read as a clean pass. That is the C-29 defect **sitting inside the guard
+whose entire job is to catch defects**. And it was not merely lenient: with no
+interpreter, the sentinel it greps for *can never appear*, so the hook could not have
+blocked a **real** failure either. It was inert, not permissive — a test proves this
+by driving a genuine `VERIFICATION FAILED` through the broken configuration.
+
+**Fix — an interpreter probe**, deliberately the narrowest discriminator available:
+`"$PY" -c "pass"`. The shim fails it (measured: exit 49); every real Python passes.
+R-F1958's fail-open policy — *"a tooling bug must never wedge commits"* — is kept
+**exactly**: a checker that genuinely runs and then crashes still warns and still
+allows the commit, and a test pins that as the line this fix must not cross. Only "no
+usable interpreter" blocks, which is a local config error fixable in seconds.
+
+A sentinel-based variant was written first and **discarded**: requiring positive
+output would also have wedged commits on any checker crashing before it printed,
+which is precisely the case R-F1958 protected. Recorded here because the discarded
+design is the obvious one and someone will propose it again.
+
+**Verified live, not asserted:** running the fixed hook inside the worktree now
+prints `[pre-commit] OK — 1 files checked` where it previously printed the shim's
+advertisement and skipped everything.
+
+WARNING: `core.hooksPath` is an ABSOLUTE path to the main checkout
+(`C:\Code\Aria\scripts\git-hooks`), so a worktree's commits run the MAIN tree's hook
+file. This fix therefore takes effect for worktree commits only once the main
+checkout has pulled it — not when the worktree branch has it. That is also why the
+four commits in this session kept using the old hook after the fix was written.

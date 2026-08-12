@@ -19,15 +19,62 @@ set -e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
+# C-34 — `--show-toplevel` is the WORKTREE root, and a worktree has NO .venv.
+# CLAUDE.md now makes worktrees the normal way to work here (a peer agent holds the
+# main checkout dirty), so resolving only against it meant the repo interpreter was
+# invisible in exactly the configuration the project tells every session to use, and
+# the hook fell through to a bare `python3` — on Windows the App Execution Alias
+# shim, which prints an advertisement and exits 0 without running anything.
+# `--git-common-dir` points at the MAIN checkout's .git for every worktree, so its
+# parent is the main working tree.
+MAIN_ROOT=""
+_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$_COMMON_DIR" ]; then
+    MAIN_ROOT="$(dirname "$_COMMON_DIR")"
+fi
+
 # Detect available Python interpreter — prefer repo venv (mirrors pre-push).
 if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
     PY="$REPO_ROOT/.venv/Scripts/python.exe"
 elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
     PY="$REPO_ROOT/.venv/bin/python"
+elif [ -n "$MAIN_ROOT" ] && [ -x "$MAIN_ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$MAIN_ROOT/.venv/Scripts/python.exe"
+elif [ -n "$MAIN_ROOT" ] && [ -x "$MAIN_ROOT/.venv/bin/python" ]; then
+    PY="$MAIN_ROOT/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     PY=python3
 else
     PY=python
+fi
+
+# C-34 — PROVE THE INTERPRETER ACTUALLY RUNS, before trusting anything it "says".
+#
+# The block below fires only on an explicit VERIFICATION FAILED sentinel, so any
+# output WITHOUT that sentinel exited 0 and read as a clean pass — including the
+# Windows App Execution Alias shim, which prints "Python was not found..." and runs
+# nothing. Four commits in one session were "verified" by a checker that never
+# executed, and in that state the hook could not block a REAL failure either: the
+# sentinel it greps for can never appear if the checker never starts.
+#
+# That is precisely the defect these checks exist to catch — CLAUDE.md §1's
+# "certified by an absence", sitting inside the guard itself.
+#
+# The probe is deliberately the narrowest possible discriminator. It asks only "can
+# this interpreter execute a no-op", which the shim fails (measured: exit 49) and
+# every real Python passes. R-F1958's fail-open intent is otherwise UNCHANGED: a
+# checker that genuinely runs and then crashes still warns and still allows the
+# commit, because a tooling bug must never wedge commits. What is refused is
+# committing while believing checks ran that did not — a local config error the
+# developer can fix in seconds.
+if ! "$PY" -c "pass" >/dev/null 2>&1; then
+    echo "[C-34 pre-commit] commit BLOCKED — no usable Python; the checks DID NOT RUN."
+    echo "  tried: $PY"
+    echo "  On Windows a bare 'python3' hits the Microsoft Store shim, which runs"
+    echo "  nothing. Create the repo venv (.venv) in the main checkout — a worktree"
+    echo "  has none of its own and now inherits it."
+    echo "  Genuine emergency bypass: git commit --no-verify"
+    exit 1
 fi
 
 # Run the checker, capturing output. `set -e` is relaxed for this call so a
