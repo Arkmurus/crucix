@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "next_available": 3937,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33310,9 +33311,10 @@
       "title": "the infinite-memory overflow warning is dark - logger only, never reaches the brain",
       "claimed_at": "2026-08-12T11:27:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd56a820",
+      "notes": null,
+      "shipped_at": "2026-08-12T12:04:20Z"
     },
     {
       "r_number": "R-F3936",
@@ -33323,6 +33325,5 @@
       "commit_sha": null,
       "notes": null
     }
-  ],
-  "next_available": 3937
+  ]
 }

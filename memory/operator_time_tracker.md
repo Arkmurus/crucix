@@ -1091,3 +1091,48 @@ unbounded escape.
 "overflow → cold storage" is actually offloading, given ~500k facts resident. The
 instrument now attributes any future growth episode automatically — no waiting on a
 threshold, no guessing.
+
+---
+
+## Session 2026-08-12 (cont.) — is the cold-storage offload working?
+
+**Answer: there is no automated offload, and that is CORRECT. But the one automated
+protection around it was dark.** R-F3935 shipped (`bd56a820`, live).
+
+**What §7 actually specifies.** "No TTL on knowledge. No oldest-first prune. No
+eviction. Overflow → cold storage, never delete." R-F239 removed the truncation that
+violated it (`db["facts"] = db["facts"][:MAX_FACTS]`, which dropped the OLDEST facts)
+and replaced it with a soft warn threshold. R-F962 removed a second violation — a
+90-day age prune reachable via POST /neural/consolidate — and replaced deletion with
+an in-place `stale` FLAG. Both are correct and remain so; a §7 guard test now pins
+that truncation has not returned.
+
+**So the offload is an OPERATOR ACTION by design, not a missing feature.** Inventing
+an automatic one would be the deletion-adjacent behaviour §7 exists to prevent
+(R-F173, reversed by R-F238). I deliberately did not build one.
+
+**THE REAL DEFECT: the only automation — the warning — was never wired.** It did
+`logger.warning` and nothing else, while R-F239's own comment promises "the operator
+gets a brain_hook absorb prompting offload to cold storage". §21a is explicit that a
+console log is DARK. At 1M facts ARIA would emit one line per 100 writes into fly
+logs nobody reads, RSS would keep climbing, and the operator would never be told —
+§19e's stated worst outcome. It had never been noticed **because it has never fired**:
+measured live, 499,812 facts against a 1,000,000 threshold.
+
+Now records a capability gap AND a brain failure signal, inside the existing throttle.
+The gap names the remedy AND the anti-remedy: raise `ARIA_KB_WARN_FACTS` only AFTER an
+offload, never instead of one — because the first instinct on any threshold alert is
+to silence it, and that is the one action §7 forbids.
+
+**Current headroom, for planning:** ~500k facts, half the threshold. RSS 5.2-5.3GB on
+a 16GB box with ~10.9GB available. Nothing is urgent; the notice will now actually
+arrive when it matters.
+
+**Process note:** three of my assertions initially matched R-F239's COMMENT — which
+quotes the removed truncation verbatim — rather than code. That is the R-F3888 defect
+(a guard matching prose) for the third time today. The tests now strip comments, and
+carry a control proving the stripper itself can fail.
+
+**Verified not mine, on clean origin/main:** `test_rf2395_capability_test_gate_genuine`
+(2 tests) fails identically without my change; `test_rf2144_chunked_knowledge_load`
+passes standalone and is the timing flake §16 documents.
