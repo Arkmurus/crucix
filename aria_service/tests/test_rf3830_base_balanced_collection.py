@@ -98,7 +98,7 @@ def test_generation_driver_skips_adapter_only_in_explicit_base_mode() -> None:
     assert 'POD_ENV="BASE_ONLY=$BASE_ONLY"' in host
     common_layout = host.index("'mkdir -p /workspace/checkpoints")
     state = host.index('echo "POD_ID=$POD_ID"')
-    watchdog = host.index('grep -q ARMED')
+    watchdog = host.index('arm_watchdog \\\n  "POD_ID=')
     upload = host.index('log "uploading validated serving adapter')
     adapter_branch = host.rfind('if [ "$BASE_ONLY" != 1 ]; then', 0, upload)
     assert common_layout < watchdog < state < adapter_branch < upload

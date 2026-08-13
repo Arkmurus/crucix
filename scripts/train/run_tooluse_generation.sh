@@ -74,7 +74,18 @@ POD_ID=""; HOST=""; PORT=""; ARMED=0
 release(){
   [ -z "$POD_ID" ] && return 0
   log "stopping pod $POD_ID"
-  curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1
+  for attempt in 1 2 3; do
+    curl.exe -s -X POST "$API/pods/$POD_ID/stop" \
+      -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true
+    if [ "$(pod_state)" = NOT_RUNNING ]; then
+      log "verified pod $POD_ID stopped"
+      return 0
+    fi
+    log "stop unverified attempt $attempt/3"
+    sleep 10
+  done
+  log "FATAL pod $POD_ID stop unverified after 3 attempts"
+  return 1
 }
 trap release EXIT
 
@@ -98,6 +109,24 @@ done
 KEYF=/tmp/rpkey_generation; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
 SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
 TSSH(){ timeout 75 $SSH "$@"; }
+arm_watchdog(){
+  local command=$1
+  for attempt in 1 2 3; do
+    TSSH -p "$PORT" root@"$HOST" \
+      "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; $command" \
+      >/dev/null 2>&1 || true
+    if TSSH -p "$PORT" root@"$HOST" \
+        'if test -s /workspace/eval/_watchdog_pid; then kill -0 "$(cat /workspace/eval/_watchdog_pid)"; else exit 1; fi' \
+        >/dev/null 2>&1; then
+      log "watchdog arm verified"
+      return 0
+    fi
+    log "watchdog arm unverified attempt $attempt/3"
+    sleep 5
+  done
+  log "FATAL watchdog arm not live after 3 attempts"
+  return 1
+}
 ok=0
 for _ in $(seq 1 40); do
   if TSSH -p "$PORT" root@"$HOST" 'echo ok' 2>/dev/null | grep -q ok; then ok=$((ok+1)); else ok=0; fi
@@ -125,9 +154,9 @@ for item in \
   RSCP "$src" "$dst" || { log "FATAL upload $src"; exit 1; }
 done
 mkdir -p "$(dirname "$STATE_FILE")"
-TSSH -p "$PORT" root@"$HOST" \
-  "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" \
-  | grep -q ARMED || { log "FATAL watchdog not armed"; exit 1; }
+arm_watchdog \
+  "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" \
+  || exit 1
 ARMED=1
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; echo "LAUNCHED_AT=$(date -u +%s)"; } > "$STATE_FILE"
 
@@ -163,9 +192,9 @@ TSSH -p "$PORT" root@"$HOST" \
   || { log "FATAL remote adapter validation/extract"; exit 1; }
 fi
 
-TSSH -p "$PORT" root@"$HOST" \
-  "kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$GENERATION_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_generation_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" \
-  | grep -q ARMED || { log "FATAL generation watchdog not armed"; exit 1; }
+arm_watchdog \
+  "rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$GENERATION_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_generation_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" \
+  || exit 1
 POD_ENV="BASE_ONLY=$BASE_ONLY"
 [ "$BASE_ONLY" = 1 ] || POD_ENV="$POD_ENV ADAPTER='$REMOTE_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" \

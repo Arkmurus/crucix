@@ -64,7 +64,7 @@ def test_full_cycle_separates_sft_corpus_from_generation_queue_and_harvests_adap
 def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     code = (Path(__file__).resolve().parents[2] / "scripts" / "train" /
             "run_tooluse_generation.sh").read_text(encoding="utf-8")
-    armed = code.index('grep -q ARMED')
+    armed = code.index('arm_watchdog \\\n  "POD_ID=')
     uploaded = code.index('log "uploading validated serving adapter')
     started = code.index('grep -q STARTED')
     assert armed < uploaded < started
@@ -89,7 +89,8 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert armed < state_written < uploaded
     assert "DEADLINE=$UPLOAD_DEADLINE" in code
     assert "DEADLINE=$GENERATION_DEADLINE" in code
-    assert "kill \\$(cat /workspace/eval/_watchdog_pid)" in code
+    assert code.count("arm_watchdog ") == 2
+    assert "kill -0" in code
     assert "NOT_RUNNING" in code
     assert '"${REPORT_LOCAL}.partial"' in code
     assert 'REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
