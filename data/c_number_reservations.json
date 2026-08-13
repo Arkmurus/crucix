@@ -525,9 +525,12 @@
       "title": "paid training launcher lacks mechanical recipe review",
       "claimed_at": "2026-08-13T11:51:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3960"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T12:36:49Z"
     }
   ]
 }

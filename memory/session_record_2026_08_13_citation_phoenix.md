@@ -39,3 +39,19 @@ Next evidence step: broaden deterministic train-only sampling on citation-rich
 adverse/news-impact/person rows without changing calibration or held-out inputs.
 Do not spend on preference training unless genuine current-validator failures
 produce a sufficiently diverse intervention set.
+
+## Training-control continuation
+
+- The second phoenix harvest completed 88 unseen target-axis rows. C-49
+  corrected six evaluator false positives, leaving 87/88 honest and one genuine
+  preference pair. Across both harvests, two heterogeneous failures in 188
+  generations do not justify another paid training cycle.
+- C-50/R-F3960 mechanized paid-recipe review before pod creation. The launcher
+  refuses recipe drift and fresh-base training, and propagates the reviewed beta
+  and learning rate into the pod environment.
+- The Codex Windows sandbox was repaired from the matching installed app cache:
+  the active bin was missing both the setup helper and command runner. The
+  sandbox group received read/execute-only access to the user-local Python
+  runtime. Repeated patch operations and sandboxed tests then succeeded.
+- Final verification covered 34 affected tests; the guarded push covered 228
+  tests with 2 expected xfails.
