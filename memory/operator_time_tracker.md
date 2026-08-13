@@ -1136,3 +1136,118 @@ carry a control proving the stripper itself can fail.
 **Verified not mine, on clean origin/main:** `test_rf2395_capability_test_gate_genuine`
 (2 tests) fails identically without my change; `test_rf2144_chunked_knowledge_load`
 passes standalone and is the timing flake §16 documents.
+
+
+---
+
+## Session 2026-08-12 → 08-13 — full-ecosystem deep DD, then three fixes from it
+
+**R-numbers shipped (ship-marked AND verified live): 4** — R-F3944, R-F3945,
+R-F3946, R-F3947. C-numbers closed: C-39, C-40, C-41.
+**Operator hours: NOT SUPPLIED → pace_ratio deliberately blank**, per this file's
+own rule. Agent wall-clock spanned two dates and is not operator hours.
+
+Live at close: `c7f0f285`, status operational, loop healthy, autonomous running,
+diagnostic 75 pass / 1 warn / 0 fail / 2 deferred.
+
+### Part 1 — the diligence sweep
+
+Operator asked for a root-cause pass over the whole ecosystem. Seven parallel
+read-only investigations plus live probing; report published as an artifact.
+Headline findings, all evidence-backed: a false clean in the DD sanctions table
+(C-39); RULE ONE's Brave half unenforced (C-40); the self-coder at **19,097
+attempts, 0 fixed, 0 staged, 0 gold** with 100% of its recent queue being phantom
+crawler-rejection gaps; the learning grader **mathematically unable to pass**
+(Jaccard ≥0.4 vs a 4,000-char doc — a perfect 120-token answer scores 0.390),
+feeding an unclamped EWMA, which is why gate #1 (0.824, clamped) and gate #2
+(0.055, unclamped) are the SAME signal; ~2 GB/min of volume traffic from
+re-serialising the fact corpus twice every two seconds; and robots.txt failing
+open on 5xx/timeouts.
+
+**I published two conclusions that were wrong, and had to retract them.** Both were
+in the "verified healthy" section, which is the worst place to be wrong:
+
+- *"RULE ONE is holding."* I trusted the live `rule_one: {breached: false}`. That
+  surface only ever measured Anthropic. **A half-measure reporting a whole rule is
+  worse than no measure, because it gets believed** — and I am the one who believed
+  it. Became C-40.
+- *"DD cannot serve a DeepSeek verdict wearing a Claude badge."* The pin is sound;
+  I checked it correctly. The response cache sits OUTSIDE it and keys on
+  `sha256(prompt)` with no provider. Checking the mechanism I suspected was not the
+  same as checking every path to the outcome.
+
+Three further hypotheses of my own were dropped before publication (the daily cap
+does work; the search quarantine threshold is a junk CEILING, not a relevance
+floor; the recurring 400 is a deliberate assertion). Ratio worth noting: five
+corrections against roughly twenty findings.
+
+### Part 2 — the fixes
+
+**C-39/R-F3945.** `derive_verified_sources` stamped all ten canonical lists CLEAN
+whenever a screen succeeded — so with the local floor serving (OFAC+EU only), eight
+never-searched lists were credited to the aggregator that had refused us. Fixed by
+provenance, not a second list. The escape hatch (`unavailable_sources`) already
+existed with **no caller in the tree** — the "certified by an absence" shape, on the
+product's highest-stakes output.
+
+**C-40/R-F3946.** Fixed with a purpose on the scope, not by curating which of eight
+routes carry a decorator — the ninth route re-opens that silently.
+
+**C-41/R-F3947.** The quota latch could only move toward "spent".
+
+### What this session should be remembered for
+
+**A red test can be the INTENT.** The obvious C-41 fix — derive the missing expiry
+from `since` — works, and `test_opensanctions_quota_flag_lapses` pins the opposite
+as a deliberate decision with reasons: *"silently flipping them to 'fine' would be
+inventing a reset nobody observed."* I reverted my fix and agreed with it. Greening
+my own test by reversing a documented decision would have been worse than the bug.
+Both the reverted approach and why are recorded, because the next reader will reach
+for it too.
+
+**I caused a production outage and the live smoke caught it.** R-F3947 shipped with
+an awaited store delete inline on every successful screen. Minutes later:
+`POST /sanctions/fuzzy HTTP=000 t=150s`, while OpenSanctions answered in 0.11s from
+the same machine and a too-short name returned in 0.16s. Those three readings
+isolated it. Because a failed clear deliberately leaves the latch armed, every
+subsequent screen retried the same blocking write — **a status-reporting fix became
+a screening outage.** Root cause in one line: I put bookkeeping in the latency
+budget of the product's most important call. Fixed by scheduling it off the request
+path; the new guard is proven to DISCRIMINATE (0.00s scheduled vs 3.01s inline
+against a 3s store), not merely to pass.
+
+The general lesson, and it is not in any rule yet: **§3's verify-after-fix checks
+that the fix works. It does not check what the fix COSTS on the path it sits in.**
+Nothing in the two verification passes would have caught this; only live smoke of
+the real endpoint did.
+
+**Three separate gates caught defects of mine before they reached production**,
+which is the system working: the wiring gate found two dark public helpers (the
+R-F3944 class, this time pre-deploy); the local pre-commit hook blocked a commit for
+a missing capability test on `locally_covered_sources_for()`; and the full-tree
+compile gate caught a decorator I had split from its function mid-edit (R-F3842).
+
+**One collateral repair:** `test_rf3031_dd_screen_blob_carries_screened_at` asserted
+on a literal source substring plus a fixed 900-char window, so C-39 wrapping a call
+across lines broke it with zero behaviour change — the R-F3597 fragility class. Now
+AST-based, and it distinguishes the WAIVED blob (whose `screened_at: None` is honest)
+from one that actually ran.
+
+**Baseline note:** `test_bucket_b::test_enrich_attaches_inherited_risk` failed
+throughout; it is in `docs/suite_baseline.json` and was proven pre-existing by
+re-running it with all changes stashed (identical `assert 0 == 1`).
+
+### Still open, and named so it is not re-discovered
+
+From the sweep, unfixed: the self-coder's 0-of-19,097 record and the crawler gap
+flood feeding it; the learning grader; the ~2 GB/min knowledge rewrite; the DD
+layer that renders `[COMPLETED]` when it crashed; the person/UBO drill-down whose
+silent failure is indistinguishable from "no individuals found"; the dead GREEN→AMBER
+data-gap trigger; the response-cache provider key; email/Telegram/DM delivery having
+no outcome wire. The published report is the register for these.
+
+**Operator action outstanding:** Anthropic credits (DD pins Claude non-degradably,
+so DD is down until topped up — and the config is now genuinely safe to top up,
+which it was not when I first said so). **OpenSanctions needs nothing** — that
+recommendation is retracted; the plan was answering all along and the surface that
+said otherwise is what C-41 fixed.
