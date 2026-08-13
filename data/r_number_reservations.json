@@ -33459,9 +33459,10 @@
       "title": "reject stale generation diagnostics",
       "claimed_at": "2026-08-13T08:40:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2ca8cf9e",
+      "notes": null,
+      "shipped_at": "2026-08-13T08:46:05Z"
     }
   ]
 }
