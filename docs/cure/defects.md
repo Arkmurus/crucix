@@ -3322,3 +3322,31 @@ Fixture-first: `test_rf3964_unnormalisable_name_never_clears.py`, 8 tests. Four
 prove the refusal is narrow — a normal name still CLEARs, a name with one real
 token still screens, `'Aerospace Industries Group'` is explicitly NOT refused,
 and a designated generic name is still reachable by the exact pass.
+
+
+## C-54 · an unreadable monthly spend was fabricated as $0.00 (R-F3965)
+
+The monthly cost ceiling read its rollup through the non-strict Redis helper.
+That helper deliberately maps a store failure to `None`, the same value as an
+absent key. The cost tracker then converted `None` to `{}` and finally `0.0`, so
+a cold process could treat an unmeasurable month as a measured zero and allow
+new spend.
+
+The root fix makes both the rollup read and its index fallback strict, records
+whether the cache has ever loaded a real value, and separates a stale known
+total from an unreadable cold start. A transient failure may continue using a
+same-month last-known total; a cold process fails the cap closed with
+`MonthlyCostCapUnverifiable`. Month rollover explicitly discards the prior
+month's cached total instead of relabelling it as current spend. Successful
+rollup writes mark the cache verified so the process does not reject a value it
+just durably recorded.
+
+The spend gauge now reports `spent_readable: false` and `spent_usd: null` when
+no defensible measurement exists. The new exception subclasses the established
+monthly-cap exception, preserving OCR handling and the failure-wire control-flow
+exemption.
+
+Fixture-first: `test_rf3965_month_spend_never_fabricates_zero.py`, 12 tests,
+including cold failure, warm-cache degradation, absent-rollup/index failure,
+month rollover, genuine zero, genuine over-cap, truthful gauge output, and
+parent-exception compatibility.

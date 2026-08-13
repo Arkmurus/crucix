@@ -82,6 +82,37 @@ class MonthlyCostCapExceeded(RuntimeError):
         )
 
 
+class MonthlyCostCapUnverifiable(MonthlyCostCapExceeded):
+    """R-F3965 (C-54) — the cap could not be EVALUATED, which is not the same
+    statement as "the cap was exceeded".
+
+    Subclasses `MonthlyCostCapExceeded` deliberately, on two counts that were
+    both checked rather than assumed:
+      * every existing `except MonthlyCostCapExceeded` handler keeps catching it,
+        so refusing here cannot leak an unhandled error into a caller;
+      * `wire._is_control_flow` matches by class name up the MRO, so it stays
+        control-flow exempt and a store outage cannot flood the 500-slot gap
+        ledger with one gap per refused call.
+
+    It carries its own message because reusing the parent's would say "cap
+    $600.00 exceeded (spent $0.0000)" — a wrong cause pointing at a wrong fix,
+    which is the exact defect C-53 was opened for.
+    """
+
+    def __init__(self, month: str, cap: float):
+        self.spent = None
+        self.cap = cap
+        self.month = month
+        RuntimeError.__init__(
+            self,
+            f"Cannot verify month-to-date LLM spend for {month}: the state store "
+            f"is unreadable and no total has been loaded in this process, so the "
+            f"${cap:.2f} cap is unenforceable. Refusing the call rather than "
+            f"spending against a cap that cannot be checked. Set "
+            f"ARIA_MONTHLY_CAP_WARN_ONLY=1 to proceed anyway. [R-F3965]",
+        )
+
+
 class DailyCostCapExceeded(RuntimeError):
     """R-F2888 — raised when a metered LLM call would exceed the DAILY USD cap.
 
@@ -1009,6 +1040,8 @@ async def _update_month_rollup(record: dict) -> None:
         _month_cache["month"] = month
         _month_cache["total"] = roll["total_cost_usd"]
         _month_cache["loaded_at"] = time.time()
+        _month_cache["loaded_ok"] = True
+        _month_cache["stale"] = False
         _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), month)
     except Exception as e:
         logger.warning("cost_tracker._update_month_rollup failed: %s", e)
@@ -1134,6 +1167,8 @@ async def reconcile_month_costs(month: str | None = None, *, apply: bool = False
             _month_cache["month"] = month
             _month_cache["total"] = roll["total_cost_usd"]
             _month_cache["loaded_at"] = time.time()
+            _month_cache["loaded_ok"] = True
+            _month_cache["stale"] = False
             result["applied"] = True
             result["backup_key"] = backup_key
             logger.warning(
@@ -1240,6 +1275,8 @@ async def _flush_cost_pending(force: bool = False) -> bool:
                     _month_cache["month"] = m
                     _month_cache["total"] = roll["total_cost_usd"]
                     _month_cache["loaded_at"] = time.time()
+                    _month_cache["loaded_ok"] = True
+                    _month_cache["stale"] = False
                     _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), m)
 
             # Bound the retry buffer: a persistently-wedged store must not grow it
@@ -1343,6 +1380,8 @@ async def _flush_external_pending(force: bool = False) -> bool:
                     _month_cache["month"] = m
                     _month_cache["total"] = roll["total_cost_usd"]
                     _month_cache["loaded_at"] = time.time()
+                    _month_cache["loaded_ok"] = True
+                    _month_cache["stale"] = False
             _ext_last_flush = now
             return True
         except Exception as e:
@@ -1458,8 +1497,23 @@ async def _refresh_month_cache(force: bool = False) -> float:
             and _month_cache["month"] == month
             and (now - float(_month_cache.get("loaded_at") or 0.0)) < _MONTH_CACHE_TTL_S):
         return float(_month_cache["total"])
+    # R-F3965 (C-54) — read STRICTLY. This used `rs.get_json`, whose R-F1392
+    # contract returns None on a store-layer failure — the same value an absent
+    # key gives. A dead connection therefore became `{}` became `0.0`, and that
+    # fabricated zero was written unconditionally into `_month_cache`, poisoning
+    # it for the cache TTL. The `except` below already preserves the last known
+    # total and COULD NEVER RUN, because the read layer had converted the failure
+    # into a plausible number before it could raise: a guard made unreachable by
+    # its own dependency (CLAUDE.md §1, "certified by an absence").
+    #
+    # `assert_monthly_cap` reads this same value, so the ceiling was being
+    # computed from a phantom zero exactly when the store was unhealthy — which
+    # is when a spend ceiling matters most. R-F2854 fixed this shape on the
+    # WRITE path; the read path that feeds the cap decision was missed.
+    _stale = False
+    _same_month = _month_cache.get("month") == month
     try:
-        roll = await rs.get_json(f"{COST_MONTH_PREFIX}{month}") or {}
+        roll = await rs.get_json_strict(f"{COST_MONTH_PREFIX}{month}") or {}
         total = float(roll.get("total_cost_usd") or 0.0)
         # Fallback: if the monthly rollup hasn't been populated yet (fresh
         # deploy, eviction), use the index-derived total so the cap
@@ -1467,14 +1521,22 @@ async def _refresh_month_cache(force: bool = False) -> float:
         if total == 0.0:
             index_roll = await _breakdown_from_index(month)
             total = float(index_roll.get("total_cost_usd") or 0.0)
+        _month_cache["loaded_ok"] = True
     except Exception:
-        total = float(_month_cache.get("total") or 0.0)
+        # Keep the last known total rather than inventing a zero. `stale` says
+        # this number is carried forward, not measured now — callers that must
+        # distinguish "measured zero" from "could not measure" read it.
+        total = float(_month_cache.get("total") or 0.0) if _same_month else 0.0
+        if not _same_month:
+            _month_cache["loaded_ok"] = False
+        _stale = True
     # Month rollover: reset warning latches for the new month.
     if _month_cache["month"] != month:
         _warned_thresholds.clear()
     _month_cache["month"] = month
     _month_cache["total"] = total
     _month_cache["loaded_at"] = now
+    _month_cache["stale"] = _stale
     return total
 
 
@@ -1491,12 +1553,25 @@ async def get_month_spend() -> dict:
     await _flush_cost_pending(force=False)
     spent = await _refresh_month_cache()
     cap = _monthly_cap_usd()
+    # R-F3965 (C-54) — say when the figure could not be measured. A process that
+    # has NEVER successfully read a total and cannot read one now has no spend
+    # figure at all; rendering that as `0.00` is the §17 fabricated-P0 shape,
+    # where a session read "nothing has been spent" off a broken instrument and
+    # nearly reported the cost meter blind. `spent_readable: False` with
+    # `spent_usd: None` is an honest unknown; `True` with `0.0` is a measured zero.
+    _readable = bool(_month_cache.get("loaded_ok")) and not _month_cache.get("stale")
+    _never_loaded = not _month_cache.get("loaded_ok")
     return {
         "month": _current_month_key(),
-        "spent_usd": round(spent, 6),
+        "spent_usd": None if _never_loaded else round(spent, 6),
+        "spent_readable": _readable,
+        "spent_is_stale": bool(_month_cache.get("stale")),
         "cap_usd": cap,
-        "remaining_usd": round(max(0.0, cap - spent), 6),
-        "utilisation_pct": round((spent / cap * 100) if cap > 0 else 0.0, 2),
+        "remaining_usd": None if _never_loaded else round(max(0.0, cap - spent), 6),
+        "utilisation_pct": (
+            None if _never_loaded
+            else round((spent / cap * 100) if cap > 0 else 0.0, 2)
+        ),
         "warn_only": _warn_only(),
     }
 
@@ -1540,6 +1615,30 @@ async def assert_monthly_cap(estimated_cost_usd: float = 0.02) -> None:
         # Fall back to cache-based check when Redis is down
         spent = await _refresh_month_cache()
         new_total = spent + est
+
+    # R-F3965 (C-54) — a process that has NEVER read a month total and cannot
+    # read one now has no ceiling to enforce. Passing here would be enforcing the
+    # cap against a fabricated zero, which is the whole defect; the honest action
+    # is to refuse the spend.
+    #
+    # Deliberately narrow: a transient blip in a process that HAS a last-known
+    # total is not affected, because that total still bounds the ceiling. Only
+    # the cold-process-plus-dead-store case fails closed. Blocking every LLM call
+    # on any store hiccup would trade a spend risk for an outage, which is the
+    # trade CLAUDE.md §14 and the R-F3629 timeout-contract reasoning both refuse.
+    if not _month_cache.get("loaded_ok") and _month_cache.get("stale"):
+        if reserved:
+            try:
+                await rs.incrbyfloat(reserve_key, -est)
+            except Exception:
+                pass
+        if _warn_only():
+            logger.warning(
+                "[R-F3965] month spend UNREADABLE and never loaded — cap cannot "
+                "be enforced; allowing because ARIA_MONTHLY_CAP_WARN_ONLY=1",
+            )
+        else:
+            raise MonthlyCostCapUnverifiable(month, cap)
 
     # new_total = recorded month spend + in-flight reserves. Compare against cap.
     if new_total >= cap:
@@ -1591,10 +1690,10 @@ async def _breakdown_from_index(target_month: str) -> dict:
     Used as a fallback when the monthly rollup key is empty — i.e. on a
     fresh deployment, after Redis key eviction, or for back-calculating
     spend that predates this rollup code landing."""
-    try:
-        index = await rs.get_json(COST_INDEX_KEY) or []
-    except Exception:
-        index = []
+    # R-F3965 — this fallback participates in the monthly cap measurement.
+    # Returning [] on a store failure fabricates the same zero that the strict
+    # rollup read prevents, so absence and unreadability must remain distinct.
+    index = await rs.get_json_strict(COST_INDEX_KEY) or []
     total = 0.0
     calls = 0
     tokens = 0
@@ -1678,7 +1777,15 @@ async def get_month_breakdown(month: str | None = None) -> dict:
     # No rollup yet — reconstruct from the index so historical spend shows
     # up immediately rather than waiting for the next LLM call to bootstrap.
     if not roll or int(roll.get("total_calls") or 0) == 0:
-        roll = await _breakdown_from_index(target)
+        try:
+            roll = await _breakdown_from_index(target)
+        except Exception as e:
+            return {
+                "error": str(e),
+                "month": target,
+                "spent_readable": False,
+                "_source": "unreadable",
+            }
     cap = _monthly_cap_usd()
     spent = float(roll.get("total_cost_usd") or 0.0)
     # Project end-of-month based on elapsed fraction of the current month.
