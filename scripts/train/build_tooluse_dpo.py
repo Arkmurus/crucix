@@ -94,16 +94,8 @@ def build_pairs(
 
     pairs: list[dict] = []
     for row in (report.get("rows") or []):
-        if row.get("honest"):
-            continue                       # nothing to prefer; it was already right
         subject = str(row.get("subject") or "")
         key = _norm(subject)
-        if key and key in eval_entities:
-            raise EvalContamination(
-                f"refusing to build a preference pair from {subject!r}: it is in the "
-                f"HELD-OUT split. Generations for DPO must come from the TRAIN split, "
-                f"or the eval set is trained on and the only honest measure is lost."
-            )
         label = str(row.get("label") or "")
         trace = by_task.get((key, label))
         if trace is None:
@@ -113,7 +105,18 @@ def build_pairs(
             continue
         rescored = score_one(trace, row.get("answer"))
         if rescored.get("honest"):
-            continue  # stale report failure corrected by the current validator
+            continue  # current validator says there is nothing to prefer
+        # R-F3976 — select by CURRENT validation, not the report's stored honest
+        # flag. Validator fixes are meant to compound into the next preference
+        # set; skipping stale `honest: true` rows before rescoring made newly
+        # visible failures unreachable. Contamination is checked after rescoring
+        # so every newly selected failure is still refused if held out.
+        if key and key in eval_entities:
+            raise EvalContamination(
+                f"refusing to build a preference pair from {subject!r}: it is in the "
+                f"HELD-OUT split. Generations for DPO must come from the TRAIN split, "
+                f"or the eval set is trained on and the only honest measure is lost."
+            )
         rejected = str(row.get("answer") or "")
         chosen = _reference_of(trace)
         if not rejected.strip() or not chosen.strip():

@@ -3439,6 +3439,26 @@ Fixture-first: `test_rf3974_adverse_denial_requires_entity_relevance.py`, two
 capability tests that rescore the real 88-row queue/report pair and assert both
 the exact failure set and the protected irrelevant-result cases.
 
+## C-65 - stale honest flags hid newly detected DPO failures (R-F3976)
+
+After R-F3974 corrected the validator, the Phoenix v2 generation surface had
+four current failures. `build_tooluse_dpo.build_pairs` still produced one pair.
+It checked each stored report row's old `honest` flag before calling the current
+validator, so three answers that were accepted by the prior validator could
+never become training signal after the validator learned to detect them.
+
+The builder now matches each generation to its real trace and rescores every
+answer first. Only answers that fail the current validator proceed to preference
+construction, and the held-out contamination check remains binding on every
+newly selected failure. This connects measurement improvement to learning: a
+newly proven failure automatically enters the next DPO set instead of remaining
+hidden behind yesterday's label.
+
+Fixture-first: `test_rf3976_dpo_builder_rescores_every_generation.py` drives the
+real Phoenix v2 report and queue, proving the selected subjects are exactly
+Hanwha Aerospace, L3Harris Technologies, SOCAR, and Uzbekneftegaz and all four
+carry the current entity-relevance failure reason.
+
 ## C-56 - stale evaluation summaries could steer training (R-F3967)
 
 The Citation Phoenix v2 rescored artifact contained three incompatible views
