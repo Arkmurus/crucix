@@ -537,9 +537,12 @@
       "title": "recipe gate does not bind paid pod runner",
       "claimed_at": "2026-08-13T17:48:43Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3962"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T17:59:20Z"
     },
     {
       "c_number": "C-52",
@@ -551,7 +554,7 @@
         "R-F3963"
       ],
       "notes": null,
-      "closed_at": "2026-08-13T17:56:33Z"
+      "closed_at": "2026-08-13T17:59:20Z"
     },
     {
       "c_number": "C-53",
@@ -563,7 +566,16 @@
         "R-F3964"
       ],
       "notes": null,
-      "closed_at": "2026-08-13T17:56:33Z"
+      "closed_at": "2026-08-13T17:59:20Z"
+    },
+    {
+      "c_number": "C-54",
+      "title": "the monthly cost read is non-strict so a store failure renders 0.00 and the cap passes",
+      "claimed_at": "2026-08-13T17:59:18Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

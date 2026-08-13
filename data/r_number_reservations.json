@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3965,
+  "next_available": 3966,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33575,23 +33575,35 @@
       "title": "bind approved training recipe to runner",
       "claimed_at": "2026-08-13T17:48:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3e9b4940",
+      "notes": null,
+      "shipped_at": "2026-08-13T17:59:20Z"
     },
     {
       "r_number": "R-F3963",
-      "title": "C-51 sanctions containment must be measured in both directions",
+      "title": "C-52 sanctions containment must be measured in both directions",
       "claimed_at": "2026-08-13T17:50:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7297346d",
+      "notes": null,
+      "shipped_at": "2026-08-13T17:59:20Z"
     },
     {
       "r_number": "R-F3964",
-      "title": "C-52 an un-normalisable name must never screen CLEAR",
+      "title": "C-53 unnormalisable sanctions name reports the true refusal reason",
       "claimed_at": "2026-08-13T17:50:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7297346d",
+      "notes": null,
+      "shipped_at": "2026-08-13T17:59:21Z"
+    },
+    {
+      "r_number": "R-F3965",
+      "title": "C-54 monthly spend must never fabricate a zero on a store failure",
+      "claimed_at": "2026-08-13T17:59:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

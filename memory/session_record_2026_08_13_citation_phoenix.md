@@ -55,3 +55,19 @@ produce a sufficiently diverse intervention set.
   runtime. Repeated patch operations and sandboxed tests then succeeded.
 - Final verification covered 34 affected tests; the guarded push covered 228
   tests with 2 expected xfails.
+
+## Zero-cost compounding controls
+
+- C-51/R-F3962 closed a semantic recipe bypass: approval now binds the exact
+  paid pod runner, not only a recipe label and host-side numbers. An SFT runner
+  cannot execute under DPO approval. Experimental fresh-base and citation-SFT
+  launchers remain refused until independently reviewed.
+- C-52/R-F3963 made sanctions candidate admission symmetric for long-query /
+  short-designation containment while retaining the corroboration gate. This
+  improves recall and audit visibility without turning overlap into a hit.
+- C-53/R-F3964 corrected the evidence before the code: all-generic names were
+  already refused rather than cleared. The structural defect was a false store
+  failure reason; they now report `unnormalisable_name` so self-healing targets
+  the real obstacle.
+- These improvements used fixtures and CPU verification only. No model was
+  trained, no pod was started, and the accepted serving parent was unchanged.
