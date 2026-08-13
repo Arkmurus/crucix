@@ -113,7 +113,7 @@ fi
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
 PARENT_MODE=accepted_adapter
 [ "$FRESH_BASE" != 1 ] || PARENT_MODE=fresh_base
-RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
+RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
 "$PYBIN" -m scripts.train.preflight_training_recipe --recipe-json "$RECIPE_JSON" || exit 3
 "$PYBIN" - "$DPO_LOCAL" "$EXPECTED_DPO_PAIRS" <<'PY' || exit 3
 import json, sys

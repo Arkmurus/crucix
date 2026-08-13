@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def _approved_dpo() -> dict:
     return {
         "kind": "tooluse_dpo_continuation",
+        "runner": "scripts/train/pod_tooluse_dpo.sh",
         "base_model": "mistralai/Mistral-7B-Instruct-v0.3",
         "epochs": 1,
         "beta": 0.3,

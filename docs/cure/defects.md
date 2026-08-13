@@ -3216,3 +3216,23 @@ Fixture-first: `test_rf3960_paid_recipe_preflight.py` was RED on the missing
 module, then GREEN with four capability checks covering the accepted recipe,
 exact parameter drift, an unknown recipe family, and invocation before pod
 creation.
+
+## C-51 · recipe approval did not bind the paid pod runner (R-F3962)
+
+R-F3960 reviewed the host's declared DPO hyperparameters before pod creation,
+but `run_tooluse_dpo.sh` permits callers to replace `POD_RUNNER`. Citation
+contract launchers replace it with `pod_tooluse_sft_continue.sh`, which performs
+positive SFT with a different loss and optimizer recipe. The host could
+therefore approve `tooluse_dpo_continuation` and then execute SFT: the label was
+reviewed, not the paid action.
+
+The approved DPO recipe now includes the exact executable runner, and the host
+submits its effective `POD_RUNNER` to the review before pod creation. The normal
+DPO runner passes. Substituting the SFT runner is refused. Citation SFT remains
+disabled until its own recipe is separately reviewed; it is not grandfathered
+in through the DPO approval.
+
+Fixture-first: `test_rf3962_recipe_runner_identity.py` was RED with the SFT
+runner silently accepted and the runner absent from the host recipe. It is now
+GREEN for the approved runner, exact mismatch refusal, and review ordering
+before `_create_v04_pod.py`.
