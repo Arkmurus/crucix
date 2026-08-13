@@ -113,7 +113,16 @@ _PARKED_FRAMES: frozenset[tuple[str, str]] = frozenset({
     ("selectors.py", "select"),          # an IDLE event loop, not a busy one
     ("thread.py", "_worker"),            # concurrent.futures worker
     ("core.py", "_connection_worker_thread"),   # aiosqlite
-    ("continuous_profiler.py", "_sample_thread"),  # our own sampler
+    # R-F3968 (C-57) — main.py:1730 `_wedge_watchdog` lives in `_time.sleep(1.0)`.
+    # `sleep` is a C function with no Python frame, so the innermost PYTHON frame
+    # is the watchdog's own function: the identical shape to aiosqlite's worker
+    # directly above, and the reason that one is here. Without it, one of ARIA's
+    # own idle monitors was counted as RUNNING in the census R-F3464 introduced
+    # AS the starvation discriminator — the reported `running: 5` was inflated by
+    # at least two sleeping monitors against an honest 2-3.
+    ("main.py", "_wedge_watchdog"),
+    # NOTE: the sampler is NOT excluded here. Naming it never worked — see
+    # `_collect_samples`, which excludes it by thread identity instead.
 })
 
 # Innermost-frame function names that identify an aiosqlite connection worker.
@@ -193,8 +202,27 @@ def _collect_samples() -> None:
     """One sampling pass. Parked threads are EXCLUDED: the aggregate feeds a
     'CPU hotspot' gap whose text asserts CPU on the event-loop thread, so a
     sleeping worker must not be able to win it."""
+    # R-F3968 (C-57) — EXCLUDE THE SAMPLER BY THREAD IDENTITY, not by frame name.
+    #
+    # `sys._current_frames()` includes the CALLING thread, whose innermost frame
+    # at this instant is `_collect_samples` — never `_sample_thread`, which is
+    # what `_PARKED_FRAMES` names. That entry was therefore unreachable by
+    # construction and the sampler counted itself on 100% of passes, showing up
+    # as one of the largest frames in the very report used to diagnose stalls.
+    # Measured real cost: ~0.04% of one core.
+    #
+    # Identity is exact and cannot rot: a rename, a refactor, or an added helper
+    # all keep working, whereas the name pair broke the moment the innermost
+    # frame was a different function in the same file.
+    # Exclude the SAMPLER's registered thread specifically, not merely "whoever
+    # called this". `_collect_samples` is also driven synchronously from the loop
+    # thread in tests and diagnostics, and excluding the caller there would blind
+    # the profiler to the one thread it exists to watch (R-F3464 pins that).
+    _sampler_tid = _state.get("sampler_tid")
     frames = sys._current_frames()
     for thread_id, frame in frames.items():
+        if _sampler_tid is not None and thread_id == _sampler_tid:
+            continue
         if _is_parked_frame(frame):
             continue
         _state["samples"][_frame_signature(frame)] += 1
@@ -204,6 +232,12 @@ def _collect_samples() -> None:
 
 def _sample_thread() -> None:
     """Daemon thread: sample stack traces every _SAMPLE_INTERVAL_S."""
+    # R-F3968 (C-57) — publish OUR id so `_collect_samples` can exclude us by
+    # identity. The old `("continuous_profiler.py", "_sample_thread")` entry in
+    # _PARKED_FRAMES was unreachable: while sampling, this thread's innermost
+    # frame is `_collect_samples`, not `_sample_thread`, so the sampler counted
+    # itself on every pass.
+    _state["sampler_tid"] = threading.get_ident()
     while _state["running"]:
         time.sleep(_SAMPLE_INTERVAL_S)
         try:

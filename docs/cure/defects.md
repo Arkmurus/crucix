@@ -3454,3 +3454,51 @@ and malformed disclosures cannot crash the report.
 seeded person was skipped by the budget guard rather than by the code under
 test. It failed convincingly for the wrong reason. Check what a fixture's
 constants MEAN to the code, not just that the test is red.
+
+## C-57 · the stall detector's own instruments inflated its numbers (R-F3968)
+
+These are the figures a future session diagnoses a production stall from, and
+R-F3464 introduced the thread census specifically AS the starvation
+discriminator — so a bias here is a bias in every future diagnosis.
+
+**1. The profiler sampled itself, on 100% of passes.** `_collect_samples` reads
+`sys._current_frames()`, which includes the CALLING thread. While sampling, that
+thread's innermost frame is `_collect_samples` — never `_sample_thread`, which
+is what the exclusion named:
+
+    continuous_profiler.py:116
+        ("continuous_profiler.py", "_sample_thread"),  # our own sampler
+
+Unreachable by construction. It was reported as one of the largest frames;
+measured real cost is ~0.04% of one core.
+
+**2. A sleeping thread counted as running.** `main.py:1730 _wedge_watchdog`
+lives in `_time.sleep(1.0)`. `sleep` is a C function with no Python frame, so
+the innermost PYTHON frame is the watchdog's own function — the identical shape
+the module already documents for aiosqlite's `_connection_worker_thread`, and
+the reason that one is in `_PARKED_FRAMES`. The watchdog never was, so the
+reported `running: 5` was inflated by at least two of ARIA's own idle monitors
+against an honest 2-3. Every genuine frame was diluted ~1.4x.
+
+**Two different mechanisms, deliberately.** The watchdog joins `_PARKED_FRAMES`
+because that list is the module's established, documented answer to "parked on a
+C primitive, so its own function is innermost" — a second mechanism for the same
+condition is how two guards drift apart. The sampler is excluded by THREAD
+IDENTITY, which is exact and cannot rot under rename or refactor.
+
+**The identity check is on the REGISTERED sampler thread, not on "whoever
+called this", and the difference was found by R-F3464's own tests.** The first
+version excluded the caller and broke two of them — because they drive
+`_collect_samples` synchronously from the loop thread, so excluding the caller
+blinded the profiler to the one thread it exists to watch. `_sample_thread` now
+publishes its id into `_state["sampler_tid"]`. The existing tests were RIGHT and
+the fix was wrong; nothing in them was weakened to make this pass.
+
+Fixture-first: `test_rf3968_profiler_does_not_sample_itself.py`, 7 tests, plus
+R-F3464's 9 still green. Three pin that the filter can still say NO — a
+genuinely busy thread IS sampled, a synchronous call still sees the loop thread,
+and the established parked entries survive. **A third invalid fixture this
+session:** the "still samples other threads" test first used a worker parked on
+`Event.wait`, which `_PARKED_FRAMES` correctly excludes via
+`("threading.py", "wait")` — it failed because the filter was doing its job.
+Replaced with a thread doing real Python work.

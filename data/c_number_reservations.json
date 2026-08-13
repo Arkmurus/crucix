@@ -603,6 +603,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T18:20:57Z"
+    },
+    {
+      "c_number": "C-57",
+      "title": "the stall detector counts its own sampler and a sleeping watchdog as running threads",
+      "claimed_at": "2026-08-13T18:22:33Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3968"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:26:32Z"
     }
   ]
 }
