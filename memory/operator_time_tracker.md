@@ -1483,3 +1483,82 @@ weakened to make anything pass.
 
 **The full suite was NOT run.** Every figure quoted is a named subset, and each
 subset's baselined failures were checked against `docs/suite_baseline.json`.
+
+---
+
+## Session 2026-08-13/14 (part 5) — the last four, and a measured win
+
+**Shipped:** R-F3972 (C-61), R-F3975 (C-64), R-F3977 (C-66), plus C-58/C-59
+earlier in the day. **Session total: 18 defects, C-43..C-66.**
+
+### C-61 is the first fix this session with a MEASURED before/after
+
+The duplicate-skip path called `_save()`, forcing a full ~150-171 MB canonical
+rewrite **plus** the same data again as a sidecar, each with its own fsync, every
+2 seconds — for a `accessCount += 1` on a page ARIA had already read.
+
+    before (live, pre-fix):  loop  starved   p95 2058.1ms   max 5620.1ms
+    after  (live, post-fix): loop  healthy   p95    1.5ms   max 6413.4ms
+
+p95 fell by ~1370×. (`max_ms` is a single boot-time spike still inside the
+window; the sample was 113 at the time of reading, not a full 600.)
+
+### The self-coder's 19,097-to-0 was a CLAIM-ORDER bug, not a cap
+
+`MAX_GAPS_PER_CYCLE` is 20; the live cap is 6/hour. The loop called
+`mark_attempted` + scoreboard-`claimed` on all twenty BEFORE `fix_gap` met the
+limiter, so fourteen+ per cycle were claimed and refused. Reading the budget
+first means it attempts only what it can finish — and because `actionable` is
+sorted by severity, the six slots now go to the six most severe gaps. **Not a cap
+raise**; §1 forbids the band-aid and the cap was never the root.
+
+### Three of my own report's findings were WRONG, and I only found out by checking
+
+1. **C-53** — "an all-generic name screens CLEAN". It does not; the final `else`
+   already returned INSUFFICIENT_DATA. The real defect was the reason STRING.
+2. **finding 10** — "182 slots, 36%, crawler refusals". The live ledger showed a
+   different `gap_type` at a different volume.
+3. **finding 14** — "the non-streaming `/chat` twin's four failure branches are
+   unreported, a §13 violation". **False**: R-F2704 already wired it, and
+   structurally — the call sits in the `finally:` of a try spanning the WHOLE
+   handler. Verified by AST, not by reading the comment.
+
+The pattern: the report was written from code reading without always checking
+whether a later R-number had already addressed it. **Re-verify a finding against
+the current tree before fixing it**, and read the live instrument rather than a
+description of it.
+
+### FOUR invalid fixtures, one of which broke my own §3b
+
+C-52 (wrote to `entries`, pre-filter reads `aliases`) · C-55 (`t_start=0.0`
+tripped the budget guard) · C-57 (worker parked on `Event.wait`, which the filter
+correctly excludes) · C-59 (**called `auto_register_domain(db, domain=...)` when
+`db` is a module-level import, not a parameter** — §3b says verify the signature
+before writing the call, and it applies to test code too).
+
+### And I stole a decorator; the guard caught it
+
+Inserting `remaining_fix_budget` above `check_and_increment_rate`, I anchored on
+the `def`, so that function's `@fail_wire` landed on mine and it was left
+unwired. `test_rf3928` failed with exactly the right message — and the file says
+the same in a comment ELEVEN LINES above where I inserted. R-F3842's class
+repeating; the guard worked.
+
+**Three separate guards caught defects of mine this session** (the wiring gate,
+the defect-register gate, R-F3464's own tests), plus the peer agent catching a
+month-rollover bug inside my C-54. In every case the existing artefact was right.
+
+### STILL OPEN
+
+- **15 the DeepSeek escalation** — live gap confirms `attempts=1`. Evidence-blocked
+  on the provider's reasoning-parameter surface; see
+  [[reasoning-truncation-retry-trap]]. The obvious fix makes it worse.
+- **The sidecar half of C-61** — the per-flush rewrite. Needs a shutdown-write
+  design because the reader only uses a CURRENT sidecar; documented in the C-61
+  entry rather than guessed at.
+- **The rest of finding 14** — the Telegram helper never checks `r.ok`; the ARIA
+  Network DM reply. aria-web/aria-wa tier.
+- **Sanctions stopword discriminative power** — recall, not a false clean.
+
+**The full suite was NOT run.** Every figure is a named subset, and each subset's
+failures were checked against `docs/suite_baseline.json`.
