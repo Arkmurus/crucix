@@ -3502,3 +3502,83 @@ session:** the "still samples other threads" test first used a worker parked on
 `Event.wait`, which `_PARKED_FRAMES` correctly excludes via
 `("threading.py", "wait")` — it failed because the filter was doing its job.
 Replaced with a thread doing real Python work.
+
+## C-58 · an IDLE uvloop event loop was reported as sustained CPU (R-F3969)
+
+Read live from `/api/aria/capability-gaps/summary`, 2026-08-13:
+
+    Frame /usr/local/lib/python3.13/asyncio/runners.py:run:119 occupied 51% of
+    1124 samples in 60.0s — sustained CPU on the event-loop thread.
+    Fix: offload the CPU-bound call with asyncio.to_thread or a process pool.
+
+There is no CPU-bound call. **uvloop is installed and active in the production
+image** (verified in-machine, Python 3.13.15). uvloop's `run_forever` is Cython
+and leaves NO Python frame, so while the loop waits on epoll the innermost
+PYTHON frame of the loop thread is the last one before the C boundary:
+`asyncio/runners.py:run`.
+
+That is exactly the shape `_PARKED_FRAMES` already documents for aiosqlite's
+`_connection_worker_thread` — "a thread parked on a C-implemented primitive
+leaves its OWN function as the innermost frame". On stock asyncio the same wait
+appears as `selectors.py:select`, which IS in the list; under uvloop that frame
+never appears, so the entry silently stopped covering the loop thread.
+
+`main.py:1766` already records what this costs: a 2026-07-27 dump showing "the
+main thread parked in a bare asyncio.runners.run with NO application frame" and
+"**two review cycles went looking for a blocking call that was never there**".
+The profiler was still generating that gap, into a ledger that is 500/500 full,
+so each false hotspot evicts a real defect.
+
+It cannot mask a genuine hotspot: application code burning CPU on the loop
+thread leaves ITS OWN frames innermost, and `Runner.run` does no work. Pinned by
+a test that a real application frame is still reported, and by one scoping the
+entry to `run` rather than blanket-excluding the module.
+
+Fixture-first: `test_rf3969_uvloop_idle_is_not_cpu.py`, 7 tests; R-F3464's 9 and
+R-F3968's 7 re-run green alongside.
+
+
+## C-59 · every crawler refusal filed a CODER GAP, so correct decisions filled the ledger (R-F3970)
+
+Measured live 2026-08-13: the capability-gap ring is **500/500 unresolved, 0
+resolved ever**, and `source_validator_rejected` holds **131 slots — 26%**.
+Those are not defects. They are a working on-mission gate saying "no" to
+ordinary domains.
+
+Three faults compound at `crawler/on_demand.py:520`:
+
+1. **A refusal is filed into the CODER's queue.** `record_gap` is documented as
+   "the coder loop (something to fix)", and the coder cannot fix
+   "news.google.com is off-mission" — that is the gate working. A category
+   error puts normal operation into the defect queue.
+2. **The 1h dedupe cannot collapse it.** `_gap_fingerprint` is
+   `(gap_type, detail)` and `detail` embeds the domain, so every domain is a
+   distinct fingerprint — the precise trap `capability_gaps.py:49` already
+   documents for a different caller.
+3. **It is recorded before any idempotency check.** A refused domain returns
+   before `db.get_domain(domain)`, so a domain refused a thousand times
+   re-emits on every encounter, forever.
+
+The ring is capped at 500 (R-F1669), so each slot spent on a correct decision
+**evicts a real defect unread** — a direct contributor to the self-coder reading
+phantom work while genuine gaps age out.
+
+**CLAUDE.md already states the policy this violated**, from C-40: *"Refusals are
+deliberately NOT wired as gaps — a per-refusal gap would be the self-sustaining
+flood that has already filled the 500-slot capability ledger."* The fix applies
+it: count refusals, announce to the brain ONCE per process (the same
+announce-once shape as C-39's degraded notice and C-41's recovery, because a
+stream of refusals is a standing state and not a sequence of incidents), and
+keep the log line. §21a is satisfied by a metric.
+
+`wire_failure` is untouched at its two genuine call sites (`on_demand.py:713`,
+`:778`) and a test asserts it is still present, so the module is not blinded —
+only refusals stop pretending to be defects.
+
+Fixture-first: `test_rf3970_crawler_refusals_are_counted_not_filed.py`, 7 tests.
+**Fourth invalid fixture this session, and this one broke my own §3b rule**: it
+called `auto_register_domain(db, domain=...)` when the real signature is
+`auto_register_domain(domain, *, evidence, requested_entity, ...)` and `db` is a
+MODULE-level import, not a parameter. §3b says verify a function's signature
+before writing the call — it applies to test code exactly as it applies to
+production code.

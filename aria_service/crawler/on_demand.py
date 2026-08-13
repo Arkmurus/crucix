@@ -427,6 +427,53 @@ def _safe_domain_for_register(domain: str) -> bool:
     return True
 
 
+# ── R-F3970 (C-59) — refusal accounting ──────────────────────────────────────
+# A refused domain is a CORRECT decision by a working gate, not a defect. It must
+# stay observable (§21a) without consuming the coder's 500-slot defect ledger, so
+# it is counted here and announced to the brain ONCE per process.
+_refusal_stats: dict = {"total": 0, "domains": set(), "announced": False}
+
+
+def _note_refusal(domain: str) -> None:
+    """Count an on-mission refusal; announce the condition once per process.
+
+    Announce-once is the same shape as C-39's degraded-coverage notice and
+    C-41's recovery signal: a steady stream of refusals is a STANDING STATE of
+    a healthy crawler, not a sequence of incidents. One signal per refusal would
+    be the flood this fix exists to stop, merely pointed at a different sink.
+    """
+    try:
+        _refusal_stats["total"] += 1
+        _refusal_stats["domains"].add(domain)
+        if not _refusal_stats["announced"]:
+            _refusal_stats["announced"] = True
+            from ..intel.engine_wiring import wire_success
+            wire_success(
+                module="crawler.on_demand",
+                summary=("on-mission gate is refusing off-mission domain "
+                         "registrations (expected behaviour; counted, not filed "
+                         "as defects — see refusal_stats)"),
+                source_id="on_demand:auto_register_domain:R-F3970",
+            )
+    except Exception:      # pragma: no cover — observability never blocks
+        pass
+
+
+def refusal_stats() -> dict:
+    """How many registrations the on-mission gate has refused this process."""
+    return {
+        "refused_total": _refusal_stats["total"],
+        "refused_distinct_domains": len(_refusal_stats["domains"]),
+        "announced": _refusal_stats["announced"],
+    }
+
+
+def reset_refusal_stats() -> None:
+    _refusal_stats["total"] = 0
+    _refusal_stats["domains"] = set()
+    _refusal_stats["announced"] = False
+
+
 def _registration_is_on_mission(domain: str, evidence: str | None) -> tuple[bool, str]:
     """R-F3820 — may this domain earn a PERMANENT registry row?
 
@@ -522,15 +569,29 @@ async def auto_register_domain(
         # §21a — a refusal is a real decision and must not be silent, or the registry
         # simply appears to stop growing with no way to tell a working gate from a
         # broken crawler.
+        #
+        # ── R-F3970 (C-59) — COUNT it; do NOT file it as a defect. ────────────
+        # This used to call wire_failure(gap_type="source_validator_rejected").
+        # `record_gap` is documented as the CODER's queue ("something to fix"),
+        # and the coder cannot fix "news.google.com is off-mission" — that is the
+        # gate WORKING. Measured live 2026-08-13: the 500-slot ring was 500/500
+        # unresolved with 131 slots (26%) held by these refusals. The ring is
+        # capped (R-F1669), so each slot spent on a correct decision EVICTS A
+        # REAL DEFECT UNREAD.
+        #
+        # The 1h dedupe could not save it either: `_gap_fingerprint` is
+        # (gap_type, detail) and `detail` embeds the domain, so every domain is a
+        # distinct fingerprint — the exact trap capability_gaps.py:49 already
+        # documents for another caller. And a refused domain returns before the
+        # `db.get_domain` idempotency check below, so a domain refused a thousand
+        # times re-emitted on every encounter.
+        #
+        # CLAUDE.md states the policy directly, from C-40: "Refusals are
+        # deliberately NOT wired as gaps — a per-refusal gap would be the
+        # self-sustaining flood that has already filled the 500-slot capability
+        # ledger." §21a is satisfied by a metric; the counter below is one.
         logger.info("[R-F3820] registration refused: %s (%s)", domain, why)
-        try:
-            from ..intel.engine_wiring import wire_failure
-            wire_failure(module="crawler.on_demand",
-                         detail=f"domain registration refused: {domain} ({why})",
-                         gap_type="source_validator_rejected",
-                         source="on_demand:auto_register_domain")
-        except Exception:      # pragma: no cover - observability never blocks
-            pass
+        _note_refusal(domain)
         return False
     existing = await db.get_domain(domain)
     if existing is not None:

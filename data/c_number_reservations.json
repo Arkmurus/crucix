@@ -615,6 +615,30 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T18:26:32Z"
+    },
+    {
+      "c_number": "C-58",
+      "title": "an idle uvloop event loop is reported as sustained CPU on the loop thread",
+      "claimed_at": "2026-08-13T18:40:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3969"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:46:03Z"
+    },
+    {
+      "c_number": "C-59",
+      "title": "every crawler domain refusal files a coder gap, so correct decisions fill the defect ledger",
+      "claimed_at": "2026-08-13T18:42:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3970"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:46:03Z"
     }
   ]
 }

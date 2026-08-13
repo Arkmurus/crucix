@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3969,
+  "next_available": 3971,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33633,6 +33633,24 @@
       "r_number": "R-F3968",
       "title": "C-56 the profiler must not sample itself",
       "claimed_at": "2026-08-13T18:22:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3969",
+      "title": "C-58 uvloop leaves runners.py run as the innermost python frame when parked",
+      "claimed_at": "2026-08-13T18:40:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3970",
+      "title": "C-59 count crawler refusals instead of filing them as gaps",
+      "claimed_at": "2026-08-13T18:42:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

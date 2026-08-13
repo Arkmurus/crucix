@@ -113,6 +113,23 @@ _PARKED_FRAMES: frozenset[tuple[str, str]] = frozenset({
     ("selectors.py", "select"),          # an IDLE event loop, not a busy one
     ("thread.py", "_worker"),            # concurrent.futures worker
     ("core.py", "_connection_worker_thread"),   # aiosqlite
+    # R-F3969 (C-58) — an IDLE uvloop event loop. uvloop is installed and active
+    # in the production image, and its `run_forever` is Cython, so it leaves NO
+    # Python frame: while the loop waits on epoll, the innermost PYTHON frame of
+    # the loop thread is the last one before the C boundary, `runners.py:run`.
+    # Identical shape to the aiosqlite worker directly above.
+    #
+    # On STOCK asyncio the same wait is visible as `selectors.py:select` (also in
+    # this list) — under uvloop that frame never appears, so the entry silently
+    # stopped covering the loop thread. Live 2026-08-13 this produced
+    # "runners.py:run:119 occupied 51% of 1124 samples — sustained CPU on the
+    # event-loop thread. Fix: offload the CPU-bound call", with no CPU-bound call
+    # anywhere. main.py:1766 records the same false signal costing "two review
+    # cycles looking for a blocking call that was never there".
+    #
+    # It cannot mask a genuine hotspot: application code burning CPU on the loop
+    # thread leaves ITS OWN frames innermost, and `Runner.run` does no work.
+    ("runners.py", "run"),
     # R-F3968 (C-57) — main.py:1730 `_wedge_watchdog` lives in `_time.sleep(1.0)`.
     # `sleep` is a C function with no Python frame, so the innermost PYTHON frame
     # is the watchdog's own function: the identical shape to aiosqlite's worker
