@@ -1399,3 +1399,87 @@ never by renumbering or deleting the other account.
 
 **The full suite was NOT run this session.** Every claim above is a subset run,
 and each is named where it appears.
+
+---
+
+## Session 2026-08-13 (part 4) — reading the live ledger, and four more defects
+
+**Shipped in this part:** R-F3968 (C-57), R-F3969 (C-58), R-F3970 (C-59),
+R-F3971 (C-60). **Session total: 14 defects across C-43..C-60, plus R-F3961.**
+
+### The most productive single act was reading the live gap ledger
+
+`/api/aria/capability-gaps/summary` on the running server: **500 total, 500
+unresolved, 0 resolved EVER**. Two defects fell straight out of it, neither
+findable by grep:
+
+- **C-58** — the top `performance` gap was *"runners.py:run:119 occupied 51% of
+  1124 samples — sustained CPU on the event-loop thread. Fix: offload the
+  CPU-bound call."* There is no CPU-bound call. **uvloop is active in
+  production** (verified in-machine) and its `run_forever` is Cython, so an idle
+  loop's innermost PYTHON frame is `runners.py:run`. `main.py:1766` already
+  records this false signal costing "two review cycles looking for a blocking
+  call that was never there" — and it was still firing.
+- **C-59** — `source_validator_rejected` held **131 of the 500 slots (26%)**:
+  correct on-mission refusals filed as CODER gaps. The ring is capped at 500, so
+  each one **evicted a real defect unread**. CLAUDE.md already stated the policy
+  (C-40: "Refusals are deliberately NOT wired as gaps"); the crawler violated it.
+
+**The report's characterisation of finding 10 was stale.** It described "182
+slots, 36%, the crawler refusing ordinary domains". The live ledger shows the
+same defect under a different `gap_type` at a different volume. Read the
+instrument, not last week's description of it.
+
+### Also confirmed live, and still open
+
+The ledger's `latest_unresolved` carries finding 15 verbatim, with the decisive
+field: `ALL LLM providers failed ... tried=[deepseek] **attempts=1**`. The
+R-F3627 escalation genuinely never runs. Still not fixed — see
+[[reasoning-truncation-retry-trap]]; the obvious fix converts a curable error
+into an uncurable one and needs the provider's reasoning-parameter surface.
+
+### FOUR invalid fixtures in one session — the standout lesson
+
+Every one was red, convincing, and red for the wrong reason:
+- **C-52** wrote to `entries` while the pre-filter reads `aliases`.
+- **C-55** passed `t_start=0.0`, so the budget guard tripped instantly.
+- **C-57** used a worker parked on `Event.wait`, which the filter correctly excludes.
+- **C-59** called `auto_register_domain(db, domain=...)` when `db` is a
+  MODULE-level import, not a parameter — **breaking my own §3b rule**, which
+  says verify a signature before writing the call. It applies to test code
+  exactly as it applies to production code.
+
+RED is necessary and not sufficient. Where the fix is one line, re-establish RED
+by reverting that line against the CORRECTED fixture (done for C-52).
+
+### Existing tests and a second reader caught three of my errors
+
+R-F3464's tests rejected my first C-57 attempt (excluding "the caller" rather
+than the registered sampler blinded the profiler to the loop thread). R-F3483's
+tests caught the C-60 seam move. The peer agent fixed a month-rollover bug
+inside my own C-54. In all three the existing artefact was RIGHT; nothing was
+weakened to make anything pass.
+
+### Two deliberate non-fixes, both because the alternative is measuring less
+
+- **C-60**: the regional EWMA still has no 0.50 floor while the topic axis does.
+  Adding one raises gate #2's number without measuring anything better — §1's
+  named failure family. **Expect gate #2 to MOVE now that the grader can pass a
+  correct answer; that is the instrument working.**
+- **C-53**: the defence-sector stopword dilution
+  (`'Aviation Industry Corporation'` → `'aviation'`) is recall/precision, not a
+  false clean, and that suffix list is the most dangerous one to touch casually.
+
+### STILL OPEN
+
+- **07 self-coder 0-of-19,097.** Root is the scheduling mismatch (~240 gaps/hr
+  into a 6/hr budget), NOT a limit to bump. C-59 clears a large share of the
+  phantom queue, which is a precondition for fixing this honestly.
+- **11 the ~2 GB/min knowledge rewrite.**
+- **14 Node-tier delivery wires** (email, Telegram, DM reply, non-streaming
+  `/chat`) — separate deploy workflow.
+- **15 the DeepSeek escalation** — evidence-blocked, deliberately.
+- **Sanctions stopword discriminative power.**
+
+**The full suite was NOT run.** Every figure quoted is a named subset, and each
+subset's baselined failures were checked against `docs/suite_baseline.json`.
