@@ -597,9 +597,12 @@
       "title": "training reports can carry stale summaries that mislead promotion gates",
       "claimed_at": "2026-08-13T18:15:19Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3967"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:20:57Z"
     }
   ]
 }
