@@ -339,19 +339,63 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
   live breach and flips `breached` on its own. Refusals are deliberately NOT wired as
   gaps — a per-refusal gap would be the self-sustaining flood that has already filled
   the 500-slot capability ledger.
-- ⚠️ **Anthropic billing: CREDITS EXHAUSTED as of 2026-08-12 — OPERATOR ACTION.**
-  Supersedes the 2026-08-11 "billing is HEALTHY" reading, which was true when written.
-  Probed directly from inside the machine: HTTP 400,
-  *"Your credit balance is too low to access the Anthropic API. Please go to Plans &
-  Billing to upgrade or purchase credits."* The 24h billing cooldown is therefore
-  **CORRECT, not stale** — do NOT clear it with
-  `/api/aria/admin/llm/cooldown/clear?provider=anthropic`; with no credits that just
-  re-burns calls into a 400. **DD is DOWN until credits are purchased** (it pins
-  Claude and cannot degrade — an honest outage beats a DeepSeek verdict wearing a
-  Claude badge, R-F3034). **Fix the config BEFORE topping up**, or new credits drain
-  the same way. A `serving_provider: deepseek` reading remains NORMAL (deepseek is
-  chain head), and DeepSeek soft-cooling on `timeout` for 10–41s then "recovered" is
-  §14 cooling, not an outage — probe the key directly before diagnosing either.
+- ✅ **Anthropic billing: RESTORED 2026-08-13 (operator top-up) — R-F3961.**
+  **This entry previously said CREDITS EXHAUSTED and instructed the reader NOT to
+  clear the cooldown. Both are now false, and the second was the dangerous half:**
+  once credits exist, the documented §17 remedy is exactly right, and a session
+  obeying the stale line would have left a self-sustaining 24h cooldown standing
+  over a working key. That is the same shape as the Brave line this file records
+  above — the floor every session reads first, telling each of them to preserve
+  the broken state. **Re-measure before you trust any billing line here.**
+  Measured live 2026-08-13, from inside the machine (`flyctl ssh console`, so the
+  key never left the box): `POST https://api.anthropic.com/v1/messages` →
+  **HTTP 200** with real token usage. Cooldown state via
+  `POST /api/aria/admin/llm/cooldown/clear?provider=anthropic` → `was_cooling:
+  false` — nothing to clear, because R-F3685's `_probe_recovery` already releases
+  a hard-cooled provider on evidence (the same "stronger evidence, not a better
+  guess" mechanism as C-41). Config verified correct at the same instant and it is
+  what makes a top-up safe: `ARIA_PREFERENCE_ONLY_PROVIDERS` **UNSET** (code
+  default `{anthropic}` governing — `/health` confirms
+  `preference_only_providers: ["anthropic"]`), `ARIA_NON_DEGRADING_PINS=anthropic`,
+  `ARIA_DD_LLM_PROVIDER` **UNSET** (so `os.getenv(..., "anthropic")` yields the
+  pin), `rule_one.breached: false` with `brave_non_dd_grants: 0`.
+  ⚠️ **Distinguish UNSET from SET-TO-EMPTY when you check these.** `echo [$VAR]`
+  prints `[]` for both and they mean OPPOSITE things: unset gives the correct
+  default, empty disables the pin. Use `${VAR+SET}` / `${VAR-UNSET}`. Reading the
+  ambiguous form is how the empty-string RULE ONE breach hid in plain sight.
+  A `serving_provider: deepseek` reading remains NORMAL (deepseek is chain head),
+  and DeepSeek soft-cooling on `timeout` for 10–41s then "recovered" is §14
+  cooling, not an outage — probe the key directly before diagnosing either.
+  ⚠️ **ONLY `mode=deep` PUTS DD ON CLAUDE. Quick and standard make no LLM
+  synthesis call at all, so they are a FALSE NEGATIVE for "is DD Claude-authored?"**
+  Measured end-to-end 2026-08-13 with credits live, and this nearly went into this
+  file as a P0 that did not exist:
+    * `mode=quick` (BAE Systems plc, 227s) and `mode=standard` (Modirum Gespi Ltd,
+      304s) both returned HTTP 200 and moved the Anthropic counter **not at all** —
+      614 calls / `$39.1031` before and after. The standard report's own
+      `total_cost_usd` was **`$0.004193`**, DeepSeek pricing. `synthesis` and
+      `verification` reported `subcalls: 0`, and **261 consecutive ledger rows held
+      zero `dd_orchestrator` entries** despite two DDs finishing minutes earlier.
+    * `mode=deep` (BAE Systems plc, HTTP 200, **448s**, 131 KB report, verdict RED)
+      moved both immediately: anthropic **614 → 648 calls**, **`$39.1031` →
+      `$39.5380`** — i.e. **`$0.435` of Claude per deep DD** — and
+      `dd_orchestrator` 23 → 56+ calls. **The pin works.** Model split is the
+      intended one: `ARIA_ANTHROPIC_MODEL=claude-opus-4-8` carries the heavy work
+      while `tier_router` (`ARIA_MODEL_CHEAP`, default `claude-haiku-4-5`) takes the
+      cheap subtasks — measured +2 Opus / +15 Haiku on this run. That is NOT the
+      R-F2924 silent-downgrade; it is cost tiering under an Opus chain entry.
+  So the deterministic layers really are LLM-independent (which is the design), and
+  Claude is reached through `deep_researcher` in deep mode. `dd_orchestrator` at
+  ~`$0.005`/call month-to-date reflects the cheap non-deep runs, NOT a degraded pin.
+  **The lesson is the measurement, not the plumbing:** every static check —
+  `ARIA_DD_LLM_PROVIDER` unset, `ARIA_NON_DEGRADING_PINS=anthropic`, R-F3087's raise
+  absent from the logs, 75 green pin-contract tests — was consistent with BOTH
+  "the pin is broken" and "the pin was never exercised". Only a mode that actually
+  calls the LLM can tell them apart. **Verify DD routing with a `mode=deep` run and
+  an Anthropic-counter diff; never from a standard-mode run or from `/health`.**
+  (Separately, `claude-opus-4-8`'s 540 calls / `$38.74` this month are attributed to
+  `self_improve` + `uncategorized` — the RULE ONE breach, now stopped: the counter
+  sat frozen at 614 from 2026-08-12 until this deep DD moved it.)
 - Autonomy gate: **OPEN AT L3 FULL** as of 2026-05-22 R-F794 per operator direction "finish all". Live secrets on fly aria-intel: `ARIA_AUTONOMOUS_ENABLED=1`, `ARIA_AUTONOMY_LEVEL=3`, `ARIA_AUTONOMOUS_DRY_RUN=0`, `ARIA_OUTPUT_HARVEST_ENABLED=1`, `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`. Reverses R-F462 for `change_type=bug_fix` only. 24h observation gates SKIPPED by operator choice — code-enforced `$300` cap + `safety.py` per-task guardrails remain. Watch `/api/aria/cost/monthly/status` daily; pause via `POST /api/aria/autonomous/pause` if burn spikes.
 - ARIA-Coder (R-F802-R-F805 shipped 2026-05-22): autonomous self-coding pipeline (gap detect → plan → validate → review → stage). DORMANT — needs `ARIA_CODER_ENABLED=1` to fire. Outputs flow through existing self_improve.stage_improvement (`/api/aria/self/staged`) honouring R-F462. See [[aria_coder_buildout_2026_05_22]] for activation steps + emergency stop. Claude review hook (`ARIA_CODER_CLAUDE_REVIEW_ENABLED`) is forward-looking until Anthropic billing tops up.
 
