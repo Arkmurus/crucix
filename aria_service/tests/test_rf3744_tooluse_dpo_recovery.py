@@ -75,7 +75,7 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert "len(d.get(\"rows\") or []) != expected" in code
     assert "awk '/\\/adapter_config.json$/" in code
     assert "harvest_diagnostics" in code
-    assert "diagnostics harvested" in code
+    assert "diagnostics_harvested=$DIAGNOSTICS_HARVESTED" in code
     assert "SFTP_UPLOAD=reput" in code
     assert "SFTP_UPLOAD=put" in code
     assert "test -f /workspace/aria_tooluse_candidate.tgz" in code

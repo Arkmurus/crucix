@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3950,
+  "next_available": 3951,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33449,6 +33449,15 @@
       "r_number": "R-F3949",
       "title": "harvest accepted parent citation failures",
       "claimed_at": "2026-08-13T07:54:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3950",
+      "title": "reject stale generation diagnostics",
+      "claimed_at": "2026-08-13T08:40:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

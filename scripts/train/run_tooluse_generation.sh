@@ -15,6 +15,8 @@ GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_candidate_latest.tgz}"
 REPORT_LOCAL="${REPORT_LOCAL:-data/eval_reports/aria_tooluse_train_generations_v2.json}"
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_generation_pod_state}"
+GENERATION_LOG_LOCAL=data/eval_reports/aria_tooluse_generation_run.log
+SHIM_LOG_LOCAL=data/eval_reports/aria_tooluse_generation_shim.log
 # Measured on the preceding host: ~27 min for the lean 311 MB upload and
 # ~74 min for 168 generations. 155 rows plus model load is ~100 min; 8100s is
 # that measured envelope plus >20%, not a retry/timeout guess.
@@ -33,6 +35,7 @@ MAX_TRIES="${MAX_TRIES:-15}"
 EXPECTED_ROWS=$(grep -cve '^[[:space:]]*$' "$QUEUE" 2>/dev/null || true)
 
 log(){ echo "[$(date -u +%H:%M:%S)] [generation] $*"; }
+rm -f "$GENERATION_LOG_LOCAL" "$SHIM_LOG_LOCAL"
 jget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
 pmget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print((d.get('portMappings') or {}).get('22') or '')" 2>/dev/null; }
 pod_state(){
@@ -223,14 +226,25 @@ for i in $(seq 1 100); do
 done
 harvest_diagnostics(){
   mkdir -p data/eval_reports
-  RSCP_PULL /workspace/logs/tooluse_generation.log \
-    data/eval_reports/aria_tooluse_generation_run.log || true
-  RSCP_PULL /workspace/logs/shim_generation.log \
-    data/eval_reports/aria_tooluse_generation_shim.log || true
+  local failed=0 remote destination download
+  for item in \
+    "/workspace/logs/tooluse_generation.log:$GENERATION_LOG_LOCAL" \
+    "/workspace/logs/shim_generation.log:$SHIM_LOG_LOCAL"; do
+    remote=${item%%:*}; destination=${item#*:}; download="${destination}.download"
+    rm -f "$download"
+    if RSCP_PULL "$remote" "$download"; then
+      mv "$download" "$destination"
+    else
+      rm -f "$download"
+      failed=1
+    fi
+  done
+  return "$failed"
 }
 [ "$RC" = 0 ] || {
-  harvest_diagnostics
-  log "FATAL generation rc=${RC:-missing}; diagnostics harvested"
+  DIAGNOSTICS_HARVESTED=0
+  if harvest_diagnostics; then DIAGNOSTICS_HARVESTED=1; fi
+  log "FATAL generation rc=${RC:-missing}; diagnostics_harvested=$DIAGNOSTICS_HARVESTED"
   exit 1
 }
 
