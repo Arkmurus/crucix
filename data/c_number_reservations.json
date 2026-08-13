@@ -693,6 +693,18 @@
       "title": "the self-coder claims 20 gaps a cycle against a 6-per-hour budget so most attempts are burned before they run",
       "claimed_at": "2026-08-13T22:15:34Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3975"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:23:33Z"
+    },
+    {
+      "c_number": "C-65",
+      "title": "DPO builder skips newly detected failures marked honest by stale reports",
+      "claimed_at": "2026-08-13T22:21:49Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

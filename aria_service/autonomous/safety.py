@@ -330,6 +330,43 @@ async def release_rate_slot(*, coder: bool = False,
 #
 # WHEN INSERTING A FUNCTION ABOVE ANOTHER, ANCHOR ON THE DECORATOR, NOT THE `def`.
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
+async def remaining_fix_budget(*, coder: bool = True,
+                               hour_bucket: int | None = None) -> int | None:
+    """How many fix slots are left in this hour. A READ — never a charge.
+
+    R-F3975 (C-64) — the coder claimed `MAX_GAPS_PER_CYCLE` (20) gaps every
+    cycle and only discovered the `ARIA_CODER_MAX_FIXES_PER_HOUR` limit (live: 6)
+    once it was already inside `fix_gap`. Every refused gap had already been
+    `mark_attempted` and scoreboard-`claimed`, which is how the live board reads
+    claimed 19,097 / blocked 19,129 / fixed 0. Knowing the budget BEFORE claiming
+    lets the loop attempt only what it can finish — and since `actionable` is
+    sorted by severity descending, the slots then go to the most severe gaps
+    instead of to whatever arrived first.
+
+    Reads the SAME bucket `check_and_increment_rate` charges, via the same
+    `rate_bucket_key`, so the two can never address different keys and make the
+    budget a fiction.
+
+    Returns None for "could not measure", which is NOT zero: an unreadable store
+    must not silently stop the autonomous loop. §21c calls a loop that can see
+    gaps but cannot act a P0, so this fails OPEN and leaves `fix_gap`'s own
+    limiter as the authority — exactly as before this function existed.
+    """
+    cap = CODER_MAX_FIXES_PER_HOUR if coder else MAX_FIRINGS_PER_HOUR
+    key = rate_bucket_key(coder=coder, hour_bucket=hour_bucket)
+    try:
+        raw = await rs.get(key)
+    except Exception as e:      # pragma: no cover - store outage
+        logger.debug("[R-F3975] budget read failed (%s) — unknown, not zero", e)
+        return None
+    try:
+        spent = int(raw or 0)
+    except (TypeError, ValueError):
+        return None
+    return max(0, cap - spent)
+
+
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_increment_rate(*, key_fmt: str | None = None,
                                    cap: int | None = None,
                                    hour_bucket: int | None = None) -> tuple[bool, int]:

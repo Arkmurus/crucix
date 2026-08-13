@@ -609,12 +609,43 @@ class ARIACoder:
                 # R-F1051 -- the coder can fix ANY file. No artificial constraints.
         actionable.sort(key=lambda g: int(g.severity), reverse=True)
 
+        # ── R-F3975 (C-64) — DO NOT CLAIM WORK WE HAVE NO BUDGET TO DO ───────
+        # This loop used to take MAX_GAPS_PER_CYCLE (20) unconditionally and
+        # only meet ARIA_CODER_MAX_FIXES_PER_HOUR (live: 6) inside fix_gap —
+        # by which point each gap had already been mark_attempted and recorded
+        # as "claimed". That is how the live scoreboard reads claimed 19,097 /
+        # blocked 19,129 / fixed 0, with 10,361 blocks on rate_limit_exceeded:6.
+        #
+        # Slicing to the remaining budget makes the loop attempt only what it
+        # can finish, and because `actionable` is sorted by severity DESCENDING
+        # the surviving slots go to the most severe gaps rather than to whatever
+        # arrived first — the prioritisation the loop never had.
+        #
+        # The budget is a plain read of the bucket the limiter charges; it never
+        # consumes a slot. `None` means COULD NOT MEASURE and deliberately fails
+        # OPEN — a store blip must not stop the autonomous loop, and fix_gap's
+        # own limiter remains the authority in that case (§21c: a loop that sees
+        # gaps but cannot act is a P0).
+        from . import safety as _safety_budget      # module-local idiom (see :856)
+        _budget = await _safety_budget.remaining_fix_budget(coder=True)
+        _take = MAX_GAPS_PER_CYCLE if _budget is None else min(MAX_GAPS_PER_CYCLE, _budget)
+        if _take <= 0:
+            logger.info(
+                "[aria_coder] %d actionable gap(s) but the hourly fix budget is "
+                "spent (cap=%d) — claiming NOTHING this cycle rather than "
+                "burning attempts that cannot run",
+                len(actionable), _safety_budget.CODER_MAX_FIXES_PER_HOUR,
+            )
+            return
+
         logger.info(
-            "[aria_coder] %d actionable gaps -- fixing top %d",
-            len(actionable), MAX_GAPS_PER_CYCLE,
+            "[aria_coder] %d actionable gaps -- fixing top %d (budget=%s, cap=%d)",
+            len(actionable), _take,
+            "unknown" if _budget is None else _budget,
+            _safety_budget.CODER_MAX_FIXES_PER_HOUR,
         )
 
-        for gap in actionable[:MAX_GAPS_PER_CYCLE]:
+        for gap in actionable[:_take]:
             await self.gap_detector.mark_attempted(gap.gap_id)
             await self._record_scoreboard(
                 "claimed",

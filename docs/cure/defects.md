@@ -3742,3 +3742,58 @@ default is material, bookkeeping rides the next material flush, stale
 bookkeeping is eventually written, and an explicit flush always writes.
 
 Regression: 254 passed / 0 failed across the knowledge/flush/sidecar subset.
+
+## C-64 · the self-coder claimed 20 gaps a cycle against a 6/hour budget (R-F3975)
+
+Live scoreboard: **claimed 19,097 · blocked 19,129 · fixed 0 · staged 0 · gold 0**,
+with 10,361 of the blocks reading `Safety guardrail: rate_limit_exceeded:6`.
+
+The mechanism is the CLAIM ORDER, not the cap:
+
+    self_coder.py:617
+        for gap in actionable[:MAX_GAPS_PER_CYCLE]:     # 20
+            await self.gap_detector.mark_attempted(gap.gap_id)
+            await self._record_scoreboard("claimed", gap, ...)
+            result = await self.fix_gap(gap)            # <- the limit lives HERE
+
+`MAX_GAPS_PER_CYCLE` is 20; the live cap is `ARIA_CODER_MAX_FIXES_PER_HOUR=6`
+(the CODE default is 500 — the 6 is an explicit production override, confirmed
+in-machine). So every cycle marked twenty gaps attempted and recorded twenty
+claims, then had fourteen or more refused inside `fix_gap`. The scoreboard was
+counting work the loop was never permitted to do, and every refused gap still
+burned a `mark_attempted`.
+
+**The fix is NOT to raise the cap.** §1 forbids the band-aid, and the root is
+that the coder claims work it has no budget to perform. Reading the remaining
+budget BEFORE claiming makes the loop attempt only what it can finish — and
+since `actionable` is already sorted by severity descending (`:610`), the six
+slots now go to the six MOST SEVERE gaps instead of to whatever arrived first.
+That is the prioritisation the loop never had.
+
+`remaining_fix_budget` is a plain READ of the same bucket
+`check_and_increment_rate` charges, through the same `rate_bucket_key` so the two
+can never address different keys and make the budget a fiction. A test asserts
+it never increments — a budget check that consumes a slot would be the defect
+with extra steps.
+
+**Unreadable budget fails OPEN** (`None` = could not measure, not zero). A store
+blip must not silently stop the autonomous loop; §21c calls a loop that sees gaps
+but cannot act a P0, and `fix_gap`'s own limiter remains the authority in that
+case.
+
+Pairs with C-59: that one stopped correct crawler refusals from filling the
+500-slot ledger, this one stops the coder burning its budget on arrival order.
+
+**I STOLE A DECORATOR AND THE GUARD CAUGHT IT.** Inserting `remaining_fix_budget`
+above `check_and_increment_rate`, I anchored the edit on the `def` — so the
+pre-existing `@fail_wire` that belonged to `check_and_increment_rate` ended up
+decorating MY function, leaving the original unwired. `test_rf3928` failed with
+exactly the right message: *"a decorator was stolen by an insertion above it —
+Anchor edits on the DECORATOR, not the `def`."* **The file says so too**, in a
+comment eleven lines above where I inserted. This is the R-F3842 class repeating;
+R-F3928 exists because of it, and it worked. Repaired: one `@fail_wire` on each.
+
+Fixture-first: `test_rf3975_coder_does_not_claim_beyond_budget.py`, 8 tests.
+Regression: 532 passed across the coder/safety/rate-limit subset; the 2 failures
+(`test_coder_demo_seeded_defect`, `test_rf851_constitution_no_autodeploy`) are
+both in `docs/suite_baseline.json`.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3976,
+  "next_available": 3977,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33698,6 +33698,15 @@
       "r_number": "R-F3975",
       "title": "C-62 the coder must not claim work it has no budget to do",
       "claimed_at": "2026-08-13T22:15:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3976",
+      "title": "rescore every generation before selecting DPO failures",
+      "claimed_at": "2026-08-13T22:21:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
