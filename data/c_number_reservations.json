@@ -429,9 +429,12 @@
       "title": "tooluse scorer misreads cautious sanctions verdicts",
       "claimed_at": "2026-08-13T09:24:35Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3951"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T09:41:53Z"
     },
     {
       "c_number": "C-43",

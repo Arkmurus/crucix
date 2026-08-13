@@ -33451,9 +33451,10 @@
       "title": "harvest accepted parent citation failures",
       "claimed_at": "2026-08-13T07:54:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e7f0cb6b",
+      "notes": null,
+      "shipped_at": "2026-08-13T09:41:53Z"
     },
     {
       "r_number": "R-F3950",
@@ -33470,9 +33471,10 @@
       "title": "fix tooluse sanctions verdict negation",
       "claimed_at": "2026-08-13T09:24:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2a9282c0",
+      "notes": null,
+      "shipped_at": "2026-08-13T09:41:53Z"
     },
     {
       "r_number": "R-F3952",
