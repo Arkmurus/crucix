@@ -3459,6 +3459,38 @@ real Phoenix v2 report and queue, proving the selected subjects are exactly
 Hanwha Aerospace, L3Harris Technologies, SOCAR, and Uzbekneftegaz and all four
 carry the current entity-relevance failure reason.
 
+## C-67 - Phoenix correction lacked an audited retention recipe (R-F3978)
+
+The four R-F3974 preference pairs were valid but unsafe to train alone: a
+four-example single-axis update can overfit the correction and forget the wider
+tool-use contract. A hand-merged file would be equally weak because its
+provenance, chosen validity, contamination boundary, and exact parent could not
+be reconstructed from the launcher.
+
+`build_retention_safe_dpo.py` now performs the merge as a fail-closed build. It
+deduplicates by subject+axis, rejects held-out subjects and degenerate pairs,
+matches every prompt exactly back to its full canonical trace, validates every
+chosen answer with the current validator, and emits input/output hashes and
+axis counts. Exact prompt identity matters: reconstructing challenge rows from
+messages loses their premise, while subject+axis matching can select the wrong
+premise when both variants exist.
+
+The resulting Phoenix v3 curriculum contains 57 non-degenerate, valid,
+held-out-disjoint pairs: 53 historical retention pairs plus the four current
+adverse-denial corrections. `run_tooluse_citation_phoenix_v3.sh` binds that
+artifact (`sha256 32f15517...9a639d234`) to the accepted curve-SFT-v5 parent
+(`sha256 99030c72...b90417dac8`), the unchanged 168-row held-out set, the exact
+approved DPO runner, one epoch, beta 0.3, and learning rate 2e-6.
+
+Local paid-run preflight passed: 88 train / 168 eval rows, 74/50 disjoint
+entities, zero overlap with 480 golden entities, all 256 rows render, longest
+2678 tokens below 4096, and the reviewed training recipe was approved. No pod
+was created during this proof.
+
+Fixture-first: `test_rf3978_retention_safe_dpo_builder.py`, 3 tests covering the
+real 57-pair build, contamination/missing-trace refusal, and launcher hash/count
+binding.
+
 ## C-56 - stale evaluation summaries could steer training (R-F3967)
 
 The Citation Phoenix v2 rescored artifact contained three incompatible views

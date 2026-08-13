@@ -1,0 +1,32 @@
+{
+  "complete": true,
+  "source_rows": 57,
+  "deduplicated_rows": 57,
+  "held_out_overlap": 0,
+  "chosen_valid": 57,
+  "nondegenerate": 57,
+  "axis_counts": {
+    "tooluse_adverse": 4,
+    "tooluse_challenge": 8,
+    "tooluse_challenge_unavailable": 11,
+    "tooluse_multihop": 7,
+    "tooluse_person": 12,
+    "tooluse_trace": 4,
+    "tooluse_trace_unavailable": 11
+  },
+  "input_sha256": {
+    "preferences": {
+      "data\\training\\aria_tooluse_curve_v5_dpo.jsonl": "9425cb41de48d4e54522663174fd34d2fd1042bc26c8fd5466a113e848f6b2bd",
+      "data\\training\\aria_tooluse_citation_phoenix_v3_delta_dpo.jsonl": "2e657bb45c308c1d9a577186890ada9c07f6ffeebcc9237198e42fc14acc77c0"
+    },
+    "corpus": {
+      "data\\training\\split_v1\\train.jsonl": "b23654e2e6308de24bb27a35ee712d2abf5f3e1a96432d2e0afdf89d88d5032f",
+      "data\\training\\split_v2\\train.jsonl": "5c2e5c16e7d7ac6ea216e28af5bfba8d01edf1e00e553fb08b2bd6b4056417c7"
+    },
+    "held_out": {
+      "data\\training\\split_v1\\eval.jsonl": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+      "data\\training\\split_v2\\eval.jsonl": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00"
+    }
+  },
+  "output_sha256": "32f15517b0a26b716c91c5f1d2003d8e3f01c47188fa873dbbae7f09a639d234"
+}

@@ -723,6 +723,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T22:30:02Z"
+    },
+    {
+      "c_number": "C-67",
+      "title": "retention-safe Phoenix DPO recipe has no deterministic audited builder",
+      "claimed_at": "2026-08-13T22:34:57Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3978,
+  "next_available": 3979,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33717,6 +33717,15 @@
       "r_number": "R-F3977",
       "title": "C-65 wire email send failures to the brain at the one send point",
       "claimed_at": "2026-08-13T22:27:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3978",
+      "title": "build and audit retention-safe Phoenix DPO curriculum",
+      "claimed_at": "2026-08-13T22:34:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
