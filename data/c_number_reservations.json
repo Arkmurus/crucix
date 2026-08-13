@@ -639,6 +639,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T18:46:03Z"
+    },
+    {
+      "c_number": "C-60",
+      "title": "the learning grader uses Jaccard against a 4000-char document so a perfect answer cannot pass",
+      "claimed_at": "2026-08-13T18:49:19Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3971"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:52:25Z"
     }
   ]
 }

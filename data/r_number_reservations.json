@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3971,
+  "next_available": 3972,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33651,6 +33651,15 @@
       "r_number": "R-F3970",
       "title": "C-59 count crawler refusals instead of filing them as gaps",
       "claimed_at": "2026-08-13T18:42:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3971",
+      "title": "C-60 grade answer grounding not jaccard against the whole document",
+      "claimed_at": "2026-08-13T18:49:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

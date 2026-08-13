@@ -81,14 +81,20 @@ def _patch_router(monkeypatch):
                             router.try_local_reasoning, raising=False)
         monkeypatch.setattr(_intel, "reasoning_router", _rr, raising=False)
 
-        from aria_service.intel import student as _student
+        # R-F3971 (C-60) — the grader now scores ANSWER GROUNDING
+        # (|answer n doc| / |answer|) instead of student._quick_similarity's
+        # Jaccard, because Jaccard against a 4,000-char document capped a
+        # PERFECT answer below the pass bar on length alone. The seam moved;
+        # the contracts asserted below did not, and `_answer_grounding` is
+        # still called inside the same try/except, so a scorer crash is still
+        # UNMEASURED rather than WRONG.
         if isinstance(similarity, Exception):
             def _sim(_a, _b):
                 raise similarity
         else:
             def _sim(_a, _b):
                 return similarity
-        monkeypatch.setattr(_student, "_quick_similarity", _sim, raising=False)
+        monkeypatch.setattr(_tasks, "_answer_grounding", _sim, raising=False)
     return _install
 
 

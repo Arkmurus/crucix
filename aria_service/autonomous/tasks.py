@@ -2362,6 +2362,44 @@ _GAP_FILLER_QUERY_TEMPLATES = {
 }
 
 
+#: R-F3971 (C-60) — how much of the ANSWER is grounded in the research text.
+#: The threshold the grader applies; unchanged from the Jaccard era so the bar
+#: is not quietly lowered along with the measure.
+_GROUNDING_THRESHOLD = 0.4
+
+
+def _answer_grounding(answer: str, document: str) -> float:
+    """Fraction of the answer's tokens that appear in the research text.
+
+    R-F3971 (C-60) — the grader used `student._quick_similarity`, which is
+    JACCARD (`inter / union`). `answer` is short and `document` is up to 4,000
+    characters, so the union is dominated by the document and a PERFECT answer's
+    ceiling is its own length over the document's. Measured on a real 4,000-char
+    sample of 308 unique tokens: a 40-token all-correct answer scored 0.130, an
+    80-token one 0.260, a 120-token one 0.390 — all below the 0.4 bar. It took
+    124 tokens to pass regardless of correctness, so the grader could not return
+    True for a right answer, and every false negative fed the EWMA that gate #2
+    reads.
+
+    Same asymmetry as C-52 one axis over: Jaccard is symmetric and this
+    relationship is not. The grader's own docstring names the question it means
+    to ask — "its answer overlaps the research findings" — which is CONTAINMENT
+    of the answer in the document.
+
+    Deliberately NOT applied to `student._quick_similarity` itself: its other two
+    callers (student.py:1061, :2148) compare a local response against a cloud
+    response of similar length, where symmetric similarity is correct.
+    """
+    import re as _re
+    if not answer or not document:
+        return 0.0
+    ta = set(_re.findall(r"\w+", answer.lower()))
+    tb = set(_re.findall(r"\w+", document.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta)
+
+
 async def _grade_researched_cell(
     topic: str, region: str, research_text: str,
 ) -> bool | None:
@@ -2411,7 +2449,10 @@ async def _grade_researched_cell(
     if not resp:
         return None
     try:
-        return student._quick_similarity(resp, research_text) >= 0.4
+        # R-F3971 (C-60) — grounding, not Jaccard. See `_answer_grounding`:
+        # against a 4,000-char document, Jaccard capped a PERFECT answer below
+        # this threshold purely on length, so the grader could never say True.
+        return _answer_grounding(resp, research_text) >= _GROUNDING_THRESHOLD
     except Exception:
         return None          # scorer failure — unmeasured
 

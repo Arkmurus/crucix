@@ -3582,3 +3582,53 @@ called `auto_register_domain(db, domain=...)` when the real signature is
 MODULE-level import, not a parameter. §3b says verify a function's signature
 before writing the call — it applies to test code exactly as it applies to
 production code.
+
+## C-60 · the learning grader was mathematically incapable of passing (R-F3971)
+
+Gate #2's heatmap floor collapsed to 0.055. That LOOKS like the honest
+re-grading §1 predicts after R-F2660 removed the reading trophy. It is not — the
+grader could not return True for a correct answer.
+
+    autonomous/tasks.py:2414   student._quick_similarity(resp, research_text) >= 0.4
+    intel/student.py:1172      return inter / union        # Jaccard
+
+`resp` is a short answer; `research_text` is up to 4,000 characters. Jaccard
+divides by the UNION, so a PERFECT answer's ceiling is its own length over the
+document's. Measured on a real 4,000-char sample of 308 unique tokens:
+
+    answer  40 tokens, ALL correct -> 0.130   pass=False
+    answer  80 tokens, ALL correct -> 0.260   pass=False
+    answer 120 tokens, ALL correct -> 0.390   pass=False
+    tokens required to pass:          124, regardless of correctness
+
+Every false negative then fed the EWMA gate #2 reads, so cells decayed toward
+zero without ever having been wrong.
+
+**Same asymmetry as C-52, one axis over.** Jaccard is symmetric and this
+relationship is not. The grader's own docstring names the question it means to
+ask — *"its answer overlaps the research findings"* — which is CONTAINMENT of
+the answer in the document. `_answer_grounding` is `|answer ∩ doc| / |answer|`;
+the 0.4 threshold is unchanged, so the bar was not quietly lowered along with
+the measure.
+
+**`student._quick_similarity` is deliberately untouched.** Its other two callers
+(`student.py:1061`, `:2148`) compare a local response against a CLOUD response
+of similar length, where symmetric similarity is correct. Changing the shared
+helper would have silently altered them; a test pins it as still Jaccard.
+
+**What is deliberately NOT changed: the regional EWMA still has no 0.50 floor**
+while the topic axis does. Adding one would raise gate #2's number without
+measuring anything better, and §1 names that family explicitly — "do not close
+this by... Each closes the gate by measuring less". Fixing the grader makes the
+measurement honest; a floor would only make it flattering. **Expect gate #2 to
+MOVE now — that is the instrument working, not the gate being gamed.**
+
+Fixture-first: `test_rf3971_grader_measures_answer_grounding.py`, 12 tests. Three
+pin that the grader can still say NO (an ungrounded and a mostly-ungrounded
+answer both still fail) and three re-pin R-F3483's tri-state contract.
+
+**Collateral, and it is a seam move rather than a weakening:** two R-F3483 tests
+patched `student._quick_similarity`, which the grader no longer calls. They were
+re-pointed at `_answer_grounding`. Their contracts are unchanged and still hold
+— the new call sits inside the same `try`, so a scorer crash is still UNMEASURED
+(None) rather than WRONG (False), which is the whole point of R-F3483.
