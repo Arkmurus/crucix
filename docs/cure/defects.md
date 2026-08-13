@@ -3817,3 +3817,55 @@ Fixture-first: `test_rf3975_coder_does_not_claim_beyond_budget.py`, 8 tests.
 Regression: 532 passed across the coder/safety/rate-limit subset; the 2 failures
 (`test_coder_demo_seeded_defect`, `test_rf851_constitution_no_autodeploy`) are
 both in `docs/suite_baseline.json`.
+
+## C-66 · every email failure was silent, so account recovery could fail 100% unseen (R-F3977)
+
+    server.mjs:6761
+      await sendPasswordResetEmail(email, user.fullName, resetCode).catch(() => {});
+    server.mjs:6763
+      res.json({ message: 'If that email is registered, a reset code has been sent.' });
+
+The user is told a code was sent regardless. One layer down, `sendMail` — the ONE
+function all fourteen senders pass through — swallowed both of its failure modes
+into a console line and a `{sent:false}` nobody inspects
+(`lib/auth/email.mjs:151` transport missing, `:165` send threw).
+
+§21b is explicit that "logged to console / except: pass" is **DARK, not wired**,
+and §25 requires every output surface to report its delivery outcome. Signup
+verification, resend, welcome, password reset and the vetting invite all ride
+this path, so a broken SMTP credential silently breaks **signup AND account
+recovery** while every endpoint keeps answering success. This module has already
+had one live credential failure (R-F3289: user and password set to the same
+string, "SMTP configured" in the boot log throughout) — the exact condition this
+wire would have announced.
+
+**Wired at `sendMail`, not at the fourteen callers.** A fifteenth sender added
+later inherits it. Same reasoning as C-43 (mark crashes at the gather, not in
+each wrapper) and C-40 (a purpose, not a route list). A test asserts ZERO
+per-sender wires exist, so the route-list shape cannot creep back.
+
+**The two failure modes report differently, on purpose.** "SMTP not configured"
+is a STANDING platform state → announce-once per process, or a busy signup hour
+floods the ledger — the C-59 flood already paid for, in a different sink. A send
+EXCEPTION is a per-event incident → reported every time, bounded by the brain's
+own dedupe.
+
+Fire-and-forget with a `.catch(() => {})` on the signal itself: an observability
+failure must never break or delay a mail path a user is waiting on. A test drives
+a throwing `fetch` and asserts the send result is unchanged.
+
+Fixture-first: `test/email-failures-reach-the-brain-rf3977.test.mjs`, 4 tests,
+RED then GREEN. Regression: 107 Node auth/email/password tests pass.
+
+**aria-web tier — this does NOT ship with the aria-intel deploy workflow.**
+
+**Correction to the diligence report's finding 14, recorded here so the register
+is not read as a to-do that is already done:** the report listed "the
+non-streaming `/api/aria/chat` twin — its four failure branches are unreported
+while the streaming twin reports all four. A §13 stream-bypass violation."
+**That is false as of the current code.** R-F2704 already mirrored the wire into
+`chat_ep`, and did it structurally rather than per-branch: the call sits in the
+`finally:` of a `try` spanning lines 11391-12796, i.e. the whole handler, and
+classifies on the same `response_text` signal `finish_trace` uses (exception →
+`error`, empty → `error: empty_response`, else `delivered_real_answer`). Every
+exit path reports. Verified by AST, not by reading the comment.

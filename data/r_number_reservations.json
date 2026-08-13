@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3977,
+  "next_available": 3978,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33707,6 +33707,15 @@
       "r_number": "R-F3976",
       "title": "rescore every generation before selecting DPO failures",
       "claimed_at": "2026-08-13T22:21:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3977",
+      "title": "C-65 wire email send failures to the brain at the one send point",
+      "claimed_at": "2026-08-13T22:27:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

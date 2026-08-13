@@ -708,6 +708,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-66",
+      "title": "every email failure is silent so account recovery can fail 100 percent with no signal",
+      "claimed_at": "2026-08-13T22:27:46Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3977"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:30:02Z"
     }
   ]
 }
