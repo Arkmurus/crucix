@@ -1251,3 +1251,68 @@ so DD is down until topped up — and the config is now genuinely safe to top up
 which it was not when I first said so). **OpenSanctions needs nothing** — that
 recommendation is retracted; the plan was answering all along and the surface that
 said otherwise is what C-41 fixed.
+
+---
+
+## Session 2026-08-13 (cont.) — six fail-open guards, root-fixed and live
+
+**Shipped:** R-F3952..R-F3955, R-F3957, R-F3958 · C-43..C-48 closed.
+Live-verified at `build_rev: R-F3952 · sha aa5325f9`; `/health` → `operational`,
+0 degraded reasons, diagnostic GREEN 76/0/0/2, autonomous running at L3 (98 tasks),
+RULE ONE holding on BOTH halves (`brave_confined_to_dd: true`,
+`brave_non_dd_grants: 0`) — C-40's measure from the previous session is working live.
+
+Hours: not supplied by the operator, so `pace_ratio` is left blank rather than
+derived from agent wall-clock. Same rule as the previous entry.
+
+### The single shape behind all six
+
+Every one returned the HEALTHY answer when it could not see. A crashed layer kept
+`SectionMeta`'s `ok` default; a `hasattr` on a `default_factory` field made a whole
+trigger unreachable; a cache keyed on prompt bytes could not tell two authors apart;
+an all-failed sweep wrote `[]` and `[] is not None`; freshness took MAX so the
+stalest list governed nothing; a REVIEW verdict was read out of a `matches` list it
+was never in. Six different modules, one failure class — the same "certified by an
+absence" family as the three Phase A gates in §1.
+
+### Two design rules that recurred and are worth carrying forward
+
+**A guard must be tested for its ability to stay QUIET, not only to fire.** R-F3858
+already records that a guard which cannot fail is not a guard; the mirror bit as
+hard here. C-46 deliberately treats a PARTIAL sweep success as screened, because a
+disclosure that fires on nearly every run trains the reader to skip it — which is
+functionally identical to no disclosure. Every one of the six carries at least one
+test proving the healthy path is untouched.
+
+**Fix at the one decision point, not at the N call sites.** C-43 could have been
+"widen two `except` clauses". It is instead a single marker consuming the gather
+result, so a third concurrent layer added later inherits the guard. This is the same
+lesson C-40 learned the expensive way (a purpose, not a route list).
+
+### Live measurement worth keeping
+
+Pre-deploy, `/health` read `degraded: [llm_chain_exhausted, autonomous_loop_stalled]`
+with `last_exhaustion_age_s: 7.8` and `general_vendor_depth: 1`. Post-restart both
+cleared. **They were not fixed — a restart reset them**, and finding 15 (the R-F3627
+escalation that never completes) is the standing cause and will recur.
+
+The live screen of "Rosoboronexport" also corroborates an open finding I chose NOT
+to bundle into C-48: 24 sanctions-list hits, score 1.0, real OpenSanctions entity
+URL — and `blocked: False`, because `string_similarity` is 0.405 against the long
+listed name. One-directional containment is live on the most obvious possible test
+entity.
+
+### Still open, unchanged from the previous entry except where struck
+
+Fixed since: the DD layer that rendered `[COMPLETED]` when it crashed (C-43); the
+dead GREEN→AMBER data-gap trigger (C-44); the response-cache provider key (C-45).
+
+Still open: the self-coder's 0-of-19,097 and the crawler gap flood feeding it; the
+learning grader; the ~2 GB/min knowledge rewrite; the person/UBO drill-down whose
+silent failure is indistinguishable from "no individuals found"; email/Telegram/DM
+delivery with no outcome wire; finding 15's escalation; the stall detector's
+self-counting instruments; the cost read path that renders `$0.00` on a store
+failure; and the two sanctions matching weaknesses named at the end of C-48.
+
+**Operator action outstanding:** Anthropic credits — unchanged, DD stays down until
+topped up. OpenSanctions still needs nothing; verified answering again this session.
