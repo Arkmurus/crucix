@@ -3413,6 +3413,32 @@ Fixture-first: `test_rf3973_adverse_dismissal_is_not_exoneration.py`, 3 tests,
 plus the corrected R-F3959 replay. The affected adverse-evaluation suite passes
 50/50.
 
+## C-63 - categorical adverse denials ignored entity-relevant results (R-F3974)
+
+Once C-62 removed the phantom clearance, the Uzbekneftegaz answer passed the
+validator despite saying none of six results concerned the company. Several
+titles explicitly named Uzbekneftegaz and described investigations. The stage
+grader only prevented escalation; an answer could avoid all stage vocabulary by
+categorically denying that coverage existed.
+
+Raw result presence is not a safe fix. Replaying all 88 Phoenix v2 rows with
+that rule produced eight additional failures, including legitimate cases where
+results concerned namesakes, branches, former officers, or unrelated entities.
+The structural contract therefore requires both sides: an unqualified
+no-adverse claim about the subject, and a procedurally staged result TITLE that
+contains the subject's normalized canonical phrase. Snippet-only mentions do
+not qualify because snippets commonly explain why a result is unrelated.
+
+The complete replay now identifies exactly four evidence contradictions:
+Hanwha Aerospace, L3Harris Technologies, SOCAR, and Uzbekneftegaz. Naval Group,
+Saudi National Bank, Bank of China, and ADNOC remain accepted on the measured
+precision boundary. The corrected Phoenix v2 measurement is 84/88; neither the
+stale artifact's 87/88 nor the overbroad prototype's 79/88 is used.
+
+Fixture-first: `test_rf3974_adverse_denial_requires_entity_relevance.py`, two
+capability tests that rescore the real 88-row queue/report pair and assert both
+the exact failure set and the protected irrelevant-result cases.
+
 ## C-56 - stale evaluation summaries could steer training (R-F3967)
 
 The Citation Phoenix v2 rescored artifact contained three incompatible views

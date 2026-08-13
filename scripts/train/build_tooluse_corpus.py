@@ -763,12 +763,25 @@ def validate_trace(trace: Any) -> list[str]:
                 supported = max(supported, _STAGE_RANK.get(st, 0))
                 cleared_present = cleared_present or st == "resolved_cleared"
 
+        # R-F3974 — a categorical denial is false only when the result set
+        # contains procedurally staged coverage whose TITLE names this entity.
+        # Raw result presence is insufficient: the same Phoenix surface carries
+        # namesakes, former officers, branches, and memory residue. The title
+        # boundary catches four measured contradictions without turning the
+        # three measured irrelevant-result answers into failures.
+        subject = str(trace.get("subject") or "")
+        if (_categorically_denies_adverse(final, subject)
+                and _has_entity_relevant_staged_result(search_payloads, subject)):
+            errs.append(
+                "answer denies entity-relevant adverse coverage even though a "
+                "procedurally staged result title names the subject"
+            )
+
         # The honest answer necessarily NAMES the stage it is ruling out ("this
         # is an allegation, not a conviction"). Grading raw vocabulary would flag
         # every correct denial — the fifth time this trap appears in this module.
         # So a stage word is only counted as CLAIMED when it is not negated.
         claimed = 0
-        subject = str(trace.get("subject") or "")
         for stage, pat in _STAGE_VOCAB:
             for m in pat.finditer(final):
                 if _stage_match_is_denied(final, m, subject):
@@ -1069,6 +1082,50 @@ def _stage_match_is_denied(text: str, match: re.Match[str], subject: str) -> boo
         re.I,
     ):
         return True
+    return False
+
+
+def _normalised_phrase(text: str) -> str:
+    """Lowercase alphanumeric words for conservative whole-phrase matching."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text).lower()).split())
+
+
+def _categorically_denies_adverse(final: str, subject: str) -> bool:
+    """Whether the answer makes an unqualified no-adverse claim for subject."""
+    text = _normalised_phrase(final)
+    name = _normalised_phrase(subject)
+    if not name:
+        return False
+    return any(phrase in text for phrase in (
+        f"no adverse media about {name}",
+        f"no adverse media on {name}",
+        f"no serious adverse media about {name}",
+        f"no evidence of serious adverse media against {name}",
+        f"none of them are about {name}",
+        f"none of them are directly about {name}",
+        f"did not find any results for {name}",
+        f"did not find any results that are serious adverse media about {name}",
+    ))
+
+
+def _has_entity_relevant_staged_result(payloads: list[dict], subject: str) -> bool:
+    """True only when a procedurally staged result TITLE names the subject.
+
+    Snippets routinely mention a queried entity only to distinguish it from a
+    namesake, branch, former officer, or search-memory residue. Requiring the
+    canonical phrase in the title is the conservative precision boundary proven
+    by the 88-row Phoenix replay.
+    """
+    name = _normalised_phrase(subject)
+    if not name:
+        return False
+    for payload in payloads:
+        for result in payload.get("results") or []:
+            if not isinstance(result, dict):
+                continue
+            title = str(result.get("title") or "")
+            if name in _normalised_phrase(title) and _grade_stage(title):
+                return True
     return False
 _ALLEGATION_MARKER_RE = re.compile(
     r"alleg(?:ed|ation|ations|edly)|accus(?:ed|ation|ations)"
