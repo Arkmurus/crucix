@@ -48,6 +48,13 @@ import pytest
 from aria_service.intel import sanctions as s
 
 
+async def _note_and_settle():
+    """Schedule the clear and WAIT for it — production never waits (see below)."""
+    task = await s._note_opensanctions_success()
+    if task is not None:
+        await task
+
+
 # ── 1. The legacy record: no expires_at, past its monthly boundary ───────────
 
 def _legacy_record(since: datetime) -> dict:
@@ -128,7 +135,7 @@ def test_a_successful_call_clears_the_exhaustion_record(store):
     Without this the state can only be cleared by hand, so an operator who
     upgrades the plan mid-month keeps reading 'exhausted' indefinitely.
     """
-    asyncio.run(s._note_opensanctions_success())
+    asyncio.run(_note_and_settle())
 
     assert s._QUOTA_STATE_KEY in store.deletes, (
         "a successful OpenSanctions response must retire the exhaustion record"
@@ -138,7 +145,7 @@ def test_a_successful_call_clears_the_exhaustion_record(store):
 def test_the_clear_happens_ONCE_per_process_not_per_call(store):
     """Bounded, or the fix becomes a store write on every screen (R-F2157)."""
     for _ in range(25):
-        asyncio.run(s._note_opensanctions_success())
+        asyncio.run(_note_and_settle())
 
     assert len(store.deletes) == 1, (
         f"expected exactly one store op per recovery episode, got "
@@ -149,7 +156,7 @@ def test_the_clear_happens_ONCE_per_process_not_per_call(store):
 
 def test_a_fresh_429_re_arms_the_latch(store, monkeypatch):
     """Recovery must not be permanent: the quota can be spent again next month."""
-    asyncio.run(s._note_opensanctions_success())
+    asyncio.run(_note_and_settle())
     assert len(store.deletes) == 1
 
     async def _noop_set_json(*a, **kw):
@@ -158,7 +165,7 @@ def test_a_fresh_429_re_arms_the_latch(store, monkeypatch):
     monkeypatch.setattr(rs, "set_json", _noop_set_json)
     asyncio.run(s._record_quota_exhausted("exceeded its rate limit for the month"))
 
-    asyncio.run(s._note_opensanctions_success())
+    asyncio.run(_note_and_settle())
     assert len(store.deletes) == 2, (
         "after a genuine re-exhaustion, the next success must clear it again"
     )
@@ -175,7 +182,7 @@ def test_recovery_reaches_the_brain_once(store, monkeypatch):
                         lambda **kw: seen.append(kw), raising=False)
 
     for _ in range(10):
-        asyncio.run(s._note_opensanctions_success())
+        asyncio.run(_note_and_settle())
 
     assert len(seen) == 1, f"expected one recovery signal, got {len(seen)}"
     assert "opensanctions" in (seen[0].get("summary") or "").lower()
@@ -189,9 +196,9 @@ def test_a_store_failure_while_clearing_does_not_claim_recovery(store, monkeypat
     from aria_service.intel import redis_store as rs
     monkeypatch.setattr(rs, "delete", _boom)
 
-    asyncio.run(s._note_opensanctions_success())      # must not raise
+    asyncio.run(_note_and_settle())      # must not raise
     monkeypatch.setattr(rs, "delete", store.delete)
-    asyncio.run(s._note_opensanctions_success())
+    asyncio.run(_note_and_settle())
 
     assert store.deletes, (
         "a failed clear must leave the latch armed so the next success retries; "
@@ -199,6 +206,61 @@ def test_a_store_failure_while_clearing_does_not_claim_recovery(store, monkeypat
         "very defect being fixed"
     )
 
+
+
+# ── 3. THE REGRESSION THIS SHIPPED WITH, pinned so it cannot return ─────────
+
+
+def test_the_clear_never_blocks_the_screen(monkeypatch, store):
+    """R-F3947's FIRST version awaited the store delete inline on the success
+    branch of every OpenSanctions call. Measured live minutes after deploy:
+    POST /sanctions/fuzzy went from sub-second to HTTP=000 at 150s, while the
+    OpenSanctions API answered in 0.11s from the same machine. The sqlite writer
+    is contended, and because a failed clear deliberately leaves the latch armed,
+    every subsequent screen retried the same blocking write.
+
+    Retiring a stale status flag is not part of producing a screen result and
+    must not sit in its latency budget.
+    """
+    async def _glacial_delete(*a, **kw):
+        await asyncio.sleep(30)          # a contended writer
+        return True
+
+    from aria_service.intel import redis_store as rs
+    monkeypatch.setattr(rs, "delete", _glacial_delete)
+
+    async def _drive():
+        started = asyncio.get_running_loop().time()
+        await s._note_opensanctions_success()
+        return asyncio.get_running_loop().time() - started
+
+    elapsed = asyncio.run(_drive())
+    assert elapsed < 1.0, (
+        f"the success path waited {elapsed:.1f}s on a slow store — this is the "
+        f"live screening outage R-F3947 caused. Schedule the clear; never await "
+        f"it on the request path."
+    )
+
+
+def test_only_one_clear_is_in_flight_at_a_time(monkeypatch, store):
+    """Concurrent screens must not pile up tasks against a contended writer."""
+    calls = []
+
+    async def _slow_delete(*a, **kw):
+        calls.append(1)
+        await asyncio.sleep(0.05)
+        return True
+
+    from aria_service.intel import redis_store as rs
+    monkeypatch.setattr(rs, "delete", _slow_delete)
+
+    async def _drive():
+        tasks = [await s._note_opensanctions_success() for _ in range(20)]
+        for t in [t for t in tasks if t is not None]:
+            await t
+
+    asyncio.run(_drive())
+    assert len(calls) == 1, f"expected one in-flight clear, got {len(calls)}"
 
 # ── 3. The wiring: the success path must actually call it ──────────────────
 

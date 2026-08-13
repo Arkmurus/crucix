@@ -280,44 +280,33 @@ def _next_month_start_utc(now: datetime | None = None) -> datetime:
 # R-F2172 state_store self-DOS, and fixing an observability bug by saturating
 # the writer would be a poor trade.
 _QUOTA_RECOVERY_NOTED = False
+# Exactly one clear in flight at a time, so concurrent screens cannot pile up
+# tasks against a contended writer. Strong refs, or the loop may collect a task
+# before it runs.
+_QUOTA_RECOVERY_INFLIGHT = False
+_QUOTA_RECOVERY_TASKS: set = set()
 
 
 def _reset_quota_recovery_latch() -> None:
     """Test hook — re-arm the latch so recovery can be observed again."""
-    global _QUOTA_RECOVERY_NOTED
+    global _QUOTA_RECOVERY_NOTED, _QUOTA_RECOVERY_INFLIGHT
     _QUOTA_RECOVERY_NOTED = False
+    _QUOTA_RECOVERY_INFLIGHT = False
 
 
-async def _note_opensanctions_success() -> None:
-    """A 200 from OpenSanctions is PROOF the plan quota is not spent.
-
-    THE DEFECT THIS CLOSES. The exhaustion record was written on a 429 and could
-    be removed only by a human calling `clear_opensanctions_quota_state()`. So
-    the state moved in one direction only, and the surface an operator consults
-    to answer "is screening degraded?" kept saying yes long after the answer was
-    no. It produced a wrong recommendation on 2026-08-13 — "upgrade the
-    OpenSanctions plan" — for a plan that was answering normally.
-
-    Setting a flag on evidence (the 429 body) and clearing it only by hand is
-    what makes a latch. The symmetric fix is to clear it on the evidence of the
-    same kind, which is what this is. It also covers the case the monthly
-    boundary cannot: an operator who UPGRADES the plan mid-month gets a correct
-    surface immediately, without waiting for a reset that is no longer relevant.
-
-    Deliberately best-effort and silent on failure — EXCEPT that a failed clear
-    leaves the latch ARMED, so the next success retries. Marking recovery before
-    proving it would strand the record exactly as before, on one store blip.
-    """
-    global _QUOTA_RECOVERY_NOTED
-    if _QUOTA_RECOVERY_NOTED:
-        return
+async def _retire_quota_record() -> None:
+    """Do the actual clear. Runs OFF the request path — see _note_... below."""
+    global _QUOTA_RECOVERY_NOTED, _QUOTA_RECOVERY_INFLIGHT
     try:
         from . import redis_store as _rs
         await _rs.delete(_QUOTA_STATE_KEY)
     except Exception as exc:
-        # Latch stays armed on purpose — see the docstring.
+        # Latch stays ARMED so a later success retries. Marking recovery before
+        # achieving it would strand the record exactly as before, on one blip.
         logger.debug("R-F3947 could not retire the quota record: %s", exc)
         return
+    finally:
+        _QUOTA_RECOVERY_INFLIGHT = False
     _QUOTA_RECOVERY_NOTED = True
     logger.info(
         "[R-F3947] OpenSanctions answered — any exhaustion record retired. "
@@ -336,6 +325,57 @@ async def _note_opensanctions_success() -> None:
         )
     except Exception as exc:
         logger.debug("R-F3947 recovery wire failed: %s", exc)
+
+
+async def _note_opensanctions_success():
+    """A 200 from OpenSanctions is PROOF the plan quota is not spent.
+
+    THE DEFECT THIS CLOSES. The exhaustion record was written on a 429 and could
+    be removed only by a human calling `clear_opensanctions_quota_state()`. So
+    the state moved in one direction only, and the surface an operator consults
+    to answer "is screening degraded?" kept saying yes long after the answer was
+    no. It produced a wrong recommendation on 2026-08-13 — "upgrade the
+    OpenSanctions plan" — for a plan that was answering normally.
+
+    Setting a flag on evidence (the 429 body) and clearing it only by hand is
+    what makes a latch. The symmetric fix is to clear it on the evidence of the
+    same kind, which is what this is. It also covers the case the monthly
+    boundary cannot: an operator who UPGRADES the plan mid-month gets a correct
+    surface immediately, without waiting for a reset that is no longer relevant.
+
+    ⚠️ THIS MUST NEVER BLOCK THE SCREEN, and the first version of it did.
+    R-F3947 shipped with `await _rs.delete(...)` inline here, on the success
+    branch of every OpenSanctions call. MEASURED LIVE minutes later: the screen
+    endpoint went from sub-second to a hard timeout — POST /sanctions/fuzzy
+    HTTP=000 at 150s — while the OpenSanctions API itself answered in 0.11s from
+    the same machine and a name too short to trigger a lookup returned in 0.16s.
+    The sqlite writer is contended (the knowledge flush holds it for a large
+    fraction of every minute), and because a FAILED clear deliberately leaves the
+    latch armed, every subsequent screen retried the same blocking write.
+
+    So it scheduled bookkeeping on the critical path of the product's most
+    important call, and made a screening outage out of a status-reporting fix.
+    Retiring a stale flag is not part of producing a screen result and does not
+    belong in its latency budget.
+
+    Now it SCHEDULES and returns immediately. Returns the task (or None) purely
+    so tests can await the work deterministically — production never does.
+    `_QUOTA_RECOVERY_INFLIGHT` keeps exactly one clear in flight, so concurrent
+    screens cannot pile up tasks against a slow store.
+    """
+    global _QUOTA_RECOVERY_INFLIGHT
+    if _QUOTA_RECOVERY_NOTED or _QUOTA_RECOVERY_INFLIGHT:
+        return None
+    _QUOTA_RECOVERY_INFLIGHT = True
+    try:
+        task = asyncio.get_running_loop().create_task(_retire_quota_record())
+    except RuntimeError:            # no running loop (sync caller / teardown)
+        _QUOTA_RECOVERY_INFLIGHT = False
+        return None
+    # Hold a reference so the task is not garbage-collected mid-flight.
+    _QUOTA_RECOVERY_TASKS.add(task)
+    task.add_done_callback(_QUOTA_RECOVERY_TASKS.discard)
+    return task
 
 
 async def _record_quota_exhausted(detail: str) -> None:
@@ -368,8 +408,9 @@ async def _record_quota_exhausted(detail: str) -> None:
     """
     # R-F3947 — re-arm the recovery latch: the quota really is spent again, so a
     # later 200 must be able to retire this new record too.
-    global _QUOTA_RECOVERY_NOTED
+    global _QUOTA_RECOVERY_NOTED, _QUOTA_RECOVERY_INFLIGHT
     _QUOTA_RECOVERY_NOTED = False
+    _QUOTA_RECOVERY_INFLIGHT = False
     try:
         from . import redis_store as _rs
         _now = datetime.now(timezone.utc)
