@@ -513,9 +513,12 @@
       "title": "adverse stage scorer misses long-clause negation",
       "claimed_at": "2026-08-13T10:36:32Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3959"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T11:40:20Z"
     }
   ]
 }
