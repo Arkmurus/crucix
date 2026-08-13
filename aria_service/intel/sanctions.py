@@ -1353,6 +1353,11 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     # path keeps its historical meaning (a real aggregate screen covers every
     # canonical source) and only the floor narrows it.
     _coverage_mode = "opensanctions_aggregate" if source_ok else "none"
+    # R-F3958 (C-48) — a canonical REVIEW / HARD_STOP verdict that produced no
+    # ARIA-shaped matches used to vanish here. See the carry block below.
+    _review_verdict = ""
+    _review_reason = ""
+    _near_miss_observations: list[dict] = []
 
     if not source_ok:
         try:
@@ -1371,6 +1376,24 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
                 source_reasons.append("opensanctions_unavailable_local_used")
                 for lm in (_local.get("matches") or []):
                     all_matches.append(_local_match_to_aria(lm, name))
+                # ── R-F3958 (C-48) — carry the VERDICT, not just the matches ──
+                # R-F3691's `gate_blocked_near_miss` is the textbook REVIEW
+                # case: a name-overlapping designation that could not be
+                # corroborated, so a human decides. Its candidates are in
+                # `gate_blocked` and by construction NOT in `matches`, so
+                # reading `matches` alone dropped the verdict entirely and the
+                # screen rendered as a clean bill. `company_investigator`
+                # routes REVIEW to UNVERIFIED correctly; the DD path never saw
+                # it.
+                if _verdict in ("REVIEW", "HARD_STOP"):
+                    _review_verdict = _verdict
+                    _review_reason = str((_local or {}).get("reason") or "")
+                    _gb = _local.get("gate_blocked")
+                    if isinstance(_gb, list):
+                        for _cand in _gb[:10]:
+                            if isinstance(_cand, dict):
+                                _near_miss_observations.append(
+                                    _local_match_to_aria(_cand, name))
                 logger.info(
                     "R-F3529: OpenSanctions unavailable (%s) — screened '%s' "
                     "against local canonical lists instead: verdict=%s matches=%d",
@@ -1413,6 +1436,14 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         m for m in all_matches
         if m["score"] >= threshold and not is_corroborated_match(m)
     ]
+    # R-F3958 (C-48) — the near-miss belongs in this channel, which R-F2840
+    # already documents as "reported, never blocking, never clean". A flag with
+    # no evidence behind it cannot be actioned by an analyst, so the blocked
+    # candidate travels with the verdict.
+    if _near_miss_observations:
+        for _obs in _near_miss_observations:
+            _obs["near_miss_gate_blocked"] = True
+        related_name_observations = related_name_observations + _near_miss_observations
 
     # R-F1696: a screen is only "performed" if the source actually answered
     # (matches found ⇒ it answered; or at least one call returned HTTP 200).
@@ -1464,6 +1495,24 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
             "OpenSanctions is updated daily but may lag designations by 24-48 hours."
         ),
     }
+    # ── R-F3958 (C-48) — REVIEW is a THIRD state and must render as one. ──
+    # `blocked` deliberately stays False: a gate-blocked candidate is not a
+    # corroborated designation, and promoting it to a block would trade a false
+    # clean for a false hit — the exact swap R-F2840 narrowed the blocking set
+    # to avoid. So the verdict rides on its own flag, which a caller rendering
+    # a clean bill has to step over explicitly.
+    if _review_verdict and screened:
+        result["requires_human_review"] = True
+        result["review_verdict"] = _review_verdict
+        result["review_reason"] = _review_reason or "canonical_review_verdict"
+        result["review_detail"] = (
+            f"The canonical sanctions store returned {_review_verdict} for this "
+            f"name ({_review_reason or 'no reason given'}). "
+            f"{len(_near_miss_observations)} name-overlapping designation(s) were "
+            f"found but could not be corroborated by jurisdiction or address, so "
+            f"this screen is NOT a clearance — a human must adjudicate it."
+        )
+
     if source_unavailable:
         # R-F1696: surface loudly so callers/the DD renderer NEVER treat an
         # unscreenable entity as a clearance. `error` makes downstream

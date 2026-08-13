@@ -192,6 +192,60 @@ def _freshest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
     return max(0.0, now - freshest_ts)
 
 
+def _stalest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
+    """Age (seconds) of the OLDEST in-scope source. This is what the H1
+    never-false-clean gate must read.
+
+    R-F3957 (C-47) — the gate used `_freshest_refresh_age_seconds`, so the
+    stalest list governed nothing: OFAC 400 days stale + EU refreshed a second
+    ago gave `age = 0.0 days` and a CLEAR verdict over year-old designations.
+    A screen is only as current as the LEAST current list it consulted, and the
+    H2 row-count gate cannot cover for it because rows persist — a list that
+    stopped updating a year ago still holds all of last year's rows.
+
+    Per source, in order of preference:
+      1. its freshest SUCCESSFUL refresh (a failed attempt is not a refresh —
+         R-F2373: `is False` would not skip `success=0`, so test truthiness);
+      2. failing that, the true age of its DATA rows (R-F2417), because a
+         source that has only ever FAILED would otherwise contribute nothing
+         and be cleared by a healthy neighbour — the same MAX-hides-the-worst
+         shape one level down;
+      3. failing both, the source is genuinely unknown and is skipped.
+
+    Returns None only when NOTHING is known about any in-scope source, keeping
+    R-F2373's rule that unknown freshness is a SOFT signal: missing metadata is
+    not evidence of age, and direct-seeded fixture stores must not hard-fail.
+    """
+    summary = _cache_status_summary()
+    now = time.time()
+    scope = list(in_scope) if in_scope else list(summary.keys())
+    oldest_age: float | None = None
+    for src in scope:
+        meta = summary.get(src) or {}
+        age: float | None = None
+        _succ = meta.get("success")
+        ts = meta.get("last_refresh_at")
+        if not (_succ is not None and not _succ) and ts is not None:
+            try:
+                age = max(0.0, now - float(ts))
+            except (TypeError, ValueError):
+                age = None
+        if age is None:
+            # No usable successful refresh for THIS source — fall back to the
+            # age of the rows it actually holds.
+            try:
+                row_ts = store.newest_entry_refresh(src)
+            except Exception:
+                row_ts = None
+            if row_ts is not None:
+                age = max(0.0, now - float(row_ts))
+        if age is None:
+            continue
+        if oldest_age is None or age > oldest_age:
+            oldest_age = age
+    return oldest_age
+
+
 def _data_age_seconds(in_scope: list[str] | None) -> float | None:
     """Age (seconds) of the freshest ACTUAL data row among the in-scope sources,
     read from ``entries.last_refreshed`` via ``store.newest_entry_refresh``.
@@ -630,13 +684,18 @@ def check_sanctions(
                 # hard-fail CLEAR on missing metadata alone (keeps direct-seeded
                 # fixtures working). Downgrade only when we KNOW the freshest
                 # successful refresh is older than the threshold.
-                age = _freshest_refresh_age_seconds(in_scope)
-                # R-F2417: age is None when EVERY in-scope source's latest refresh
-                # ATTEMPT failed (all skipped as non-success). That must NOT fall
-                # through to CLEAR over stale rows — fall back to the TRUE data age
-                # (entries.last_refreshed), which is immune to failed-attempt
-                # masking. Gated on _has_refresh_metadata() so pure direct-seed
-                # stores (fixtures, no refresh_log) keep the soft/unknown path.
+                # R-F3957 (C-47) — the OLDEST in-scope source, not the freshest.
+                # A screen is only as current as the least current list it
+                # consulted; reading the freshest let one healthy list clear a
+                # 400-day-stale neighbour. `_stalest_refresh_age_seconds` also
+                # absorbs R-F2417's per-source data-age fallback, so a source
+                # whose every refresh ATTEMPT failed contributes its true row
+                # age instead of dropping out of the aggregate entirely.
+                age = _stalest_refresh_age_seconds(in_scope)
+                # Whole-store fallback for the case where not one in-scope
+                # source is known: gated on _has_refresh_metadata() so pure
+                # direct-seed stores (fixtures, no refresh_log) keep the
+                # soft/unknown path and are never hard-failed on absence.
                 if age is None and _has_refresh_metadata():
                     age = _data_age_seconds(in_scope)
                 if age is not None and age > _max_staleness_seconds():
@@ -646,6 +705,12 @@ def check_sanctions(
                     freshness_age_days = round(age / 86400.0, 1)
                 else:
                     verdict = "CLEAR"
+                    # R-F3957 — a CLEAR must state how current it is. Reporting
+                    # the age only on the FAILING branch meant a screen against
+                    # 29-day-old data and one against one-hour-old data rendered
+                    # identically to the reader.
+                    if age is not None:
+                        freshness_age_days = round(age / 86400.0, 1)
         else:
             verdict = "INSUFFICIENT_DATA"
             store_unavailable = True

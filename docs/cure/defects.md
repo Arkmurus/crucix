@@ -3076,3 +3076,104 @@ tests, RED then GREEN. Four drive the real `_run_synthesis`: total failure is
 disclosed, a clean sweep is NOT flagged (the guard must be able to stay quiet),
 a legacy report behaves as before, and the original R-F2779 no-sweep-at-all
 case still fires.
+
+
+## C-47 · a 400-day-stale sanctions list screened CLEAN, because freshness aggregated with MAX (R-F3957)
+
+The H1 never-false-clean staleness gate asked for the age of the *freshest*
+successful refresh across the in-scope sources:
+
+    lookup.py:633
+        age = _freshest_refresh_age_seconds(in_scope)
+
+so the stalest list governed nothing. Reproduced:
+
+    OFAC SDN last refreshed 400 days ago; EU refreshed 1 second ago
+      freshest-refresh age : 0.0 days      <- what the gate read
+      true OFAC data age   : 400.0 days
+      VERDICT: CLEAR   freshness_age_days: None
+
+The H2 row-count gate cannot cover for it, because **rows persist**: a list
+that stopped updating a year ago still holds all of last year's rows, so it
+passes every count and plausibility check while missing every designation made
+since.
+
+For a gate whose entire purpose is to refuse a clean it cannot justify, the
+correct aggregation is the **oldest** in-scope source — a screen is only as
+current as the least current list it consulted. `_stalest_refresh_age_seconds`
+replaces it at the gate.
+
+**A second hole the MAX aggregation was hiding.** Skipping non-success refresh
+rows is right (R-F2373), but skipping the SOURCE entirely means a list that has
+only ever FAILED contributes nothing to the aggregate and gets cleared by a
+healthy neighbour — the same "the worst case drops out" shape one level down.
+R-F2417's data-age fallback existed but fired only when NO source at all had
+metadata. It is now per-source: successful-refresh age, else that source's true
+row age, else genuinely unknown and skipped. `None` is still returned only when
+nothing is known about anything, so R-F2373's rule that unknown freshness is a
+SOFT signal survives and direct-seeded fixture stores are never hard-failed.
+
+**A CLEAR now reports its own age.** `freshness_age_days` was set only on the
+failing branch, so a screen against 29-day-old data and one against one-hour-old
+data rendered identically to the reader.
+
+**NOT fixed, deliberately:** the 30-day threshold against a ~20-hour refresh
+cadence is loose. Tightening it while the aggregation was wrong would be the §1
+band-aid — a tighter threshold on the wrong number is still the wrong number.
+Revisit once this has run in production.
+
+Fixture-first: `test_rf3957_staleness_governed_by_oldest_source.py`, 9 tests,
+RED then GREEN, including the report's exact reproduction. Four assert the gate
+can still PASS (all-fresh clears, single-source scope unaffected, no-metadata
+fixture stores still clear) — a staleness gate that fails everything is not a
+gate.
+
+
+## C-48 · a near-miss flagged for HUMAN REVIEW was discarded and reported clean (R-F3958)
+
+R-F3691 introduced `gate_blocked_near_miss` for the textbook REVIEW case: "we
+found a name-overlapping designation but could not corroborate it, so a human
+decides." The canonical lookup returns it correctly. One layer up, the R-F3529
+local-canonical fallback in `fuzzy_screen` reads only `_local["matches"]` — and
+a gate-blocked candidate is by construction NOT in that list, it is in
+`gate_blocked`. So the verdict was dropped:
+
+    'Rosoboronexport' -> canonical verdict=REVIEW  gate_blocked=1
+                      -> fuzzy_screen screened=True blocked=False matches=0
+
+Two consumers of the same canonical verdict disagreed. `company_investigator`
+routes REVIEW to UNVERIFIED correctly; the DD path never saw it at all — and
+the DD path is the one that prints the clearance.
+
+The fix routes the blocked candidate into `related_name_observations`, the
+channel R-F2840 already documents as "reported, never blocking, never clean",
+and raises `requires_human_review` + `review_verdict` + `review_detail`. The
+candidate travels with the flag because a flag with no evidence behind it
+cannot be actioned by an analyst.
+
+**`blocked` deliberately stays False.** A gate-blocked candidate is not a
+corroborated designation, and promoting it to a block would trade a false clean
+for a false hit — precisely the swap R-F2840 narrowed the blocking set to
+avoid. REVIEW is a THIRD state and has to render as one; collapsing it into
+either neighbour is how it was lost in the first place.
+
+The flag is gated on `screened`, so an INSUFFICIENT_DATA result is never
+dressed up as a review finding — an unperformed screen and an unresolved
+near-miss are different statements and a test pins each.
+
+Fixture-first: `test_rf3958_fuzzy_screen_carries_review_verdict.py`, 8 tests,
+RED then GREEN. Three assert the healthy paths are untouched: a genuine CLEAR
+is not flagged, a corroborated canonical hit still blocks, and a malformed
+`gate_blocked` payload still carries the verdict rather than crashing the
+screen.
+
+**Two related matching weaknesses reported alongside this one are NOT fixed
+here** and remain open, deliberately un-bundled because each needs its own
+fixture and its own blast-radius argument: containment scoring is
+one-directional, so `"Rosoboronexport JSC Moscow Representative Office"`
+dilutes below the score floor and reaches neither `matches` nor the audit
+trail; and the suffix stripper can empty a name entirely —
+`"Aerospace Industries Group"` normalises to `""`, making its similarity with
+itself 0.0. For a defence-DD product, `defence / systems / industries /
+aerospace / aviation` is the most dangerous possible list to strip
+aggressively.
