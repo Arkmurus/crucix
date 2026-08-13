@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3979,
+  "next_available": 3980,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33726,6 +33726,16 @@
       "r_number": "R-F3978",
       "title": "build and audit retention-safe Phoenix DPO curriculum",
       "claimed_at": "2026-08-13T22:34:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "39d7f9d8",
+      "notes": null,
+      "shipped_at": "2026-08-13T22:39:16Z"
+    },
+    {
+      "r_number": "R-F3979",
+      "title": "C-67 the escalation must disable thinking not enlarge the budget",
+      "claimed_at": "2026-08-13T22:42:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

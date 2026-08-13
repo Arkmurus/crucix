@@ -729,6 +729,18 @@
       "title": "retention-safe Phoenix DPO recipe has no deterministic audited builder",
       "claimed_at": "2026-08-13T22:34:57Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3978"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:39:16Z"
+    },
+    {
+      "c_number": "C-68",
+      "title": "the reasoning-truncation retry doubles the token budget which invites more reasoning instead of curing it",
+      "claimed_at": "2026-08-13T22:42:11Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
