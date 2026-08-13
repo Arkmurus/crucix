@@ -573,9 +573,12 @@
       "title": "the monthly cost read is non-strict so a store failure renders 0.00 and the cap passes",
       "claimed_at": "2026-08-13T17:59:18Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3965"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:09:51Z"
     }
   ]
 }

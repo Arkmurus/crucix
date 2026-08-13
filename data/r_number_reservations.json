@@ -33605,9 +33605,10 @@
       "title": "C-54 monthly spend must never fabricate a zero on a store failure",
       "claimed_at": "2026-08-13T17:59:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c49520c3",
+      "notes": null,
+      "shipped_at": "2026-08-13T18:09:50Z"
     }
   ]
 }
