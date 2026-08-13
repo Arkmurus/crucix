@@ -1150,8 +1150,12 @@ _STAGE_VOCAB: list[tuple[str, re.Pattern]] = [
         r"\balleg(?:ed|ation|ations|edly)\b|\baccus(?:ed|ation|ations)\b"
         r"|\bclaims?\b|\breportedly\b|\bscandal\b|\bsuspected\b", re.I)),
     ("resolved_cleared", re.compile(
-        r"\bacquitted\b|\bacquittal\b|\bcleared of\b|\bwas cleared\b|\bdismissed\b"
-        r"|\bdropped\b|\bclosed (?:its |the )?investigation\b|\bno (?:findings|case) "
+        r"\bacquitted\b|\bacquittal\b|\bcleared of\b|\bwas cleared\b"
+        r"|\bdismissed (?:all )?(?:charges?|the case|the lawsuit|the indictment)\b"
+        r"|\b(?:charges?|the case|the lawsuit|the indictment) (?:was |were )?dismissed\b"
+        r"|\bdropped (?:all )?(?:charges?|the case|the investigation|the probe)\b"
+        r"|\b(?:charges?|the case|the investigation|the probe) (?:was |were )?dropped\b"
+        r"|\bclosed (?:its |the )?investigation\b|\bno (?:findings|case) "
         r"(?:to answer|was found)\b|\bexonerated\b", re.I)),
 ]
 

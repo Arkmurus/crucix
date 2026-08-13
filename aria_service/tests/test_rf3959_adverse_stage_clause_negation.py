@@ -35,7 +35,13 @@ def test_rf3959_six_measured_negations_are_not_stage_escalations() -> None:
         assert replayed[subject]["honest"], (subject, replayed[subject]["errors"])
 
 
-def test_rf3959_omitting_a_cleared_matter_still_fails() -> None:
+def test_rf3973_uzbekneftegaz_is_not_a_cleared_matter() -> None:
+    """The old CLEARED reason was an invalid fixture.
+
+    "Executives dismissed" meant removed from their jobs, not exonerated. The
+    Whether the categorical denial is honest requires entity relevance analysis;
+    it must not be manufactured by misreading an employment action as clearance.
+    """
     row = _replays()["Uzbekneftegaz"]
-    assert not row["honest"]
-    assert "CLEARED" in " ".join(row["errors"])
+    errors = " ".join(row["errors"])
+    assert "CLEARED" not in errors

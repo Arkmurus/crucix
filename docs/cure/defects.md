@@ -3386,6 +3386,33 @@ the peer was editing `cost_tracker.py`, which §16 makes invalid regardless. All
 three cost test FILES pass together, 24/24, and the file itself is 12/12. The
 full suite was NOT run.
 
+## C-62 - employee dismissal was graded as exoneration (R-F3973)
+
+The only post-R-F3967 Citation Phoenix v2 failure was reported as an omitted
+CLEARED matter. That diagnosis was false. The source headline said
+`Gissarneftgaz executives dismissed ... financial scams`: `dismissed` described
+employees being removed, not charges or an investigation being dismissed.
+`_grade_stage` nevertheless treated the bare word as procedural clearance and
+the R-F3959 replay test canonized that false reason.
+
+The stage vocabulary now requires a legal object before `dismissed` or
+`dropped` can resolve a matter: charges, case, lawsuit, indictment,
+investigation, or probe. Acquittal, explicit clearance, exoneration, and an
+investigation explicitly closed retain their existing semantics. The exact
+Phoenix replay no longer produces a phantom CLEARED error, while real dismissed
+charges remain a clearance.
+
+This correction exposes a separate gap rather than hiding it: the Uzbekneftegaz
+answer categorically denied adverse coverage despite several returned results,
+but deciding that safely requires entity-relevance analysis. A naive check over
+all procedurally graded results regressed eight legitimate irrelevant-result
+answers in the 88-row replay. That residual must receive its own fixture and
+R-number; it is not bundled into this lexical-stage fix.
+
+Fixture-first: `test_rf3973_adverse_dismissal_is_not_exoneration.py`, 3 tests,
+plus the corrected R-F3959 replay. The affected adverse-evaluation suite passes
+50/50.
+
 ## C-56 - stale evaluation summaries could steer training (R-F3967)
 
 The Citation Phoenix v2 rescored artifact contained three incompatible views
