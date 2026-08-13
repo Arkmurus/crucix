@@ -8309,6 +8309,18 @@ def _surface_research_disclosures(dr: object, section: Any) -> None:
             "downgrading, contradiction detection and past-fact cross-checks were "
             "skipped, so confidence labels on these findings are UNVERIFIED"
         )
+    # R-F3966 (C-55) — the person/UBO drill-down's swallowed failures. Without
+    # this, "zero named individuals" and "we could not run the person
+    # investigation" rendered identically — on the highest-value question in due
+    # diligence, and for names the registry had already handed us.
+    _pd = dr.get("people_disclosures")
+    if isinstance(_pd, list):
+        for _d in _pd[:10]:
+            if not _d:
+                continue
+            _gap = f"R-F3966: {_d}"
+            if _gap not in section.data_gaps:
+                section.data_gaps.append(_gap)
 
 
 async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:

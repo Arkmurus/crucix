@@ -579,6 +579,27 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T18:11:33Z"
+    },
+    {
+      "c_number": "C-55",
+      "title": "the person/UBO drill-down swallows every failure so a dropped director is indistinguishable from none found",
+      "claimed_at": "2026-08-13T18:14:06Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3966"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T18:18:56Z"
+    },
+    {
+      "c_number": "C-56",
+      "title": "training reports can carry stale summaries that mislead promotion gates",
+      "claimed_at": "2026-08-13T18:15:19Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

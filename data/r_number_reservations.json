@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3966,
+  "next_available": 3968,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33609,6 +33609,24 @@
       "commit_sha": "c49520c3",
       "notes": null,
       "shipped_at": "2026-08-13T18:09:50Z"
+    },
+    {
+      "r_number": "R-F3966",
+      "title": "C-55 wire the person drill-down failures into the report",
+      "claimed_at": "2026-08-13T18:14:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3967",
+      "title": "reject internally inconsistent training evaluation reports",
+      "claimed_at": "2026-08-13T18:15:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -3386,3 +3386,71 @@ the peer was editing `cost_tracker.py`, which §16 makes invalid regardless. All
 three cost test FILES pass together, 24/24, and the file itself is 12/12. The
 full suite was NOT run.
 
+## C-56 - stale evaluation summaries could steer training (R-F3967)
+
+The Citation Phoenix v2 rescored artifact contained three incompatible views
+of the same 88 rows. Its row-level truth and headline reported 87 honest rows;
+its per-axis summaries totalled only 81 honest rows; its failure-class counts
+described seven failures. Rebuilding the report from the stored rows reproduced
+87/88 and exactly one failure (`Uzbekneftegaz`, procedural-state handling).
+
+This was not merely cosmetic. The promotion and learning-curve gates read the
+headline `honest` value for aggregate gain but the embedded `per_axis` values
+for retention and regression decisions. One artifact could therefore claim a
+gain and phantom axis regressions at the same time, causing the next training
+intervention to target stale evidence.
+
+The root fix defines one consistency contract beside the report builder:
+headline totals must equal the sums of all per-axis totals. Every consumer that
+uses axis summaries to promote, calibrate, weight SFT, or build the mastery
+ledger now refuses an inconsistent report. Summary-only reports remain valid;
+the guard checks the redundant fields those consumers actually require rather
+than imposing a new row-level API.
+
+Fixture-first: `test_rf3967_training_report_consistency_gate.py`, 3 capability
+tests driving the real promotion, learning-curve, and SFT-weighting paths. Both
+decision gates failed RED on the Phoenix-shaped contradiction before the fix.
+
+
+## C-55 · the person/UBO drill-down swallowed every failure (R-F3966)
+
+"Zero named individuals" and "we could not run the person investigation"
+rendered identically — on the highest-value question in due diligence, *who is
+behind this*. Both swallow points were `logger.debug` with no gap, no
+`wire_failure` and no layer-status change, i.e. DARK under §21a:
+
+    deep_researcher.py:817   except: logger.debug("person-extraction failed")
+    deep_researcher.py:835   except: logger.debug("investigate_person failed"); continue
+
+The second is the dangerous one. `seed_people` are names the caller ALREADY
+KNOWS — registry directors and contact names (R-F1823, which exists precisely so
+a registry-listed director with no web footprint is still investigated) — so a
+director Companies House handed us could vanish from the report with a debug
+line as the only trace. On an LLM outage the extractor returns nothing AND every
+dossier raises, so the report reads "no people found" for an entity whose board
+is public.
+
+The contrast proves it was an oversight rather than a decision: the sibling
+`investigate()` path has disclosed since R-F3259 via `synthesis_error` ->
+`_surface_research_disclosures`, and the drill-down's own SKIP case already
+calls `_mark_partial`. Only the failures *inside* it were never given the wire.
+
+**The fix reuses that channel rather than inventing a second one.** Failures
+accumulate on an optional `disclosures` sink (so existing callers are
+unaffected — pinned by a test), ride out on the result as `people_disclosures`,
+and are rendered as data gaps by `_surface_research_disclosures`, which already
+runs on every digital layer. Each disclosure NAMES the person, because a
+disclosure the reader cannot act on is not a disclosure. §21a wiring is
+`wire_failure`, deduped 1h by R-F66 so a persistently dead extractor files one
+gap an hour rather than one per person per DD.
+
+Fixture-first: `test_rf3966_person_drilldown_failures_are_disclosed.py`, 9
+tests, RED then GREEN. Four pin the quiet path — a clean run discloses nothing,
+a partial failure still returns the dossiers that worked, the sink is optional,
+and malformed disclosures cannot crash the report.
+
+**Second invalid fixture this session, same lesson as C-52.** The first RED had
+`t_start=0.0`, so `time.time() - t_start > budget_s` tripped instantly and every
+seeded person was skipped by the budget guard rather than by the code under
+test. It failed convincingly for the wrong reason. Check what a fixture's
+constants MEAN to the code, not just that the test is red.

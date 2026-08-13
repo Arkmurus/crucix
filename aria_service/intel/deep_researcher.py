@@ -777,6 +777,7 @@ async def _discover_and_investigate_people(
     llm: LLMProvider, topic: str, all_facts: list[dict],
     *, max_people: int, t_start: float, budget_s: float,
     seed_people: list | None = None,
+    disclosures: list[str] | None = None,   # R-F3966 (C-55) — failure sink
 ) -> list[dict]:
     """R-F1812/R-F1823 — investigate NAMED INDIVIDUALS (PEP/sanctions/adverse-media)
     via a bounded, time-guarded recursive investigate_person. Candidates come from
@@ -787,6 +788,31 @@ async def _discover_and_investigate_people(
     Each person costs ~7 searches, so it is capped + budget-skipped."""
     if max_people <= 0:
         return []
+
+    # R-F3966 (C-55) — every failure below used to be a bare logger.debug, so a
+    # person who could not be investigated was indistinguishable from a person
+    # who does not exist. `disclosures` is an optional sink so existing callers
+    # are unaffected; `investigate()` passes one and surfaces it on the result
+    # as `people_disclosures`, which dd_orchestrator._surface_research_disclosures
+    # already renders. Reusing that channel rather than inventing a second one is
+    # deliberate — the sibling investigate() path has disclosed this way since
+    # R-F3259, and the person path was simply never given the same wire.
+    def _disclose(msg: str, *, module: str) -> None:
+        if disclosures is not None:
+            disclosures.append(msg)
+        # §21a: success AND failure reach the brain. record_gap is deduped 1h
+        # (R-F66), so a persistently dead extractor files one gap an hour rather
+        # than one per person per DD.
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module=module,
+                detail=msg[:300],
+                gap_type="engine_failure",
+                source="deep_researcher._discover_and_investigate_people:R-F3966",
+            )
+        except Exception:
+            pass
 
     candidates: list[dict] = []
     # (1) Seed names the caller already knows (registry/contacts) — high priority.
@@ -815,7 +841,17 @@ async def _discover_and_investigate_people(
                     candidates.append({"name": nm,
                                        "role": (p.get("role") or "") if isinstance(p, dict) else ""})
         except Exception as _e:
+            # R-F3966 (C-55) §21a — this was logger.debug ONLY, so an LLM outage
+            # made the report say "zero named individuals" for an entity whose
+            # board is public, with nothing anywhere recording that the extractor
+            # never ran.
             logger.debug("person-extraction failed: %s", _e)
+            _disclose(
+                f"the named-individual extractor did NOT run "
+                f"({type(_e).__name__}: {str(_e)[:120]}) — the absence of named "
+                f"people below is NOT a finding that none exist",
+                module="deep_researcher.person_extraction",
+            )
 
     seen_names: set[str] = set()
     out: list[dict] = []
@@ -833,7 +869,18 @@ async def _discover_and_investigate_people(
         try:
             dossier = await investigate_person(llm, name, context=topic)
         except Exception as _e:
+            # R-F3966 (C-55) §21a — `continue` DROPS the person entirely. For a
+            # seed_people name that is a director the registry handed us
+            # (R-F1823), so a known officer vanished from the report with only a
+            # debug line. Name them: a disclosure the reader cannot act on is
+            # not a disclosure.
             logger.debug("investigate_person(%s) failed: %s", name, _e)
+            _disclose(
+                f"could not investigate named individual '{name}' "
+                f"({type(_e).__name__}: {str(_e)[:120]}) — this person is "
+                f"MISSING from the people section below, not absent from the entity",
+                module="deep_researcher.investigate_person",
+            )
             continue
         out.append({"name": name, "role": p.get("role", ""), "dossier": dossier})
     return out
@@ -1405,6 +1452,9 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         _person_budget_s if _t_deadline is None
         else min(_person_budget_s, (time.time() - t_start) + _person_avail)
     )
+    # R-F3966 (C-55) — collects the drill-down's swallowed failures so they
+    # reach the report instead of a debug log.
+    _people_disclosures: list[str] = []
     if (_is_entity_dd or seed_people) and investigate_people > 0 and _t_deadline is not None \
             and _person_avail < _person_min_s:
         _mark_partial("person drill-down (skipped — insufficient remaining budget)")
@@ -1413,6 +1463,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             llm, topic, all_facts,
             max_people=investigate_people, t_start=t_start, budget_s=_person_budget_effective,
             seed_people=seed_people,
+            disclosures=_people_disclosures,   # R-F3966 (C-55)
         )
         if people:
             logger.info("R-F1812: investigated %d named individual(s) for '%s'", len(people), topic[:60])
@@ -1674,6 +1725,9 @@ Return JSON:
         "facts": all_facts,
         "synthesis": synthesis,
         "people": people,  # R-F1812: structured per-person dossiers (recursive DD)
+        # R-F3966 (C-55) — WHY the people list is short (or empty).
+        # _surface_research_disclosures renders these as data gaps.
+        "people_disclosures": _people_disclosures,
         "username_enumeration": _username_results,  # R-F1828: maigret social profile discovery
         "verification_summary": verification_summary,
         "duration_ms": duration,
