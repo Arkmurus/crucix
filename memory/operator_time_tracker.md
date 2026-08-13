@@ -1316,3 +1316,86 @@ failure; and the two sanctions matching weaknesses named at the end of C-48.
 
 **Operator action outstanding:** Anthropic credits — unchanged, DD stays down until
 topped up. OpenSanctions still needs nothing; verified answering again this session.
+
+---
+
+## Session 2026-08-13 (part 3) — Anthropic restored, five more defects, and what is still open
+
+**Shipped this part:** R-F3961 (docs), R-F3963/R-F3964 (C-52/C-53), R-F3965
+(C-54, with the peer), R-F3966 (C-55), R-F3968 (C-57). Session total: **11
+defects fixed across C-43..C-57**, all fixture-first, all live or in flight.
+
+### Anthropic: verified restored, and DD verified on Claude
+
+Probed from inside the machine: `POST api.anthropic.com/v1/messages` → HTTP 200
+with real token usage. Cooldown `was_cooling: false` (R-F3685's `_probe_recovery`
+had already released it on evidence). Config correct: `ARIA_PREFERENCE_ONLY_PROVIDERS`
+UNSET, `ARIA_NON_DEGRADING_PINS=anthropic`, `ARIA_DD_LLM_PROVIDER` UNSET,
+`rule_one.breached: false`, `brave_non_dd_grants: 0`. Spend $86.75 of $600.
+
+**Only `mode=deep` puts DD on Claude** — quick (227s) and standard (304s) both
+left the Anthropic counter at exactly 614; deep (448s, HTTP 200, 131 KB, verdict
+RED) moved it to 648 / `$39.5380`, i.e. **`$0.435` per deep DD**. Model split is
+the intended one: Opus for the heavy work, Haiku for cheap subtasks via
+`tier_router`.
+
+**I nearly filed a P0 that did not exist.** After quick and standard both left
+the counter unmoved I had drafted "DD IS NOT REACHING CLAUDE" into CLAUDE.md.
+Every static check agreed — env pins right, R-F3087's raise absent from the
+logs, 75 green pin-contract tests — and all of it was equally consistent with
+"the pin is broken" and "the pin was never exercised". Only a mode that actually
+calls the LLM distinguishes them. §17 now says to verify DD routing with a deep
+run and a counter diff, never from standard mode or `/health`.
+
+### The lesson that repeated three times: a red test can be red for the wrong reason
+
+**Three invalid fixtures in one session**, each convincing:
+- **C-52** hand-inserted into `entries`, but the candidate pre-filter searches
+  `aliases` — no candidate was ever fetched, so every case failed for a reason
+  unrelated to containment. Fixed by seeding through the real
+  `store.replace_source` path.
+- **C-55** passed `t_start=0.0`, so `time.time() - t_start > budget_s` tripped
+  instantly and every seeded person was skipped by the budget guard rather than
+  by the code under test.
+- **C-57** used a worker parked on `Event.wait`, which `_PARKED_FRAMES` correctly
+  excludes — it failed because the filter was doing its job.
+
+RED is necessary and not sufficient. **Check what a fixture's constants MEAN to
+the code**, and where the fix is one line, re-establish RED by reverting that
+line against the corrected fixture (done for C-52: 2 failed / 7 passed).
+
+### Two things a second reader caught that I did not
+
+The peer agent fixed a month-rollover bug inside my own C-54 fix (my `except`
+carried the previous month's total into the new month on a dead store), and
+R-F3464's existing tests rejected my first C-57 attempt — excluding "the caller"
+rather than the registered sampler blinded the profiler to the loop thread. In
+both cases the existing artefact was RIGHT and my change was wrong. Neither was
+weakened to make anything pass.
+
+### Register hygiene
+
+The defect-register gate blocked two commits for duplicate C-numbers (C-52/C-53
+and C-54), because the peer and I documented the same fixes concurrently. §26a
+working exactly as designed. Both resolved by merging to ONE entry per number —
+never by renumbering or deleting the other account.
+
+### STILL OPEN — nothing here is fixed, and it is not claimed to be
+
+- **07 self-coder 0-of-19,097** and **10 crawler gap flood** (the loop that feeds
+  it). Root is a scheduling mismatch — ~240 gaps/hr fed into a 6/hr budget — NOT
+  a limit to bump. The crawler refusal emitter was not located by grep; it needs
+  the live gap-ledger text to pin the file.
+- **09 learning grader** (Jaccard cannot pass; unclamped EWMA) — gate #2.
+- **11 the ~2 GB/min knowledge rewrite.**
+- **14 Node-tier delivery wires** — email, Telegram, ARIA Network DM reply, and
+  the non-streaming `/chat` twin. 424 of 450 catch sites never reach the brain.
+  Node tier, so it needs its own deploy workflow.
+- **15 the DeepSeek escalation that never completes.** See
+  [[reasoning-truncation-retry-trap]] — the obvious fix converts a curable error
+  into an uncurable one. Needs the provider's reasoning-parameter surface first.
+- **Sanctions stopword discriminative power** ('Aviation Industry Corporation' →
+  'aviation'). Recall/precision, not a false clean.
+
+**The full suite was NOT run this session.** Every claim above is a subset run,
+and each is named where it appears.
