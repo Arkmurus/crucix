@@ -558,7 +558,7 @@
     },
     {
       "c_number": "C-53",
-      "title": "an entirely-generic company name normalises to empty and screens CLEAR",
+      "title": "an entirely-generic sanctions name reports a false store-failure reason",
       "claimed_at": "2026-08-13T17:50:14Z",
       "claimed_by": "claude",
       "status": "closed",
