@@ -143,20 +143,75 @@ GNEWS_API_KEY = (os.getenv("GNEWS_API_KEY") or os.getenv("GNEWS_KEY") or "").str
 # which propagates through asyncio to every downstream search() in that request — while
 # the autonomous loop, running in its own background task tree, never sets it.
 import contextvars as _contextvars
-_BRAVE_CTX: "_contextvars.ContextVar[bool]" = _contextvars.ContextVar("aria_brave_enabled", default=False)
+# R-F3946 — the scope carries WHY it was opened, not merely THAT it was.
+# RULE ONE confines Brave to DD reports. Enforcing that by curating which routes
+# carry @_brave_scope is whack-a-mole: eight routes had it (including POST /chat),
+# and the ninth added next month re-opens the breach silently. A purpose makes the
+# policy enforceable at ONE decision point — brave_is_enabled() — so a caller that
+# does not declare DD does not get Brave, wherever it lives.
+# "" means "no scope"; the old bool True is representable only as a purpose now.
+_BRAVE_CTX: "_contextvars.ContextVar[str]" = _contextvars.ContextVar("aria_brave_purpose", default="")
+
+# The purposes RULE ONE permits. Deliberately NOT env-overridable: an exception
+# that can be switched on without a deploy is not a rule, it is a default — and
+# the Anthropic half of this same rule was broken for days by exactly such an
+# override being set to the empty string (R-F3942).
+_DD_BRAVE_PURPOSES = frozenset({"dd"})
+
+# Falsifiable counters. `non_dd_grants` must stay 0 while the gate holds; it is
+# the half that can actually FAIL, which is what stops this from being a guard
+# certified by its own construction (R-F3858).
+_BRAVE_POLICY_COUNTERS = {"non_dd_scope_refused": 0, "dd_grants": 0, "non_dd_grants": 0}
 # Global hard kill-switch (ops): ARIA_BRAVE_DISABLED=1 forces the free stack everywhere.
 _BRAVE_GLOBALLY_OFF = (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes")
 
 
-def enable_brave_for_scope(on: bool = True) -> _contextvars.Token:
+def is_dd_brave_purpose(purpose: str | None) -> bool:
+    """R-F3946 — does this scope purpose satisfy RULE ONE? One predicate, one policy."""
+    return str(purpose or "").strip().lower() in _DD_BRAVE_PURPOSES
+
+
+def brave_policy_status() -> dict:
+    """R-F3946 — the Brave half of RULE ONE, MEASURED.
+
+    `rule_one_status()` in llm/fallback.py states a two-clause rule ("anthropic
+    ... as well as for brave API") and measured only the first clause, so
+    production reported `breached: false` while the second was broken
+    continuously. This is the missing half.
+
+    `non_dd_grants` is the falsifiable field: it counts occasions where a non-DD
+    scope actually RECEIVED Brave. It must be 0.
+    """
+    return {
+        "confined_to_dd": True,
+        "dd_purposes": sorted(_DD_BRAVE_PURPOSES),
+        "key_present": bool(BRAVE_API_KEY),
+        "globally_disabled": bool(_BRAVE_GLOBALLY_OFF),
+        **_BRAVE_POLICY_COUNTERS,
+    }
+
+
+def reset_brave_usage_counters() -> None:
+    """Test hook — zero the policy counters so assertions are order-independent."""
+    for k in _BRAVE_POLICY_COUNTERS:
+        _BRAVE_POLICY_COUNTERS[k] = 0
+
+
+def enable_brave_for_scope(on: bool = True, *, purpose: str = "") -> _contextvars.Token:
     """Enable Brave as the primary search backend for the CURRENT async context and
     everything it awaits/spawns. Call at user-facing entry points (DD / deep-research /
     chat search). The continuous researcher never calls this → stays on the free stack.
 
     R-F3087: return the ContextVar token so long-lived caller tasks can restore their
     previous state.  Without restoration, an autonomous task that ran one DD kept the
-    paid Brave path enabled for unrelated searches later in the same task."""
-    return _BRAVE_CTX.set(bool(on))
+    paid Brave path enabled for unrelated searches later in the same task.
+
+    R-F3946 — `purpose` is now load-bearing. RULE ONE confines Brave to DD, so a
+    scope opened without a DD purpose is opened but NOT honoured. Omitting it is
+    deliberately the safe direction: every existing non-DD caller (the eight
+    @_brave_scope routes, the student loop) keeps compiling and stops spending.
+    """
+    return _BRAVE_CTX.set(str(purpose or "") if on else "")
 
 
 def reset_brave_scope(token: _contextvars.Token) -> None:
@@ -201,9 +256,21 @@ def brave_is_enabled() -> bool:
     if _BRAVE_GLOBALLY_OFF or not BRAVE_API_KEY:
         return False
     try:
-        return bool(_BRAVE_CTX.get())
+        _purpose = _BRAVE_CTX.get()
     except Exception:
         return False
+    if not _purpose:
+        return False
+    # ── R-F3946 — RULE ONE, enforced at the ONE decision point. ──────────────
+    if not is_dd_brave_purpose(_purpose):
+        # Expected and frequent: chat/explore open a scope on every request.
+        # COUNTED, never wired as a gap — a per-refusal gap would be a
+        # self-sustaining flood of the exact kind that has already filled the
+        # 500-slot capability ledger and starved the self-coder of real work.
+        _BRAVE_POLICY_COUNTERS["non_dd_scope_refused"] += 1
+        return False
+    _BRAVE_POLICY_COUNTERS["dd_grants"] += 1
+    return True
 
 
 def mask_brave_source(results: list) -> None:

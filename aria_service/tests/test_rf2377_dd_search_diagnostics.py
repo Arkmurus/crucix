@@ -11,7 +11,8 @@ from aria_service.intel.web_search import SearchResult
 def test_search_health_surfaces_brave_search_gate(monkeypatch):
     monkeypatch.setattr(web_search, "BRAVE_API_KEY", "test-key", raising=False)
     monkeypatch.setattr(web_search, "_BRAVE_GLOBALLY_OFF", False, raising=False)
-    web_search.enable_brave_for_scope(True)
+    # R-F3946 — a DD-purpose scope is what "scope_enabled" now means.
+    web_search.enable_brave_for_scope(True, purpose="dd")
 
     out = asyncio.run(web_search.get_search_health())
 

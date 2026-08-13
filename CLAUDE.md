@@ -300,12 +300,45 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
     * `ARIA_NON_DEGRADING_PINS=anthropic` — keep. R-F3767 split the two flags so the
       DD pin survives independently; this is the half that must never be cleared.
     * `ARIA_STUDENT_BRAVE_BUDGET=0` — the student loop's Pass-2 Brave escalation was
-      the matching Brave leak (§27e used to bless it at ≤3/session). Rule One
-      supersedes that. Brave is DD-only.
+      *a* Brave leak (§27e used to bless it at ≤3/session). Rule One supersedes that.
+      **It was never the only leak, and the budget knob never governed the big one**
+      — see R-F3946 below.
     * `/health` → `active_providers: ["deepseek","deepseek_backup"]` with **anthropic
-      absent from the list entirely**. That absence IS the check — if Claude ever
-      appears in `active_providers` or `cooling_providers`, it is back in the general
-      chain and Rule One is broken.
+      absent from the list entirely**. That absence is the check **for the Anthropic
+      half ONLY** — if Claude ever appears in `active_providers` or
+      `cooling_providers`, it is back in the general chain and Rule One is broken.
+
+- 🔴 **R-F3946 / C-40 (2026-08-13) — the BRAVE half of RULE ONE was NEVER ENFORCED,
+  and `rule_one.breached=false` was a half-measure that got believed.**
+  `rule_one_status()` states a two-clause rule ("anthropic … as well as for brave
+  API") and measured **only** `"anthropic" in preference_only_providers()`. Meanwhile
+  `@_brave_scope` decorated **EIGHT routes** in `routes/aria.py` — including
+  `POST /chat`, `/explore`, `/explore-deep`, `/research/spawn` — and
+  `brave_is_enabled()` consulted only a bool contextvar + key + kill-switch, with
+  **no DD gate anywhere**. So every general chat turn that searched spent the paid
+  DD key, while the health surface reported compliance. Live meter at discovery:
+  **65 Brave calls that month against a handful of DD reports.** A 2026-08-12
+  deep-diligence pass read `breached: false` and published "RULE ONE is holding" —
+  the half-measure was worse than no measure, because it was trusted.
+  **THE FIX IS A PURPOSE, NOT A ROUTE LIST.** Curating which routes carry the
+  decorator is whack-a-mole: the ninth route re-opens it silently. The scope now
+  carries WHY it was opened — `enable_brave_for_scope(True, purpose="dd")` — and the
+  policy is enforced at the ONE decision point, `brave_is_enabled()`. A caller that
+  does not declare a DD purpose does not get Brave, wherever it lives.
+  `_DD_BRAVE_PURPOSES` is deliberately **not env-overridable**: an exception you can
+  switch on without a deploy is not a rule, and the Anthropic half of this same rule
+  was broken for days by exactly such an override being set to `""` (R-F3942).
+  **DD is unaffected** — it opens its own `purpose="dd"` scope in `dd_orchestrator`
+  (`:14981`, `:14564`) and never depended on the decorator. The eight decorators are
+  KEPT (their R-F3087 restoration contract is still live and tested) but now grant
+  nothing; the docstring says so.
+  **New check, and it is falsifiable:** `/health` → `rule_one.brave_confined_to_dd`
+  (tri-state — `null` means COULD NOT MEASURE, never "compliant") and
+  `rule_one.brave_non_dd_grants`, which **must be 0**. A non-DD *refusal* is normal
+  and merely counted (chat opens a scope on every request); a non-DD **grant** is a
+  live breach and flips `breached` on its own. Refusals are deliberately NOT wired as
+  gaps — a per-refusal gap would be the self-sustaining flood that has already filled
+  the 500-slot capability ledger.
 - ⚠️ **Anthropic billing: CREDITS EXHAUSTED as of 2026-08-12 — OPERATOR ACTION.**
   Supersedes the 2026-08-11 "billing is HEALTHY" reading, which was true when written.
   Probed directly from inside the machine: HTTP 400,
@@ -341,6 +374,41 @@ Always surface, never silently retry:
   - **Screening does NOT go dark.** R-F3529 made the local canonical lists the FLOOR beneath OpenSanctions — consulted ONLY when OpenSanctions cannot answer, so the healthy path is unchanged. Live-proven on the real DD path with the quota still spent: `/api/aria/sanctions/rca?name=Rosoboronexport` → `screened=True, blocked=True`, matched `JSC ROSOBORONEXPORT | eu_consolidated | kind=local_canonical`. Local store held **24,953 rows** at close.
   - **What IS lost** while the quota is spent: OpenSanctions' ~200-list breadth. OFAC/EU coverage continues locally.
   - **Status surface:** `GET /api/aria/sanctions/source/status` — reports quota state, whether the local store can cover, and the operator action. `screening_available` is tri-state and is never `True` when both sources are down.
+  - 🔴 **R-F3945 / C-39 (2026-08-13) — while the quota was spent, the DD stamped
+    EIGHT NEVER-SEARCHED LISTS AS `CLEAN`. Fixed; do not undo it.** The floor above
+    keeps screening alive, but it holds exactly **`ofac_sdn` + `eu_consolidated`**,
+    and `derive_verified_sources` was BINARY: given `screen_succeeded=True` it
+    stamped **all ten** canonical sources `status: CLEAN, via:
+    "opensanctions_aggregate"` — attributing the clearance to the aggregator that
+    had just refused us. OFAC NS-CMIC, OFAC SSI, BIS Entity List, BIS Military End
+    User, UK OFSI/HMT, UN SC Consolidated, NDAA §1260H and DoD §1233 were reported
+    clean without being queried, **for the 13 days the quota had been spent**.
+    R-F287's premise was right WHEN WRITTEN ("OpenSanctions is an aggregator, a
+    clean response means all underlying sources were queried"); R-F3529 later added
+    a fallback that is **not** an aggregator and this function was never revisited.
+    The escape hatch already existed — `unavailable_sources` — and had **NO CALLER
+    IN THE TREE**, while `dd_orchestrator.py:3406` hardcoded `screen_succeeded=True`.
+    A guard that could not fire: the §1 "certified by an absence" shape, on the
+    product's highest-stakes output.
+    **The fix is PROVENANCE, not a new list.** `fuzzy_screen` now ALWAYS emits
+    `coverage: {mode, sources_consulted}` — always, including on the healthy path,
+    because a block that appears only on failure cannot describe the dangerous case
+    (a screen that SUCCEEDED against a narrower source set than the verdict implies).
+    `_sanctions_classify._coverage_split()` is the ONE computation; pass the screen
+    itself as `derive_verified_sources(..., screen=screen)` and both halves are
+    derived there — deliberately one argument, because two co-dependent sets is how
+    the next call site passes only one. Source ids come from the loader registry
+    (`sanctions_canonical.lookup._expected_sources`), never a literal, so a third
+    loader cannot silently rot the claim.
+    **Absence rules are load-bearing:** no `coverage` key → legacy full-aggregate
+    meaning (this fix must not retroactively rewrite older results); floor mode with
+    an EMPTY consulted list → **everything unavailable**, i.e. fail CLOSED, because
+    an undeterminable registry is never full coverage.
+    **Expect `UNAVAILABLE` rows in live DD reports until OpenSanctions is restored —
+    that is the fix working, not a regression.** Do not "tidy" them back to CLEAN.
+    §21a: the degraded state announces **once per process** (`gap_type:
+    sanctions_coverage_degraded`), not per screen — every screen is degraded while
+    the quota is spent, so a per-screen gap would be another ledger-filling flood.
   - **Do NOT "fix" a `quota_exhausted` reading by collapsing it back to `rate_limit`.** That was the original defect: both were reported as `rate_limit`, so the DD obstacle line told the reader ARIA was going too fast when the plan was simply spent — a wrong cause pointing at a wrong fix. And note the R-F469 breaker does **not** churn at 300s: R-F1834 already backs it off exponentially to a 24h cap (I claimed otherwise mid-change and was wrong).
 
 Resolved / declined items (kept here as the audit trail — DO NOT re-add to the pickup list):

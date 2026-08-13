@@ -2740,3 +2740,99 @@ additive: `success_rate` stays numeric because this module's own tests pin it.
 
 Worth recording that the residual surfaced from *reading the live verification output*
 rather than from the tests — the same way most of this sweep's real findings did.
+
+
+## C-39 · the DD stamped never-searched sanctions lists as CLEAN (R-F3945)
+
+**Found by** a full-ecosystem diligence sweep, 2026-08-12, from live production
+evidence rather than from the tests. **Severity: the worst class this product has** —
+a false clean on a compliance verdict, live for 13 days.
+
+OpenSanctions' monthly plan quota has been spent since `2026-07-31T23:04:22Z`, so
+R-F3529's local canonical floor serves every screen. That floor holds exactly two
+sources — `ofac_sdn` and `eu_consolidated`. `derive_verified_sources` was binary:
+given `screen_succeeded=True` it stamped **all ten** canonical sources
+`status: CLEAN, via: "opensanctions_aggregate"`. Eight lists nothing had queried —
+OFAC NS-CMIC, OFAC SSI, BIS Entity List, BIS Military End User, UK OFSI/HMT, UN SC
+Consolidated, NDAA §1260H, DoD §1233 — were reported clean to the customer, credited
+to the aggregator that had refused us.
+
+**The premise expired; nobody revisited it.** R-F287's reasoning was correct when
+written: OpenSanctions *is* an aggregator, so a clean response really does mean the
+underlying sources were queried. R-F3529 then introduced a fallback that is not an
+aggregator. The parameter that could have expressed this — `unavailable_sources` —
+existed and had **no caller anywhere in the tree**, while `dd_orchestrator.py:3406`
+hardcoded `screen_succeeded=True`. A guard that could not fire, which is the "certified
+by an absence" shape CLAUDE.md §1 already records three times for the Phase A gates.
+
+**Fixed by provenance, not by a second list.** `fuzzy_screen` always emits
+`coverage: {mode, sources_consulted}` — *always*, because a block that appears only on
+failure cannot describe the dangerous case, which is the screen that SUCCEEDED against
+a narrower source set than its verdict implies. `_coverage_split()` is the one
+computation behind `unavailable_sources_for()` / `locally_covered_sources_for()`, so
+the three call sites cannot drift the way the two phase-gate aggregators did.
+`derive_verified_sources(..., screen=screen)` takes one argument, not two co-dependent
+sets — two is how the next call site passes only one, and that failure mode (a CLEAN
+row attributed to an aggregate that never ran) is quieter than the bug being fixed.
+Source ids come from the loader registry, never a literal.
+
+Absence handling is the load-bearing part: no `coverage` key keeps the legacy
+full-aggregate meaning, so the fix cannot retroactively rewrite older results; floor
+mode with an empty consulted list marks **everything** unavailable, because an
+undeterminable registry is not full coverage.
+
+Expect `UNAVAILABLE` rows in live reports until OpenSanctions is restored. That is the
+fix working. The degraded state announces once per process, not per screen — every
+screen is degraded while the quota is spent, and a per-screen gap would be another
+flood of the kind already filling the 500-slot capability ledger.
+
+Fixture-first: `test_rf3945_sanctions_coverage_provenance.py`, 7 tests, RED before the
+fix (the two symptom tests asserted CLEAN where UNAVAILABLE was required) and GREEN
+after, driving the real `fuzzy_screen` with OpenSanctions stubbed at its true seam.
+
+
+## C-40 · RULE ONE's Brave half was unenforced, and the surface reporting it checked only the other half (R-F3946)
+
+**Found by** the same sweep — and it is the finding that corrected the sweep's own
+published conclusion. The first version of that report listed "RULE ONE is holding"
+under *verified healthy*, on the strength of the live `rule_one: {breached: false}`.
+
+`rule_one_status()` states a two-clause rule — "anthropic API calls must be only
+active on DD reports … as well as for brave API" — and measured only
+`"anthropic" in preference_only_providers()`. The Brave clause had no enforcement at
+all: `@_brave_scope` decorated **eight** routes including `POST /chat`, `/explore`,
+`/explore-deep` and `/research/spawn`, and `brave_is_enabled()` consulted a bool
+contextvar, a key and a kill-switch, with no DD gate. Every general chat turn that
+searched spent the paid DD key. Live meter at discovery: 65 Brave calls in the month
+against a handful of DD reports.
+
+`ARIA_STUDENT_BRAVE_BUDGET=0` did exactly what CLAUDE.md §27e says — and only ever
+governed the student loop, which was never the large leak.
+
+**A half-measure reporting a whole rule is worse than no measure, because it is
+believed.** That is the generalisable lesson here, and it is the same failure mode as
+the three Phase A gates: the instrument, not the subject, was the defect.
+
+**Fixed with a purpose, not a route list.** Curating which routes carry the decorator
+is whack-a-mole — the ninth route re-opens the breach silently. The scope now carries
+why it was opened, and the policy is enforced at the single decision point. A caller
+that does not declare a DD purpose does not get Brave, wherever it lives. Omitting the
+purpose is deliberately the safe direction, so every existing non-DD caller keeps
+compiling and stops spending. `_DD_BRAVE_PURPOSES` is not env-overridable: an exception
+switchable without a deploy is not a rule, and the Anthropic half of this same rule was
+broken for days by exactly such an override set to `""` (R-F3942).
+
+DD is unaffected — it opens its own `purpose="dd"` scope and never depended on the
+decorator. The eight decorators are kept, because their R-F3087 restoration contract is
+still live and tested; their docstring now states that they grant nothing.
+
+The new measurement is falsifiable, which the old one was not:
+`rule_one.brave_confined_to_dd` is tri-state (`null` = could not measure, never
+"compliant") and `brave_non_dd_grants` must be 0 — a non-DD *refusal* is normal and
+merely counted, a non-DD *grant* is a live breach and flips `breached` on its own.
+Refusals are counted rather than wired as gaps, for the ledger-flood reason above.
+
+Fixture-first: `test_rf3946_rule_one_brave_confined_to_dd.py`, 13 tests, RED before the
+fix and GREEN after. Four pre-existing test files asserted the old contract and were
+re-expressed rather than deleted — including `test_rf3087` where the route-decorator
+expectation is now inverted with a message naming what a `[True]` reading would mean.

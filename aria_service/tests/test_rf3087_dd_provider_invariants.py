@@ -80,7 +80,7 @@ async def test_orchestrate_resolves_live_llm_and_scopes_both_providers(
         "brave": True,
         "provider": "anthropic",
     }
-    assert web_search._BRAVE_CTX.get() is False, (
+    assert web_search._BRAVE_CTX.get() == "", (      # R-F3946 — "" is no-scope
         "the paid Brave scope leaked beyond the DD run"
     )
     assert fallback.get_preferred_provider() == "", (
@@ -125,11 +125,11 @@ def test_brave_scope_token_restores_nested_state(
     monkeypatch.setattr(web_search, "BRAVE_API_KEY", "live-shaped-test-key")
     web_search.enable_brave_for_scope(False)
 
-    token = web_search.enable_brave_for_scope(True)
+    token = web_search.enable_brave_for_scope(True, purpose="dd")  # R-F3946
     assert web_search.brave_is_enabled() is True
     web_search.reset_brave_scope(token)
 
-    assert web_search._BRAVE_CTX.get() is False
+    assert web_search._BRAVE_CTX.get() == ""   # R-F3946 — "" is no-scope
 
 
 @pytest.mark.asyncio
@@ -138,7 +138,17 @@ async def test_route_brave_scope_restores_on_every_exit(
     monkeypatch: pytest.MonkeyPatch,
     raises: bool,
 ) -> None:
-    """The user-facing route decorator cannot leak Brave after return/error."""
+    """The user-facing route decorator cannot leak Brave after return/error.
+
+    R-F3946 — the RESTORATION invariant this guards is unchanged and is still
+    asserted below. What changed is the grant: the decorator opens a scope with
+    NO purpose, and RULE ONE confines Brave to DD, so the handler must now see
+    Brave OFF. That inversion is the point of C-40 — these eight routes
+    (POST /chat, /explore, /explore-deep, /research/spawn, ...) were spending
+    the paid DD key on general traffic. DD is unaffected: it opens its own
+    purpose="dd" scope in dd_orchestrator, which the two tests either side of
+    this one cover.
+    """
     from aria_service.routes.aria import _brave_scope
 
     monkeypatch.setattr(web_search, "BRAVE_API_KEY", "live-shaped-test-key")
@@ -158,8 +168,11 @@ async def test_route_brave_scope_restores_on_every_exit(
     else:
         assert await _handler() == "ok"
 
-    assert observed == [True]
-    assert web_search._BRAVE_CTX.get() is False
+    assert observed == [False], (
+        "R-F3946 — a non-DD route must NOT receive Brave. If this reads [True] "
+        "again, RULE ONE's Brave half has been re-opened."
+    )
+    assert web_search._BRAVE_CTX.get() == ""   # R-F3946 — "" is no-scope
 
 
 @pytest.mark.asyncio
@@ -198,7 +211,7 @@ async def test_detached_adverse_followup_restores_brave_scope(
     )
 
     assert observed == [True]
-    assert web_search._BRAVE_CTX.get() is False
+    assert web_search._BRAVE_CTX.get() == ""   # R-F3946 — "" is no-scope
 
 
 @pytest.mark.asyncio

@@ -1936,6 +1936,12 @@ async def _run_identity_person(
     # matching hundreds of unrelated sanctioned individuals named Ali).
     all_matches: list = []
     screened_variants: list[str] = []
+    # R-F3945 — coverage, accumulated across variants and FAIL-CLOSED: a
+    # canonical list counts as searched only if EVERY screened variant searched
+    # it. Variants are different spellings of the same subject, so a list that
+    # covered one spelling and not another has not cleared the subject.
+    _cov_unavailable: set = set()
+    _cov_local: set = set()
     try:
         from . import sanctions as _sanc
         from ._sanctions_classify import classify_matches as _cm
@@ -2003,6 +2009,13 @@ async def _run_identity_person(
                     _unavailable_variants.append(variant)
                     continue
                 screened_variants.append(variant)
+                # R-F3945 — union the gaps, intersect nothing away.
+                from ._sanctions_classify import (
+                    locally_covered_sources_for as _lcs,
+                    unavailable_sources_for as _uns,
+                )
+                _cov_unavailable |= _uns(_scr)
+                _cov_local |= _lcs(_scr)
                 _matches = _scr.get("matches") or []
                 # Tag each match with which variant surfaced it for audit
                 for _m in _matches:
@@ -2039,7 +2052,13 @@ async def _run_identity_person(
             "matches": all_matches,
             "variants_screened": screened_variants,
             "source_unavailable": _sanctions_unverified,
-            "verified_sources": _dvs(all_matches, screen_succeeded=_screen_ok),
+            "verified_sources": _dvs(
+                all_matches, screen_succeeded=_screen_ok,
+                # R-F3945 — explicit sets: this path aggregates MANY screens, so
+                # there is no single `screen` dict to hand over.
+                unavailable_sources=_cov_unavailable,
+                covered_by_local=_cov_local - _cov_unavailable,
+            ),
             # R-F3031 — completes R-F3019. That change stamped `screened_at` inside
             # sanctions.fuzzy_screen(), but the DD does NOT use that dict: it builds
             # its own screen blob here from the raw matches. Proven live on
@@ -3403,7 +3422,14 @@ async def _rescreen_under_registered_name(
         return False
 
     matches = list(screen.get("matches") or [])
-    screen["verified_sources"] = derive_verified_sources(matches, screen_succeeded=True)
+    # R-F3945 — pass the SCREEN, not just its matches. `screen_succeeded=True`
+    # is correct here (this branch is reached only after the screen answered),
+    # but "it answered" never meant "it searched all ten canonical lists": with
+    # OpenSanctions quota-spent the R-F3529 local floor answers from OFAC+EU
+    # alone, and the other eight were being stamped CLEAN.
+    screen["verified_sources"] = derive_verified_sources(
+        matches, screen_succeeded=True, screen=screen,
+    )
     if not screen.get("screened_at"):
         screen["screened_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     # Preserve what the first pass covered, so the record shows every name screened
@@ -5691,6 +5717,7 @@ async def _run_identity(
         )
         screen["verified_sources"] = _dvs_co(
             _matches_for_dvs, screen_succeeded=_screen_ok_co,
+            screen=screen,      # R-F3945 — coverage provenance, see above
         )
 
         # R-F740 (2026-05-20) — explicit UK OFSI primary-source check
@@ -14561,7 +14588,8 @@ async def _run_adverse_media_followup(
         try:
             from . import web_search as _ws_brave
             _followup_brave_module = _ws_brave
-            _followup_brave_token = _ws_brave.enable_brave_for_scope(True)
+            _followup_brave_token = _ws_brave.enable_brave_for_scope(
+                True, purpose="dd")   # R-F3946 — RULE ONE
         except Exception:
             pass
     # R-F3093 — 180s bought 12 of 48 query templates on the live Mitie run, and the
@@ -14978,7 +15006,8 @@ async def orchestrate_dd(
         try:
             from . import web_search as _ws_brave
             _dd_brave_module = _ws_brave
-            _dd_brave_token = _ws_brave.enable_brave_for_scope(True)
+            _dd_brave_token = _ws_brave.enable_brave_for_scope(
+                True, purpose="dd")   # R-F3946 — RULE ONE
         except Exception:
             pass
 

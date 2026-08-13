@@ -998,12 +998,29 @@ async def dd_evidence_get_ep(evidence_id: str, tenant_id: str):
 
 
 def _brave_scope(fn):
-    """R-F2318 — enable Brave as the PRIMARY search backend for the wrapped
-    user-facing handler's async context (DD / research / user search). Sets the
-    web_search context flag BEFORE the handler body, so it propagates through every
-    downstream gather()/create_task() to search(). Applied ONLY to user-facing
-    endpoints — NEVER to the autonomous loops (research_auto_ep / student /
-    _research_loop), which therefore stay on the free stack. Best-effort."""
+    """R-F2318 — open a search scope for the wrapped user-facing handler.
+
+    ⚠️ R-F3946 — THIS NO LONGER GRANTS BRAVE, and that is deliberate.
+
+    RULE ONE (operator, 2026-08-12, CLAUDE.md §17) confines Brave to DD reports.
+    This decorator sits on EIGHT routes — including `POST /chat`, `/explore`,
+    `/explore-deep` and `/research/spawn` — so while it granted Brave, every
+    general chat turn that searched was spending the paid DD key. Measured: 65
+    Brave calls in a month against a handful of DD reports, while
+    `rule_one_status()` reported `breached: false` because it only ever checked
+    Anthropic.
+
+    The scope now carries a PURPOSE and this one declares none, so
+    `web_search.brave_is_enabled()` refuses it. DD is unaffected — it opens its
+    own `purpose="dd"` scope in dd_orchestrator and never depended on this
+    decorator (see the R-F3087 invariants).
+
+    Kept rather than deleted from the eight routes because the R-F3087
+    restoration contract is still live and still tested, and because curating a
+    route list is the whack-a-mole this fix replaced: the policy is enforced at
+    one predicate now, so a ninth route cannot silently re-open the breach.
+    Best-effort.
+    """
     import functools as _ft
 
     @_ft.wraps(fn)

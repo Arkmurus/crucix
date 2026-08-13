@@ -216,11 +216,64 @@ _CANONICAL_SANCTIONS_SOURCES: dict[str, tuple[str, list[str]]] = {
 }
 
 
+def _coverage_split(screen: dict | None) -> tuple[set, set]:
+    """R-F3945 — (unavailable, covered_by_local) canonical source names.
+
+    THE ONE computation. `unavailable_sources_for()` and
+    `locally_covered_sources_for()` are thin readers of this, so the three
+    dd_orchestrator call sites cannot drift apart the way the two phase-gate
+    aggregators did (CLAUDE.md §1, R-F2639: "there is ONE measure now").
+
+    Reads `screen["coverage"]` written by `sanctions.fuzzy_screen`. Mapping is
+    by the EXISTING `_CANONICAL_SANCTIONS_SOURCES` slug table — `ofac_sdn` and
+    `eu_consolidated` are already listed there — so this adds no second list to
+    keep in step with the first.
+
+    ABSENCE RULES, and they are the load-bearing part:
+      * no `coverage` key  → a legacy/full-aggregate result. Returns EMPTY, i.e.
+        the historical meaning. This fix must not retroactively rewrite the
+        reading of results produced before it shipped.
+      * mode `local_canonical_floor` with an EMPTY consulted list → the loader
+        registry could not be determined, so NOTHING is known to be covered and
+        everything is unavailable. Fails CLOSED: an undeterminable registry is
+        never full coverage.
+    """
+    cov = (screen or {}).get("coverage")
+    if not isinstance(cov, dict):
+        return set(), set()                     # legacy shape — unchanged meaning
+    mode = str(cov.get("mode") or "")
+    if mode == "opensanctions_aggregate":
+        return set(), set()                     # the aggregate covers all of them
+    if mode not in ("local_canonical_floor", "none"):
+        return set(), set()                     # unknown mode — do not invent a claim
+    consulted = {str(s).strip().lower() for s in (cov.get("sources_consulted") or [])}
+    unavailable: set = set()
+    local: set = set()
+    for src_name, (_label, slugs) in _CANONICAL_SANCTIONS_SOURCES.items():
+        if consulted and any(slug in consulted for slug in slugs):
+            local.add(src_name)
+        else:
+            unavailable.add(src_name)
+    return unavailable, local
+
+
+def unavailable_sources_for(screen: dict | None) -> set:
+    """Canonical sources this screen did NOT search. Feed to derive_verified_sources."""
+    return _coverage_split(screen)[0]
+
+
+def locally_covered_sources_for(screen: dict | None) -> set:
+    """Canonical sources cleared by the LOCAL store rather than the aggregate."""
+    return _coverage_split(screen)[1]
+
+
 def derive_verified_sources(
     matches: list[dict],
     *,
     screen_succeeded: bool = True,
     unavailable_sources: set | frozenset | None = None,
+    covered_by_local: set | frozenset | None = None,
+    screen: dict | None = None,
 ) -> dict[str, dict]:
     """Per-canonical-source verification status for the DD report.
 
@@ -248,6 +301,19 @@ def derive_verified_sources(
           ...
         }
     """
+    # R-F3945 — ONE argument, not two. Pass the fuzzy_screen result as `screen`
+    # and both halves of the coverage split are derived here. Requiring callers
+    # to remember two co-dependent sets is how the next call site ends up
+    # passing one of them: the failure mode would be a CLEAN row attributed to
+    # an aggregate that never ran — quieter than the bug this fixes, and the
+    # same class. Explicit sets still win, for callers that already have them.
+    if screen is not None:
+        _u, _l = _coverage_split(screen)
+        if unavailable_sources is None:
+            unavailable_sources = _u
+        if covered_by_local is None:
+            covered_by_local = _l
+
     out: dict[str, dict] = {}
     if not screen_succeeded:
         # Whole screen failed → every canonical source is unavailable
@@ -274,6 +340,12 @@ def derive_verified_sources(
                              "via": "source_unavailable",
                              "match_count": 0, "matched_entities": []}
             continue
+        # R-F3945 — attribute a CLEAN to the screen that actually produced it.
+        # When the R-F3529 local floor served, "via: opensanctions_aggregate"
+        # named a source that had REFUSED us, which is why the over-claim was
+        # unauditable from the report alone.
+        _via = ("local_canonical" if src_name in (covered_by_local or ())
+                else "opensanctions_aggregate")
         hit_count = 0
         hit_entities: list[str] = []
         for m in matches_safe:
@@ -301,7 +373,7 @@ def derive_verified_sources(
             # produced it, so "OFAC SDN: CLEAN" is readable as "the OpenSanctions
             # aggregate queried its OFAC dataset and found nothing" rather than an
             # unattributed pass (the competitor's "Score 0" shape).
-            "via": "opensanctions_aggregate",
+            "via": _via,      # R-F3945 — names what actually ran
             "match_count": hit_count,
             "matched_entities": hit_entities[:5],  # cap renderer output
         }

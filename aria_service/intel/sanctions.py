@@ -1102,6 +1102,34 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
     }
 
 
+# R-F3945 — once-per-process latch for the coverage-degraded announcement.
+# Same shape as fallback._RULE_ONE_BREACH_ANNOUNCED, and for the same reason:
+# a standing platform condition must be said ONCE, not once per request.
+_COVERAGE_DEGRADED_ANNOUNCED = False
+
+
+def _canonical_floor_sources() -> list[str]:
+    """R-F3945 — the source ids the LOCAL canonical store actually holds.
+
+    Read from `sanctions_canonical.lookup._expected_sources()`, which derives
+    the list from the loader modules' own `SOURCE_ID` (R-F2373). Deliberately
+    NOT a literal here: a hardcoded copy is the hand-maintained list that rots
+    the moment a third loader is added, and it would rot SILENTLY toward the
+    unsafe answer (claiming coverage we no longer have).
+
+    Returns [] when the registry cannot be determined — which
+    `unavailable_sources_for()` reads as "nothing is known to be covered", i.e.
+    it fails CLOSED. An undeterminable registry must never render as full
+    coverage.
+    """
+    try:
+        from .sanctions_canonical.lookup import _expected_sources
+        return list(_expected_sources() or [])
+    except Exception as e:      # pragma: no cover - defensive
+        logger.debug("R-F3945 could not read the canonical loader registry: %s", e)
+        return []
+
+
 @fail_wire(module="sanctions", gap_type="source_failure")
 async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     """Comprehensive fuzzy sanctions screen for a single entity name.
@@ -1197,6 +1225,11 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     # sources are down, source_unavailable stands and the screen stays UNVERIFIED.
     # Turning "unavailable" into "clean" is the one outcome a compliance tool must
     # never produce, and it is what this fallback is written to avoid, not risk.
+    # R-F3945 — coverage provenance. Set BEFORE the fallback so the healthy
+    # path keeps its historical meaning (a real aggregate screen covers every
+    # canonical source) and only the floor narrows it.
+    _coverage_mode = "opensanctions_aggregate" if source_ok else "none"
+
     if not source_ok:
         try:
             from .sanctions_canonical import lookup as _canon
@@ -1205,6 +1238,12 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
             if _verdict and _verdict != "INSUFFICIENT_DATA":
                 # The local store ANSWERED. That is a performed screen.
                 source_ok = True
+                # R-F3945 — ...but a NARROWER one, and that is the whole point.
+                # The floor holds the loader registry only (ofac_sdn +
+                # eu_consolidated); OpenSanctions aggregates ~200 lists. Record
+                # WHICH sources actually answered so `derive_verified_sources`
+                # cannot go on stamping the other eight CLEAN.
+                _coverage_mode = "local_canonical_floor"
                 source_reasons.append("opensanctions_unavailable_local_used")
                 for lm in (_local.get("matches") or []):
                     all_matches.append(_local_match_to_aria(lm, name))
@@ -1270,6 +1309,25 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         "top_score": top_score,
         "blocked": len(blocking_matches) > 0,
         "screened": screened,  # R-F1696
+        # ── R-F3945 — WHAT was actually consulted. ───────────────────────────
+        # ALWAYS present, including on the healthy path. A provenance block that
+        # appeared only when something broke would repeat the `source_reasons`
+        # trap this fix exists to close: the dangerous case here is the screen
+        # that SUCCEEDED against a narrower source set than the verdict implies,
+        # and a key that is absent on success cannot describe it.
+        #
+        #   opensanctions_aggregate → the ~200-list aggregate answered; every
+        #                             canonical source is covered (historical
+        #                             meaning, unchanged).
+        #   local_canonical_floor   → R-F3529 served; ONLY the loader registry.
+        #   none                    → nothing answered; screened is False.
+        "coverage": {
+            "mode": _coverage_mode,
+            "sources_consulted": (
+                _canonical_floor_sources()
+                if _coverage_mode == "local_canonical_floor" else []
+            ),
+        },
         # R-F3019 — WHEN the screen ran. A compliance reader cannot rely on
         # "clean" without a date: sanctions lists change daily, so an undated
         # clean is an undatable claim. No field carried this before, so reports
@@ -1289,6 +1347,45 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         result["source_unavailable"] = True
         result["error"] = "sanctions_source_unavailable"
         result["source_reasons"] = sorted(set(source_reasons))[:6]
+
+    # ── R-F3945 §21a — the DEGRADED-BUT-SUCCESSFUL screen is a third outcome.
+    # It reaches neither branch below: `source_unavailable` is False (a screen
+    # DID run) and the success branch reports it as an ordinary clean. That gap
+    # is exactly how eight unsearched lists read CLEAN for 13 days with nothing
+    # saying so.
+    #
+    # ANNOUNCE-ONCE, deliberately. While OpenSanctions' quota is spent EVERY
+    # screen is degraded, so a per-screen gap would be a self-sustaining flood
+    # that evicts real defects from the 500-slot ledger — the failure this repo
+    # is already living with elsewhere. The condition is a standing platform
+    # state, not a per-entity event; the per-entity fact is carried in the
+    # report's own verified_sources table, where the reader needs it.
+    global _COVERAGE_DEGRADED_ANNOUNCED
+    if screened and _coverage_mode == "local_canonical_floor" and \
+            not _COVERAGE_DEGRADED_ANNOUNCED:
+        _COVERAGE_DEGRADED_ANNOUNCED = True
+        logger.warning(
+            "[R-F3945] sanctions coverage DEGRADED — OpenSanctions is not "
+            "answering, so screens run against the local canonical floor (%s) "
+            "only. Every other canonical list now reports UNAVAILABLE rather "
+            "than CLEAN. This is correct, and it is a COVERAGE LOSS: restore "
+            "OpenSanctions to regain the ~200-list breadth.",
+            ", ".join(_canonical_floor_sources()) or "none",
+        )
+        try:
+            wire_failure(
+                module="sanctions",
+                detail=(
+                    "Sanctions coverage degraded to the local canonical floor "
+                    f"({', '.join(_canonical_floor_sources()) or 'none'}) — "
+                    "OpenSanctions unavailable. Screens still run; breadth is "
+                    "reduced and unsearched lists now report UNAVAILABLE."
+                ),
+                gap_type="sanctions_coverage_degraded",
+                source="sanctions:fuzzy_screen",
+            )
+        except Exception as _wc:
+            logger.debug("R-F3945 coverage wire failed: %s", _wc)
 
     # ── Brain hook (§21a): feed BOTH outcomes — never let a failed screen be
     #    indistinguishable from a clean one. ──

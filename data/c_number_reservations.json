@@ -387,6 +387,30 @@
       ],
       "notes": null,
       "closed_at": "2026-08-12T10:56:09Z"
+    },
+    {
+      "c_number": "C-39",
+      "title": "DD stamps never-searched sanctions lists as CLEAN when the local floor serves",
+      "claimed_at": "2026-08-13T07:10:28Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3945"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T07:29:51Z"
+    },
+    {
+      "c_number": "C-40",
+      "title": "RULE ONE unenforced for Brave on non-DD routes; rule_one_status checks only Anthropic",
+      "claimed_at": "2026-08-13T07:10:29Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3946"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T07:29:51Z"
     }
   ]
 }

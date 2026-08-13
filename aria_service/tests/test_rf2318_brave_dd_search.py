@@ -28,15 +28,20 @@ def test_mask_brave_source():
 # ── Gating: key + kill-switch + context flag ────────────────────────────────
 def test_brave_is_enabled_gating(monkeypatch):
     monkeypatch.setattr(ws, "_BRAVE_GLOBALLY_OFF", False)
+    # R-F3946 — every gate below is UNCHANGED; the scope simply declares its
+    # purpose now, because RULE ONE confines Brave to DD. The one added line is
+    # the new gate: an undeclared scope is refused even with a key present.
     monkeypatch.setattr(ws, "BRAVE_API_KEY", "")     # no key → never on
-    ws.enable_brave_for_scope(True)
+    ws.enable_brave_for_scope(True, purpose="dd")
     assert ws.brave_is_enabled() is False
     monkeypatch.setattr(ws, "BRAVE_API_KEY", "testkey")
-    ws.enable_brave_for_scope(True)
+    ws.enable_brave_for_scope(True, purpose="dd")
     assert ws.brave_is_enabled() is True
+    ws.enable_brave_for_scope(True)                  # no purpose → RULE ONE refuses
+    assert ws.brave_is_enabled() is False
     ws.enable_brave_for_scope(False)                 # ctx off → off
     assert ws.brave_is_enabled() is False
-    ws.enable_brave_for_scope(True)
+    ws.enable_brave_for_scope(True, purpose="dd")
     monkeypatch.setattr(ws, "_BRAVE_GLOBALLY_OFF", True)   # kill-switch → off
     assert ws.brave_is_enabled() is False
     _reset_ctx()
@@ -50,8 +55,8 @@ async def test_autonomous_task_does_not_inherit_brave(monkeypatch):
     _reset_ctx()
     out = {}
 
-    async def user_facing():          # a user request opts in
-        ws.enable_brave_for_scope(True)
+    async def user_facing():          # a DD request opts in
+        ws.enable_brave_for_scope(True, purpose="dd")   # R-F3946
         out["user"] = ws.brave_is_enabled()
 
     async def autonomous():           # the continuous researcher never opts in

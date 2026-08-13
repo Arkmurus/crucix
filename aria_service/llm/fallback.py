@@ -189,10 +189,40 @@ def rule_one_status() -> dict:
         except Exception as e:      # pragma: no cover - signalling is best-effort
             logger.debug("[R-F3942] rule-one signal failed: %s", e)
 
+    # ── R-F3946 — THE SECOND CLAUSE. ────────────────────────────────────────
+    # This function's own `rule` string says "anthropic ... as well as for brave
+    # API", and it measured only anthropic. So production reported
+    # `breached: false` while Brave was being spent by POST /chat, /explore,
+    # /explore-deep and /research/spawn — eight @_brave_scope routes with no DD
+    # gate. A deep-diligence pass read this field and published "RULE ONE is
+    # holding". A half-measure reporting a whole rule is worse than no measure:
+    # it gets believed.
+    #
+    # Read through web_search so there is ONE policy and one place it can be
+    # weakened (§1 R-F2639). Unreadable → treat as UNKNOWN, never as compliant:
+    # a breach that cannot be measured must not read as its absence.
+    brave_confined = None
+    brave_non_dd_grants = None
+    try:
+        from ..intel.web_search import brave_policy_status as _bps
+        _b = _bps()
+        brave_confined = bool(_b.get("confined_to_dd"))
+        brave_non_dd_grants = int(_b.get("non_dd_grants") or 0)
+        # A grant that actually happened is a LIVE breach, not a policy opinion.
+        if brave_non_dd_grants > 0:
+            brave_confined = False
+    except Exception as e:      # pragma: no cover - defensive
+        logger.debug("[R-F3946] brave policy unreadable: %s", e)
+
+    breached = breached or (brave_confined is False)
+
     return {
         "rule": "anthropic and brave are for DD reports only (operator 2026-08-12)",
         "anthropic_key_present": key_present,
         "anthropic_confined_to_dd": confined,
+        # R-F3946 — tri-state: None means COULD NOT MEASURE, never "compliant".
+        "brave_confined_to_dd": brave_confined,
+        "brave_non_dd_grants": brave_non_dd_grants,
         "breached": breached,
         "preference_only_providers": sorted(pref),
     }

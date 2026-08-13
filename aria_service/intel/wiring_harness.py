@@ -431,6 +431,14 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         "reset_brave_scope": "ContextVar reset",
         "brave_is_enabled": "reads a key + a ContextVar; already exception-guarded",
         "mask_brave_source": "in-place relabel of a list; no failure domain",
+        # R-F3946 — RULE ONE's Brave half.
+        "is_dd_brave_purpose": "pure predicate over a string; total over its input, "
+                               "no I/O and no failure domain",
+        "reset_brave_usage_counters": "zeroes an in-process dict; test hook, total",
+        "brave_policy_status": "reads module constants + an in-process counter dict; "
+                               "no I/O. It is itself a REPORTING surface for a policy "
+                               "breach — wiring it would record a gap about reading "
+                               "the gap, the same reason get_capability_gaps is exempt",
     },
     "sanctions.py": {
         "split_bracketed_name": "pure string split, total over its input",

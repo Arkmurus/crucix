@@ -45,10 +45,11 @@ class TestEnableBraveContract:
     """Guard the mechanism these rely on."""
     def test_enable_brave_for_scope_sets_the_flag(self):
         from aria_service.intel import web_search as ws
-        # In a context where the key is present, enabling makes it report enabled.
-        # We only assert the setter/getter round-trip on the contextvar, since the
-        # key/global-off gates are environment-dependent.
-        ws.enable_brave_for_scope(True)
-        assert ws._BRAVE_CTX.get() is True
+        # R-F3946 — the scope now carries a PURPOSE, not a bare bool: RULE ONE
+        # confines Brave to DD, and a boolean cannot express "who is asking".
+        # The round-trip contract this guards is unchanged in substance — set,
+        # observe, clear — so it is re-expressed rather than deleted.
+        ws.enable_brave_for_scope(True, purpose="dd")
+        assert ws._BRAVE_CTX.get() == "dd"
         ws.enable_brave_for_scope(False)
-        assert ws._BRAVE_CTX.get() is False
+        assert ws._BRAVE_CTX.get() == ""
