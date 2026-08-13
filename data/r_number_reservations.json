@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3959,
+  "next_available": 3960,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33517,9 +33517,10 @@
       "title": "build novel citation-axis harvest queue",
       "claimed_at": "2026-08-13T09:51:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac75cf9c",
+      "notes": null,
+      "shipped_at": "2026-08-13T10:01:15Z"
     },
     {
       "r_number": "R-F3957",
@@ -33534,6 +33535,15 @@
       "r_number": "R-F3958",
       "title": "C-48 fuzzy_screen must carry the canonical REVIEW verdict",
       "claimed_at": "2026-08-13T09:56:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3959",
+      "title": "fix adverse stage clause negation",
+      "claimed_at": "2026-08-13T10:36:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

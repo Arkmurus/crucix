@@ -507,6 +507,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T10:09:54Z"
+    },
+    {
+      "c_number": "C-49",
+      "title": "adverse stage scorer misses long-clause negation",
+      "claimed_at": "2026-08-13T10:36:32Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

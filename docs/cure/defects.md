@@ -3177,3 +3177,20 @@ trail; and the suffix stripper can empty a name entirely —
 itself 0.0. For a defence-DD product, `defence / systems / industries /
 aerospace / aviation` is the most dangerous possible list to strip
 aggressively.
+
+## C-49 · adverse stage scorer missed long-clause negation (R-F3959)
+
+The 88-row R-F3956 novel-axis harvest initially reported seven adverse failures.
+Six answers explicitly denied the high procedural stage: phrases such as
+"does not say that Itau Unibanco has been charged or fined" were still scored as
+rank 5 because the validator inspected only 40 characters before the stage word.
+Turkish Aerospace exposed a second edge: an unrelated €84.5M fine was followed
+by "does not mention Turkish Aerospace Industries", but naive period parsing
+stopped at the decimal point.
+
+The stage guard now evaluates negation from the current clause boundary and
+recognises a bounded same-paragraph disclaimer that the stage concerns a
+different subject. It remains strict when neither condition exists. Exact
+fixture replays prove the six false positives pass while Uzbekneftegaz still
+fails for omitting a matter the evidence reports as CLEARED. The corrected v2
+measurement is 87/88, with one genuine adverse failure.

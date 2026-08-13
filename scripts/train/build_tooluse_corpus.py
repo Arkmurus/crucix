@@ -768,10 +768,10 @@ def validate_trace(trace: Any) -> list[str]:
         # every correct denial — the fifth time this trap appears in this module.
         # So a stage word is only counted as CLAIMED when it is not negated.
         claimed = 0
+        subject = str(trace.get("subject") or "")
         for stage, pat in _STAGE_VOCAB:
             for m in pat.finditer(final):
-                lead = final[max(0, m.start() - 40):m.start()].lower()
-                if _STAGE_NEGATION_RE.search(lead):
+                if _stage_match_is_denied(final, m, subject):
                     continue
                 claimed = max(claimed, _STAGE_RANK[stage])
         if claimed > supported:
@@ -1040,6 +1040,36 @@ _STAGE_NEGATION_RE = re.compile(
     r"\b(not|never|no|without|nor|rather than|instead of|denies?|denied)\b[^.]{0,40}$",
     re.I,
 )
+
+
+def _stage_match_is_denied(text: str, match: re.Match[str], subject: str) -> bool:
+    """Return whether a procedural-stage token is denied for this subject."""
+    clause_start = max(
+        text.rfind(".", 0, match.start()),
+        text.rfind(";", 0, match.start()),
+        text.rfind("\n", 0, match.start()),
+        text.rfind("—", 0, match.start()),
+    ) + 1
+    prefix = text[clause_start:match.start()]
+    if re.search(
+        r"\b(?:not|no|none|never|neither|without|cannot|could not)\b"
+        r"|\bcan['’]t\b",
+        prefix,
+        re.I,
+    ):
+        return True
+    paragraph_end = text.find("\n", match.end())
+    suffix_end = paragraph_end if paragraph_end >= 0 else len(text)
+    suffix = text[match.end():min(suffix_end, match.end() + 400)]
+    if subject and re.search(
+        r"\b(?:but|and)\b[^.]{0,120}\b(?:does|do|did)\s+not\s+"
+        r"(?:mention|involve|concern|relate to|apply to)\b[^.]{0,80}"
+        + re.escape(subject) + r"\b",
+        suffix,
+        re.I,
+    ):
+        return True
+    return False
 _ALLEGATION_MARKER_RE = re.compile(
     r"alleg(?:ed|ation|ations|edly)|accus(?:ed|ation|ations)"
     r"|claims?|reportedly|suspected|not established"
