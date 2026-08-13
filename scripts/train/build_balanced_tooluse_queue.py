@@ -100,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--target-limit", type=int, default=16)
     parser.add_argument("--retention-limit", type=int, default=6)
+    parser.add_argument(
+        "--target-axis", action="append", default=[],
+        help="Repeat to target only explicit axes instead of the default target set",
+    )
     parser.add_argument("--coverage-ledger", type=Path,
                         help="Promote measured priority axes while retaining default targets")
     parser.add_argument("--exclude-file", type=Path,
@@ -110,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         _norm_subject(str(row.get("subject") or ""))
         for row in _read_jsonl(args.eval_file)
     } - {""}
-    target_labels = set(TARGET_LABELS)
+    target_labels = set(args.target_axis) if args.target_axis else set(TARGET_LABELS)
     if args.coverage_ledger:
         ledger = json.loads(args.coverage_ledger.read_text(encoding="utf-8"))
         if ledger.get("complete") is not True:

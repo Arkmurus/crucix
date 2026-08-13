@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3956,
+  "next_available": 3959,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33507,6 +33507,33 @@
       "r_number": "R-F3955",
       "title": "C-46 adverse-media all-probes-failed must not read as screened",
       "claimed_at": "2026-08-13T09:35:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3956",
+      "title": "build novel citation-axis harvest queue",
+      "claimed_at": "2026-08-13T09:51:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3957",
+      "title": "C-47 sanctions staleness must be governed by the OLDEST in-scope source",
+      "claimed_at": "2026-08-13T09:56:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3958",
+      "title": "C-48 fuzzy_screen must carry the canonical REVIEW verdict",
+      "claimed_at": "2026-08-13T09:56:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
