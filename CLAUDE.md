@@ -374,6 +374,26 @@ Always surface, never silently retry:
   - **Screening does NOT go dark.** R-F3529 made the local canonical lists the FLOOR beneath OpenSanctions — consulted ONLY when OpenSanctions cannot answer, so the healthy path is unchanged. Live-proven on the real DD path with the quota still spent: `/api/aria/sanctions/rca?name=Rosoboronexport` → `screened=True, blocked=True`, matched `JSC ROSOBORONEXPORT | eu_consolidated | kind=local_canonical`. Local store held **24,953 rows** at close.
   - **What IS lost** while the quota is spent: OpenSanctions' ~200-list breadth. OFAC/EU coverage continues locally.
   - **Status surface:** `GET /api/aria/sanctions/source/status` — reports quota state, whether the local store can cover, and the operator action. `screening_available` is tri-state and is never `True` when both sources are down.
+  - ⚠️ **R-F3947 / C-41 (2026-08-13) — the `quota_exhausted` flag above is a LATCH,
+    and it read "spent" for 13 days while the API was answering normally. Believe a
+    RECENT reading, not a standing one.** Found by the live smoke of C-39: the same
+    machine, same minute, screened Rosoboronexport straight through the OpenSanctions
+    aggregate (real hit, opensanctions.org URL, 24 dataset slugs the local floor does
+    not hold) while `/api/aria/sanctions/source/status` still reported
+    `quota_exhausted: true, since 2026-07-31`. **It had already produced a wrong
+    operator recommendation — "upgrade the plan" — for a plan that needed nothing.**
+    The live record was written before `expires_at`/the key TTL existed, so it carried
+    neither and the lapse branch could not fire. A 429 set it; only a human could unset
+    it. Now a **200 retires it** (`_note_opensanctions_success`, wired into both entry
+    points' success branches) — the same evidence class that sets it, and it covers
+    what no monthly boundary can: a plan upgraded mid-month. One store op per recovery
+    episode (not per call — that is the R-F2157 self-DOS shape); a failed clear leaves
+    the latch ARMED so the next success retries; a fresh 429 re-arms it; §21a wires the
+    recovery once.
+    **Do NOT "fix" a stuck legacy record by deriving its expiry from `since`.** That
+    was tried and REVERTED: `test_opensanctions_quota_flag_lapses` pins the opposite as
+    a deliberate decision — *"silently flipping them to 'fine' would be inventing a
+    reset nobody observed"* — and that is right. Stronger evidence, not a better guess.
   - 🔴 **R-F3945 / C-39 (2026-08-13) — while the quota was spent, the DD stamped
     EIGHT NEVER-SEARCHED LISTS AS `CLEAN`. Fixed; do not undo it.** The floor above
     keeps screening alive, but it holds exactly **`ofac_sdn` + `eu_consolidated`**,

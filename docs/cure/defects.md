@@ -2836,3 +2836,61 @@ Fixture-first: `test_rf3946_rule_one_brave_confined_to_dd.py`, 13 tests, RED bef
 fix and GREEN after. Four pre-existing test files asserted the old contract and were
 re-expressed rather than deleted — including `test_rf3087` where the route-decorator
 expectation is now inverted with a message naming what a `[True]` reading would mean.
+
+
+## C-41 · the OpenSanctions quota latch could only ever move toward "spent" (R-F3947)
+
+**Found by the live smoke of C-39's own fix** — which is the useful part of the
+story. Verifying that coverage provenance was working, the same machine in the same
+minute screened "Rosoboronexport" straight through the OpenSanctions aggregate (real
+hit, opensanctions.org entity URL, 24 dataset slugs the local floor does not hold)
+while `/api/aria/sanctions/source/status` reported
+`quota_exhausted: true, since 2026-07-31T23:04:22+00:00` — thirteen days and one
+monthly boundary later. The API was answering; the surface said it was spent.
+
+That reading had already produced a wrong operator recommendation ("upgrade the
+OpenSanctions plan"). Nothing needed upgrading.
+
+**The record production held** is the shape that hangs forever — written before
+`expires_at` and its key TTL existed, so it has neither:
+`{"since": "...", "detail": "...", "action": "..."}`.
+
+**A fix that was tried and REVERTED, recorded because the next reader will reach for
+it too.** The obvious move is to derive the missing boundary from `since` using the
+module's own `_next_month_start_utc()`. It works, and it is wrong:
+`test_opensanctions_quota_flag_lapses` pins the opposite as a deliberate decision —
+*"silently flipping them to 'fine' would be inventing a reset nobody observed"* — and
+that author is right. The red test was the intent, not the defect (R-F3859). Reversing
+a documented decision to green a test of my own would have been the worse outcome.
+
+**The root cause is that nothing cleared the latch on evidence, only on a manual
+operator call.** A 429 body sets it; a human was the only thing that could unset it. A
+monthly boundary is the *earliest* a spent quota can become unspent, not the only way —
+an operator can upgrade the plan mid-month. Meanwhile a 200 from OpenSanctions is
+direct proof the quota is not spent: the same evidence class that sets the flag. This
+is the shape CLAUDE.md §17 already records for the LLM billing cooldown (R-F3513), "a
+cooling provider is never called, so it sustains itself".
+
+So the fix is stronger evidence rather than a better guess. `_note_opensanctions_success()`
+retires the record on a real 200, wired into both entry points' success branches. It is
+**not** a TTL bump or a retry — both would be the §1 band-aid, a guess about time
+standing in for a fact observable on every call.
+
+Three properties are load-bearing and each is pinned:
+**one store op per recovery episode**, not one per call — a delete on every successful
+screen is the read-modify-write-per-call shape behind the R-F2157/R-F2172 state_store
+self-DOS, and fixing an observability bug by saturating the writer is a poor trade;
+**a failed clear leaves the latch ARMED** so the next success retries, because marking
+recovery before achieving it would strand the record exactly as before, on one store
+blip; and **a fresh 429 re-arms it**, since the quota can genuinely be spent again.
+
+§21a: the recovery is an outcome and it was the unobservable one — exhaustion wired a
+failure, nothing wired the return to health. `wire_success` fires once per episode, for
+the same reason C-39's degraded notice is announce-once.
+
+Fixture-first: `test_rf3947_quota_latch_clears_on_evidence.py`, 10 tests, RED then GREEN.
+One collateral repair: `test_rf3031_dd_screen_blob_carries_screened_at` asserted on a
+literal source substring plus a fixed 900-char window, so C-39 wrapping that call across
+lines broke it with no behaviour change — the R-F3597 line-fragility class. It is now
+AST-based, and distinguishes the WAIVED blob (whose `screened_at: None` is honest,
+because no screen ran) from one that actually ran.

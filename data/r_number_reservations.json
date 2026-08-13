@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3947,
+  "next_available": 3950,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33425,6 +33425,33 @@
       "commit_sha": "fb8db651",
       "notes": null,
       "shipped_at": "2026-08-13T07:43:41Z"
+    },
+    {
+      "r_number": "R-F3947",
+      "title": "C-41 quota latch must clear on the same evidence that sets it",
+      "claimed_at": "2026-08-13T07:45:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3948",
+      "title": "verify generation pod watchdog and cleanup",
+      "claimed_at": "2026-08-13T07:50:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3949",
+      "title": "harvest accepted parent citation failures",
+      "claimed_at": "2026-08-13T07:54:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

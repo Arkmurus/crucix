@@ -136,14 +136,49 @@ def test_rf3031_dd_screen_blob_carries_screened_at():
     """R-F3019 stamped screened_at inside sanctions.fuzzy_screen(), but the DD does
     not use that dict — it assembles its own from the raw matches. Proven live on
     dd_ba494e53f850: 11 lists screened CLEAN, `screened_at: None`, so the report
-    said "screening date not recorded" about a screen it had just run."""
+    said "screening date not recorded" about a screen it had just run.
+
+    R-F3947 — this asserted on a LITERAL source substring
+    (`'"verified_sources": _dvs(all_matches'`) plus a fixed 900-char window, so
+    R-F3945 wrapping that call across lines broke it with no behaviour change.
+    That is the R-F3597 line-fragility class the repo has already been bitten by:
+    a guard that a reformat defeats. It now locates the blob through the AST and
+    asserts the same intent — the DD's own screen dict carries a screening date.
+    """
+    import ast
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = module_source(ddo)
-    i = src.index('"verified_sources": _dvs(all_matches')
-    window = src[i:i + 900]
-    assert '"screened_at"' in window, "the DD's own screen blob must carry the date"
-    assert "datetime.now(timezone.utc)" in window
+
+    tree = ast.parse(module_source(ddo))
+    blobs = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Dict)
+        and any(isinstance(k, ast.Constant) and k.value == "verified_sources"
+                for k in n.keys if k is not None)
+        and any(isinstance(k, ast.Constant) and k.value == "variants_screened"
+                for k in n.keys if k is not None)
+    ]
+    assert blobs, (
+        "the DD person path must still assemble its own screen blob — if this "
+        "is gone, find where verified_sources is built now and re-point the test"
+    )
+    for blob in blobs:
+        keys = {k.value for k in blob.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        assert "screened_at" in keys, (
+            "the DD's own screen blob must carry the date (R-F3031) — without it "
+            "the report says 'screening date not recorded' about a screen it "
+            "just ran"
+        )
+        rendered = ast.unparse(blob)
+        if "waived" in keys:
+            # A WAIVED screen never ran, so `screened_at: None` is the honest
+            # value — stamping "now" there would date a screen that did not
+            # happen. The key must still be present, which is asserted above.
+            continue
+        assert "datetime.now(timezone.utc)" in rendered, (
+            "a blob for a screen that ACTUALLY RAN must stamp the moment it ran"
+        )
 
 
 def test_rf3031_renderer_prints_a_date_when_one_is_present():

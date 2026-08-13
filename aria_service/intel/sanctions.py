@@ -272,6 +272,72 @@ def _next_month_start_utc(now: datetime | None = None) -> datetime:
     return datetime(year, month, 1, tzinfo=timezone.utc)
 
 
+# ── R-F3947 — recovery latch. ────────────────────────────────────────────────
+# True once this process has PROVEN the quota is not spent (a 200 from
+# OpenSanctions) and retired the record. Exists so the clear costs ONE store op
+# per recovery episode rather than one per screen: a delete on every successful
+# call is the read-modify-write-per-call shape that produced the R-F2157 /
+# R-F2172 state_store self-DOS, and fixing an observability bug by saturating
+# the writer would be a poor trade.
+_QUOTA_RECOVERY_NOTED = False
+
+
+def _reset_quota_recovery_latch() -> None:
+    """Test hook — re-arm the latch so recovery can be observed again."""
+    global _QUOTA_RECOVERY_NOTED
+    _QUOTA_RECOVERY_NOTED = False
+
+
+async def _note_opensanctions_success() -> None:
+    """A 200 from OpenSanctions is PROOF the plan quota is not spent.
+
+    THE DEFECT THIS CLOSES. The exhaustion record was written on a 429 and could
+    be removed only by a human calling `clear_opensanctions_quota_state()`. So
+    the state moved in one direction only, and the surface an operator consults
+    to answer "is screening degraded?" kept saying yes long after the answer was
+    no. It produced a wrong recommendation on 2026-08-13 — "upgrade the
+    OpenSanctions plan" — for a plan that was answering normally.
+
+    Setting a flag on evidence (the 429 body) and clearing it only by hand is
+    what makes a latch. The symmetric fix is to clear it on the evidence of the
+    same kind, which is what this is. It also covers the case the monthly
+    boundary cannot: an operator who UPGRADES the plan mid-month gets a correct
+    surface immediately, without waiting for a reset that is no longer relevant.
+
+    Deliberately best-effort and silent on failure — EXCEPT that a failed clear
+    leaves the latch ARMED, so the next success retries. Marking recovery before
+    proving it would strand the record exactly as before, on one store blip.
+    """
+    global _QUOTA_RECOVERY_NOTED
+    if _QUOTA_RECOVERY_NOTED:
+        return
+    try:
+        from . import redis_store as _rs
+        await _rs.delete(_QUOTA_STATE_KEY)
+    except Exception as exc:
+        # Latch stays armed on purpose — see the docstring.
+        logger.debug("R-F3947 could not retire the quota record: %s", exc)
+        return
+    _QUOTA_RECOVERY_NOTED = True
+    logger.info(
+        "[R-F3947] OpenSanctions answered — any exhaustion record retired. "
+        "Full aggregate coverage is available again."
+    )
+    # §21a — the RECOVERY is an outcome, and it was the unobservable one: the
+    # exhaustion wired a failure, nothing wired the return to health. Once per
+    # episode, never per call, for the same reason the C-39 degraded notice is
+    # announce-once: a per-screen signal is a ledger-filling flood.
+    try:
+        wire_success(
+            module="sanctions",
+            summary=("OpenSanctions quota recovered — the API answered, so the "
+                     "exhaustion record was retired and full ~200-list "
+                     "aggregate coverage is back."),
+        )
+    except Exception as exc:
+        logger.debug("R-F3947 recovery wire failed: %s", exc)
+
+
 async def _record_quota_exhausted(detail: str) -> None:
     """Persist + surface, until the monthly boundary that can clear it.
 
@@ -300,6 +366,10 @@ async def _record_quota_exhausted(detail: str) -> None:
     direction, because being wrong here means attempting a screen, not skipping
     one.
     """
+    # R-F3947 — re-arm the recovery latch: the quota really is spent again, so a
+    # later 200 must be able to retire this new record too.
+    global _QUOTA_RECOVERY_NOTED
+    _QUOTA_RECOVERY_NOTED = False
     try:
         from . import redis_store as _rs
         _now = datetime.now(timezone.utc)
@@ -347,6 +417,14 @@ async def get_opensanctions_quota_state() -> dict:
     # resets it. Backends without key expiry (and records written before
     # expires_at existed) would otherwise report exhausted indefinitely — which
     # is what this surface actually did for four days.
+    # R-F3947 — a legacy record (no `expires_at`) is deliberately NOT lapsed by
+    # inference here. That was tried and reverted: deriving the boundary from
+    # `since` would flip it to "fine" on a reset NOBODY OBSERVED, which
+    # test_opensanctions_quota_flag_lapses pins as a decision, with reasons.
+    # The right answer is stronger evidence, not a better guess — a 200 from the
+    # API retires the record outright (`_note_opensanctions_success`), and that
+    # is an observation. It also covers what no boundary can: a plan upgraded
+    # mid-month.
     _exp = state.get("expires_at")
     if _exp:
         try:
@@ -919,6 +997,10 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _Source
             data = resp.json()
             results = (data.get("responses", {}) or {}).get("q1", {}).get("results", [])
             _r469_breaker.record_success()
+            # R-F3947 — a 200 PROVES the plan quota is not spent. Retire any
+            # exhaustion record here, where the evidence is, rather than waiting
+            # for a human to call the operator lever.
+            await _note_opensanctions_success()
             return _SourceQuery(results or [], True, "ok")
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions request error: %s", e)
@@ -1001,6 +1083,7 @@ async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
                 return _SourceQuery([], False, f"http_{resp.status_code}")
             data = resp.json()
             _r469_breaker.record_success()
+            await _note_opensanctions_success()      # R-F3947 — see above
             return _SourceQuery(data.get("results", []) or [], True, "ok")
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions search error: %s", e)

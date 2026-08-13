@@ -411,6 +411,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T07:29:51Z"
+    },
+    {
+      "c_number": "C-41",
+      "title": "OpenSanctions quota-exhausted latch is set-only; reports spent while the API answers",
+      "claimed_at": "2026-08-13T07:45:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3947"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T07:55:48Z"
     }
   ]
 }
