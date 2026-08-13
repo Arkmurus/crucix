@@ -531,6 +531,39 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T12:36:49Z"
+    },
+    {
+      "c_number": "C-51",
+      "title": "recipe gate does not bind paid pod runner",
+      "claimed_at": "2026-08-13T17:48:43Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-52",
+      "title": "sanctions containment is one-directional so a long query against a short listing is dropped before the gate",
+      "claimed_at": "2026-08-13T17:50:14Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3963"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T17:56:33Z"
+    },
+    {
+      "c_number": "C-53",
+      "title": "an entirely-generic company name normalises to empty and screens CLEAR",
+      "claimed_at": "2026-08-13T17:50:14Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3964"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T17:56:33Z"
     }
   ]
 }

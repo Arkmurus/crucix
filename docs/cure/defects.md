@@ -3236,3 +3236,89 @@ Fixture-first: `test_rf3962_recipe_runner_identity.py` was RED with the SFT
 runner silently accepted and the runner absent from the host recipe. It is now
 GREEN for the approved runner, exact mismatch refusal, and review ordering
 before `_create_v04_pod.py`.
+
+## C-52 · sanctions containment was measured in ONE direction (R-F3963)
+
+R-F3691 added containment scoring because Jaccard is symmetric while the
+relationship is not — a SHORT query against a LONG listed name is penalised by
+every token the listing adds. It fixed that direction only:
+
+    lookup.py:552
+        _containment = len(q_entity_tokens & cand_entity_tokens) / len(q_entity_tokens)
+
+The mirror case is the one a DD actually produces, because users paste the full
+legal name out of a document. Measured:
+
+    query   'Rosoboronexport JSC Moscow Representative Office'
+            -> {moscow, office, representative, rosoboronexport}
+    listing 'Rosoboronexport'  -> {rosoboronexport}
+
+    jaccard 0.25 · containment forward 0.25 · containment reverse 1.00
+
+`_JACCARD_FLOOR` is 0.5, so 0.25 fell below it and the candidate was `continue`d
+**before `_evaluate_gate` ever ran**. It therefore reached neither `matches` nor
+`gate_blocked` — invisible even to the audit trail, which is strictly worse than
+a blocked near-miss, because nothing records that a designation was considered.
+
+Fixed with the Szymkiewicz–Simpson overlap coefficient, `|q ∩ c| / min(|q|,|c|)`
+— "is EITHER name fully present in the other?". R-F3691's own argument for
+admitting more candidates carries over unchanged: `_evaluate_gate` (R-F518) is
+the component built to reject coincidences and still runs on everything
+admitted, and since C-48 a gate-blocked near-miss surfaces as REVIEW rather than
+being silently dropped.
+
+Fixture-first: `test_rf3963_containment_is_bidirectional.py`, 9 tests. Four pin
+precision — an unrelated entity still CLEARs, a bare generic-token overlap may
+not reach HARD_STOP without corroboration, R-F3691's original direction still
+works, and an exact name still stops.
+
+**The first RED was invalid and that is worth recording.** The fixture
+hand-inserted into `entries`, but the token pre-filter searches the `aliases`
+table (`WHERE e.id IN (SELECT entry_id FROM aliases ...)`), so no candidate was
+ever fetched and every case "failed" for a reason that had nothing to do with
+containment. Seeding through the real `store.replace_source` path — which is
+what every production loader calls, and which populates `aliases` — fixed the
+fixture. **A fixture that does not reproduce the production write path can make
+a test fail convincingly for the wrong reason, and a green-after-fix would then
+have proved nothing.** RED was re-established properly by reverting the one-line
+change against the corrected fixture: 2 failed / 7 passed.
+
+
+## C-53 · an un-normalisable name was refused for the WRONG REASON (R-F3964)
+
+**Two corrections, and the second is to my own earlier work in this register.**
+
+**1. This is NOT a false clean.** The 2026-08-13 diligence report implied a name
+that normalises to empty would screen CLEAR. It does not: `check_sanctions`
+already falls through to a final `else` returning INSUFFICIENT_DATA, so the
+never-false-clean invariant HELD. Verified before writing any fix — 7 of the 8
+tests in the new file passed unchanged against the pre-fix code.
+
+What is actually wrong is the **reason string**. An entirely generic name —
+`'Trading Company Limited'`, `'International Holdings Group'`,
+`'Capital Partners LLC'`, `'Investment Holding Company'`,
+`'Industries International'`, all measured to normalise to `''` — reported
+`sanctions_store_empty_or_unavailable` on a store that is loaded and healthy.
+An operator chasing an empty store finds nothing wrong with it and never learns
+the query was unrepresentable. Same class as the OpenSanctions
+`rate_limit` vs `quota_exhausted` conflation in CLAUDE.md §18: a wrong cause
+pointing at a wrong fix. The new `unnormalisable_name` reason names the real
+obstacle — not "no match found" but "no query was formed".
+
+**2. The example cited in the report AND in the C-48 entry above is wrong.**
+Both said `'Aerospace Industries Group'` normalises to `''` with self-similarity
+0.0. It does not — it yields `'aerospace'`. The mechanism was real; the example
+was not. The true trigger is a name with NO non-generic token at all. **Read the
+C-48 entry's closing paragraph with that correction applied.**
+
+The residual concern that example was reaching for is separate and deliberately
+NOT fixed here: defence-sector names lose discriminative power
+(`'Aviation Industry Corporation'` -> `'aviation'`), which is a recall/precision
+question rather than a false clean, and touching
+`defence / systems / industries / aerospace / aviation` in the stopword list
+needs its own blast-radius argument.
+
+Fixture-first: `test_rf3964_unnormalisable_name_never_clears.py`, 8 tests. Four
+prove the refusal is narrow — a normal name still CLEARs, a name with one real
+token still screens, `'Aerospace Industries Group'` is explicitly NOT refused,
+and a designated generic name is still reachable by the exact pass.

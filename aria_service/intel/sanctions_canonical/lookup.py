@@ -192,6 +192,36 @@ def _freshest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
     return max(0.0, now - freshest_ts)
 
 
+def _overlap_coefficient(a: set[str], b: set[str]) -> float:
+    """Szymkiewicz–Simpson overlap: |a ∩ b| / min(|a|, |b|).
+
+    R-F3963 (C-52) — answers "is EITHER name fully present in the other?".
+    R-F3691 added containment because Jaccard is symmetric while the
+    relationship is not, but computed only `|q ∩ c| / |q|` — the short-query,
+    long-listing direction. The mirror case is the one a DD actually produces,
+    because users paste the full legal name out of a document:
+
+        query   'Rosoboronexport JSC Moscow Representative Office'  (4 tokens)
+        listing 'Rosoboronexport'                                   (1 token)
+        jaccard 0.25 · forward 0.25 · reverse 1.00
+
+    `_JACCARD_FLOOR` is 0.5, so 0.25 dropped the candidate BEFORE
+    `_evaluate_gate` ran — it reached neither `matches` nor `gate_blocked`, so
+    not even the audit trail recorded that a designation had been considered.
+
+    Admitting more candidates does not weaken precision: `_evaluate_gate`
+    (R-F518) is the component built to reject coincidences and still runs on
+    everything admitted, and since R-F3958 (C-48) a gate-blocked near-miss
+    surfaces as REVIEW instead of being silently dropped.
+    """
+    if not a or not b:
+        return 0.0
+    inter = a & b
+    if not inter:
+        return 0.0
+    return len(inter) / min(len(a), len(b))
+
+
 def _stalest_refresh_age_seconds(in_scope: list[str] | None) -> float | None:
     """Age (seconds) of the OLDEST in-scope source. This is what the H1
     never-false-clean gate must read.
@@ -549,10 +579,12 @@ def check_sanctions(
             # letting it survive to the R-F518 gate does NOT weaken precision:
             # that gate is the component designed to reject coincidences, and
             # it still runs on everything admitted here.
-            _containment = (
-                len(q_entity_tokens & cand_entity_tokens) / len(q_entity_tokens)
-                if q_entity_tokens else 0.0
-            )
+            # R-F3963 (C-52) — measure containment in BOTH directions. The
+            # original `|q ∩ c| / |q|` only caught a short query inside a long
+            # listing; a long query containing a short designation scored 0.25
+            # against a 0.5 floor and was dropped before the gate. See
+            # `_overlap_coefficient`.
+            _containment = _overlap_coefficient(q_entity_tokens, cand_entity_tokens)
             if _containment > best_score:
                 best_score = _containment
                 best_alias_match = None
@@ -711,6 +743,26 @@ def check_sanctions(
                     # identically to the reader.
                     if age is not None:
                         freshness_age_days = round(age / 86400.0, 1)
+        elif not q_entity_tokens:
+            # R-F3964 (C-53) — NAME the real obstacle. Falling through to
+            # "store empty or unavailable" below was already fail-CLOSED (the
+            # never-false-clean invariant held), but it blamed a store that is
+            # loaded and healthy: an operator chasing an empty store finds
+            # nothing wrong with it and never learns the query was
+            # unrepresentable.
+            #
+            # `normalise_name` strips corporate suffixes and filler so what
+            # survives is entity identity. A name with no other content — e.g.
+            # "Trading Company Limited", "International Holdings Group" —
+            # normalises to "", so `q_entity_tokens` is empty, the token
+            # pre-filter loop never runs, and NOT ONE candidate is fetched.
+            # That is not "no match found", it is "no query was formed".
+            #
+            # Same class as the OpenSanctions rate_limit/quota_exhausted
+            # conflation (CLAUDE.md §18): a wrong cause pointing at a wrong fix.
+            verdict = "INSUFFICIENT_DATA"
+            store_unavailable = True
+            reason = "unnormalisable_name"
         else:
             verdict = "INSUFFICIENT_DATA"
             store_unavailable = True
