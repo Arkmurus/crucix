@@ -705,9 +705,12 @@
       "title": "DPO builder skips newly detected failures marked honest by stale reports",
       "claimed_at": "2026-08-13T22:21:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3976"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:31:23Z"
     },
     {
       "c_number": "C-66",

@@ -33708,9 +33708,10 @@
       "title": "rescore every generation before selecting DPO failures",
       "claimed_at": "2026-08-13T22:21:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4e3a718d",
+      "notes": null,
+      "shipped_at": "2026-08-13T22:31:23Z"
     },
     {
       "r_number": "R-F3977",
