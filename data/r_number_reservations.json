@@ -33689,9 +33689,10 @@
       "title": "grade categorical no-adverse claims only against entity-relevant results",
       "claimed_at": "2026-08-13T22:15:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b01e2a6c",
+      "notes": null,
+      "shipped_at": "2026-08-13T22:19:31Z"
     },
     {
       "r_number": "R-F3975",

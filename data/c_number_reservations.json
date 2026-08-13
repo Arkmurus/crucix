@@ -681,9 +681,12 @@
       "title": "adverse denial grading needs entity relevance not raw result presence",
       "claimed_at": "2026-08-13T22:15:19Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3974"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:19:31Z"
     },
     {
       "c_number": "C-64",
