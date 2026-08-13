@@ -119,6 +119,14 @@ _search_lc_facts_id: int = 0
 # calls (brain_hook burst) coalesce into one disk write instead of N.
 _dirty: bool = False
 _dirty_since_snapshot: bool = False
+# R-F3972 (C-61) — monotonic timestamp of the oldest pending BOOKKEEPING-only
+# change (a usage counter bump that learned nothing). None when there is none.
+# Kept separate from `_dirty` so a duplicate page cannot force a ~300 MB
+# canonical+sidecar rewrite; see `_save`.
+_dirty_bookkeeping_since: float | None = None
+#: How long bookkeeping may wait for a material flush to carry it before it is
+#: written on its own. Long, because the data it protects is a counter.
+BOOKKEEPING_MAX_AGE_S = 300.0
 _flush_task: asyncio.Task | None = None
 _flusher_started: bool = False
 _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
@@ -695,8 +703,16 @@ async def _flush_to_disk() -> None:
     """Synchronously serialize the cache and write to disk in a thread
     executor (json.dump is sync C; doing it on the event loop blocks
     every other coroutine for the duration of the dump)."""
-    global _dirty, _dirty_since_snapshot
-    if not _cache or not _dirty:
+    global _dirty, _dirty_since_snapshot, _dirty_bookkeeping_since
+    if not _cache:
+        return
+    # R-F3972 (C-61) — a bookkeeping-only change waits for a material flush to
+    # carry it, and is written on its own only once it has waited too long.
+    _bk_due = (
+        _dirty_bookkeeping_since is not None
+        and (time.monotonic() - _dirty_bookkeeping_since) >= BOOKKEEPING_MAX_AGE_S
+    )
+    if not _dirty and not _bk_due:
         return
     snapshot = _cache  # write-by-reference is safe — we don't mutate
     try:
@@ -707,6 +723,10 @@ async def _flush_to_disk() -> None:
         from ._snapshot_throttle import run_in_thread_throttled
         await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
         _dirty = False
+        # R-F3972 (C-61) — this write persisted the counters too, so the
+        # bookkeeping marker must clear or it would force a redundant ~300 MB
+        # rewrite later for changes already on disk.
+        _dirty_bookkeeping_since = None
         _dirty_since_snapshot = True
     except Exception as e:
         logger.error("knowledge: disk flush failed: %s", e)
@@ -867,14 +887,39 @@ async def _load() -> dict:
     return _cache
 
 
-async def _save() -> None:
+async def _save(*, material: bool = True) -> None:
     """Mark the cache dirty. Actual disk I/O is debounced through
     _flush_loop so brain_hook bursts (~14 absorbs/turn) coalesce into a
-    single write."""
-    global _dirty
+    single write.
+
+    R-F3972 (C-61) — `material=False` marks a BOOKKEEPING mutation: one that
+    changed no knowledge, only a usage counter. The duplicate-content branch of
+    `store_fact` is the case that matters, and it is the most common outcome of
+    a crawl-and-absorb loop re-encountering the same pages.
+
+    It used to force a full flush, and a flush is expensive out of all
+    proportion to a `+= 1`: `_write_to_disk_atomic` serialises the WHOLE graph
+    (~150-171 MB at ~223k facts), fsyncs it, renames, fsyncs the directory, then
+    unconditionally writes the derived JSONL sidecar with its OWN fsync — the
+    same data twice. At FLUSH_DEBOUNCE_S=2.0 that is ~1.7-2 GB/min onto the same
+    volume as aria_state.db, its WAL, chromadb and the neural shards. Live
+    2026-08-13 the loop read `starved`, p95 2058ms.
+
+    Losing a bump on a crash is acceptable; losing a FACT is not. `accessCount`
+    feeds ranking (`:1880`, capped at `min(count, 5)`) and a dedup preference —
+    a derived usage statistic. §7's infinite-memory rule governs facts, not
+    counters. Every material mutation still flushes exactly as before, and
+    `material=True` is the default so no existing caller changes behaviour.
+    """
+    global _dirty, _dirty_bookkeeping_since
     if not _cache:
         return
-    _dirty = True
+    if material:
+        _dirty = True
+    elif _dirty_bookkeeping_since is None:
+        # Deferred, never dropped: it rides the next material flush, and if none
+        # arrives it is written on its own once BOOKKEEPING_MAX_AGE_S has passed.
+        _dirty_bookkeeping_since = time.monotonic()
     _ensure_flusher()
 
 
@@ -882,7 +927,14 @@ async def _save() -> None:
 async def flush() -> None:
     """Force an immediate disk flush. Call from shutdown hooks or tests
     that need to assert on-disk state without waiting for the debounced
-    loop."""
+    loop.
+
+    R-F3972 (C-61) — this is the FORCED path, so it writes even when only
+    bookkeeping is pending: a shutdown must not drop counter bumps that the
+    debounced loop was still deferring."""
+    global _dirty
+    if _dirty_bookkeeping_since is not None:
+        _dirty = True
     await _flush_to_disk()
 
 
@@ -1452,7 +1504,12 @@ async def store_fact(topic: str, content: str, source: str = "user",
         f = _content_hit
         f["accessCount"] = f.get("accessCount", 0) + 1
         f["last_seen_at"] = now
-        await _save()
+        # R-F3972 (C-61) — BOOKKEEPING. Nothing was learned here: the content
+        # hash already matched, so only a usage counter and a timestamp moved.
+        # A material save would rewrite the entire ~150-171 MB graph AND its
+        # sidecar, and a re-encountered page is the most common outcome of the
+        # crawl-and-absorb loop.
+        await _save(material=False)
         return {
             "action": "duplicate_skipped",
             "fact_id": f["id"],

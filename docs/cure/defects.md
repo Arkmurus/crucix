@@ -3632,3 +3632,60 @@ patched `student._quick_similarity`, which the grader no longer calls. They were
 re-pointed at `_answer_grounding`. Their contracts are unchanged and still hold
 — the new call sits inside the same `try`, so a scorer crash is still UNMEASURED
 (None) rather than WRONG (False), which is the whole point of R-F3483.
+
+## C-61 · a duplicate fact that learned NOTHING rewrote the whole graph, twice (R-F3972)
+
+`store_fact` detects a content-hash duplicate, bumps a counter, and calls
+`_save()`:
+
+    knowledge.py:1451
+        f["accessCount"] = f.get("accessCount", 0) + 1
+        f["last_seen_at"] = now
+        await _save()                     # -> full flush
+        return {"action": "duplicate_skipped", ...}
+
+A flush is expensive out of all proportion to a `+= 1`. `_write_to_disk_atomic`
+serialises the WHOLE graph (~150-171 MB at ~223k facts), fsyncs it, renames,
+fsyncs the directory — and then unconditionally calls `_write_facts_sidecar(data)`
+(`knowledge.py:677`), writing the SAME data again with its own fsync. At
+`FLUSH_DEBOUNCE_S = 2.0` that is roughly **1.7-2 GB/min** onto the same volume
+that also holds `aria_state.db`, its WAL, chromadb and the neural shards.
+
+Measured live 2026-08-13 with this in place: `/health` reported
+`loop: {"status": "starved", "p95_ms": 2058.1, "max_ms": 5620.1}`.
+
+A re-encountered page is the most common outcome of a crawl-and-absorb loop, so
+this is the high-frequency case, and nothing was learned in it.
+
+**The split is material vs bookkeeping.** `accessCount` feeds ranking
+(`:1880`, capped at `min(count, 5)`) and a dedup preference — a derived usage
+statistic. §7's infinite-memory rule governs FACTS, not counters, so losing a
+bump to a crash is acceptable where losing a fact would not be. Bookkeeping is
+**deferred, never dropped**: it rides the next material flush, is written on its
+own after `BOOKKEEPING_MAX_AGE_S`, and an explicit `flush()` (shutdown hooks,
+tests) always writes it.
+
+`material=True` is the DEFAULT, so every one of `_save`'s other callers is
+unchanged — pinned by a test that calls it with no argument. Verified that the
+other two `accessCount` bump sites (`:1481` superseded, `:1497` content update)
+also assign `f["content"]` and are therefore material; a test asserts exactly ONE
+`material=False` exists in `store_fact` so a real mutation cannot be quietly
+downgraded later.
+
+**NOT attempted here, and the reason is worth recording.** The obvious companion
+fix is to stop rewriting the derived sidecar on every flush — it is read in
+exactly one place, once per boot (`_read_from_disk_chunked`). But the reader only
+USES the sidecar when it is CURRENT against the canonical file (mtime+size
+match), so writing it on a slower cadence would make it permanently stale and
+therefore never used, silently deleting R-F2144's boot acceleration instead of
+its I/O cost. The correct version is to write it at shutdown (when a clean
+restart can consume it) plus a crash safety net — a larger change to a path that
+already carries four wedge fixes (R-F727, R-F1621, R-F1668, R-F787), and it
+deserves its own C-number rather than riding this one.
+
+Fixture-first: `test_rf3972_bookkeeping_does_not_force_a_flush.py`, 9 tests, RED
+then GREEN. Five pin that nothing is lost — a material save still flushes, the
+default is material, bookkeeping rides the next material flush, stale
+bookkeeping is eventually written, and an explicit flush always writes.
+
+Regression: 254 passed / 0 failed across the knowledge/flush/sidecar subset.

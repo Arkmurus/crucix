@@ -651,6 +651,27 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T18:52:25Z"
+    },
+    {
+      "c_number": "C-61",
+      "title": "a duplicate fact that only bumps a counter triggers a full dataset rewrite twice",
+      "claimed_at": "2026-08-13T22:07:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3972"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:11:12Z"
+    },
+    {
+      "c_number": "C-62",
+      "title": "adverse grader treats employee dismissal as exoneration",
+      "claimed_at": "2026-08-13T22:10:59Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
