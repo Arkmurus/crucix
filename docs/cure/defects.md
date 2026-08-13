@@ -2910,3 +2910,169 @@ those measured phrases. It does not weaken the underlying rules: a plain
 sanctions assertion on a clean screen and an unqualified person identity claim
 remain rejected. Fixture-first coverage replays the exact committed phoenix
 train traces in `test_rf3951_tooluse_sanctions_verdict_negation.py`.
+
+
+## C-43 · a DD layer that CRASHED rendered as `[COMPLETED]` and empty (R-F3952)
+
+The network and digital layers are the only two the orchestrator runs
+concurrently, and that gather's result was discarded:
+
+    dd_orchestrator.py:15666
+        await asyncio.gather(_run_network_layer(), _run_digital_layer(),
+                             return_exceptions=True)      # <- never inspected
+
+Both wrappers catch `asyncio.TimeoutError` and nothing else. Any other
+exception — a `TypeError` on a malformed registry payload, an `AttributeError`
+in a new adapter — escaped the wrapper, was captured by `return_exceptions=True`
+and dropped. The section then kept the `SectionMeta` default, which is
+`LayerStatus.OK.value` (`dd_schema.py:184`), and the layer was already in
+`report.layers_run`, so the skip-detector could not see it either.
+
+**A digital section that crashed was indistinguishable from one that searched
+and found nothing** — in the header, in the status, and in the gaps. On the
+layer that carries adverse media.
+
+The asymmetry is what proves it was an oversight rather than a decision:
+identity, compliance, verification and synthesis crashes all propagate and
+abort the DD loudly (15541, 15585, 16378, 16389). Only the two concurrent
+layers were silenced, and only because concurrency moved their exceptions into
+a return value nobody read.
+
+**The fix deliberately does NOT widen `except asyncio.TimeoutError`.** Handling
+the exception closer to the raise would put the logic in two places that drift
+apart, and a third layer added to the gather later would arrive with no guard
+at all. `_mark_concurrent_layer_crashes` is the ONE decision point: every
+non-timeout failure reaches it, whichever layer produced it. The wrappers keep
+their own `timeout after Ns` message because it is more specific than anything
+reconstructible after the fact — hence the `_already_marked` check, which is
+pinned by a test.
+
+§21a: the crash wires `wire_failure` (deduped 1h by R-F66, so a persistently
+crashing layer files one gap an hour rather than one per DD — the flood shape
+that already filled the 500-slot ledger) and appends a reader-facing data gap.
+A status field nobody renders is not a disclosure.
+
+Fixture-first: `test_rf3952_concurrent_layer_crash_is_visible.py`, 10 tests,
+RED then GREEN. One of them reproduces the exact production shape — narrow
+`except`, gather, discarded result — and asserts the section still reads `ok`
+before the marker runs, so the test carries the evidence rather than citing it.
+
+
+## C-44 · one of the three GREEN→AMBER confidence triggers was dead code (R-F3953)
+
+The confidence gate refuses GREEN when ARIA could not actually verify the
+entity. Its data-gap trigger could never fire, for two compounding reasons:
+
+    dd_orchestrator.py:10573
+        _total_gaps = len(report.data_gaps_summary) if hasattr(...) else 0
+        if not hasattr(report, "data_gaps_summary"):
+            _total_gaps = sum(len(s.data_gaps) for s in (...))   # <- DEAD
+
+`data_gaps_summary` is a dataclass field with `default_factory=list`
+(`dd_schema.py:699`), so `hasattr` is unconditionally True and the fallback —
+the branch that actually counted anything — was unreachable. And the list it
+did read is populated only in `_assemble_bluf` (10988-11344), which runs AFTER
+`_run_synthesis` (10319-10948), so at gate time it was always empty and the
+count was always 0.
+
+**A company with 15 unresolved data gaps still got GREEN**, provided its
+registry status was live and its ghost score clean. The only existing test
+touching this hardcodes the reason string and never exercises the computation —
+the same "certified by an absence" shape as the three Phase A gates in §1.
+
+The fix counts what the report is CARRYING at gate time — the per-section
+gaps, exactly what the dead branch intended — unioned with the summary and
+de-duplicated by text, because `_assemble_bluf` copies section gaps into the
+summary and counting both naively would double every gap and trip the gate at
+~2 instead of 3.
+
+Fixture-first: `test_rf3953_green_amber_gap_trigger_can_fire.py`, 10 tests. The
+capability test drives the REAL `_run_synthesis` and reproduced the live
+symptom before the fix — *"5 unresolved data gaps still issued a GREEN
+clearance"*. Its sibling asserts two gaps still yield GREEN: a gate that always
+fires is as useless as one that never does.
+
+
+## C-45 · the LLM response cache could serve a DeepSeek answer to a Claude-pinned DD (R-F3954)
+
+`LLMResponseCache` is the OUTERMOST wrapper (`main.py:2084` ->
+`app.state.llm_provider`), and DD pins Claude through the `provider_scope`
+contextvar, which `FallbackProvider` resolves at `fallback.py:1087` — one layer
+DOWN, inside the cache. The key was prompt bytes and nothing else:
+
+    resilience.py:773
+        raw = f"{system_prompt}|{user_message}"
+
+So a DD call and a general chat call with byte-identical prompts produced the
+**same key**, and within the 1-hour TTL a DeepSeek-authored answer was returned
+verbatim to a Claude-pinned DD run, tagged `model="cache"`. The prompt is
+reachable and deterministic per entity — `deep_researcher` builds its synthesis
+prompt from company + country + facts.
+
+R-F3034's whole rationale is that "an honest incomplete report beats a DeepSeek
+verdict wearing a Claude badge". The non-degrading pin in `fallback.py` is
+sound; **this key undid it from above**.
+
+The fix keys on everything that decides authorship: the effective pin (explicit
+argument, else the contextvar — resolved the same way the chain resolves it)
+plus `model`, since R-F2769 routes that per call and opus and sonnet are
+different authors. `web_search._search_cache_key` already keys on its serving
+backend (`|brave`) for this reason; the LLM cache was the one that did not.
+
+`_effective_pin` returns **None for "could not determine"**, which is not the
+same as "unpinned" and must never be collapsed into it: an unresolvable pin
+means the caller cannot tell whether serving a cached entry would cross the
+authorship boundary, so `complete` reads nothing and writes nothing. A cache
+miss costs a call; a wrong badge costs the verdict.
+
+The class docstring claimed the key was `sha256(prompt + temperature)`. It
+never was, and the method's own docstring contradicted the class's — which is
+how this survived review: the reader checks the docstring, not the bytes. A
+test now pins the docstring against that specific false claim.
+
+Fixture-first: `test_rf3954_cache_key_carries_provider_pin.py`, 10 tests. RED
+proved the collision byte-for-byte — two identical sha256 digests across the
+authorship boundary. Three of the ten assert the cache is still a cache.
+
+
+## C-46 · an adverse-media sweep where every probe FAILED was reported as screened (R-F3955)
+
+The R-F445 polyglot sweep runs one search per language and swallows each
+failure individually (`dd_orchestrator.py:9927` -> `return lang, []`), then
+writes the aggregate unconditionally, and the R-F2779 never-false-clean guard
+is keyed on `is not None`:
+
+    dd_orchestrator.py:10669
+        _am_screened = (_am_inline is not None) or _am_deep_ran
+
+An empty list is not None. So a sweep in which **every** language probe raised
+produced `screened=True`, the guard was skipped, and the report carried no
+"adverse-media screening did NOT complete" statement. A total sweep failure and
+a genuinely clean subject rendered identically — in DEEP mode, the paid,
+most-trusted tier. It is mitigated when the whole search ecosystem is detected
+as dead, but not in the case that actually happens: Brave alone failing while
+the free backends answer.
+
+Same shape as C-39 — a screen attributed to coverage it never had — and the
+fix is the same one. `adverse_media_probe` records `{attempted, succeeded,
+failed_langs}` **always, including on the healthy path**, because a block that
+appears only on failure cannot describe the dangerous case: the sweep that
+partly succeeded.
+
+Absence rules, each pinned by a test:
+**no coverage record -> screened (legacy meaning)**, so reports written before
+this fix are not retroactively re-judged and any other writer of
+`adverse_media_hits` is unaffected; **recorded but nothing succeeded -> not
+screened**; **`attempted: 0` -> not screened**; **malformed -> not screened**,
+because an undeterminable record is never coverage.
+
+**Partial success counts as screened**, deliberately. One language answering is
+thin, but the failed languages are named in the layer finding, and treating
+partial as unscreened would fire the gap on nearly every real run and train the
+reader to skip it. A disclosure nobody reads protects nobody.
+
+Fixture-first: `test_rf3955_adverse_media_probe_failure_is_not_clean.py`, 12
+tests, RED then GREEN. Four drive the real `_run_synthesis`: total failure is
+disclosed, a clean sweep is NOT flagged (the guard must be able to stay quiet),
+a legacy report behaves as before, and the original R-F2779 no-sweep-at-all
+case still fires.

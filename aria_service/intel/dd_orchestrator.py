@@ -9916,6 +9916,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                     from . import web_search as _ws
                                     import asyncio as _aio_p
 
+                                    # R-F3955 (C-46) — carry the OUTCOME, not just
+                                    # the hits. Returning `[]` for a raised probe
+                                    # made a total sweep failure indistinguishable
+                                    # from a clean subject downstream.
                                     async def _run_one(lang, q):
                                         try:
                                             return lang, await _ws.search_multilingual(
@@ -9923,21 +9927,23 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                                 languages=[lang],
                                                 max_results=5,
                                                 translate_query=False,
-                                            )
+                                            ), True
                                         except Exception as _wse:
                                             logger.debug(
                                                 "R-F445 search_multilingual %r/%r failed: %s",
                                                 lang, q[:40], _wse,
                                             )
-                                            return lang, []
+                                            return lang, [], False
 
                                     _capped = _queries[:4]
                                     _results = await _aio_p.gather(
                                         *(_run_one(l, q) for l, q in _capped),
                                         return_exceptions=False,
                                     )
-                                    for _lang, _res_list in _results:
-                                        for _r in (_res_list or [])[:5]:
+                                    _probe_failed_langs = [
+                                        _l for _l, _, _ok in _results if not _ok
+                                    ]
+                                    for _lang, _res_list, _ok in _results:
                                             _adverse_hits.append({
                                                 "lang":    _lang,
                                                 "title":   getattr(_r, "title", "")[:240],
@@ -9951,11 +9957,24 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                     report.digital.web_footprint["adverse_media_hits"] = (
                                         _adverse_hits
                                     )
+                                    # R-F3955 (C-46) — ALWAYS written, including on
+                                    # the healthy path. A coverage block that only
+                                    # appears on failure cannot describe the
+                                    # dangerous case (a sweep that partly
+                                    # succeeded), which is the same reason C-39
+                                    # emits sanctions coverage unconditionally.
+                                    report.digital.web_footprint["adverse_media_probe"] = {
+                                        "attempted": len(_capped),
+                                        "succeeded": len(_capped) - len(_probe_failed_langs),
+                                        "failed_langs": _probe_failed_langs,
+                                    }
                                     report.digital.meta.subcalls += len(_capped)
                                     logger.info(
                                         "R-F445: polyglot adverse-media executed — "
-                                        "%d langs probed, %d hits aggregated",
+                                        "%d langs probed (%d failed: %s), %d hits aggregated",
                                         len(_capped),
+                                        len(_probe_failed_langs),
+                                        ",".join(_probe_failed_langs) or "-",
                                         len(_adverse_hits),
                                     )
                                 except Exception as _r445_e:
@@ -9973,6 +9992,13 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 f"and aggregated "
                                 f"{len(_adverse_hits)} hit(s) into "
                                 f"web_footprint.adverse_media_hits."
+                                + (
+                                    f" R-F3955: {len(_probe_failed_langs)} of "
+                                    f"{min(4, len(_queries))} probe(s) FAILED "
+                                    f"({', '.join(_probe_failed_langs)}) — the hit "
+                                    f"count above under-states coverage by that much."
+                                    if _probe_failed_langs else ""
+                                )
                             )
                             report.digital.findings.append(Finding(
                                 severity="info",
@@ -10316,6 +10342,87 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
     report.verification.meta.status = LayerStatus.OK.value
 
 
+def _adverse_probe_screened(coverage) -> bool:
+    """Did the polyglot adverse-media sweep actually screen anything?
+
+    R-F3955 (C-46) — `_run_one` swallows a raised probe and returns `[]`, so a
+    sweep in which every language failed wrote an empty hit list that the
+    R-F2779 never-false-clean guard read as a completed screen (`is not None`).
+    A total sweep failure and a genuinely clean subject rendered identically,
+    in DEEP mode — the paid, most-trusted tier.
+
+    Absence rules, and they are load-bearing (same contract as C-39's sanctions
+    coverage):
+
+      * **No coverage record at all → True (legacy meaning).** Reports written
+        before this fix, and any other writer of `adverse_media_hits`, must not
+        be retroactively re-judged. Absence is "this run did not record
+        coverage", never "this run failed".
+      * **Recorded but nothing succeeded → False.** Nothing was screened.
+      * **Malformed → False.** An undeterminable record is never coverage.
+
+    Partial success counts as screened: one language answering is thin, but the
+    failed languages are disclosed separately in the layer finding. Treating
+    partial as unscreened would fire the gap on nearly every real run and train
+    the reader to skip it — a disclosure nobody reads protects nobody.
+    """
+    if not coverage:
+        return True
+    if not isinstance(coverage, dict):
+        return False
+    try:
+        attempted = int(coverage.get("attempted") or 0)
+        succeeded = int(coverage.get("succeeded") or 0)
+    except (TypeError, ValueError):
+        return False
+    return attempted > 0 and succeeded > 0
+
+
+#: R-F3953 (C-44) — sections the confidence gate counts gaps across. This is the
+#: list the old dead branch named; `commercial_coherence` is in it because a
+#: Layer 5c gap (untraceable corporate substance) is exactly the kind of
+#: unknown that must stop a GREEN clearance.
+_GAP_BEARING_SECTIONS = (
+    "identity", "network", "verification", "compliance",
+    "digital", "commercial_coherence",
+)
+
+
+def _count_unresolved_gaps(report) -> int:
+    """How many unresolved data gaps this report is carrying RIGHT NOW.
+
+    R-F3953 (C-44) — the confidence gate used to read `data_gaps_summary`
+    behind a `hasattr` check. `data_gaps_summary` is a dataclass field with
+    `default_factory=list` (dd_schema.py:699), so `hasattr` is unconditionally
+    True and the fallback that actually counted the per-section gaps was
+    unreachable. Worse, the list it did read is populated only in
+    `_assemble_bluf`, which runs AFTER `_run_synthesis` — so at gate time it
+    was always empty and the count was always 0. A company with 15 unresolved
+    gaps still got GREEN.
+
+    Counting the SECTIONS is what the dead branch intended and is what is
+    actually available at gate time. The summary is unioned in (de-duplicated
+    by text) so this stays correct if it is ever called later in the pipeline,
+    where `_assemble_bluf` has already copied section gaps into it — counting
+    both naively would double every gap and make the gate fire at ~2 rather
+    than 3.
+    """
+    try:
+        seen: set[str] = set()
+        for _name in _GAP_BEARING_SECTIONS:
+            _sec = getattr(report, _name, None)
+            for _g in (getattr(_sec, "data_gaps", None) or []):
+                if _g:
+                    seen.add(str(_g))
+        for _g in (getattr(report, "data_gaps_summary", None) or []):
+            if _g:
+                seen.add(str(_g))
+        return len(seen)
+    except Exception as _cg_err:      # noqa: BLE001
+        logger.debug("[R-F3953] gap count skipped: %s", _cg_err)
+        return 0
+
+
 async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     """Layer 6 — Synthesis. ACH matrix + final ghost score + risk
     classification + SAR trigger."""
@@ -10570,14 +10677,10 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         # commercial_coherence so a Layer 5c gap (e.g. unknown payment
         # market, untraceable corporate substance) actually counts toward
         # the manual-review trigger.
-        _total_gaps = len(report.data_gaps_summary) if hasattr(report, "data_gaps_summary") else 0
-        if not hasattr(report, "data_gaps_summary"):
-            _total_gaps = sum(
-                len(getattr(s, "data_gaps", []) or [])
-                for s in (report.identity, report.network, report.verification,
-                          report.compliance, report.digital,
-                          report.commercial_coherence)
-            )
+        # R-F3953 (C-44) — count what the report is CARRYING, not
+        # `data_gaps_summary`, which `_assemble_bluf` does not populate until
+        # after this gate has already run.
+        _total_gaps = _count_unresolved_gaps(report)
         if _total_gaps >= 3:
             _needs_manual = True
             _gate_reasons.append(f"{_total_gaps} unresolved data gaps")
@@ -10629,7 +10732,15 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         _am_deep = getattr(report, "adverse_media", None)     # deep follow-up blob
         _am_deep_ran = (isinstance(_am_deep, dict) and bool(_am_deep)
                         and not _am_deep.get("error"))
-        _am_screened = (_am_inline is not None) or _am_deep_ran
+        # R-F3955 (C-46) — `_am_inline is not None` was the whole test, and an
+        # empty list is not None. A polyglot sweep in which EVERY language probe
+        # raised wrote `[]` and was read here as a completed screen, so this
+        # guard was skipped and the report carried no disclosure. Consult the
+        # probe coverage: hits present is necessary but not sufficient.
+        _am_inline_ran = (_am_inline is not None) and _adverse_probe_screened(
+            _wf.get("adverse_media_probe"),
+        )
+        _am_screened = _am_inline_ran or _am_deep_ran
         if not _am_screened:
             _am_gap = ("R-F2779: adverse-media screening did NOT complete this run — the ABSENCE of "
                        "adverse-media / litigation / corruption findings is NOT a clean bill. A dedicated "
@@ -15203,6 +15314,70 @@ async def orchestrate_dd(
                 pass
 
 
+def _mark_concurrent_layer_crashes(report, layers, results) -> None:
+    """R-F3952 (C-43) — a concurrently-run layer that CRASHED must never read `ok`.
+
+    The network and digital layers are the only two run under a single
+    `asyncio.gather(..., return_exceptions=True)`, and that call's result used
+    to be discarded. Their wrappers catch `asyncio.TimeoutError` and nothing
+    else, so any other exception — a `TypeError` on a malformed registry
+    payload, an `AttributeError` in a new adapter — was captured by gather and
+    dropped. The section then kept `SectionMeta.status`'s default, which is
+    `LayerStatus.OK.value` (dd_schema.py:184), and the layer was already in
+    `report.layers_run`, so the skip-detector could not see it either.
+
+    A digital section that crashed was therefore indistinguishable from one
+    that searched and found nothing — the never-false-clean failure, on the
+    layer that carries adverse media.
+
+    This is deliberately the ONE place non-timeout failures are handled rather
+    than a widened `except` in each wrapper: two handlers drift apart, and a
+    layer added to the gather later would arrive with no guard at all. The
+    wrappers keep their own `timeout after Ns` message because it is more
+    specific than anything reconstructible here — hence `_already_marked`.
+
+    Never raises: it runs on the DD hot path and must not become the crash.
+    """
+    try:
+        for (name, section), result in zip(layers or [], results or []):
+            if not isinstance(result, BaseException):
+                continue
+            meta = getattr(section, "meta", None)
+            if meta is None:
+                continue
+            _already_marked = (meta.status == LayerStatus.ERROR.value and meta.error)
+            if not _already_marked:
+                meta.status = LayerStatus.ERROR.value
+                meta.error = f"{type(result).__name__}: {result}"[:300]
+            _gap = (
+                f"R-F3952: the {name} layer CRASHED mid-run "
+                f"({type(result).__name__}) and returned no findings. The absence of "
+                f"{name} findings below is NOT a clean result — this layer did not "
+                f"complete and must be re-run before relying on the verdict."
+            )
+            try:
+                if _gap not in section.data_gaps:
+                    section.data_gaps.append(_gap)
+            except Exception:
+                pass
+            # §21a — success AND failure reach the brain. record_gap is deduped
+            # 1h (R-F66), so a persistently crashing layer files one gap an hour
+            # rather than one per DD.
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module=f"dd_layer_{name}",
+                    detail=(f"DD {name} layer crashed: {type(result).__name__}: "
+                            f"{str(result)[:160]}"),
+                    gap_type="engine_failure",
+                    source="dd_orchestrator._mark_concurrent_layer_crashes:R-F3952",
+                )
+            except Exception:
+                pass
+    except Exception as _mark_err:      # noqa: BLE001
+        logger.debug("[R-F3952] crash marker skipped: %s", _mark_err)
+
+
 async def _orchestrate_dd_impl(
     target: dict,
     *,
@@ -15663,7 +15838,17 @@ async def _orchestrate_dd_impl(
                 finally:
                     _LAYER_DEADLINE.reset(_dl_tok)      # R-F3059
 
-            await asyncio.gather(_run_network_layer(), _run_digital_layer(), return_exceptions=True)
+            # R-F3952 (C-43) — BIND the result. Discarding it meant a layer that
+            # raised anything other than asyncio.TimeoutError kept its default
+            # `ok` status and rendered as [COMPLETED] and empty.
+            _layer_results = await asyncio.gather(
+                _run_network_layer(), _run_digital_layer(), return_exceptions=True,
+            )
+            _mark_concurrent_layer_crashes(
+                report,
+                [("network", report.network), ("digital", report.digital)],
+                _layer_results,
+            )
 
         # R-F2515 — Companies House officer BACKFILL, outside the starved identity budget.
         # The identity layer is wrapped in wait_for(90s); under warmup/L3 load its pre-CH

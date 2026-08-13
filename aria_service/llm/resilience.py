@@ -719,13 +719,15 @@ class QueueFullError(Exception):
 class LLMResponseCache(LLMProvider):
     """LRU cache for LLM responses.
 
-    Wraps an inner LLMProvider. Repeated questions (same prompt hash +
-    temperature) return the cached response within TTL instead of
-    re-hitting the LLM. Cache is in-process only — resets on restart,
-    which is fine (cold cache after deploy is acceptable).
+    Wraps an inner LLMProvider. Repeated questions return the cached
+    response within TTL instead of re-hitting the LLM. Cache is in-process
+    only — resets on restart, which is fine (cold cache after deploy is
+    acceptable).
 
-    Cache key = sha256(prompt + temperature). Two identical prompts
-    with different temperatures are cached separately.
+    Cache key = sha256(system_prompt | user_message | effective provider pin |
+    model). See `_cache_key` for why the pin is part of it — R-F3954: this
+    class is the OUTERMOST wrapper, so a key made of prompt bytes alone
+    collides across the Claude/DeepSeek authorship boundary.
 
     Wire discipline:
       - Cache hit: wire_success with from_cache=True
@@ -761,16 +763,67 @@ class LLMResponseCache(LLMProvider):
         return getattr(self._inner, item)
 
     @staticmethod
-    def _cache_key(system_prompt: str, user_message: str) -> str:
-        """Deterministic cache key from prompt content only.
+    def _effective_pin(prefer_provider: str = "") -> Optional[str]:
+        """Who will actually author the answer — resolved exactly as the chain does.
 
-        Temperature is intentionally excluded from the key because callers
-        do not pass it through the LLMProvider.complete() interface — the
-        cache is for deterministic-ish requests and a temperature mismatch
-        would produce a false cache miss, not a wrong answer. If a future
-        caller varies temperature, plumb it through as a parameter here.
+        `FallbackProvider` takes the explicit argument when given, else the
+        `provider_scope` contextvar (fallback.py:1087). This wrapper sits
+        ABOVE that resolution, so it has to repeat it to know what its key
+        is really identifying.
+
+        Returns None for "could not determine", which is not the same as
+        "unpinned" and must never be collapsed into one: an unresolvable pin
+        means the caller cannot tell whether serving a cached entry would
+        cross the authorship boundary, so `complete` bypasses the cache
+        entirely. A cache miss costs a call; a wrong badge costs the verdict.
         """
-        raw = f"{system_prompt}|{user_message}"
+        explicit = (prefer_provider or "").strip().lower()
+        if explicit:
+            return explicit
+        try:
+            from .fallback import get_preferred_provider
+            return (get_preferred_provider() or "").strip().lower()
+        except Exception:      # pragma: no cover — import-time failure only
+            return None
+
+    @staticmethod
+    def _cache_key(
+        system_prompt: str,
+        user_message: str,
+        prefer_provider: str = "",
+        model: str = "",
+    ) -> Optional[str]:
+        """Deterministic cache key over everything that decides the answer.
+
+        R-F3954 (C-45) — this used to be `sha256(system_prompt|user_message)`,
+        prompt bytes and nothing else. That is wrong *here specifically*
+        because `LLMResponseCache` is the OUTERMOST wrapper (main.py:2084 →
+        `app.state.llm_provider`) while DD pins Claude through a contextvar
+        resolved one layer DOWN. A DD call and a general chat call with
+        byte-identical prompts produced the same key, so within the 1-hour
+        TTL a DeepSeek-authored answer was served verbatim to a
+        Claude-pinned DD run, tagged `model="cache"` — precisely the
+        "DeepSeek verdict wearing a Claude badge" R-F3034 exists to prevent.
+        The non-degrading pin in fallback.py was sound; this key undid it.
+
+        `web_search._search_cache_key` already keys on the serving backend
+        (`|brave`) for the same reason — a cache entry belongs to whoever
+        produced it.
+
+        `model` is in the key for the same reason (R-F2769 routes it
+        per-call): claude-opus and claude-sonnet are different authors.
+
+        Temperature is still excluded — callers do not pass it through the
+        LLMProvider.complete() interface at all, so it cannot vary between
+        two calls that reach this key. If a future caller varies it, plumb
+        it through here.
+
+        Returns None when the pin cannot be resolved; see `_effective_pin`.
+        """
+        pin = LLMResponseCache._effective_pin(prefer_provider)
+        if pin is None:
+            return None
+        raw = f"{system_prompt}|{user_message}|pin={pin}|model={(model or '').strip().lower()}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _get_cached(self, key: str) -> Optional[str]:
@@ -803,9 +856,13 @@ class LLMResponseCache(LLMProvider):
         prefer_provider: str = "",
         model: str = "",   # R-F2769 — per-call Claude model override
     ) -> LLMResult:
-        key = self._cache_key(system_prompt, user_message)
+        # R-F3954 — key on the EFFECTIVE pin, not on prompt bytes alone.
+        # `key is None` means the pin could not be resolved: read nothing and
+        # write nothing, so an unknowable scope can never be served another
+        # provider's answer.
+        key = self._cache_key(system_prompt, user_message, prefer_provider, model)
 
-        cached = self._get_cached(key)
+        cached = self._get_cached(key) if key is not None else None
         if cached is not None:
             self._hits += 1
             self._wire_cache_hit()
@@ -840,8 +897,10 @@ class LLMResponseCache(LLMProvider):
             raise
         self._misses += 1
 
-        # Cache successful responses (non-empty, non-error)
-        if result.text and len(result.text) > 10:
+        # Cache successful responses (non-empty, non-error). R-F3954 — never
+        # store under an unresolvable pin; an entry nobody can attribute is
+        # the entry that gets served to the wrong caller.
+        if key is not None and result.text and len(result.text) > 10:
             self._set_cached(key, result.text)
 
         self._wire_cache_miss()
