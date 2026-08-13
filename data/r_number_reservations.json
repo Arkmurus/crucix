@@ -33431,9 +33431,10 @@
       "title": "C-41 quota latch must clear on the same evidence that sets it",
       "claimed_at": "2026-08-13T07:45:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c7f0f285",
+      "notes": null,
+      "shipped_at": "2026-08-13T08:52:10Z"
     },
     {
       "r_number": "R-F3948",
