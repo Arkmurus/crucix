@@ -423,6 +423,51 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T07:55:48Z"
+    },
+    {
+      "c_number": "C-42",
+      "title": "tooluse scorer misreads cautious sanctions verdicts",
+      "claimed_at": "2026-08-13T09:24:35Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-43",
+      "title": "DD layer crash renders as COMPLETED - gather result discarded, SectionMeta fails open",
+      "claimed_at": "2026-08-13T09:35:08Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-44",
+      "title": "GREEN to AMBER data-gap trigger is dead code - hasattr on a dataclass field",
+      "claimed_at": "2026-08-13T09:35:08Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-45",
+      "title": "LLM response cache key omits the provider - DeepSeek answer served to a Claude-pinned DD",
+      "claimed_at": "2026-08-13T09:35:09Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-46",
+      "title": "adverse-media sweep where every probe failed is written as empty and reported screened",
+      "claimed_at": "2026-08-13T09:35:09Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

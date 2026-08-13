@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3951,
+  "next_available": 3956,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33464,6 +33464,51 @@
       "commit_sha": "2ca8cf9e",
       "notes": null,
       "shipped_at": "2026-08-13T08:46:05Z"
+    },
+    {
+      "r_number": "R-F3951",
+      "title": "fix tooluse sanctions verdict negation",
+      "claimed_at": "2026-08-13T09:24:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3952",
+      "title": "C-43 DD layer crash must not render as COMPLETED",
+      "claimed_at": "2026-08-13T09:35:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3953",
+      "title": "C-44 revive the GREEN to AMBER data-gap trigger",
+      "claimed_at": "2026-08-13T09:35:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3954",
+      "title": "C-45 cache key must carry the effective provider pin",
+      "claimed_at": "2026-08-13T09:35:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3955",
+      "title": "C-46 adverse-media all-probes-failed must not read as screened",
+      "claimed_at": "2026-08-13T09:35:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

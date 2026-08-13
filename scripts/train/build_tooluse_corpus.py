@@ -247,6 +247,7 @@ _HIT_CLAIM_RE = re.compile(
     r"|\bmatched\s+against\b"
     r"|\b(?:returned|found)\s+(?:a\s+)?match\b"
     r"|\bmatched\s+(?!against\b)\S+"
+    r"|\bon\s+the\s+sanctions\s+list\b"
     r"|\bsubject\s+to\s+sanctions\b"
     r"|\b(?:critical|confirmed|positive)\s+(?:sanctions\s+)?match\b",
     re.I,
@@ -266,9 +267,15 @@ def _claims_sanctions_hit(text: str) -> bool:
             text.rfind(".", 0, match.start()),
             text.rfind(";", 0, match.start()),
             text.rfind("\n", 0, match.start()),
+            text.rfind("—", 0, match.start()),
         ) + 1
         prefix = text[clause_start:match.start()]
-        if re.search(r"\b(?:not|no|none|never|neither|without)\b", prefix, re.I):
+        if re.search(
+            r"\b(?:not|no|none|never|neither|without|cannot|could not)\b"
+            r"|\bcan['’]t\b",
+            prefix,
+            re.I,
+        ):
             continue
         return True
     return False
@@ -1017,7 +1024,9 @@ _IDENTITY_DENIAL_RE = re.compile(
     r"|\bidentity (is |was )?not (confirmed|established|verified)\b"
     r"|\bnot (confirmed|established|verified)\b"
     r"|\bdoes not establish\b"
-    r"|\bmust not be treated\b",
+    r"|\bmust not be treated\b"
+    r"|\bnot\s+(?:a\s+)?definitive\s+match\b"
+    r"|\bnot possible to determine whether\b[^.]{0,80}\b(?:same\s+)?individual\b",
     re.I,
 )
 

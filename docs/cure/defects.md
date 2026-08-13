@@ -2894,3 +2894,19 @@ literal source substring plus a fixed 900-char window, so C-39 wrapping that cal
 lines broke it with no behaviour change — the R-F3597 line-fragility class. It is now
 AST-based, and distinguishes the WAIVED blob (whose `screened_at: None` is honest,
 because no screen ran) from one that actually ran.
+
+## C-42 · tool-use scorer misread cautious sanctions verdicts (R-F3951)
+
+The R-F3949 accepted-parent harvest produced five apparent failures from 100
+train-only rows. Four were not safe preference labels. The scorer missed the
+ordinary hit verdict "on the sanctions list", treated "cannot confirm that it is
+sanctioned" as an affirmative hit, and ignored "not a definitive match" plus
+"not possible to determine whether it is the same individual" as identity
+denials. Only the unqualified Bashar al-Assad identity assertion was a genuine
+model failure.
+
+The fix extends the existing clause-aware verdict and identity grammars with
+those measured phrases. It does not weaken the underlying rules: a plain
+sanctions assertion on a clean screen and an unqualified person identity claim
+remain rejected. Fixture-first coverage replays the exact committed phoenix
+train traces in `test_rf3951_tooluse_sanctions_verdict_negation.py`.
