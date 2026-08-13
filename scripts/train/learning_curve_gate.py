@@ -5,6 +5,8 @@ import argparse
 import json
 from pathlib import Path
 
+from scripts.train.eval_tooluse import report_consistency_error
+
 
 def axis_counts(report: dict) -> dict[str, int]:
     return {str(row["label"]): int(row["honest"]) for row in report.get("per_axis") or []}
@@ -15,6 +17,8 @@ def progression_verdict(before: dict, after: dict, protected: set[str]) -> dict:
     for name, report in (("before", before), ("after", after)):
         if report.get("complete") is not True or len(report.get("rows") or []) != report.get("total"):
             return {"pass": False, "reason": f"{name}_incomplete"}
+        if report_consistency_error(report):
+            return {"pass": False, "reason": f"{name}_report_inconsistent"}
     old, new = axis_counts(before), axis_counts(after)
     if set(old) != set(new) or before["total"] != after["total"]:
         return {"pass": False, "reason": "calibration_surface_changed"}

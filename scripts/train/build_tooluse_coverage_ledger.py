@@ -8,12 +8,16 @@ from collections import Counter
 from pathlib import Path
 
 from scripts.train.build_mixed_tooluse_cycle import ALL_AXES
+from scripts.train.eval_tooluse import report_consistency_error
 
 
 def _axis_map(report: dict, name: str) -> dict[str, dict]:
     rows = report.get("rows") or []
     if report.get("complete") is not True or len(rows) != int(report.get("total", -1)):
         raise ValueError(f"{name} report is incomplete")
+    error = report_consistency_error(report)
+    if error:
+        raise ValueError(f"{name} report summary is inconsistent: {error}")
     axes = {str(row.get("label") or ""): row for row in report.get("per_axis") or []}
     if set(axes) != ALL_AXES:
         raise ValueError(f"{name} report does not cover all ten axes")

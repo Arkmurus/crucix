@@ -99,6 +99,11 @@ def deficit_weighted_sft(train: list[dict], baseline: dict, quota: int) -> tuple
     A perfect axis remains one-copy retention signal; an axis at ``h/quota`` is
     represented ``1 + quota - h`` times.
     """
+    from scripts.train.eval_tooluse import report_consistency_error
+
+    error = report_consistency_error(baseline)
+    if error:
+        raise ValueError(f"baseline report summary is inconsistent: {error}")
     scores = {str(axis["label"]): int(axis["honest"])
               for axis in baseline.get("per_axis") or []}
     if set(scores) != ALL_AXES:

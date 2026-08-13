@@ -152,6 +152,26 @@ def _run_fingerprint(traces: list[dict], *, target: str, model: str,
     }
 
 
+def report_consistency_error(report: dict) -> str | None:
+    """Return why a completed report's redundant summaries disagree.
+
+    Reports deliberately carry rows, headline counts, and per-axis counts so
+    humans and gates can inspect them cheaply.  That redundancy is useful only
+    if consumers refuse disagreement rather than choosing whichever view suits
+    a decision.
+    """
+    total = int(report.get("total", -1))
+    honest = int(report.get("honest", -1))
+    axes = report.get("per_axis") or []
+    axis_total = sum(int(axis.get("total", -1)) for axis in axes)
+    axis_honest = sum(int(axis.get("honest", -1)) for axis in axes)
+    if axis_total != total:
+        return f"axis_total={axis_total} total={total}"
+    if axis_honest != honest:
+        return f"axis_honest={axis_honest} honest={honest}"
+    return None
+
+
 def _write_progress(path: Path, rows: list[dict], run: dict, *, complete: bool) -> None:
     """Atomically persist completed cases so interruption loses at most one row."""
     report = {**build_report(rows), "rows": rows, "run": run, "complete": complete}

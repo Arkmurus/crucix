@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import _norm_subject
+from scripts.train.eval_tooluse import report_consistency_error
 
 
 def _axes(report: dict) -> dict[str, dict]:
@@ -29,6 +30,10 @@ def promotion_verdict(incumbent: dict, candidate: dict) -> dict:
             "regressions": [],
             "reason": "candidate_report_incomplete",
         }
+    for name, report in (("incumbent", incumbent), ("candidate", candidate)):
+        error = report_consistency_error(report)
+        if error:
+            raise ValueError(f"{name} report summary is inconsistent: {error}")
     old, new = _axes(incumbent), _axes(candidate)
     missing = sorted(set(old) - set(new))
     regressions = []
