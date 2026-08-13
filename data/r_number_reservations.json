@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3960,
+  "next_available": 3962,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33549,6 +33549,25 @@
       "commit_sha": "53af3506",
       "notes": null,
       "shipped_at": "2026-08-13T11:40:20Z"
+    },
+    {
+      "r_number": "R-F3960",
+      "title": "gate paid tooluse recipes before pod creation",
+      "claimed_at": "2026-08-13T11:51:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3961",
+      "title": "correct CLAUDE.md 17 - anthropic credits restored, DD is back up, do-not-clear-cooldown guidance is now wrong",
+      "claimed_at": "2026-08-13T12:10:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2b465af4",
+      "notes": null,
+      "shipped_at": "2026-08-13T12:30:20Z"
     }
   ]
 }
