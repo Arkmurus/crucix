@@ -519,6 +519,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-13T11:40:20Z"
+    },
+    {
+      "c_number": "C-50",
+      "title": "paid training launcher lacks mechanical recipe review",
+      "claimed_at": "2026-08-13T11:51:48Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

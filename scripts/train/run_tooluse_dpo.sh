@@ -18,6 +18,8 @@ BASELINE_SHA256="${BASELINE_SHA256:-}"
 DIAGNOSTICS_LOCAL="${DIAGNOSTICS_LOCAL:-}"
 DIAGNOSTICS_REMOTE="${DIAGNOSTICS_REMOTE:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
 EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
+DPO_BETA="${DPO_BETA:-0.3}"
+DPO_LR="${DPO_LR:-2e-6}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
 RESUME_ADAPTER_LOCAL="${RESUME_ADAPTER_LOCAL:-}"
 RESUME_REPORT_LOCAL="${RESUME_REPORT_LOCAL:-}"
@@ -109,6 +111,10 @@ if [ "$FRESH_BASE" != 1 ]; then
 fi
 "$PYBIN" -m scripts.train.preflight_cycle --train-file "$TRAIN_PROOF" --eval-file "$EVAL_LOCAL" \
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
+PARENT_MODE=accepted_adapter
+[ "$FRESH_BASE" != 1 ] || PARENT_MODE=fresh_base
+RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
+"$PYBIN" -m scripts.train.preflight_training_recipe --recipe-json "$RECIPE_JSON" || exit 3
 "$PYBIN" - "$DPO_LOCAL" "$EXPECTED_DPO_PAIRS" <<'PY' || exit 3
 import json, sys
 r=[json.loads(x) for x in open(sys.argv[1], encoding="utf-8") if x.strip()]
@@ -198,7 +204,7 @@ if [ "$FRESH_BASE" != 1 ]; then
   TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 fi
 arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
-POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
+POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }

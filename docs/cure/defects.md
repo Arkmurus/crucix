@@ -3194,3 +3194,25 @@ different subject. It remains strict when neither condition exists. Exact
 fixture replays prove the six false positives pass while Uzbekneftegaz still
 fails for omitting a matter the evidence reports as CLEARED. The corrected v2
 measurement is 87/88, with one genuine adverse failure.
+
+## C-50 · paid training launcher lacked mechanical recipe review (R-F3960)
+
+The standing spend condition requires both dataset quality and a reviewed
+training pipeline before a paid cycle. The tool-use DPO launcher mechanically
+proved dataset integrity, immutable inputs, runtime dependencies, and output
+completeness, but it never checked whether the hyperparameters and parent mode
+still matched the measured recipe. An environment override could therefore
+change beta or learning rate, or select a fresh base, and still create a paid
+GPU pod after every existing preflight passed.
+
+The launcher now serializes its effective recipe and runs a fail-closed review
+before `_create_v04_pod.py`. The approved surface is deliberately narrow: the
+measured Mistral-7B accepted-adapter continuation, one epoch, beta 0.3, learning
+rate 2e-6, batch 2, accumulation 1, sequence length 4096, gradient norm 0.3,
+and 4-bit loading. Fresh-base training and any parameter drift are refused
+until separately reviewed and registered; absence of a recipe is not approval.
+
+Fixture-first: `test_rf3960_paid_recipe_preflight.py` was RED on the missing
+module, then GREEN with four capability checks covering the accepted recipe,
+exact parameter drift, an unknown recipe family, and invocation before pod
+creation.
