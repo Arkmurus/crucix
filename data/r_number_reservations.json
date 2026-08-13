@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3974,
+  "next_available": 3976,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33678,6 +33678,25 @@
       "r_number": "R-F3973",
       "title": "require legal resolution context before grading dismissed as cleared",
       "claimed_at": "2026-08-13T22:11:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c52781e2",
+      "notes": null,
+      "shipped_at": "2026-08-13T22:15:18Z"
+    },
+    {
+      "r_number": "R-F3974",
+      "title": "grade categorical no-adverse claims only against entity-relevant results",
+      "claimed_at": "2026-08-13T22:15:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3975",
+      "title": "C-62 the coder must not claim work it has no budget to do",
+      "claimed_at": "2026-08-13T22:15:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

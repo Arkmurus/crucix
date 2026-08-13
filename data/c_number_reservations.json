@@ -669,6 +669,27 @@
       "title": "adverse grader treats employee dismissal as exoneration",
       "claimed_at": "2026-08-13T22:10:59Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3973"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-13T22:15:18Z"
+    },
+    {
+      "c_number": "C-63",
+      "title": "adverse denial grading needs entity relevance not raw result presence",
+      "claimed_at": "2026-08-13T22:15:19Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-64",
+      "title": "the self-coder claims 20 gaps a cycle against a 6-per-hour budget so most attempts are burned before they run",
+      "claimed_at": "2026-08-13T22:15:34Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
