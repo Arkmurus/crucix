@@ -3350,3 +3350,39 @@ Fixture-first: `test_rf3965_month_spend_never_fabricates_zero.py`, 12 tests,
 including cold failure, warm-cache degradation, absent-rollup/index failure,
 month rollover, genuine zero, genuine over-cap, truthful gauge output, and
 parent-exception compatibility.
+
+**Additional notes from the concurrent second pass on this defect** (the peer
+agent and I fixed it in parallel; this section is the merge, kept as one entry
+because §26a forbids two claims on one C-number):
+
+**The handler for this already existed and could never run.** The
+`except Exception` in `_refresh_month_cache` preserves the last known total,
+which is exactly right — but the read layer converted the failure into a
+plausible number before anything could raise. A guard made unreachable by its
+own dependency: the same shape as the three Phase A gates §1 records as
+"certified by an absence", and as R-F3791's route audit that certified a
+770-route app by enumerating nothing. R-F2854 fixed this shape on the WRITE path
+and its docstring names the cap-safety consequence; the READ path that feeds the
+cap decision was never revisited.
+
+`MonthlyCostCapUnverifiable` carries its own message rather than reusing the
+parent's, which would read "cap $600.00 exceeded (spent $0.0000)" — a wrong
+cause pointing at a wrong fix, i.e. the defect C-53 was opened for. The
+control-flow exemption was CHECKED, not assumed: `wire._is_control_flow` matches
+by class name up the MRO, so a subclass stays exempt and a store outage cannot
+flood the 500-slot gap ledger with one gap per refused call.
+
+**The month-rollover bug was caught by the peer's test, in my fix.** My first
+`except` branch carried the PREVIOUS month's total into the new month on a dead
+store. The `_same_month` guard is theirs. Recorded because it is the argument
+for co-review: the defect was invisible to the author and obvious to a second
+reader.
+
+**Regression caveat, stated rather than glossed:** the `-k "cost or cap or ..."`
+subset reported 7 failures, but the SET CHANGED between two runs of the
+identical command (`test_cost_monthly_cap` dropped out, `test_rf3018` appeared)
+— order-dependence, not a regression. The first of those runs was taken while
+the peer was editing `cost_tracker.py`, which §16 makes invalid regardless. All
+three cost test FILES pass together, 24/24, and the file itself is 12/12. The
+full suite was NOT run.
+
