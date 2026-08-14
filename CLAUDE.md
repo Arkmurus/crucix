@@ -982,19 +982,47 @@ production-shaped mix (1 new fact + 9 re-absorbs, x200) 408,331,990 B in 3.99 s
 0 across ~23 min of two post-fix processes**. Facts 533,034 → 533,103 across the
 deploy (nothing lost). Steady-state journal growth ~21 KB/min.
 
-⚠️ **A residual multi-second lag spike still occurs occasionally. Its CAUSE IS
-NOT ESTABLISHED — do not repeat the guess I first wrote here.** Measured
-2026-08-14: one ~3958 ms spike at ~14:30, then the very next compaction (14:41,
-canonical rewritten) cost only **137 ms**. So "the spike is the compaction" is
-NOT supported — a compaction was observed costing ~137 ms. Other candidates that
-were never ruled out: the `SNAPSHOT_INTERVAL_S=600` sharded Redis snapshot, the
-sidecar write, or something unrelated to knowledge entirely. Spikes stay below
-the 5 s stall threshold, so they no longer produce a wedge dump — which also
-means the wedge log will NOT identify them; correlate `/health.loop.max_ms`
-against the canonical file's mtime before attributing it to anything.
-**Do not "fix" it by lengthening `COMPACT_MAX_AGE_S`** (that is a cadence knob
-aimed at an unproven cause), and never delete the journal file — it holds every
-fact written since the last compaction.
+⚠️ **A residual multi-second lag spike REMAINS, and compaction is DISPROVEN as
+its cause. The prime suspect is the R-F334 sharded snapshot — NOT confirmed.**
+
+Measured 2026-08-14 by sampling `/health.loop` against the canonical file's
+mtime every ~100 s:
+
+```
+14:46  p95=1.1  max=379.7    canon=1786718467  jrnl=133271
+14:50  p95=4.1  max=379.7    canon=1786718467  jrnl=248252
+14:51  p95=4.0  max=5133.9   canon=1786718467  jrnl=248252
+14:56  p95=5.1  max=5133.9   canon=1786718467  jrnl=490908
+```
+
+`canon` never moved, so **no compaction ran** — yet a **5134 ms** stall landed.
+An earlier compaction (14:41) was measured costing only **137 ms**. So do not
+attribute this to compaction, and **do not "fix" it by lengthening
+`COMPACT_MAX_AGE_S`** — that is a cadence knob aimed at a disproven cause.
+
+**The lead worth pulling** is `_flush_loop`'s other job: every
+`SNAPSHOT_INTERVAL_S=600` it calls `_save_sharded_snapshot(_cache)`, which
+`_split_into_shards` + gzips **the WHOLE graph** (533k facts) in a worker
+thread. Its own docstring records that this used to produce **19-25 s wedges**
+on the loop and can "starve the loop for 30s+" under concurrent encoders. The
+timing fits (boot 14:39 → flusher ~14:41 → +600 s ≈ 14:51). It is the SAME
+self-worsening O(total-graph) class as C-95, just on a 10-minute timer.
+
+**Check the premise first, because it may make the whole step pointless:** this
+is described as the "Redis off-host backup tier", but `REDIS_URL` is unset and
+`ARIA_STATE_BACKEND=sqlite` (§18), so `rs.set` now writes those shards to
+`/data/aria_state.db` — **the same volume as the canonical file it is meant to
+back up.** If so it is a redundant local second copy costing a whole-graph gzip
+every 10 minutes. Confirm that before changing anything; it is a BACKUP path, so
+removing or re-scoping it needs operator sign-off (and §26 forbids deletion).
+
+Two instruments DISAGREED here and that is unresolved: `loop_monitor` recorded
+5134 ms while the R-F704 wedge log stayed **0 bytes** and no `[R-F703]` warning
+was found. One of them is wrong about a >5 s stall. Establish which before
+trusting either for this class.
+
+Never delete the journal file — it holds every fact written since the last
+compaction.
 
 **R-F4024 (C-96) — `/health` now reads the gauge it publishes.** It used to
 return `loop.status: starved` (p95 3264 ms) beside `status: operational`,
