@@ -982,12 +982,19 @@ production-shaped mix (1 new fact + 9 re-absorbs, x200) 408,331,990 B in 3.99 s
 0 across ~23 min of two post-fix processes**. Facts 533,034 → 533,103 across the
 deploy (nothing lost). Steady-state journal growth ~21 KB/min.
 
-⚠️ **EXPECT a ~4 s loop-lag spike roughly every 15 minutes — that is the
-compaction, and it is NOT a regression.** It sits below the 5 s stall threshold
-so it no longer produces a wedge dump. Removing it needs an incremental/sharded
-snapshot, which is real work; **do not "fix" it by lengthening
-`COMPACT_MAX_AGE_S` without measuring**, and do not delete the journal file —
-it holds every fact written since the last compaction.
+⚠️ **A residual multi-second lag spike still occurs occasionally. Its CAUSE IS
+NOT ESTABLISHED — do not repeat the guess I first wrote here.** Measured
+2026-08-14: one ~3958 ms spike at ~14:30, then the very next compaction (14:41,
+canonical rewritten) cost only **137 ms**. So "the spike is the compaction" is
+NOT supported — a compaction was observed costing ~137 ms. Other candidates that
+were never ruled out: the `SNAPSHOT_INTERVAL_S=600` sharded Redis snapshot, the
+sidecar write, or something unrelated to knowledge entirely. Spikes stay below
+the 5 s stall threshold, so they no longer produce a wedge dump — which also
+means the wedge log will NOT identify them; correlate `/health.loop.max_ms`
+against the canonical file's mtime before attributing it to anything.
+**Do not "fix" it by lengthening `COMPACT_MAX_AGE_S`** (that is a cadence knob
+aimed at an unproven cause), and never delete the journal file — it holds every
+fact written since the last compaction.
 
 **R-F4024 (C-96) — `/health` now reads the gauge it publishes.** It used to
 return `loop.status: starved` (p95 3264 ms) beside `status: operational`,
