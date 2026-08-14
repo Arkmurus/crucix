@@ -220,7 +220,7 @@ _CLEAN_CLAIM_RE = re.compile(
     re.I,
 )
 _DECLARES_NOT_SCREENED_RE = re.compile(
-    r"\b(could not screen|did not run|was not screened|not screened|"
+    r"\b(could not screen|cannot screen|can['’]t screen|did not run|was not screened|not screened|"
     r"screen did not|not a clean result|must be repeated|unverified)\b",
     re.I,
 )

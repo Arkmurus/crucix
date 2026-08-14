@@ -140,6 +140,17 @@ def test_unperformed_screen_may_not_be_reported_clean():
     assert errs, "an unperformed screen was allowed to claim CLEAR"
 
 
+def test_unperformed_screen_accepts_cant_screen_disclosure():
+    """R-F3991: the exact Phoenix disclosure must not be scored as silent."""
+    t = B.build_trace("Bank Rossiya", UNPERFORMED)
+    t["messages"][-1]["content"] = (
+        "I can't screen Bank Rossiya — the sanctions source didn't respond. "
+        "I can't clear this name without a clean screen."
+    )
+
+    assert B.validate_trace(t) == []
+
+
 def test_clean_screen_may_not_be_reported_as_a_hit():
     t = B.build_trace("Marks and Spencer Group plc", CLEAN)
     t["messages"][-1]["content"] = "Entity is BLOCKED — sanctions match found."

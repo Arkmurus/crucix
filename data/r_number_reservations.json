@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3991,
+  "next_available": 3992,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33841,6 +33841,15 @@
       "r_number": "R-F3990",
       "title": "tier capability matrix: no paid downgrade, no unenforced entitlement (C-75)",
       "claimed_at": "2026-08-14T08:17:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3991",
+      "title": "recognise can't-screen unavailable verdict",
+      "claimed_at": "2026-08-14T08:21:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
