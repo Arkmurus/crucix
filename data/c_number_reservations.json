@@ -1047,6 +1047,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T12:49:27Z"
+    },
+    {
+      "c_number": "C-94",
+      "title": "free/pro upload limit advertised below what the platform can serve",
+      "claimed_at": "2026-08-14T13:04:48Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

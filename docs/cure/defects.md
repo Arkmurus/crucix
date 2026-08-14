@@ -4892,3 +4892,54 @@ the TOTP probe was wrong, not the guard (the injected call sat inside the helper
 which is legitimate — re-probed outside it, the guard fails as designed); the
 lead-wiring guard was genuinely weak and was replaced with the behavioural test
 above.
+
+
+## C-94 · free/pro upload advertised below what the platform already served (R-F4020)
+
+C-73 made the upload cap tier-aware, which was correct — but it enforced the
+ADVERTISED 5 MB on free and pro, and the route had previously allowed a flat 25 MB
+to everyone. So the honest fix was also the first change in the workstream to take
+a capability AWAY from users: an account that could attach a 20 MB PDF yesterday
+could not today, and nothing had told them.
+
+Operator decision: raise the advertised figure instead. free and pro are now
+25 MB, which RESTORES exactly what was already possible rather than granting
+anything new. No additional exposure — the load this permits is the load the
+platform has been carrying — and the change is invisible to every existing user
+because it is what they already experienced.
+
+**Not differentiated by size, deliberately.** pro's advantage over free on uploads
+is the daily COUNT (30 vs 15). Setting pro below 25 MB would reduce what pro users
+could already do, and setting free below it would do the same to them, so any
+size-based differentiation reintroduces the very reduction this reverses. Size is
+a technical capability; the count is the commercial lever. Monotonicity still
+holds (25 / 25 / 50).
+
+### The root cause was the guard, not the number
+
+R-F2755 pinned the landing page's `ddRunsPerMonth` against the tier table and
+NOTHING ELSE, so the message and upload claims were free to diverge — and the
+upload one did, for over a year, with no test able to notice because no test
+looked. Pinning one figure and leaving its neighbours unguarded is how a
+commercial contract rots: the guarded claim stays true and quietly certifies the
+others by association.
+
+Every advertised figure now derives from the same source of truth enforcement
+reads — messages/day, DD runs, upload size, price and currency — plus a guard that
+no stated upload size may correspond to no tier at all. Proven by sequence rather
+than assertion: the new guards passed on the consistent state, went RED the moment
+the tier values moved and the copy did not, and returned green when the copy
+followed.
+
+One collateral repair, same lesson one layer down: the R-F4017 end-to-end test
+hardcoded a 6 MiB payload chosen against the old 5 MB limit, so raising the tier
+turned two correct tests red. It now derives the over-limit size from
+`TIERS.free.uploadBytesMax`. A test that pins a number the product owns must be
+edited every time the product changes, which is how it is eventually edited wrong.
+
+Surfaces verified: `account.html` and `/api/billing/{config,me}` already DERIVE the
+figure and needed no change; the only hardcoded customer copy was the landing
+page. Effective limits with the live brain cap: free 25.00 MB, pro 25.00 MB,
+proIntel 50.00 MB, none constrained.
+
+Regression: 429 passed / 0 failed across 46 files. Boot smoke green.

@@ -27,6 +27,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { TIERS } from '../lib/billing/tiers.mjs';
 
 // This test drives a REAL server process over loopback, so it needs real
 // sockets. net_guard blocks network in tests by default and provides this
@@ -38,6 +39,15 @@ allowLoopbackNetwork();
 const INTERNAL_TOKEN = 'rf4017-internal-token';
 const WEB_PORT = 39231;
 const STUB_PORT = 39232;
+
+// R-F4020 — DERIVED from the tier table, never hardcoded. This file first used a
+// literal 6 MiB because the free limit was 5 MB; raising it to 25 MB turned two
+// correct tests red for no reason but a duplicated constant. A test that pins a
+// number the product owns has to be edited every time the product changes, which
+// is how it eventually gets edited WRONG. The internal-token caller has no JWT
+// user, so its tier resolves to the default (free).
+const FREE_LIMIT = TIERS.free.uploadBytesMax;
+const OVER_LIMIT = FREE_LIMIT + 2 * 1024 * 1024;
 
 let stub, server, received = [];
 
@@ -135,7 +145,7 @@ describe('R-F4017 — a real upload still flows through the metered proxy', () =
   });
 
   it('a large-but-legal upload streams through (backpressure holds)', async () => {
-    // 3 MiB is under the 5 MiB free-tier limit and large enough to cross many
+    // Comfortably under the free-tier limit and large enough to cross many
     // chunk boundaries, which is where a naive pipe would deadlock or drop.
     received = [];
     const payload = Buffer.alloc(3 * 1024 * 1024, 0x5a);
@@ -146,10 +156,9 @@ describe('R-F4017 — a real upload still flows through the metered proxy', () =
   });
 
   it('an oversized upload is refused as 413, not as a proxy error', async () => {
-    // The internal-token caller has no JWT user, so the tier resolves to the
-    // default (free, 5 MiB). 6 MiB must be refused — and refused with the status
-    // that tells the user it is THEIR request, not our outage.
-    const payload = Buffer.alloc(6 * 1024 * 1024, 0x11);
+    // Refused with the status that tells the user it is THEIR request, not our
+    // outage.
+    const payload = Buffer.alloc(OVER_LIMIT, 0x11);
     const body = multipart('----rf4017boundary', 'toobig.bin', payload);
     const res = await upload(body);
     assert.equal(res.status, 413, 'an oversized upload must be 413');
@@ -162,7 +171,7 @@ describe('R-F4017 — a real upload still flows through the metered proxy', () =
     // The C-78 defect: no Content-Length meant no measurement. This is the whole
     // reason the meter exists, driven end to end rather than in isolation.
     received = [];
-    const payload = Buffer.alloc(6 * 1024 * 1024, 0x22);
+    const payload = Buffer.alloc(OVER_LIMIT, 0x22);
     const body = multipart('----rf4017boundary', 'chunked.bin', payload);
     const res = await upload(body, { withContentLength: false });
     assert.notEqual(res.status, 200,
