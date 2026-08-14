@@ -1754,3 +1754,63 @@ WAS run and reconciled: 1857 pass / 8 fail, matching
 
 Hours: not supplied, so `pace_ratio` is left blank rather than derived from
 agent wall-clock — the same rule as every prior entry.
+
+---
+
+## Session addendum — the two "open with reasoning" items, closed
+
+**C-71 / R-F3984 and C-72 / R-F3985. Session total: 23 defects, C-43..C-72.**
+
+I had closed the session with two items marked "recorded with reasoning rather
+than guessed at". The operator pushed back. **Neither piece of reasoning survived
+contact with a measurement**, and one of them was hiding something worse than
+the report described.
+
+### C-71 was not "recall dilution" — it was a false HARD_STOP
+
+I had recorded it as a recall/precision concern. Reproduced against a store
+holding one sanctioned "Aviation Group":
+
+    Aviation Industry Corporation   -> HARD_STOP  method=exact  score=1.0
+    Aviation Holdings Limited       -> HARD_STOP  method=exact  score=1.0
+    Aviation Partners International -> HARD_STOP  method=exact  score=1.0
+                                                  gate_blocked=0
+
+Three innocent companies blocked, and the R-F518 gate never treated it as a
+question — because rule (a) IS "exact normalised-name equality", and all four
+names strip down to the single token `aviation`.
+
+**On a defence-DD product, wrongly blocking a customer is a first-class failure**,
+and I had it filed as a nice-to-have. The lesson is not about stopwords: a
+finding inherited from a report carries that report's severity judgement, and
+that judgement is exactly the thing worth re-deriving.
+
+### C-72's reasoning WAS right, and it still was not a reason to stop
+
+"A slower cadence would delete R-F2144's boot acceleration" is true and remains
+true. What I had missed is that it answers the wrong question. The cadence
+question ("how often?") has no good answer; the boot question ("could a boot
+follow?") has an obvious one — clean shutdown always, plus a slow crash hedge.
+
+Correct reasoning that stops at "therefore it is hard" is still an unfinished
+job. The reasoning became the fix once it was pointed at the right question.
+
+### Method notes
+
+* The 4 `rf798` failures in the sanctions subset were PROVEN pre-existing by
+  reverting the change and re-running the identical selection — same 5 failures.
+  Not baselined only because the full-suite collection order differs (§16).
+* C-72 changed `_write_to_disk_atomic`'s signature, which broke C-61's test fake.
+  Fixed by making the fake mirror the REAL `(fn, *args)` signature rather than a
+  frozen copy of an arity that no longer exists.
+* `_last_sidecar_write` is `None` for "never written", not `0.0`:
+  `time.monotonic()`'s origin is platform-defined, so `0.0` would mean "long ago"
+  on one host and "just now" on another.
+
+### Nothing is now knowingly left undone
+
+Every finding from the 2026-08-13 diligence report is closed, corrected as
+wrong, or shown to have been already fixed. Four of its findings turned out to
+be wrong or stale, and one (C-71) turned out to be materially worse than
+described — which is the argument for re-deriving a finding against the live
+tree rather than working from the write-up.
