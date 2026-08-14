@@ -61,6 +61,16 @@ def test_screen_hard_stop_is_blocked(monkeypatch):
 def test_screen_review_is_review_required(monkeypatch):
     r = _run_screen(monkeypatch, "REVIEW", matches=_HARD_MATCH)
     assert r["status"] == "REVIEW_REQUIRED"
+    assert r["sanctions"]["matched"] is True
+
+
+def test_screen_review_without_match_records_does_not_claim_a_match(monkeypatch):
+    """R-F4019 capability: cautious review is not a sanctions-list hit."""
+    r = _run_screen(monkeypatch, "REVIEW")
+    assert r["status"] == "REVIEW_REQUIRED"
+    assert r["sanctions"]["risk_level"] == "medium"
+    assert r["sanctions"]["matches"] == []
+    assert r["sanctions"]["matched"] is False
 
 
 def test_screen_clear_that_ran_is_clear(monkeypatch):

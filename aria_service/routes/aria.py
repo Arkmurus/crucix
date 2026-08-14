@@ -19955,13 +19955,17 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
         else:
             sanctions_screened = True
             _rl = {"HARD_STOP": "critical", "REVIEW": "medium", "CLEAR": "clear"}.get(_verdict, "clear")
+            _match_records = [
+                {"name": m.get("formatted_name") or m.get("name"),
+                 "list": m.get("source"), "score": m.get("match_score")}
+                for m in (_cs.get("matches") or [])[:10]
+            ]
             sanctions_result = {
-                "matched": _verdict in ("HARD_STOP", "REVIEW"),
-                "matches": [
-                    {"name": m.get("formatted_name") or m.get("name"),
-                     "list": m.get("source"), "score": m.get("match_score")}
-                    for m in (_cs.get("matches") or [])[:10]
-                ],
+                # R-F4019 — REVIEW is a cautious verdict, not proof that the
+                # canonical store returned a sanctions-list record.  Keep the
+                # review risk while making this boolean agree with `matches`.
+                "matched": bool(_match_records),
+                "matches": _match_records,
                 "risk_level": _rl,
                 "verdict": _verdict,
             }
