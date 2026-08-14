@@ -73,6 +73,26 @@ REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
 [ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
 for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
+if [ -n "$PROBE_LOCAL" ]; then
+  "$PYBIN" - "$DPO_LOCAL" "$PROBE_LOCAL" <<'PY' || exit 3
+import json, sys
+
+def subjects(path):
+    rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
+    missing = [i for i, row in enumerate(rows, 1) if not str(row.get("subject") or "").strip()]
+    if missing:
+        raise SystemExit(f"subject contamination gate: {path} missing subject at rows {missing[:5]}")
+    return {str(row["subject"]).strip().casefold() for row in rows}
+
+overlap = sorted(subjects(sys.argv[1]) & subjects(sys.argv[2]))
+if overlap:
+    raise SystemExit(
+        f"subject contamination gate: DPO and calibration overlap on {len(overlap)} subject(s): "
+        + ", ".join(overlap[:10])
+    )
+print("verified DPO/calibration subject disjointness")
+PY
+fi
 EXPECTED_SFT_ROWS=0
 if [ -n "$SFT_LOCAL" ]; then
   EXPECTED_SFT_ROWS=$("$PYBIN" -c "import sys; print(sum(bool(x.strip()) for x in open(sys.argv[1], encoding='utf-8')))" "$SFT_LOCAL") \

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3992,
+  "next_available": 3993,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33850,6 +33850,16 @@
       "r_number": "R-F3991",
       "title": "recognise can't-screen unavailable verdict",
       "claimed_at": "2026-08-14T08:21:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6b766c6b",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:24:41Z"
+    },
+    {
+      "r_number": "R-F3992",
+      "title": "block DPO calibration subject contamination",
+      "claimed_at": "2026-08-14T08:24:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

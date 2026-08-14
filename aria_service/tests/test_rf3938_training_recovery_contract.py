@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 from pathlib import Path
 
@@ -62,6 +63,36 @@ def test_driver_rejects_a_malformed_deadline_before_paid_api_access() -> None:
     assert result.returncode == 3
     assert "must use integer seconds" in output
     assert "API key unavailable" not in output
+
+
+def test_driver_rejects_dpo_calibration_subject_contamination(tmp_path: Path) -> None:
+    """R-F3992: the real paid driver must reject a trained-on probe subject."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash unavailable")
+    dpo = tmp_path / "dpo.jsonl"
+    probe = tmp_path / "probe.jsonl"
+    dpo.write_text(json.dumps({"subject": "Serco Group plc"}) + "\n", encoding="utf-8")
+    probe.write_text(json.dumps({"subject": "serco group PLC"}) + "\n", encoding="utf-8")
+    env = dict(os.environ)
+    env.update({
+        "FRESH_BASE": "1",
+        "DPO_LOCAL": str(dpo),
+        "PROBE_LOCAL": str(probe),
+        "EVAL_LOCAL": "data/training/split_v1/eval.jsonl",
+        "TRAIN_PROOF": "data/training/tooluse_citation_phoenix_v2_generation_queue.jsonl",
+        "EXPECTED_DPO_PAIRS": "1",
+    })
+
+    result = subprocess.run(
+        [bash, str(DRIVER)], cwd=ROOT, env=env,
+        capture_output=True, text=True, timeout=30,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 3
+    assert "DPO and calibration overlap on 1 subject" in output
+    assert "training recipe approved" not in output
 
 
 def test_v10_recovery_declares_the_measured_eval_envelope() -> None:
