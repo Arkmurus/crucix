@@ -2696,6 +2696,54 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
     }
 
 
+def sanctions_coverage(screen) -> dict | None:
+    """R-F4007 (C-86) — THE ONE classification of a sanctions screen's per-list coverage.
+
+    Both surfaces read this: `_render_screened_lists` renders it as report prose,
+    and `structured_view` exposes it so the front-end can show coverage as a
+    first-class element instead of a grey bullet. Classifying twice is how a pill
+    and a paragraph end up disagreeing about the same report, which is the drift
+    `_sanctions_classify._coverage_split` exists to prevent one layer down.
+
+    Returns None — never a zero-filled dict — when the screen carries no per-source
+    detail. A report written before R-F3945 has no `verified_sources`, and
+    rendering that as "0 of 0 lists answered" would invent a measurement nobody
+    took. Absence is not coverage.
+
+    Shape:
+        {total, answered, complete, hit: [...], clean: [...], unavailable: [...],
+         screened_at: str}
+
+    `answered` counts HIT + CLEAN only. An unrecognised status falls to
+    `unavailable`, deliberately: an unknown verdict must never be absorbed into the
+    reassuring bucket.
+    """
+    if not isinstance(screen, dict):
+        return None
+    sources = screen.get("verified_sources")
+    if not isinstance(sources, dict) or not sources:
+        return None
+    hit, clean, unavailable = [], [], []
+    for _name, _info in sources.items():
+        status = str((_info or {}).get("status") or "").upper() if isinstance(_info, dict) else ""
+        if status == "HIT":
+            hit.append(str(_name))
+        elif status == "CLEAN":
+            clean.append(str(_name))
+        else:
+            unavailable.append(str(_name))
+    total = len(hit) + len(clean) + len(unavailable)
+    return {
+        "total": total,
+        "answered": len(hit) + len(clean),
+        "complete": not unavailable,
+        "hit": sorted(hit),
+        "clean": sorted(clean),
+        "unavailable": sorted(unavailable),
+        "screened_at": str(screen.get("screened_at") or "").strip(),
+    }
+
+
 def _render_screened_lists(screen) -> list[str]:
     """R-F3019 — the sanctions lists actually screened, their per-list verdict, and
     the screening DATE, as report lines. Module-level so it is directly testable.
@@ -2704,35 +2752,28 @@ def _render_screened_lists(screen) -> list[str]:
     separately: a reader must never infer coverage from a summary that quietly
     dropped the list that failed to answer (never-false-clean). Returns [] when the
     screen carries no per-source detail — an empty section beats an invented one.
+
+    R-F4007 — the split is no longer computed here; it comes from
+    `sanctions_coverage()` so this prose and the structured view the front-end
+    renders can never disagree about the same report.
     """
-    if not isinstance(screen, dict):
+    cov = sanctions_coverage(screen)
+    if not cov:
         return []
-    sources = screen.get("verified_sources")
-    if not isinstance(sources, dict) or not sources:
-        return []
-    hit, clean, unavailable = [], [], []
-    for _name, _info in sources.items():
-        status = str((_info or {}).get("status") or "").upper() if isinstance(_info, dict) else ""
-        if status == "HIT":
-            hit.append(str(_name))
-        elif status == "CLEAN":
-            clean.append(str(_name))
-        elif status:
-            unavailable.append(str(_name))
+    hit, clean, unavailable = cov["hit"], cov["clean"], cov["unavailable"]
     out: list[str] = []
-    total = len(hit) + len(clean) + len(unavailable)
-    when = str(screen.get("screened_at") or "").strip()
+    when = cov["screened_at"]
     when_txt = f" · screened {when}" if when else " · screening date not recorded"
-    out.append(f"Sanctions lists screened: {total}{when_txt}")
+    out.append(f"Sanctions lists screened: {cov['total']}{when_txt}")
     if hit:
-        out.append(f"  • MATCH ({len(hit)}): {', '.join(sorted(hit))}")
+        out.append(f"  • MATCH ({len(hit)}): {', '.join(hit)}")
     if unavailable:
         out.append(
-            f"  • DID NOT ANSWER ({len(unavailable)}): {', '.join(sorted(unavailable))} "
+            f"  • DID NOT ANSWER ({len(unavailable)}): {', '.join(unavailable)} "
             "— NOT screened, treat as unchecked"
         )
     if clean:
-        out.append(f"  • No match ({len(clean)}): {', '.join(sorted(clean))}")
+        out.append(f"  • No match ({len(clean)}): {', '.join(clean)}")
     return out
 
 
@@ -3481,6 +3522,12 @@ def structured_view(r: dict) -> dict:
         "registration_number": ident.get("registration_number"),
         "website_url": target.get("website_url") or target.get("website") or target.get("url"),
         "risk_classification": r.get("risk_classification") or "",
+        # R-F4007 (C-86) — per-list sanctions coverage, so the front-end can show
+        # "n of m lists answered" beside the verdict instead of leaving the single
+        # most decision-critical fact as a grey bullet in a markdown paragraph.
+        # None (not a zero-filled dict) when the report predates R-F3945 and has no
+        # per-source detail: absence is not coverage.
+        "sanctions_coverage": sanctions_coverage(sanc),
         "bottom_line": r.get("bottom_line") or "",
         "recommendation": r.get("recommendation") or "",
         "confidence_tag": r.get("confidence_tag") or "",

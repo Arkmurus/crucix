@@ -283,6 +283,12 @@ const CONCAT_JUSTIFIED = {
     "l.replace(/^\\d+\\. /, '')",
     'label',
     'lastRun',
+    // R-F4007 — a two-branch literal ternary ('bi-shield-check' /
+    // 'bi-shield-exclamation'), no caller data. Named `covIcon` rather than the
+    // obvious `icon` on purpose: this allowlist matches by NAME, so a generic
+    // entry would silently justify any future `icon` variable that DOES carry
+    // user data. A specific name keeps the exemption to the value it was granted for.
+    'covIcon',
     'm',
     // R-F3996 — a locally-built markup fragment, exactly like 'sharedBadge'
     // beside it: assembled a few lines above from static strings plus an

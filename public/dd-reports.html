@@ -507,13 +507,28 @@
           <div class="sc-mod-field">
             <label>Depth</label>
             <div class="sc-optgrid">
+              <!-- R-F4006 (C-85) — say what each depth PRODUCES, not just which
+                   checks run. Both cards previously described the check list, so
+                   the difference that changes what the customer receives was
+                   invisible: standard-mode research is budget-limited to
+                   gathering citations and, in the orchestrator's own words,
+                   "cannot reach article analysis", while deep raises
+                   deep_researcher to thorough, widens the compliance and digital
+                   budgets, and reads the subject's own site.
+                   Durations are the measured ones (304s / 448s, 2026-08-13).
+                   No prices: customers are metered by DD runs per month, so a
+                   per-run figure would present an internal cost as their bill. -->
               <button type="button" class="sc-optcard active" data-mode="standard">
                 <div class="t"><i class="bi bi-lightning-charge"></i> Standard</div>
-                <div class="d">Core 7-layer screen: sanctions, registry, identity &amp; risk. Fast.</div>
+                <div class="d">Core 7-layer screen: sanctions, registry, identity and risk.
+                  Gathers and cites sources; does not read the articles behind them.
+                  About 5 min.</div>
               </button>
               <button type="button" class="sc-optcard" data-mode="deep">
                 <div class="t"><i class="bi bi-grid-3x3-gap-fill"></i> Deep / Full</div>
-                <div class="d">Standard + all forensic primitives (FATF, TBML, RCA, Benford…).</div>
+                <div class="d">Everything in Standard, plus it reads the sources and the
+                  subject's own site, and runs the forensic primitives (FATF, TBML, RCA,
+                  Benford). About 8 min.</div>
               </button>
             </div>
             <input id="dd-r-mode" type="hidden" value="standard">
@@ -1197,6 +1212,54 @@ function renderEntityScope(scope) {
   return h + '</div></div>';
 }
 
+// R-F4007 (C-86) — sanctions coverage as a first-class element.
+//
+// R-F3945 stopped DD stamping never-searched lists as CLEAN and made the report
+// SAY so — but only in prose, as a markdown bullet inside a body paragraph, while
+// lesser facts got coloured verdict pills. The single most decision-critical line
+// in a due-diligence report was the least legible thing on the page. It is now
+// rendered from dd_schema's `sanctions_coverage`, above the findings.
+//
+// ABSENCE IS NOT COVERAGE. The field is null for any report written before the
+// coverage existed, and drawing "0 of 0 lists answered" for those would invent a
+// measurement nobody took — the same class as the false CLEAN this whole line of
+// work exists to end. No data, no strip.
+//
+// The unanswered lists are NAMED, not just counted: a count says something is
+// missing, the names say WHICH register was not searched, and that is what a
+// compliance decision actually turns on.
+function renderSanctionsCoverage(cov) {
+  if (!cov || !cov.total) return '';
+  const answered = Number(cov.answered) || 0;
+  const total = Number(cov.total) || 0;
+  const complete = !!cov.complete;
+  const cls = complete ? 'dd-cov ok' : 'dd-cov gap';
+  const covIcon = complete ? 'bi-shield-check' : 'bi-shield-exclamation';
+  const head = complete
+    ? 'All ' + total + ' sanctions lists answered'
+    : answered + ' of ' + total + ' sanctions lists answered';
+  // Named `covHtml`, not `html`. The R-F3861 guard aggregates raw-emitting
+  // variables BY NAME across the file: returning a generic `html` into markup
+  // marked every other `html` in the page as raw-emitting too, and it then
+  // (correctly, by its own rules) flagged unescaped values assigned to unrelated
+  // `html` variables elsewhere. Same reasoning as `covIcon` above — a specific
+  // name keeps an analysis scoped to the code it is about.
+  let covHtml = '<div class="' + cls + '">'
+    + '<div class="dd-cov-head"><i class="bi ' + covIcon + '"></i> ' + escText(head) + '</div>';
+  if (!complete && (cov.unavailable || []).length) {
+    covHtml += '<div class="dd-cov-body"><b>Did not answer:</b> '
+      + escText((cov.unavailable || []).join(', '))
+      + '. Treat these as unchecked, not clear.</div>';
+  }
+  if ((cov.hit || []).length) {
+    covHtml += '<div class="dd-cov-body"><b>Match:</b> ' + escText((cov.hit || []).join(', ')) + '</div>';
+  }
+  if (cov.screened_at) {
+    covHtml += '<div class="dd-cov-when">Screened ' + escText(cov.screened_at) + '</div>';
+  }
+  return covHtml + '</div>';
+}
+
 function renderRunDiagnostics(rd) {
   if (!rd || typeof rd !== 'object') return '';
   const parts = [];
@@ -1601,6 +1664,7 @@ async function toggleDetail(row, runId) {
     if (sv.recommendation) detailHtml += '<div class="dd-recommendation"><i class="bi bi-flag-fill"></i> <b>Recommendation:</b> ' + escText(sv.recommendation) + '</div>';
     detailHtml += renderEntityScope(sv.entity_scope);         // R-F3091 — who is this about
     detailHtml += renderDecisionReadiness(dr);
+    detailHtml += renderSanctionsCoverage(sv.sanctions_coverage);  // R-F4007 — before findings
     detailHtml += renderRunDiagnostics(sv.run_diagnostics);   // R-F2651 — coverage before findings
     for (const sec of sections) { detailHtml += renderSection(sec); }
     if (sv.next_actions && sv.next_actions.length) detailHtml += '<div class="dd-section dd-section-info"><div class="dd-section-head"><span class="status-icon">✅</span>Recommended next actions</div><div class="dd-section-body"><ul style="margin:0;padding-left:18px">' + sv.next_actions.map(a=>'<li>'+escText(a)+'</li>').join('') + '</ul></div></div>';

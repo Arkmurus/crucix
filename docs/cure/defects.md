@@ -4551,3 +4551,72 @@ Phase A gates and R-F3791 for the duplicate-route check.
 Regression across the three: 1052 passed / 3 failed over 142 files; all three
 failures pre-existing and baselined by stashing the changes and re-running.
 Boot smoke green.
+
+
+## C-85 · the DD depth cards never said what each mode produces (R-F4006)
+
+Standard read "Core 7-layer screen: sanctions, registry, identity and risk. Fast."
+and Deep read "Standard + all forensic primitives (FATF, TBML, RCA, Benford)".
+Both describe which CHECKS run. Neither mentioned the difference that changes what
+the customer receives — which the orchestrator states internally, in a data gap it
+writes into standard-mode reports: the research budget "cannot reach article
+analysis. Re-run in DEEP mode for article-level reading". Deep raises
+deep_researcher to "thorough" (Claude-pinned), widens the compliance and digital
+budgets, and runs link_investigator over the subject's own site.
+
+Measured end to end 2026-08-13: standard 304s with zero synthesis subcalls; deep
+448s and the only mode that moves the Anthropic counter.
+
+STANDARD REMAINS THE DEFAULT (operator, 2026-08-14). The aim was never to push
+people to Deep — it is that choosing Standard should be a decision rather than an
+inherited hidden-input value, and that a customer who needs article-level reading
+can find out that it exists.
+
+NO PRICES IN THE UI, deliberately. Customers are metered by ddRunsPerMonth, not
+per run, so a dollar figure would present an internal cost as if it were their
+bill. Duration is the honest customer-facing cost, and a test forbids a currency
+symbol in the cards. A second test forbids disparaging copy: Standard is a real
+product, not a degraded one, and describing it as "limited" or "no analysis"
+would be its own kind of dishonesty.
+
+
+## C-86 · sanctions coverage had no structured field to render (R-F4007)
+
+R-F3945 stopped DD stamping never-searched lists as CLEAN and made the report SAY
+so — but only in PROSE. `_render_screened_lists` emits report LINES, while
+`structured_view`, the render contract the front-end actually consumes, carried no
+per-source coverage at all; its only sanctions field was a match COUNT. So the
+most decision-critical fact in a due-diligence report reached the customer as a
+grey bullet inside a markdown paragraph, while lesser facts got coloured verdict
+pills — because the UI had no structured field to render.
+
+ONE COMPUTATION, NOT TWO. Classifying the statuses again inside `structured_view`
+would have put two independent classifications of the same dict in the tree, which
+is how a pill and a paragraph end up disagreeing about the same report.
+`sanctions_coverage()` is the single classifier and `_render_screened_lists` was
+rewritten to consume it, so the prose and the strip cannot drift. A test asserts
+that relationship directly rather than the wording.
+
+ABSENCE IS NOT COVERAGE. The classifier returns None — never a zero-filled dict —
+when a screen carries no `verified_sources`, because a report written before
+R-F3945 has none and "0 of 0 lists answered" would invent a measurement nobody
+took. The renderer guards on it and draws nothing. An unrecognised status falls to
+`unavailable`, never to `clean`: an unknown verdict must not be absorbed into the
+reassuring bucket.
+
+The strip NAMES the lists that did not answer rather than only counting them. A
+count says something is missing; the names say WHICH register was not searched,
+and that is what a compliance decision turns on.
+
+Three convention repairs, all mine, all caught by verify pass 1: an em dash in
+displayed copy (R-F3278); a ternary operand needing a justification entry, named
+`covIcon` rather than the obvious `icon` because that allowlist matches by NAME
+and a generic entry would silently justify a future `icon` carrying user data; and
+a local named `html`, which made the R-F3861 guard treat every `html` in the file
+as raw-emitting and flag unescaped values in unrelated functions — renamed
+`covHtml`. Same lesson three times: a specific name keeps an analysis scoped to
+the code it is about.
+
+Regression: 9 Python tests, 10 Node tests, 556 passed / 1 failed across 55 Node
+files (the failure pre-existing) and 135 passed / 3 skipped on the Python
+dd_schema selection.

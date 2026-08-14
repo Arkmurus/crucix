@@ -713,6 +713,22 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
    column and a <br>-separated run of spans), and the "Blocked:" explanation —
    the most decision-relevant text on the panel — was rendered as muted body
    text indistinguishable from the rest of the row. */
+/* R-F4007 (C-86) — the sanctions-coverage strip. Given the same visual weight as
+   a verdict pill because it answers the question a verdict cannot: how much of
+   the screen actually ran. An incomplete screen is amber and carries the names of
+   the registers that did not answer; a complete one is green and quiet. */
+.dd-cov {
+  border: 1px solid var(--sc-border); border-left-width: 4px; border-radius: 10px;
+  padding: 12px 14px; margin: 0 0 14px; background: #fff; font-size: 13px;
+}
+.dd-cov.ok  { border-left-color: #15803d; }
+.dd-cov.gap { border-left-color: #b45309; background: #fffbf3; }
+.dd-cov-head { font-weight: 650; color: var(--sc-heading); display: flex; align-items: center; gap: 8px; }
+.dd-cov.ok  .dd-cov-head { color: #15803d; }
+.dd-cov.gap .dd-cov-head { color: #b45309; }
+.dd-cov-body { margin-top: 6px; line-height: 1.55; color: var(--sc-text); }
+.dd-cov-when { margin-top: 6px; font-size: 11.5px; color: var(--sc-muted); }
+
 .dd-src-list { display: flex; flex-direction: column; gap: 10px; }
 
 /* R-F3996 (C-77) — the DD visibility choice. Laid out like .dd-src (a control
