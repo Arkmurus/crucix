@@ -61,12 +61,18 @@ const NUMERIC_ALLOWANCES = [
  * pattern being blessed. Adding one means a new difference is being sold without
  * being enforced — resolve it instead.
  *
- * autonomousEnabled: proIntel is sold "full autonomous" and free/pro are not,
- * but the autonomous engine is a single global loop with no per-account
- * subscription to gate. Either the feature becomes per-account, or the flag
- * stops being presented to customers as an entitlement. Operator decision.
+ * NOW EMPTY (R-F3995, C-76). It held `autonomousEnabled`, which proIntel was
+ * sold as "full autonomous" while free/pro were shown a restriction that did not
+ * exist — the flag was read only to be displayed. It has been levelled to true
+ * on every tier per operator direction, so it no longer varies and no longer
+ * needs cover here.
+ *
+ * The emptying was FORCED by the test below rather than remembered: setting the
+ * flag uniform made "every entry is a real difference" fail with the exact
+ * instruction to remove it. That is the property this set is supposed to have —
+ * a debt list that cannot quietly outlive the debt.
  */
-const KNOWN_UNENFORCED_DIFFERENCES = new Set(['autonomousEnabled']);
+const KNOWN_UNENFORCED_DIFFERENCES = new Set([]);
 
 function codeOf(src) {
   // Whole-line comments only. A block-comment regex is not a parser and removed
@@ -127,8 +133,13 @@ describe('R-F3990 — tier capabilities are monotonic and honestly presented', (
       assert.ok(values.size > 1,
         `${cap} no longer differs between tiers — remove it from the known-gap list`);
     }
-    assert.ok(KNOWN_UNENFORCED_DIFFERENCES.size <= 1,
-      'the unenforced-capability debt must shrink, never grow');
+    // R-F3995 — the debt is now ZERO, so the bound is zero. Deliberately not
+    // left at "<= 1": a slot that stays open gets filled. Re-opening it must be
+    // a visible edit to this line, with a reason, not a quiet addition to a set
+    // that already tolerated one entry.
+    assert.equal(KNOWN_UNENFORCED_DIFFERENCES.size, 0,
+      'every capability difference is now enforced or levelled — do not re-open this list '
+      + 'without recording why a difference is being sold that nothing enforces');
   });
 
   it('publicApiEnabled — the one enforced flag — stays enforced', () => {
