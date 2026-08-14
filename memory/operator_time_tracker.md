@@ -1814,3 +1814,115 @@ wrong, or shown to have been already fixed. Four of its findings turned out to
 be wrong or stale, and one (C-71) turned out to be materially worse than
 described — which is the argument for re-deriving a finding against the live
 tree rather than working from the write-up.
+
+---
+
+## 2026-08-14 — aria-web surface audit, then close every finding it produced
+
+Operator asked for a page-by-page 360 review of aria-web: how each page is wired,
+whether it fulfils the USP, what is missing, whether the data is genuine, and a
+precision security pass. Then: fix everything found, in protocol order.
+
+**Shipped: R-F3988..R-F4018 (22 R-numbers, C-73..C-93), 9 deploys, all live-verified.**
+
+### What the audit found
+
+32 pages, ~1.2 MB of front-end, a 9,278-line server. Four purpose-built scanners
+(page inventory, unescaped-interpolation, escaper parity, two-hop route
+resolution) plus live probes. Headline results worth keeping:
+
+* **No malicious code.** All front-end JS, `vendor/` and `pelican/` scanned for
+  eval/obfuscation/beacons — clean; every outbound URL is a spec or licence link.
+* **No fabricated data on any page.** Every `hardcoded` match in the tree is a
+  comment recording the REMOVAL of a fabricated value. Rare, and worth protecting.
+* **No dead endpoints**, verified across BOTH hops: 115/115 front-end paths reach
+  a Node route, 63/63 `/api/aria/*` paths reach a real FastAPI handler.
+* **17 findings**, 0 critical. Ten shared one shape: a mechanism built, correct
+  and tested in the engine, never surfaced to the person it was built for.
+
+### The pattern worth remembering
+
+Ten of seventeen findings were "built, never surfaced": tier flags that gate
+nothing, a DD sharing opt-out with no control, sanctions coverage rendered as a
+grey markdown bullet, an evidence rail hidden below 1100px, a Claude-authored
+depth mode the default skips, a live corpus figure nothing rendered. **The
+engineering was not the weak side — the last inch to the customer was.**
+
+### Guards: a red test is a defect until diagnosed
+
+Seven guards were found asserting superseded behaviour. **Three would have caused
+a REGRESSION if greened by changing the code**: banning a signal type the operator
+had deliberately admitted (R-F3688), disabling an unavailable-source checkbox that
+§18 requires stay orderable, and pinning the single-id delete filter that R-F3532
+replaced *because filtering by one id was the bug*. Each was restored to its
+surviving intent, never deleted.
+
+### Six self-inflicted slice heuristics
+
+My own guards misfired six times, all the same class (R-F3858): fixed character
+windows that shift when comments are added, `.` not matching `\r` on a CRLF
+checkout, a block-comment regex that ate 122,623 characters of real server.mjs,
+identifiers matching a prose search, and generic names (`icon`, `html`) widening a
+name-keyed analysis. All now anchored to real boundaries. **A guard must not fail
+because the code it inspects acquired comments.**
+
+### The adversarial self-audit — the most valuable hour
+
+Operator asked directly: "ensure you are improving aria, not making her weaker."
+Auditing my own changes adversarially found three defects I had introduced:
+
+1. The lead bot-drop path was DARK (§21a) — a discarded submission left no trace,
+   so a decoy catching a REAL prospect would have been invisible.
+2. The decoy was named `website_url` with a "Website" label — exactly what browser
+   autofill targets. An autofilled prospect would have been silently discarded and
+   told it worked.
+3. **The drop response was an ORACLE.** It returned a hardcoded
+   `verification: 'sent'` while the genuine path reports what the mail step
+   decided, so wherever SMTP is unconfigured every real submission says `not_sent`
+   and every drop said `sent` — one request to detect the honeypot. **Invisible to
+   code review** (both branches return 200 with the same shape); caught only by
+   driving the two paths against each other end to end.
+
+Also closed the gap C-78 should have had: R-F3997 changed a LIVE streaming upload
+path verified only by unit-testing the meter in isolation, which §3c says
+explicitly does not count. Now driven end to end — bytes intact, backpressure,
+oversized 413, oversized CHUNKED 413, and a legal chunked upload still succeeding.
+
+A falsifiability sweep probed all six modified guards by injecting the violation
+each protects. Five failed correctly; one probe was wrong rather than the guard;
+one guard was genuinely weak (a source-text match cannot tell a live call from a
+short-circuited no-op) and was replaced with a behavioural test.
+
+### Operator actions taken
+
+`ARIA_MAX_BODY_BYTES=52494336` set on **both** aria-intel and aria-web — the Node
+side reads the same variable to stay in step, so setting only the brain would have
+raised its ceiling while the Node clamp stayed at its default and the advertised
+50 MB still would not have been delivered. Identical digests prove they agree.
+Sized to the minimum that delivers the figure (0.12% over default) so the R-F1853
+OOM guard keeps its meaning.
+
+### Method notes
+
+* Every unfamiliar failure was baselined by STASHING the changes and re-running
+  the identical selection before attributing it. That is how the R-F3861 failure
+  was correctly identified as MINE (a name collision) when the tokens it named
+  were not in my code.
+* Two `degraded`/`AMBER` scares on aria-intel were both post-restart warmup
+  artefacts of my own secret-set, confirmed by re-running on a warm machine
+  rather than assumed either way. Touching aria-intel is never free.
+* The pre-commit hook blocked four commits, each time on PROSE that merely
+  mentioned a shell token it screens for. Rephrased every time; never
+  `--no-verify`. The fourth was this very note describing the previous three,
+  which is a fair illustration of why a fail-closed hook beats a clever one.
+
+### Left open, deliberately
+
+* `autonomousEnabled` is uniform-true and still enforces nothing — making it a
+  real differentiator needs per-account autonomy built first. Operator decision.
+* Phase 0.3 runtime overlay has not run, so nothing in the census is deletable,
+  including the dead vendor bundles now recorded as D-01 in a deletion ledger that
+  did not previously exist.
+* free/pro upload capability is now 5 MB where 25 MB was previously *possible* —
+  that enforces what those tiers are SOLD, but it is a reduction in what a user
+  could actually do. Raising the sold limit instead is the operator's call.
