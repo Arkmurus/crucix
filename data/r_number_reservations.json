@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4009,
+  "next_available": 4011,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34023,6 +34023,24 @@
       "r_number": "R-F4008",
       "title": "collect missing protected-axis DPO negatives",
       "claimed_at": "2026-08-14T11:00:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4009",
+      "title": "keep sources reachable on narrow screens (C-87)",
+      "claimed_at": "2026-08-14T11:32:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4010",
+      "title": "put the Intelligence Explorer in the navigation (C-88)",
+      "claimed_at": "2026-08-14T11:32:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -295,6 +295,25 @@ const Sidebar = {
     setInterval(refreshBadge, 60000);
   },
 
+  // R-F4010 (C-88) — the Intelligence Explorer had NO nav entry. Its only inbound
+  // link was on /aria-brain, which is admin-only, so a working 46 KB customer
+  // surface (search, sanctions divergence, RCA screening, counter-intel scan) was
+  // invisible to the people it was built for.
+  //
+  // Ungated deliberately: it is absent from operatorPages.mjs, so it is a customer
+  // tool. Wrapping it in data-gated would hide it from every non-admin — leaving
+  // the defect in place while looking fixed. The page keeps its own
+  // Auth.requireAuth() guard; nav reachability is not authorisation.
+  //
+  // Placed AFTER Opportunities, not beside Watchlist where it first went: R-F3245
+  // and R-F3246 pin a core-service sequence (ARIA Chat, Intelligence Brief, DD
+  // Reports, Vetting, Watchlist, News Monitor) that nothing may interrupt, and the
+  // first placement split it. The guard caught it; the fix is to respect the
+  // contract rather than widen it.
+  //
+  // This comment lives here, not inside the nav template: the markup is a template
+  // literal, so an inline JS comment there becomes a `${...}` interpolation and
+  // the R-F3850 escaping guard rightly flags it.
   html(activePage) {
     // Each nav item: fixed icon column (keeps icons aligned as the rail expands)
     // + a label that only shows when expanded. `title` gives a native tooltip
@@ -345,6 +364,7 @@ const Sidebar = {
         ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
         ${link('news',          '/news.html',            'bi-newspaper',     'News Monitor')}
         ${link('opportunities', '/opportunities.html',   'bi-briefcase',     'Opportunities')}
+        ${link('explorer',      '/explorer.html',        'bi-compass',       'Explorer')}
         <div data-gated="/bd-intelligence.html" style="display:none">${link('bd',            '/bd-intelligence.html', 'bi-graph-up',      'BD Intelligence')}</div>
         ${link('network',       '/network.html',         'bi-people',        'Network')}
         <div data-gated="/vls-chain.html" style="display:none">${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}</div>

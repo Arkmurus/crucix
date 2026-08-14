@@ -249,7 +249,36 @@
       padding: 18px 16px;
       display: flex; flex-direction: column; gap: 14px;
     }
-    @media (max-width: 1100px) { .entity-rail { display: none; } }
+    /* R-F4009 (C-87) — below 1100px the rail was `display: none`, which made the
+       evidence promise ("every finding carries the sources behind it")
+       unreachable on every phone, tablet and sub-1100px laptop.
+
+       The original decision was RIGHT and is kept: a 280px rail beside the chat
+       column is unusable on a narrow screen, so it must not sit in the flow. The
+       defect was implementing "not always visible" as "not reachable at all".
+       It is now a drawer: off-canvas by default, opened by the toggle below, and
+       above 1100px nothing changes at all. */
+    #entity-rail-toggle {
+      display: none; position: fixed; right: 14px; bottom: 84px; z-index: 61;
+      align-items: center; gap: 7px; padding: 10px 14px; border-radius: 999px;
+      border: 1px solid var(--warm-border); background: var(--warm-bg-sidebar);
+      color: var(--warm-text); font: inherit; font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 14px rgba(0,0,0,.16); cursor: pointer;
+    }
+    #entity-rail-toggle:focus-visible { outline: 2px solid var(--warm-text); outline-offset: 2px; }
+    @media (max-width: 1100px) {
+      .entity-rail {
+        position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+        width: min(320px, 88vw); border-left: 1px solid var(--warm-border);
+        transform: translateX(100%); transition: transform .22s ease;
+        box-shadow: -8px 0 24px rgba(0,0,0,.18);
+      }
+      .entity-rail.open { transform: none; }
+      #entity-rail-toggle.is-available { display: inline-flex; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .entity-rail { transition: none; }
+    }
     .entity-rail-empty {
       color: var(--warm-text-muted); font-size: 13px;
       padding: 30px 6px; text-align: center; line-height: 1.55;
@@ -734,6 +763,15 @@
      investigation focus + structured sources from the R-F732 sources
      extractor. Hidden on screens <1100px so the chat column stays
      readable on mobile / narrow laptops. -->
+<!-- R-F4009 (C-87) — opens the evidence rail on a narrow screen, where it is
+     off-canvas rather than absent. Shown only when there is something to show
+     (`is-available`, driven by the same hasEntity gate the rail card uses): an
+     empty drawer promises evidence and delivers a blank panel. -->
+<button type="button" id="entity-rail-toggle" aria-controls="entity-rail" aria-expanded="false">
+  <i class="bi bi-list-columns-reverse" aria-hidden="true"></i>
+  <span>Sources</span>
+  <span id="entity-rail-toggle-count"></span>
+</button>
 <aside class="entity-rail" id="entity-rail" aria-label="Entity context">
   <div class="entity-rail-empty" id="entity-rail-empty">
     <div class="entity-rail-empty-icon"><i class="bi bi-broadcast-pin"></i></div>
@@ -1080,6 +1118,46 @@ sendBtn.addEventListener('click', function() {
 // right-rail card. Best-effort — never throws into the chat loop.
 window._ariaCurrentEntity = window._ariaCurrentEntity || { name: '', type: '' };
 
+// R-F4009 (C-87) — the narrow-screen drawer control.
+//
+// Below 1100px the rail is off-canvas rather than absent, and this is how it is
+// reached. Wired with addEventListener, never an inline onclick: CSP sets
+// `script-src-attr 'none'` (R-F1919), so an inline handler would be silently
+// dead — precisely the defect R-F3852 found on the toast dismiss button, where a
+// ✕ did nothing on every page for months.
+//
+// `is-available` is driven by the same hasEntity gate as the rail card, so the
+// control cannot offer to open an empty drawer.
+function updateRailToggle(hasEntity, sourceCount) {
+  var btn = document.getElementById('entity-rail-toggle');
+  if (!btn) return;
+  btn.classList.toggle('is-available', !!hasEntity);
+  var countEl = document.getElementById('entity-rail-toggle-count');
+  if (countEl) countEl.textContent = sourceCount ? '(' + sourceCount + ')' : '';
+  if (!hasEntity) closeEntityRail();
+}
+
+function closeEntityRail() {
+  var rail = document.getElementById('entity-rail');
+  var btn = document.getElementById('entity-rail-toggle');
+  if (rail) rail.classList.remove('open');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+(function wireEntityRailToggle() {
+  var btn = document.getElementById('entity-rail-toggle');
+  var rail = document.getElementById('entity-rail');
+  if (!btn || !rail) return;
+  btn.addEventListener('click', function () {
+    var open = rail.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // Escape closes it, matching every other dismissible surface in the app.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && rail.classList.contains('open')) closeEntityRail();
+  });
+})();
+
 function updateEntityRail() {
   try {
     var emptyEl = document.getElementById('entity-rail-empty');
@@ -1089,6 +1167,10 @@ function updateEntityRail() {
     var entity = window._ariaCurrentEntity || {};
     var sources = window._ariaLatestSources || [];
     var hasEntity = !!(entity.name || (sources && sources.length));
+    // R-F4009 (C-87) — the narrow-screen toggle follows the SAME gate as the card
+    // rather than keeping its own idea of when there is evidence. Two conditions
+    // for one fact is how a button ends up opening an empty drawer.
+    updateRailToggle(hasEntity, (sources || []).length);
     if (!hasEntity) {
       emptyEl.style.display = '';
       cardEl.style.display = 'none';

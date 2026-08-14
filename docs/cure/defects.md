@@ -4620,3 +4620,61 @@ the code it is about.
 Regression: 9 Python tests, 10 Node tests, 556 passed / 1 failed across 55 Node
 files (the failure pre-existing) and 135 passed / 3 skipped on the Python
 dd_schema selection.
+
+
+## C-87 · the evidence rail was display:none below 1100px (R-F4009)
+
+The landing page promises "every finding carries the sources behind it". On the
+main chat product that source list lives in a right-hand rail, and
+`@media (max-width: 1100px) { .entity-rail { display: none; } }` removed it on
+every phone, tablet and sub-1100px laptop. The product's stated differentiator was
+desktop-only.
+
+THE ORIGINAL DECISION WAS RIGHT; THE IMPLEMENTATION OVERSHOT. The comment beside
+the rule explains it was hidden "so the chat column stays readable on mobile /
+laptops", and that is correct — a 280px rail beside a chat column on a phone is
+unusable. The defect is that "not always visible" was implemented as "not
+reachable at all". Sources must remain REACHABLE on a narrow screen, not
+necessarily on screen at all times.
+
+Below 1100px the rail is now off-canvas with a toggle; above 1100px nothing
+changes, and a test pins that explicitly because the desktop layout is what a
+careless narrow-screen fix breaks. The toggle is wired with addEventListener,
+never an inline onclick: CSP sets `script-src-attr 'none'` (R-F1919), so an inline
+handler would be silently dead — the defect R-F3852 found on the toast dismiss
+button, where a close control did nothing on every page for months.
+
+The toggle follows the SAME `hasEntity` gate as the rail card rather than keeping
+its own idea of when evidence exists. Two conditions for one fact is how a button
+ends up offering to open an empty drawer. It also carries the source count, since
+"Sources" alone gives no reason to tap it, and Escape closes it like every other
+dismissible surface. Motion is disabled under prefers-reduced-motion.
+
+
+## C-88 · explorer.html was reachable only from the admin brain page (R-F4010)
+
+A 46 KB customer-facing surface — search, sanctions divergence, RCA screening,
+counter-intel scan, five endpoints, all resolving on both hops — sat outside the
+navigation entirely. Its single inbound link was on /aria-brain, which is
+admin-only. Maintained, deployed, working, and invisible to the people it was
+built for.
+
+Added ungated. It is absent from operatorPages.mjs, so it is a customer tool;
+wrapping it in `data-gated` would hide it from every non-admin and leave the
+defect in place while looking fixed. The page keeps its own `Auth.requireAuth()`
+guard and its APIs stay server-gated — nav reachability is not authorisation, and
+a test asserts that guard survives.
+
+PLACEMENT WAS NOT FREE. The first attempt put it beside Watchlist, which split
+the core-service group that R-F3245/R-F3246 pin (ARIA Chat, Intelligence Brief,
+DD Reports, Vetting, Watchlist, News Monitor, in that order, uninterrupted). The
+guard caught it immediately. It now sits after Opportunities, outside the
+contracted group — the fix being to respect the contract rather than widen it.
+
+One further repair, also caught by the guards: the explanatory comment was first
+written inside the nav template literal as `${/* … */''}`, which is an
+interpolation, and the R-F3850 escaping guard flagged it correctly. The comment
+moved above the method.
+
+Regression: 725 passed / 1 failed across 77 files, the failure pre-existing.
+Both aria.html's inline script and sidebar.js re-verified to parse.
