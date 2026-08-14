@@ -241,11 +241,37 @@ describe('R-F3852 the vendored theme has no untrusted-input path into jQuery', (
   });
 
   it('index.html introduces no dynamic data of its own', () => {
+    // R-F4015 (C-92) - this was an absolute ban and is now a REVIEWED EXCEPTION.
+    //
+    // The invariant the sibling test depends on is unchanged: nothing dynamic may
+    // reach the vendored jQuery/owl bundle, because that bundle calls .html() on
+    // its own internals and rewriting a vendor file is not the control here.
+    //
+    // What changed is that index.html now fetches ONE value: the live corpus count
+    // from /api/public/metrics, which had been serving it unrendered. The two
+    // conditions this test's own failure message named are met, and are ASSERTED
+    // below rather than assumed:
+    //   1. it is rendered with textContent, never jQuery and never .html();
+    //   2. the value is validated as a finite positive NUMBER before formatting,
+    //      so no server-controlled string reaches the DOM at all.
+    // The inline script is hashed automatically - R-F3840 computes CSP hashes at
+    // boot from the served files.
     const s = blankComments(fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'));
-    assert.ok(!/fetch\s*\(|XMLHttpRequest|\$\.(ajax|get|post)\s*\(/.test(s),
-      'index.html now fetches data; anything rendered from it must avoid jQuery .html()');
-    assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>\s*\S/.test(s),
-      'index.html now has an inline script — it must be hashed for CSP (R-F3840) and reviewed here');
+
+    const fetches = [...s.matchAll(/fetch\s*\(\s*['\"]([^'\"]+)['\"]/g)].map((m) => m[1]);
+    assert.deepEqual(fetches, ['/api/public/metrics'],
+      'index.html may fetch ONLY the reviewed public metrics endpoint; any other '
+      + 'dynamic data feeds the vendored jQuery bundle and must be reviewed here');
+    assert.ok(!/XMLHttpRequest|\$\.(ajax|get|post)\s*\(/.test(s),
+      'no jQuery transport in index.html - its results land in a jQuery-aware page');
+
+    assert.ok(/\.textContent\s*=/.test(s),
+      'the fetched figure must be written with textContent');
+    assert.ok(!/\.innerHTML\s*=|\$\([^)]*\)\.html\s*\(/.test(s),
+      'the fetched figure must not reach innerHTML or jQuery .html()');
+    assert.ok(/isFinite\(/.test(s),
+      'the figure must be validated as a number before display - a server string '
+      + 'rendered verbatim is the untrusted-input path this file exists to prevent');
   });
 
   it('the SITE GLUE never passes dynamic data to jQuery .html()', () => {

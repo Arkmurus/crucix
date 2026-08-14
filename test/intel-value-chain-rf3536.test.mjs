@@ -48,7 +48,36 @@ check('a stated corroboration on a weak tier is preserved',
 
 // ── channel policy ───────────────────────────────────────────────────────────
 const allowed = HOOKS.split('_GOLDEN_ALLOWED_TYPES = new Set([')[1].split(']);')[0];
-check('open tenders are no longer published as intelligence', !allowed.includes("'active_tender'"));
+
+// R-F4012 (C-89) — this asserted `!allowed.includes("'active_tender'")`, i.e. that
+// open tenders are never published as intelligence. R-F3688 DELIBERATELY reversed
+// that on 2026-08-04, admitting active_tender as "the OPEN half of the procurement
+// lane" alongside security_operation and political_transition, all three recorded
+// as operator-admitted.
+//
+// So the guard sat permanently red while pinning a policy the operator had
+// replaced. Greening it by deleting 'active_tender' from the allowed set would
+// have REVERSED an operator decision to satisfy a test — the same trap as C-81's
+// unavailable-source checkbox, and the reason a red test must be diagnosed rather
+// than silenced.
+//
+// The surviving intent is that the golden feed publishes a REVIEWED set, not
+// whatever accumulates. So the set is pinned exactly: a new type has to be added
+// here too, which forces the review the original assertion was really protecting.
+const ADMITTED_TYPES = [
+  'sanctions_change',
+  'contract_award',
+  'active_tender',        // R-F3688
+  'budget_movement',
+  'programme_signal',
+  'competitor_activity',
+  'conflict_escalation',
+  'security_operation',   // R-F3688
+  'political_transition', // R-F3688
+];
+const declaredTypes = [...allowed.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+check('the golden feed publishes exactly the reviewed set of signal types',
+  JSON.stringify(declaredTypes) === JSON.stringify(ADMITTED_TYPES));
 check('the alarming classes are still publishable',
   ["'sanctions_change'", "'conflict_escalation'", "'competitor_activity'", "'contract_award'"]
     .every(t => allowed.includes(t)));

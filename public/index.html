@@ -272,6 +272,15 @@
                 <div class="intro">
                   <h2>Trust is a product behaviour, not a slogan.</h2>
                   <p>ARIA’s credibility rests on three commitments that can be inspected in the work itself.</p>
+                  <!-- R-F4015 (C-92) — a live figure, not a claim. /api/public/metrics
+                       has been serving this count the whole time and nothing rendered
+                       it. Hidden until it resolves, and hidden again if it cannot:
+                       a hardcoded fallback would be exactly the invented metric this
+                       page otherwise avoids. -->
+                  <p class="proof-line" id="proof-line" style="display:none">
+                    <span id="proof-records"></span> records in ARIA’s evidence base,
+                    counted live.
+                  </p>
                 </div>
               </div>
               <div class="col-sm-12 col-lg-6 offset-lg-3 text-center">
@@ -385,5 +394,30 @@
     <script src="pelican/assets/js/bootstrap.min.js"></script>
     <script src="pelican/assets/js/plugins.js"></script>
     <script src="pelican/assets/js/custom.js"></script>
+    <script>
+      /* R-F4015 (C-92) — render the live corpus figure.
+         Degrades to SILENCE, never to a stand-in number: model-card.html carries
+         the scar of hardcoded counts that "lied the moment a clause was added"
+         (R-F221), and a fabricated figure on the landing page would undo the
+         honesty the rest of this copy is built on. If the endpoint is unreachable,
+         slow, or reports no measurement, the line simply never appears — a
+         prospect sees one fewer fact, not a false one. */
+      (function () {
+        var line = document.getElementById('proof-line');
+        var el = document.getElementById('proof-records');
+        if (!line || !el) return;
+        var ctrl = new AbortController();
+        setTimeout(function () { ctrl.abort(); }, 6000);
+        fetch('/api/public/metrics', { signal: ctrl.signal })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var n = d && Number(d.records);
+            if (!isFinite(n) || n <= 0) return;   // no measurement, no claim
+            el.textContent = n.toLocaleString('en-GB');
+            line.style.display = '';
+          })
+          .catch(function () { /* a marketing page never shows a fetch error */ });
+      })();
+    </script>
   </body>
 </html>

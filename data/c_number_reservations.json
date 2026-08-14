@@ -987,6 +987,42 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T11:45:32Z"
+    },
+    {
+      "c_number": "C-89",
+      "title": "three surviving pre-existing guards assert superseded policy or copy",
+      "claimed_at": "2026-08-14T11:52:53Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-90",
+      "title": "public metrics endpoint hangs on a cold cache",
+      "claimed_at": "2026-08-14T11:52:53Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-91",
+      "title": "unreferenced vulnerable vendor bundles are publicly served",
+      "claimed_at": "2026-08-14T11:52:53Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-92",
+      "title": "landing page shows no proof of work",
+      "claimed_at": "2026-08-14T11:52:54Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

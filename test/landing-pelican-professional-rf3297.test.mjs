@@ -43,9 +43,15 @@ test('R-F3297 access form uses the real lead endpoint with honest outcomes', () 
   assert.match(html, /name="name"/);
   assert.match(html, /name="email"/);
   assert.match(js, /url:\s*'\/api\/leads'/);
-  assert.match(js, /\.done\(function\(\)/);
+  // R-F4012 (C-89) - was /\.done\(function\(\)/, an EMPTY parameter list. The
+  // handler now takes `data` so it can read `verification` and say what actually
+  // happened (§22): "check your email" is a lie when the confirmation could not
+  // be sent. The guard pinned the signature rather than the contract and went red
+  // on a change that made the page MORE honest. What matters is that a done
+  // handler exists and the success message follows it.
+  assert.match(js, /\.done\(function\(/);
   assert.match(js, /\.fail\(function\(xhr\)/);
-  assert.ok(js.indexOf('request has been recorded') > js.indexOf('.done(function()'));
+  assert.ok(js.indexOf('request has been recorded') > js.indexOf('.done(function('));
 });
 
 test('R-F3297 avoids unsupported trust theatre', () => {

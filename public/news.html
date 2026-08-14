@@ -297,7 +297,7 @@
       if (!n) {
         // Configured, retained nothing. Say so; do not offer it as a filter.
         return '<button class="category-btn category-btn-empty" disabled data-category="' + escapeHtml(c) + '"' +
-          ' title="No articles retained in this category — its feeds are quarantined or publish less often than the retention window. Nothing to filter.">' +
+          ' title="No articles retained in this category. Its feeds are quarantined or publish less often than the retention window. Nothing to filter.">' +
           escapeHtml(label) + ' <span style="opacity:0.7">0</span></button>';
       }
       return '<button class="category-btn' + active + '" data-category="' + escapeHtml(c) + '">' +
@@ -342,7 +342,7 @@
     } else {
       // Not measured is NOT healthy — say so rather than showing a clean count.
       srcEl.textContent = stats ? stats.total_sources : '-';
-      srcEl.title = stats ? 'Configured sources. Live delivery not yet measured — no poll results recorded.' : '';
+      srcEl.title = stats ? 'Configured sources. Live delivery not yet measured; no poll results recorded.' : '';
     }
     // R-F3671 — this tile counted CONFIGURED categories and was read as coverage:
     // it showed "9" while the corpus held articles in only 7. Show both, so the

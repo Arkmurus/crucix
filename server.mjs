@@ -80,6 +80,7 @@ import { provisionDesignPartnerAccess, ACCESS_GRANTING_STATUSES } from './lib/au
 import { rotationBlocked, rotationClearedFields, ROTATION_REQUIRED_CODE } from './lib/auth/passwordRotation.mjs';
 import { isDisposableEmail, evaluateAutoApproval, MAX_VERIFY_ATTEMPTS } from './lib/auth/onboarding.mjs';
 import { leadHoneypotTripped, leadDestinationBlocked } from './lib/auth/leadGuard.mjs';  // R-F3999 — anonymous lead-form abuse bounds
+import { shouldQueryUpstream, nextCacheEntry } from './lib/metrics/publicMetricsCache.mjs';  // R-F4013 — bound public-metrics upstream calls
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
@@ -6654,11 +6655,26 @@ app.post('/api/internal/quota/consume', async (req, res) => {
 // serve a stale or invented number: an unbacked figure on the front page of a
 // never-false-clean product is the same defect class as a false clean.
 let _publicMetricsCache = { at: 0, value: null };
-const PUBLIC_METRICS_TTL_MS = 10 * 60 * 1000;
+// R-F4013 (C-90) — the TTLs moved to lib/metrics/publicMetricsCache.mjs, which
+// holds two: a long one for a real measurement and a short one for a remembered
+// failure. The single constant that used to live here is gone rather than left
+// orphaned: a lone `PUBLIC_METRICS_TTL_MS` sitting beside a route that no longer
+// reads it would read as though it still governed the cache, which is the exact
+// shape of defect this workstream has been closing.
 
 app.get('/api/public/metrics', async (req, res) => {
   const now = Date.now();
-  if (_publicMetricsCache.value && (now - _publicMetricsCache.at) < PUBLIC_METRICS_TTL_MS) {
+  // R-F4013 (C-90) — a FAILURE is now cached too, briefly.
+  //
+  // This route is unauthenticated and previously cached only a success, so while
+  // the brain is slow, restarting (~10 min boot) or down, EVERY anonymous request
+  // made its own upstream call, waited the full 8s timeout and wrote an
+  // errorTracker record. One visitor was one upstream call; a crawler was
+  // thousands. The 8s bound below is unchanged — what changed is that a failure is
+  // remembered for 30s instead of rediscovered by every caller, which also stops
+  // the error-ledger flood. See lib/metrics/publicMetricsCache.mjs for why the two
+  // TTLs are deliberately asymmetric.
+  if (!shouldQueryUpstream(_publicMetricsCache, now)) {
     return res.json({ ..._publicMetricsCache.value, cached: true });
   }
   let records = null;
@@ -6680,9 +6696,9 @@ app.get('/api/public/metrics', async (req, res) => {
     // Fall through to records:null — an honest "—" beats a stale number.
     errorTracker.record('public_metrics', 'brain_fetch_failed', e);
   }
-  const value = { records, generatedAt: new Date().toISOString() };
-  if (records !== null) _publicMetricsCache = { at: now, value };
-  res.json({ ...value, cached: false });
+  // Store BOTH outcomes — the success-only write was the defect.
+  _publicMetricsCache = nextCacheEntry(records, now);
+  res.json({ ..._publicMetricsCache.value, cached: false });
 });
 
 // ── R-F2822: navigation entitlement, computed SERVER-SIDE ────────────────────

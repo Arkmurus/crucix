@@ -72,10 +72,33 @@ test('server.mjs uses the v13 API through one helper, on every route', () => {
     'the helper MUST compare .valid explicitly — a truthy check on the result '
     + 'object accepts every code (auth bypass)');
 
-  // All three code-checking routes go through it.
+  // R-F4012 (C-89) — was `assert.equal(calls.length, 3)`, naming authenticate +
+  // enable + disable. A FOURTH code-checking route was added since (the WhatsApp
+  // linked-device governance step-up, server.mjs ~1451) and correctly uses the
+  // shared helper — so the guard went red on a correct addition while the property
+  // it exists to protect was never violated.
+  //
+  // The property is that NO route verifies a TOTP itself. That is now asserted
+  // directly: `verifySync` may appear only inside the helper. The count is kept as
+  // a review tripwire on top, so a fifth route still has to be looked at rather
+  // than appearing silently — but it can no longer fail for the mere fact of
+  // growing.
+  // Comments stripped first, exactly as the two assertions above already do: the
+  // note explaining that "the v13 replacement is `verifySync()`" contains a
+  // literal call and would otherwise be counted as one. Prose must never fail a
+  // test about behaviour.
+  const stripComments = (s) => s.replace(/^\s*\/\/.*$/gm, '');
+  const directVerify = (stripComments(SERVER).match(/verifySync\s*\(/g) || []).length;
+  const inHelper = (stripComments(helper).match(/verifySync\s*\(/g) || []).length;
+  assert.equal(directVerify, inHelper,
+    'verifySync() must be called ONLY inside verifyTotpCode — a route that checks '
+    + 'a code itself bypasses the .valid===true comparison and accepts every code');
+
   const calls = SERVER.match(/await verifyTotpCode\(/g) || [];
-  assert.equal(calls.length, 3,
-    `expected authenticate + enable + disable to share the helper, found ${calls.length}`);
+  assert.equal(calls.length, 4,
+    'reviewed code-checking routes: 2FA authenticate, enable, disable, and the '
+    + `WhatsApp linked-device step-up. Found ${calls.length} — if a route was added, `
+    + 'confirm it uses the helper and update this count deliberately');
 });
 
 test('2FA setup builds a scannable otpauth URI for this issuer', async () => {

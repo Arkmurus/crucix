@@ -4678,3 +4678,113 @@ moved above the method.
 
 Regression: 725 passed / 1 failed across 77 files, the failure pre-existing.
 Both aria.html's inline script and sidebar.js re-verified to parse.
+
+
+## C-89 · four surviving guards asserted superseded policy, signatures or copy (R-F4012)
+
+The remaining pre-existing failures on the aria-web surface. None was a product
+defect; all four pinned something the product had deliberately moved past, and two
+would have caused a REGRESSION if greened by changing the code.
+
+1. `intel-value-chain-rf3536` asserted open tenders are never published as
+   intelligence. R-F3688 deliberately admitted `active_tender` on 2026-08-04 as
+   "the OPEN half of the procurement lane", with `security_operation` and
+   `political_transition`, all operator-admitted. Deleting the type to green the
+   test would have reversed an operator decision. The set is now pinned exactly,
+   so a new type still forces the review the original assertion was protecting.
+
+2. `twofactor-otplib-v13-rf3086` required exactly THREE calls to the shared TOTP
+   helper. A fourth code-checking route was added since (the WhatsApp
+   linked-device step-up) and correctly uses the helper, so the guard went red on
+   a correct addition. The real property is now asserted directly: `verifySync`
+   may appear ONLY inside `verifyTotpCode`, so no route can check a code itself
+   and bypass the `.valid === true` comparison. The count is kept as a review
+   tripwire on top, but can no longer fail merely because the app grew.
+
+3. `landing-pelican-professional-rf3297` pinned `.done(function()` with an EMPTY
+   parameter list. The handler now takes `data` so it can read `verification` and
+   say what actually happened — "check your email" is a lie when the confirmation
+   could not be sent. The guard pinned a signature rather than a contract and went
+   red on a change that made the page more honest.
+
+4. `no-ai-dashes-in-copy-rf3278` was RIGHT: two em dashes had reached displayed
+   tooltip copy in news.html. Copy fixed, not the guard.
+
+The lesson is the same one C-81 recorded: a permanently-red test carries no
+information, and the first question is always whether the test or the product is
+wrong. Three of these four would have been "fixed" wrongly by trusting the test.
+
+
+## C-90 · the public metrics endpoint retried a failing upstream on every request (R-F4013)
+
+**F-08 is RETRACTED as a server defect.** The audit recorded that
+`/api/public/metrics` hung twice on a cold cache with no explanation from the 8s
+upstream bound or the 5s slow-down ramp. It does not reproduce: a cold-cache
+request completed in 2,478ms. Reviewing the original observation, TWO unrelated
+endpoints returned 000 in the same probe loop and both succeeded on individual
+retry, which points at the probing client rather than the server. Recorded here
+rather than quietly dropped, because a retracted finding is part of the audit
+trail.
+
+Reading the handler to reach that conclusion surfaced a real and provable defect,
+which is what this closes. The route cached a SUCCESS for ten minutes and never
+cached a FAILURE:
+
+    if (records !== null) _publicMetricsCache = { at: now, value };
+
+So while the brain is slow, restarting (a ~10 minute boot) or down, EVERY
+anonymous request made its own upstream call, waited the full 8-second timeout and
+wrote an errorTracker record. One visitor was one upstream call; a crawler was
+thousands. That is an amplification vector on an unauthenticated route, an 8-second
+landing page exactly when the platform is already unwell, and a flood into the
+error ledger of a kind this repo has had to fix before.
+
+NOT A TIMEOUT BUMP — the 8-second bound is untouched. A failure is now remembered
+for 30 seconds instead of rediscovered by every caller. The two TTLs are
+deliberately asymmetric and a test pins that: a success is cheap to keep for ten
+minutes because the count moves slowly, but a failure must expire fast or a
+recovered brain keeps showing an empty figure. The orphaned `PUBLIC_METRICS_TTL_MS`
+was removed rather than left beside a route that no longer reads it.
+
+
+## C-91 · unreferenced vulnerable vendor bundles are publicly served (R-F4014)
+
+Recorded on the deletion ladder — `docs/cure/deletion_ledger.md`, entry D-01 —
+NOT deleted. Two jQuery builds with published advisories (2.1.1 from 2014, 3.5.0)
+plus eight other unreferenced libraries are downloadable from `public/`. No served
+page loads them; verified live at 200.
+
+`proof_static` holds. `proof_runtime` is UNKNOWN because Phase 0.3 has not run, and
+`proof_test` does not exist, so the three-proof rule is not satisfied and the
+correct state is DORMANT. The ladder's first step when the proofs complete is a
+404 via a static-deny list, watched over a full traffic cycle — reversible in one
+line, where a deletion is a restore plus a deploy and fails as a blank page for a
+customer. The deletion ledger did not exist before this; it does now.
+
+
+## C-92 · the landing page showed no proof of work (R-F4015)
+
+`/api/public/metrics` has been live, unauthenticated and working the whole time —
+531,137 records when measured — and NOTHING rendered it. The same "built, correct,
+never surfaced" pattern as the tier flags (C-75/C-76), the DD sharing control
+(C-77) and the sanctions coverage (C-86): the asset existed and the customer could
+not see it.
+
+The figure degrades to SILENCE, never to a stand-in number. model-card.html
+carries the scar of hardcoded counts that "lied the moment a clause was added"
+(R-F221), and a fabricated figure here would undo the honesty the rest of this
+copy is built on. A test forbids a numeric fallback and forbids wording that
+implies customer traction — the number counts evidence records, and must not be
+dressed up as anything the number does not measure.
+
+THE R-F3852 GUARD FIRED CORRECTLY and was tightened rather than loosened. That test
+asserts "index.html introduces no dynamic data of its own", and its own comment
+explains why: the vendored owl/bootstrap bundle calls `.html()` on its internals,
+rewriting a vendor file is not the control, and what bounds it is that index.html
+feeds it nothing dynamic. The ban is now a REVIEWED EXCEPTION that asserts the two
+conditions the guard's failure message named — exactly one permitted endpoint,
+rendered via textContent, with the value validated as a finite positive number
+before formatting so no server-controlled string reaches the DOM. Proven still
+falsifiable by injecting a second fetch.
+
+Regression across all four: 1070 passed / 0 failed over 149 files. Boot smoke green.
