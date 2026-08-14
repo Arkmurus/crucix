@@ -5113,3 +5113,56 @@ families, 0 failed.
 `degraded_reasons` for QUALITY signals (grounding, mastery, ecosystem) and does
 not publish `loop`. This fix is confined to the infra surface that already had
 the gauge, so it does not create the third-aggregator problem R-F2639 closed.
+
+## C-97 · R-F4022's own failure branches were dark (R-F4025)
+
+Found by auditing my own change against §21a rather than by a symptom. R-F4022
+added four failure branches and every one was a bare `logger` call — which §21a
+names explicitly as **DARK, not wired**:
+
+| branch | was |
+|---|---|
+| journal truncate failed | `logger.warning` |
+| journal replay failed, snapshot only | `logger.warning` |
+| journal append failed | `logger.error` |
+| disk flush failed | `logger.error` |
+
+These are worse than an average dark path because **they are the branches where
+ARIA forgets.** A failed journal append leaves recent facts in memory only; a
+failed replay leaves facts that are *already on disk* unloaded. §7 says losing a
+fact is never acceptable, and the brain could not see either event — in a
+service that emits thousands of log lines a minute, a log line is not a record.
+
+It is the same shape as C-95/C-96 one layer down: an instrument nobody reads.
+
+### The fix
+
+`_wire_persistence()` — one helper, rate-limited, never raises. Each branch now
+emits a brain failure signal naming which branch failed and what it costs, and
+a successful compaction emits a success signal (§21a is both branches).
+
+Three properties are load-bearing:
+
+- **Rate-limited (300 s per key).** The flusher runs every 2 s; an unguarded
+  per-failure signal fills the 500-slot capability ledger in ~17 minutes. This
+  is the exemption `loop_monitor` and `cost_tracker` already carry, and the
+  flood shape §17 records for Brave refusals.
+- **Keyed by source AND outcome.** Keyed by source alone, the compaction
+  SUCCESS signal starts the cooldown and the compaction FAILURE that follows it
+  within 300 s is dropped — a reporting path that goes quiet exactly when
+  things start failing. **This is not hypothetical: it is what the function did
+  when first written, and `test_compaction_failure_reaches_the_brain` caught
+  it.** `test_a_success_must_not_silence_the_failure_that_follows` now pins it.
+- **Never raises.** If the brain is unreachable the flush still completes, and
+  an unwritten record stays pending. Observability must not become the outage —
+  otherwise a reporting problem becomes a data-loss problem.
+
+One structural tidy came with it: `_truncate_journal_after_compaction` no longer
+swallows its own `OSError`. It raises to the single call site, which knows the
+snapshot succeeded and so can report the truncation failure *without*
+mis-reporting it as a flush failure or re-arming compaction.
+
+### Verified
+
+9 tests, RED before. 689 passed across every test importing `knowledge`, with
+only the 2 recorded `docs/suite_baseline.json` entries still red.

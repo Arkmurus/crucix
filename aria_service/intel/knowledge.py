@@ -20,7 +20,9 @@ Why this shape:
 API surface is unchanged — every existing caller works without edits.
 """
 from __future__ import annotations
-from .engine_wiring import wire_failure
+# R-F4025 — module-level so tests can monkeypatch `knowledge.wire_*` and so the
+# persistence path never pays an import on a failure branch.
+from .engine_wiring import wire_failure, wire_success
 
 import asyncio
 import base64
@@ -227,6 +229,55 @@ _journal_lock = threading.Lock()
 _flush_lock = asyncio.Lock()
 
 
+#: R-F4025 (C-97) — §21a wiring for the persistence path, rate-limited.
+#:
+#: R-F4022 shipped four failure branches as bare `logger` calls, which §21a
+#: defines as DARK. They matter more than average: these are the branches where
+#: ARIA FORGETS. A failed journal append leaves recent facts only in memory; a
+#: failed replay leaves facts on disk unloaded. §7 says losing a fact is never
+#: acceptable, and the brain could not see either.
+#:
+#: Rate-limited because the flusher runs every FLUSH_DEBOUNCE_S (2 s): an
+#: unguarded per-failure signal would fill the 500-slot capability ledger in
+#: ~17 minutes. This is the same exemption `loop_monitor` and `cost_tracker`
+#: already carry, and the same flood shape §17 records for Brave refusals.
+PERSISTENCE_WIRE_COOLDOWN_S = 300.0
+_persistence_wired_at: dict[str, float] = {}
+
+
+def _reset_persistence_wire_state() -> None:
+    """Test hook — the cooldown is process-global, so it leaks between tests."""
+    _persistence_wired_at.clear()
+
+
+def _wire_persistence(*, source: str, detail: str = "", summary: str = "",
+                      ok: bool = False) -> None:
+    """Emit one brain signal per source per cooldown. NEVER raises.
+
+    Observability must not become the outage: if the brain is unreachable, the
+    flush still has to complete, or a reporting problem becomes a data-loss
+    problem.
+    """
+    try:
+        now = time.monotonic()
+        # Keyed by source AND outcome. Sharing one key would let a SUCCESS
+        # silence the failure that follows it within the cooldown — the
+        # compaction path emits both, so that is not hypothetical: it is what
+        # this function did when first written, and the test caught it.
+        key = f"{source}:{'ok' if ok else 'fail'}"
+        if now - _persistence_wired_at.get(key, float("-inf")) \
+                < PERSISTENCE_WIRE_COOLDOWN_S:
+            return
+        _persistence_wired_at[key] = now
+        if ok:
+            wire_success(module="knowledge", summary=summary, source_id=source)
+        else:
+            wire_failure(module="knowledge", detail=detail,
+                         gap_type="engine_failure", source=source)
+    except Exception:
+        pass
+
+
 def _journal_path() -> str:
     """Derived from `_DISK_PATH` at call time, not cached at import.
 
@@ -294,11 +345,11 @@ def _truncate_journal_after_compaction(size_before: int) -> None:
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp, path)
-        except OSError as e:
-            # Never fail a flush over journal hygiene — a journal that is
-            # longer than necessary only costs replay time, and replay is
-            # idempotent.
-            logger.warning("knowledge: journal truncate failed (non-fatal): %s", e)
+        except OSError:
+            # Raised to the ONE call site, which wires it and swallows it there.
+            # Handling it here as well would either double-report or (worse)
+            # hide it from the call site that knows the flush succeeded.
+            raise
 
 
 def _replay_journal(data: dict | None) -> dict | None:
@@ -361,7 +412,15 @@ def _replay_journal(data: dict | None) -> dict | None:
                     # alternative (discarding the journal) would forget facts.
                     corrupt += 1
     except OSError as e:
-        logger.warning("knowledge: journal replay failed, snapshot only: %s", e)
+        # The most dangerous branch in this module: the facts ARE on disk and
+        # are not being loaded. §7 — this must never be a log line alone.
+        logger.error("knowledge: journal replay failed, snapshot only: %s", e)
+        _wire_persistence(
+            source="knowledge:journal_replay",
+            detail=(f"journal replay FAILED ({e}) — facts written since the "
+                    f"last compaction are on disk at {_journal_path()} but were "
+                    f"NOT loaded into the cache; §7 forget risk"),
+        )
         return data
 
     if applied or corrupt:
@@ -1003,6 +1062,12 @@ async def _flush_to_disk_locked(final: bool = False) -> None:
             # no restoring.
             _pending_journal[:0] = journal_entries
             logger.error("knowledge: journal append failed: %s", e)
+            _wire_persistence(
+                source="knowledge:journal_append",
+                detail=(f"journal append FAILED ({e}) — {len(journal_entries)} "
+                        f"changed record(s) are held in memory ONLY and are lost "
+                        f"if the process dies before the next successful write"),
+            )
         return
 
     # ── compaction: the original full-snapshot write, unchanged ────────────
@@ -1030,8 +1095,26 @@ async def _flush_to_disk_locked(final: bool = False) -> None:
         _needs_compaction = False
         _last_compaction_at = time.monotonic()
         del _pending_journal[:_pending_at_start]
-        await asyncio.to_thread(
-            _truncate_journal_after_compaction, _journal_bytes_before,
+        try:
+            await asyncio.to_thread(
+                _truncate_journal_after_compaction, _journal_bytes_before,
+            )
+        except Exception as _te:
+            # The snapshot IS written — this must not be reported as a flush
+            # failure or re-arm compaction. An over-long journal only costs
+            # replay time, and replay is idempotent.
+            logger.warning("knowledge: journal truncate failed (non-fatal): %s", _te)
+            _wire_persistence(
+                source="knowledge:journal_truncate",
+                detail=(f"journal truncate FAILED ({_te}) after a successful "
+                        f"snapshot — replay stays correct (idempotent upserts) "
+                        f"but boot replay cost will grow until it succeeds"),
+            )
+        _wire_persistence(
+            source="knowledge:compaction",
+            ok=True,
+            summary=(f"knowledge graph compacted to disk "
+                     f"({len(_cache.get('facts') or [])} facts)"),
         )
     except Exception as e:
         # Leave `_needs_compaction` set so the next flush retries the full
@@ -1039,6 +1122,12 @@ async def _flush_to_disk_locked(final: bool = False) -> None:
         # snapshot that was never updated.
         _needs_compaction = True
         logger.error("knowledge: disk flush failed: %s", e)
+        _wire_persistence(
+            source="knowledge:compaction",
+            detail=(f"knowledge snapshot write FAILED ({e}) — the on-disk graph "
+                    f"is stale and every change since the last compaction "
+                    f"depends on the journal surviving; §7 forget risk"),
+        )
 
 
 async def _flush_loop() -> None:

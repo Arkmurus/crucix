@@ -1083,6 +1083,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T14:33:02Z"
+    },
+    {
+      "c_number": "C-97",
+      "title": "R-F4022's own journal failure branches are logger-only (dark) — a durability risk the brain cannot see",
+      "claimed_at": "2026-08-14T14:48:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4025"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T14:56:47Z"
     }
   ]
 }
