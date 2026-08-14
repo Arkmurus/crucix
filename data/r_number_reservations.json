@@ -33954,9 +33954,10 @@
       "title": "require protected-axis DPO evidence",
       "claimed_at": "2026-08-14T09:46:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0564b064",
+      "notes": null,
+      "shipped_at": "2026-08-14T10:55:19Z"
     },
     {
       "r_number": "R-F4002",
