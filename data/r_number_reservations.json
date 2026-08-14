@@ -33804,9 +33804,10 @@
       "title": "execute learning curve gate from staged repository",
       "claimed_at": "2026-08-14T08:04:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "53e4db1a",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:08:43Z"
     }
   ]
 }
