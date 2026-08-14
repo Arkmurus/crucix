@@ -34063,36 +34063,40 @@
       "title": "restore three superseded guards (C-89)",
       "claimed_at": "2026-08-14T11:52:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e06cc0d0",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:11:54Z"
     },
     {
       "r_number": "R-F4013",
       "title": "diagnose and bound the public metrics cold-cache path (C-90)",
       "claimed_at": "2026-08-14T11:52:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e06cc0d0",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:11:54Z"
     },
     {
       "r_number": "R-F4014",
       "title": "record dead vendor bundles on the deletion ladder (C-91)",
       "claimed_at": "2026-08-14T11:52:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e06cc0d0",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:11:54Z"
     },
     {
       "r_number": "R-F4015",
       "title": "surface the live corpus figure on the landing page (C-92)",
       "claimed_at": "2026-08-14T11:52:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e06cc0d0",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:11:54Z"
     },
     {
       "r_number": "R-F4016",
