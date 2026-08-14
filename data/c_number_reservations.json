@@ -1035,6 +1035,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T12:11:55Z"
+    },
+    {
+      "c_number": "C-93",
+      "title": "lead bot-drop path is dark and its decoy field invites autofill",
+      "claimed_at": "2026-08-14T12:30:59Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

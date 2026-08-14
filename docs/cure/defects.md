@@ -4823,3 +4823,72 @@ on three consecutive polls — the §11c warmup transient, not a fault.
 Not live-probed end to end: exercising a 50 MB upload against production needs an
 authenticated proIntel session and would move real quota. Covered by 7 unit tests
 plus the in-process reads.
+
+
+## C-93 · the lead bot-drop was dark, autofill-prone, and had an oracle (R-F4018)
+
+SELF-CORRECTION. Three defects introduced by C-80 earlier the same day, found by
+auditing my own changes adversarially rather than defending them. Recorded in full
+because a fix that quietly weakens the thing it protects is worse than no fix.
+
+**1. The drop path was DARK (§21a).** The branch returned and emitted nothing, so
+a discarded submission left no trace anywhere. If the decoy ever caught a REAL
+prospect, nobody could have known. An anti-abuse control that cannot be audited is
+indistinguishable from a bug that eats leads. The two reasons are now recorded
+SEPARATELY, because they mean different things: `honeypot_drop` should be almost
+entirely bots and a rising count is the signal the decoy is catching humans, while
+`destination_bounded` is expected to be non-zero and merely bounds one address.
+
+**2. The decoy invited autofill.** The field was `website_url` with a "Website"
+label, chosen to "look worth filling" — which is precisely the shape a browser's
+autofill heuristics target for a URL/organisation field, and `autocomplete="off"`
+is honoured inconsistently for non-credential inputs. A real prospect whose
+browser helpfully filled it would have been silently discarded AND told their
+request succeeded: silent loss at the top of the funnel, the most expensive place
+for it. A plausible name buys nothing anyway — the bots this catches fill every
+input regardless, and the smarter ones that skip obvious decoys also skip hidden
+fields. The name is now semantically inert.
+
+**3. The response was an ORACLE, and the code looked identical.** The drop returned
+a hardcoded `verification: 'sent'` while the genuine path reports what the mail
+step actually decided. On any deployment where SMTP is unconfigured, every real
+submission answers `not_sent` and every dropped one answered `sent` — detecting
+the honeypot would have been one request. The drop now MIRRORS what a genuine
+request would have answered, which needs no work done because for a new lead that
+outcome is decided entirely by whether mail is configured.
+
+The third was invisible to code review — both branches return 200 with the same
+shape — and was caught only by driving the two paths against each other end to
+end. That is the lesson: the source-text guard for this could not tell a live call
+from a disabled one either (an adversarial probe replacing the emit with
+a short-circuited no-op left it green), so the guard is now behavioural: does the upstream
+receive the submission or not.
+
+
+## R-F4017 · end-to-end capability test for the metered upload proxy
+
+The weakest link in this workstream. R-F3997 inserted a counting Transform into
+the LIVE streaming upload path and was verified by unit-testing the meter in
+isolation — exactly the gap §3c names ("a unit test that tests a helper does NOT
+count"). The meter being correct says nothing about whether a real multipart
+upload still flows, whether backpressure holds, whether the upstream receives the
+bytes intact, or whether an aborted stream surfaces as 413 rather than a proxy
+error. Document upload is a core customer path.
+
+Now driven against a real server process and a stub upstream: bytes arrive
+unaltered, 3 MiB streams through across many chunk boundaries, an oversized
+upload is 413, an oversized CHUNKED upload is 413 (the C-78 bypass, proven closed
+end to end rather than in isolation), and a legal chunked upload still succeeds —
+because the careless version of that fix bans chunking outright and breaks
+legitimate streaming clients.
+
+Uses net_guard's sanctioned `allowLoopbackNetwork()` escape. Without it the file
+would be permanently red under `npm test`, which is the anti-pattern this
+workstream exists to remove.
+
+ADVERSARIAL SWEEP over every guard modified this session: six probed by injecting
+the violation each is meant to catch. Five failed correctly on the first attempt;
+the TOTP probe was wrong, not the guard (the injected call sat inside the helper,
+which is legitimate — re-probed outside it, the guard fails as designed); the
+lead-wiring guard was genuinely weak and was replaced with the behavioural test
+above.

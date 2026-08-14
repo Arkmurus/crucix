@@ -86,16 +86,22 @@
                       <option value="Government / institutional">Government or institutional</option>
                       <option value="Other">Other</option>
                     </select>
-                    <!-- R-F3999 (C-80) — decoy. A scraper that autofills plausible
-                         field names completes this; a person never sees it. Not
-                         type="hidden": bots routinely skip hidden inputs precisely
-                         because that is the known honeypot shape, so it is hidden
-                         with CSS and removed from the accessibility tree instead.
-                         tabindex=-1 keeps it out of keyboard order, and
-                         autocomplete=off stops a browser filling it for a human. -->
+                    <!-- R-F3999 (C-80) / R-F4018 (C-93) — decoy. A scraper that fills every
+                         input completes this; a person never sees it.
+
+                         NOT type="hidden": bots routinely skip hidden inputs because
+                         that is the known honeypot shape. Hidden with CSS and removed
+                         from the accessibility tree instead, with tabindex=-1 to keep
+                         it out of keyboard order.
+
+                         The NAME is deliberately meaningless. It was `website_url`
+                         with a "Website" label, which is exactly what a browser
+                         autofill targets — and a filled decoy silently discards the
+                         submission, so an autofilled prospect would have been thrown
+                         away and told it worked. No autofill vocabulary matches this. -->
                     <div class="lead-hp" aria-hidden="true">
-                      <label for="lead-website-url">Website</label>
-                      <input id="lead-website-url" type="text" name="website_url"
+                      <label for="lead-confirm-blank">Do not fill this in</label>
+                      <input id="lead-confirm-blank" type="text" name="lead_confirm_blank"
                              tabindex="-1" autocomplete="off">
                     </div>
                     <button class="submit-button" type="submit">Request access</button>

@@ -3123,8 +3123,43 @@ app.post('/api/leads', async (req, res) => {
     // been targeted. Nothing is recorded and nothing is sent; the caller cannot
     // tell the difference. The honeypot costs a real user nothing — they never
     // see the field.
-    if (leadHoneypotTripped(body) || leadDestinationBlocked(email)) {
-      return res.status(200).json({ ok: true, verification: 'sent' });
+    const _hpTripped = leadHoneypotTripped(body);
+    const _destBounded = _hpTripped ? false : leadDestinationBlocked(email);
+    if (_hpTripped || _destBounded) {
+      // R-F4018 (C-93) — the drop is silent TO THE CALLER, never to us.
+      //
+      // As first written this branch returned and emitted nothing, which made it a
+      // dark path (§21a): a discarded submission left no trace anywhere, so if the
+      // honeypot ever caught a REAL prospect — a browser autofilling the decoy, a
+      // legitimate user retrying a fourth time — nobody could have known. An
+      // anti-abuse control that cannot be audited is indistinguishable from a bug
+      // that eats leads.
+      //
+      // The two reasons are recorded SEPARATELY because they mean different
+      // things: `honeypot` should be almost entirely bots and a rising count is a
+      // signal the decoy is catching humans, while `destination_bounded` is
+      // expected to be non-zero and merely bounds one address. Collapsing them
+      // would hide exactly the case worth watching.
+      try {
+        errorTracker.record('leads', _hpTripped ? 'honeypot_drop' : 'destination_bounded',
+          new Error(_hpTripped ? 'lead decoy field was filled' : 'lead destination rate bounded'));
+      } catch { /* observability must never break the request */ }
+      // R-F4018 (C-93) — MIRROR what a genuine request would have answered.
+      //
+      // This returned a hardcoded 'sent', which was an ORACLE: the genuine path
+      // reports what the mail step actually decided, so on any deployment where
+      // SMTP is unconfigured every real submission answers 'not_sent' while every
+      // dropped one answered 'sent'. Detecting the honeypot would have been one
+      // request. Caught by driving the two paths against each other end to end
+      // rather than by reading the code, which had looked identical.
+      //
+      // The mirrored value needs no work done: for a new lead the genuine outcome
+      // is decided entirely by whether mail is configured (_mailLeadVerification
+      // returns 'not_sent' when it is not, and 'sent' on a successful send).
+      return res.status(200).json({
+        ok: true,
+        verification: smtpIsConfigured ? 'sent' : 'not_sent',
+      });
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 12000);

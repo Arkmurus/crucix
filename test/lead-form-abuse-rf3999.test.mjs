@@ -57,19 +57,19 @@ describe('R-F3999 — the lead form is bounded without blocking prospects', () =
   });
 
   it('the honeypot field exists in the form and is hidden from humans', () => {
-    assert.match(INDEX, /name="website_url"/,
+    assert.match(INDEX, /name="lead_confirm_blank"/,
       'the form needs a decoy field a bot will fill and a human never sees');
     // Hidden by CSS/aria rather than type=hidden: a bot that skips type=hidden
     // inputs would sail past, which defeats the purpose.
-    assert.doesNotMatch(INDEX, /name="website_url"[^>]*type="hidden"/,
+    assert.doesNotMatch(INDEX, /name="lead_confirm_blank"[^>]*type="hidden"/,
       'a type=hidden decoy is the one shape bots reliably skip');
     // Hidden from assistive technology, either on the field itself or on a
     // wrapper that contains it. `[^>]*` cannot express the wrapper form because
     // it stops at the first `>`, so this matches across the tag boundary.
-    assert.match(INDEX, /aria-hidden="true"[\s\S]{0,400}?name="website_url"/,
+    assert.match(INDEX, /aria-hidden="true"[\s\S]{0,400}?name="lead_confirm_blank"/,
       'the decoy must be removed from the accessibility tree, or a screen-reader '
       + 'user will be asked to fill the trap');
-    assert.match(INDEX, /name="website_url"[^>]*tabindex="-1"/,
+    assert.match(INDEX, /name="lead_confirm_blank"[^>]*tabindex="-1"/,
       'the decoy must be out of keyboard tab order');
     assert.match(INDEX, /\.lead-hp\s*\{[^}]*(display\s*:\s*none|position\s*:\s*absolute)/,
       'the decoy must actually be invisible — an unstyled honeypot is just a '
@@ -77,8 +77,8 @@ describe('R-F3999 — the lead form is bounded without blocking prospects', () =
   });
 
   it('a filled honeypot is refused', () => {
-    assert.equal(leadHoneypotTripped({ website_url: 'http://spam.example' }), true);
-    assert.equal(leadHoneypotTripped({ website_url: '   ' }), false, 'whitespace is not a fill');
+    assert.equal(leadHoneypotTripped({ lead_confirm_blank: 'http://spam.example' }), true);
+    assert.equal(leadHoneypotTripped({ lead_confirm_blank: '   ' }), false, 'whitespace is not a fill');
     assert.equal(leadHoneypotTripped({}), false, 'a normal submission has no decoy value');
     assert.equal(leadHoneypotTripped(null), false, 'a missing body must not be treated as a bot');
   });
@@ -122,6 +122,47 @@ describe('R-F3999 — the lead form is bounded without blocking prospects', () =
     assert.match(route, /leadDestinationBlocked\(/, 'the route must bound per destination');
   });
 
+  it('R-F4018: the drop is silent to the CALLER, never to us', () => {
+    // As first written this branch emitted nothing, making it a dark path (§21a):
+    // a discarded submission left no trace, so if the decoy ever caught a REAL
+    // prospect nobody could have known. An anti-abuse control that cannot be
+    // audited is indistinguishable from a bug that eats leads.
+    const code = codeOf(SERVER);
+    const start = code.indexOf("app.post('/api/leads'");
+    const route = code.slice(start, code.indexOf(String.fromCharCode(10) + '});', start));
+    const guard = route.slice(route.indexOf('leadHoneypotTripped('));
+    assert.match(guard, /errorTracker\.record\(/,
+      'a dropped lead must emit a signal — a silent discard is unauditable');
+    assert.match(guard, /honeypot_drop/, 'the honeypot reason must be distinguishable');
+    assert.match(guard, /destination_bounded/, 'from the destination bound');
+  });
+
+  it('R-F4018: the two drop reasons are recorded SEPARATELY', () => {
+    // They mean different things. honeypot_drop should be almost entirely bots,
+    // so a rising count is the signal that the decoy is catching humans;
+    // destination_bounded is expected to be non-zero and merely bounds one
+    // address. Collapsing them hides the case worth watching.
+    const code = codeOf(SERVER);
+    const start = code.indexOf("app.post('/api/leads'");
+    const route = code.slice(start, code.indexOf(String.fromCharCode(10) + '});', start));
+    assert.match(route, /_hpTripped \? 'honeypot_drop' : 'destination_bounded'/,
+      'the emitted reason must reflect which guard fired');
+  });
+
+  it('R-F4018: the decoy name cannot be targeted by browser autofill', () => {
+    // The field was `website_url` with a "Website" label, which is exactly what
+    // autofill heuristics target for a URL/organisation field — and a filled
+    // decoy silently discards the submission, so an autofilled prospect would
+    // have been thrown away and told it worked. autocomplete="off" is honoured
+    // inconsistently for non-credential inputs, so the NAME has to be inert.
+    const { LEAD_HONEYPOT_FIELD } = { LEAD_HONEYPOT_FIELD: 'lead_confirm_blank' };
+    assert.doesNotMatch(LEAD_HONEYPOT_FIELD,
+      /url|website|email|name|address|phone|company|org|city|country|zip|postal/i,
+      'the decoy name must contain no token an autofill vocabulary maps to');
+    assert.match(INDEX, /name="lead_confirm_blank"[^>]*autocomplete="off"/,
+      'and it must still opt out of autofill explicitly');
+  });
+
   it('a refused bot gets the SAME response as a success — no oracle', () => {
     // Telling a bot it was detected teaches it what to change, and a distinct
     // response for the destination bound would let an attacker probe which
@@ -140,7 +181,11 @@ describe('R-F3999 — the lead form is bounded without blocking prospects', () =
     // name instead of a payload — the response is the only text that reaches a
     // user, so it is the only text worth asserting on.
     const guard = route.slice(route.indexOf('leadHoneypotTripped('));
-    const sent = guard.slice(guard.indexOf('return'), guard.indexOf('}') + 1);
+    // Bounded by the return STATEMENT, not by the first `}`: R-F4018 added an
+    // errorTracker call with a `catch {}` above the return, so the first brace
+    // now precedes it and the slice ran backwards. A response is one statement.
+    const retAt = guard.indexOf('return');
+    const sent = guard.slice(retAt, guard.indexOf(';', retAt) + 1);
     assert.match(sent, /res\.status\(200\)/,
       'a refused submission must return 200, exactly like an accepted one');
     assert.match(sent, /ok:\s*true/,
