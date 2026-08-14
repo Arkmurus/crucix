@@ -837,18 +837,24 @@
       "title": "autonomous sold as a tier difference nothing enforces",
       "claimed_at": "2026-08-14T08:53:58Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3995"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T09:11:44Z"
     },
     {
       "c_number": "C-77",
       "title": "DD sharing opt-out honoured by the engine but unreachable in the UI",
       "claimed_at": "2026-08-14T08:53:59Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3996"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T09:11:44Z"
     }
   ]
 }
