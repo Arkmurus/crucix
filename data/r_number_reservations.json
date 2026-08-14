@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3987,
+  "next_available": 3988,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33808,6 +33808,15 @@
       "commit_sha": "53e4db1a",
       "notes": null,
       "shipped_at": "2026-08-14T08:08:43Z"
+    },
+    {
+      "r_number": "R-F3987",
+      "title": "retain failed DPO candidate artifacts resumably",
+      "claimed_at": "2026-08-14T08:11:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

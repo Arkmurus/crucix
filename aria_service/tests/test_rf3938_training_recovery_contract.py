@@ -78,7 +78,28 @@ def test_failed_cycle_reports_only_artifacts_that_were_recovered() -> None:
     assert "diagnostics harvested" not in driver
     assert "DIAGNOSTICS_SAVED=0" in driver
     assert "if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi" in driver
+    assert 'if [ -n "$INTERMEDIATE_LOCAL" ]; then' in driver
+    assert "if persist_intermediate; then INTERMEDIATE_SAVED=1; fi" in driver
     assert "recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED" in driver
+
+
+def test_failed_adapter_downloads_resume_and_phoenix_retains_them() -> None:
+    """R-F3987: a failed gate must retain paid training without promoting it."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    wrapper = (ROOT / "scripts/train/run_tooluse_citation_phoenix_v3.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "printf 'reget %s %s\\n' \"$remote\" \"$download\"" in driver
+    assert 'remote_sha=$(TSSH -p "$PORT"' in driver
+    assert '[ "$local_sha" = "$remote_sha" ] || return 1' in driver
+    assert 'download="${2}.download"' in driver
+    assert 'tar -tzf "$download"' in driver
+    assert 'INTERMEDIATE_SAVED=0' in driver
+    assert 'INTERMEDIATE_LOCAL=data/training/checkpoints/aria_tooluse_citation_phoenix_v3_failed_candidate.tgz' in wrapper
+    assert 'INTERMEDIATE_REMOTE=/workspace/eval/aria_tooluse_dpo_adapter.tgz' in wrapper
+    output_line = next(line for line in wrapper.splitlines() if "OUTPUT_LOCAL=" in line)
+    assert "failed_candidate.tgz" not in output_line
 
 
 def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:

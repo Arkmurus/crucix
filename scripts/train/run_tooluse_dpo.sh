@@ -213,8 +213,17 @@ POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPEC
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" $SSH_HOST_KEYS -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
 persist_adapter(){
-  local remote=$1 destination=$2 download="${2}.download"
-  RSCP_PULL "$remote" "$download" || return 1
+  local remote=$1 destination=$2 download="${2}.download" remote_sha local_sha
+  remote_sha=$(TSSH -p "$PORT" root@"$HOST" "sha256sum '$remote' 2>/dev/null | cut -d ' ' -f1" \
+    2>/dev/null | tr -d '\r[:space:]')
+  [ "${#remote_sha}" = 64 ] || return 1
+  # Paid adapters can exceed what one unreliable host connection transfers.
+  # Keep the partial and resume it on every harvest instead of restarting at 0.
+  printf 'reget %s %s\n' "$remote" "$download" \
+    | timeout 600 sftp -b - -i "$KEYF" $SSH_HOST_KEYS -o ConnectTimeout=20 \
+        -P "$PORT" root@"$HOST" >/dev/null 2>&1 || true
+  local_sha=$(sha256sum "$download" 2>/dev/null | awk '{print $1}')
+  [ "$local_sha" = "$remote_sha" ] || return 1
   tar -tzf "$download" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || return 1
   mv "$download" "$destination"
 }
@@ -229,7 +238,7 @@ PY
   mv "$download" "$destination"
 }
 persist_intermediate(){
-  [ -n "$INTERMEDIATE_LOCAL" ] || return 0
+  [ -n "$INTERMEDIATE_LOCAL" ] || return 1
   mkdir -p "$(dirname "$INTERMEDIATE_LOCAL")"
   persist_adapter "$INTERMEDIATE_REMOTE" "$INTERMEDIATE_LOCAL"
 }
@@ -243,7 +252,12 @@ persist_diagnostics(){
 log "cycle started"; RC=""
 for i in $(seq 1 100); do
   RC=$(TSSH -p "$PORT" root@"$HOST" 'cat /workspace/eval/_cycle_status 2>/dev/null' 2>/dev/null | tr -d '\r[:space:]'); [ -n "$RC" ] && break
-  if [ $((i % 5)) -eq 0 ]; then mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"; persist_intermediate || true; persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "${OUTPUT_LOCAL}.partial" || true; persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.partial" || true; fi
+  if [ $((i % 5)) -eq 0 ]; then
+    mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
+    if [ -n "$INTERMEDIATE_LOCAL" ]; then persist_intermediate || true
+    else persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "${OUTPUT_LOCAL}.partial" || true; fi
+    persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.partial" || true
+  fi
   STATE=$(pod_state); [ "$STATE" = NOT_RUNNING ] && break; [ "$STATE" = UNREADABLE ] && log "control plane unreadable"; sleep 90
 done
 harvest_logs(){
@@ -256,7 +270,9 @@ harvest_logs(){
 }
 if [ "$RC" != 0 ]; then
   INTERMEDIATE_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0
-  if persist_intermediate; then INTERMEDIATE_SAVED=1; fi
+  if [ -n "$INTERMEDIATE_LOCAL" ]; then
+    if persist_intermediate; then INTERMEDIATE_SAVED=1; fi
+  fi
   if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi
   if harvest_logs; then LOGS_SAVED=1; fi
   log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED"
@@ -265,7 +281,7 @@ fi
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
 persist_report /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
 persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1
-persist_intermediate || exit 1
+[ -z "$INTERMEDIATE_LOCAL" ] || persist_intermediate || exit 1
 persist_diagnostics || exit 1
 "$PYBIN" - "$REPORT_LOCAL" <<'PY' || exit 1
 import json, sys

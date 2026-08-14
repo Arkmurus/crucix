@@ -26,6 +26,8 @@ FRESH_BASE=0 EXPECTED_DPO_PAIRS=57 \
   EVAL_LOCAL="$EVAL" TRAIN_PROOF="$TRAIN_PROOF" \
   REPORT_LOCAL=data/eval_reports/aria_tooluse_citation_phoenix_v3_eval.json \
   OUTPUT_LOCAL=data/training/checkpoints/aria_tooluse_citation_phoenix_v3.tgz \
+  INTERMEDIATE_LOCAL=data/training/checkpoints/aria_tooluse_citation_phoenix_v3_failed_candidate.tgz \
+  INTERMEDIATE_REMOTE=/workspace/eval/aria_tooluse_dpo_adapter.tgz \
   DIAGNOSTICS_LOCAL=data/eval_reports/aria_tooluse_citation_phoenix_v3_diagnostics.tgz \
   STATE_FILE=data/eval_reports/.tooluse_citation_phoenix_v3_pod_state \
   REMOTE_DPO_OUT=/workspace/checkpoints/aria_tooluse_citation_phoenix_v3 \
