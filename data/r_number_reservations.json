@@ -33737,27 +33737,30 @@
       "title": "C-67 the escalation must disable thinking not enlarge the budget",
       "claimed_at": "2026-08-13T22:42:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dfcb4717",
+      "notes": null,
+      "shipped_at": "2026-08-14T06:37:16Z"
     },
     {
       "r_number": "R-F3980",
       "title": "C-69 wire the network DM reply delivery outcome",
       "claimed_at": "2026-08-13T22:48:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dfcb4717",
+      "notes": null,
+      "shipped_at": "2026-08-14T06:37:16Z"
     },
     {
       "r_number": "R-F3981",
       "title": "preserve DPO evidence across pod shutdown",
       "claimed_at": "2026-08-14T06:26:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dfcb4717",
+      "notes": null,
+      "shipped_at": "2026-08-14T06:37:17Z"
     }
   ]
 }
