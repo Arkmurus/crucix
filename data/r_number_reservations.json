@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3988,
+  "next_available": 3991,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33813,6 +33813,34 @@
       "r_number": "R-F3987",
       "title": "retain failed DPO candidate artifacts resumably",
       "claimed_at": "2026-08-14T08:11:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5aa7687d",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:16:58Z"
+    },
+    {
+      "r_number": "R-F3988",
+      "title": "tier-aware upload size cap on web upload path (C-73)",
+      "claimed_at": "2026-08-14T08:17:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3989",
+      "title": "consume uploadsPerDay quota on web upload path (C-74)",
+      "claimed_at": "2026-08-14T08:17:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3990",
+      "title": "tier capability matrix: no paid downgrade, no unenforced entitlement (C-75)",
+      "claimed_at": "2026-08-14T08:17:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
