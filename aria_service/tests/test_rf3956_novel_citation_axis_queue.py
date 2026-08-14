@@ -33,7 +33,7 @@ def test_rf3956_cli_emits_only_novel_requested_axes(tmp_path: Path) -> None:
         "--target-axis", "tooluse_adverse",
         "--target-axis", "tooluse_news_impact",
         "--target-axis", "tooluse_person",
-        "--exclude-file", str(prior),
+        "--exclude-file", str(prior), "--only-target-axes",
     ]) == 0
 
     emitted = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]

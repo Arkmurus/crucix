@@ -52,6 +52,40 @@ def test_delta_collection_contains_only_new_axis_subject_evidence() -> None:
     assert select_novel_rows(current, prior) == current[1:]
 
 
+def test_exclusion_precedes_cap_and_target_only_avoids_paid_retention_work() -> None:
+    rows = _rows(per_label=4)
+    excluded = {
+        ("tooluse_contradiction", f"tooluse contradiction {index}")
+        for index in range(2)
+    }
+    queue = build_balanced_queue(
+        rows,
+        eval_entities={"held-out"},
+        target_limit=2,
+        target_labels={"tooluse_contradiction"},
+        excluded_evidence=excluded,
+        only_target_axes=True,
+    )
+    assert [row["subject"] for row in queue] == [
+        "tooluse_contradiction-2", "tooluse_contradiction-3",
+    ]
+
+
+def test_explicit_held_out_exclusion_advances_to_safe_rows_before_cap() -> None:
+    rows = _rows(per_label=3)
+    queue = build_balanced_queue(
+        rows,
+        eval_entities={"tooluse contradiction 0"},
+        target_limit=2,
+        target_labels={"tooluse_contradiction"},
+        only_target_axes=True,
+        exclude_held_out=True,
+    )
+    assert [row["subject"] for row in queue] == [
+        "tooluse_contradiction-1", "tooluse_contradiction-2",
+    ]
+
+
 def test_measured_regression_axes_join_targets_without_dropping_defaults() -> None:
     queue = build_balanced_queue(
         _rows(), eval_entities={"held-out"}, target_limit=16, retention_limit=6,

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4006,
+  "next_available": 4009,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33998,6 +33998,33 @@
       "commit_sha": "831770d3",
       "notes": null,
       "shipped_at": "2026-08-14T10:54:55Z"
+    },
+    {
+      "r_number": "R-F4006",
+      "title": "disclose what each DD depth actually produces (C-85)",
+      "claimed_at": "2026-08-14T10:59:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4007",
+      "title": "surface sanctions coverage as a first-class element (C-86)",
+      "claimed_at": "2026-08-14T10:59:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4008",
+      "title": "collect missing protected-axis DPO negatives",
+      "claimed_at": "2026-08-14T11:00:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

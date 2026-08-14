@@ -36,6 +36,9 @@ def build_balanced_queue(
     target_limit: int = 16,
     retention_limit: int = 6,
     target_labels: set[str] | None = None,
+    excluded_evidence: set[tuple[str, str]] | None = None,
+    only_target_axes: bool = False,
+    exclude_held_out: bool = False,
 ) -> list[dict]:
     """Select every axis deterministically while refusing held-out entities."""
     if not eval_entities:
@@ -48,17 +51,22 @@ def build_balanced_queue(
         raise ValueError(f"unknown target axes: {sorted(unknown)}")
     if not targets:
         raise ValueError("target axes are empty")
+    excluded = excluded_evidence or set()
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in train:
         label = str(row.get("label") or "")
-        if label in EXPECTED_LABELS:
+        subject = _norm_subject(str(row.get("subject") or ""))
+        if exclude_held_out and subject in eval_entities:
+            continue
+        if label in EXPECTED_LABELS and (label, subject) not in excluded:
             grouped[label].append(row)
-    missing = EXPECTED_LABELS - grouped.keys()
+    required_labels = targets if only_target_axes else EXPECTED_LABELS
+    missing = required_labels - grouped.keys()
     if missing:
         raise ValueError(f"training split is missing axes: {sorted(missing)}")
 
     selected: list[dict] = []
-    for label in sorted(EXPECTED_LABELS):
+    for label in sorted(required_labels):
         limit = target_limit if label in targets else retention_limit
         selected.extend(grouped[label][:limit])
     contaminated = sorted({
@@ -96,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     """Write a balanced queue after entity-level contamination checks."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train", required=True, type=Path)
-    parser.add_argument("--eval-file", required=True, type=Path)
+    parser.add_argument("--eval-file", required=True, type=Path, action="append")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--target-limit", type=int, default=16)
     parser.add_argument("--retention-limit", type=int, default=6)
@@ -106,13 +114,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--coverage-ledger", type=Path,
                         help="Promote measured priority axes while retaining default targets")
-    parser.add_argument("--exclude-file", type=Path,
-                        help="Write only axis/subject rows absent from this JSONL")
+    parser.add_argument("--exclude-file", type=Path, action="append", default=[],
+                        help="Repeat to exclude prior axis/subject evidence before capping")
+    parser.add_argument("--only-target-axes", action="store_true",
+                        help="Emit requested target axes without retention rows")
+    parser.add_argument("--exclude-held-out", action="store_true",
+                        help="Skip held-out subjects before applying per-axis caps")
     args = parser.parse_args(argv)
 
     held = {
         _norm_subject(str(row.get("subject") or ""))
-        for row in _read_jsonl(args.eval_file)
+        for path in args.eval_file for row in _read_jsonl(path)
     } - {""}
     target_labels = set(args.target_axis) if args.target_axis else set(TARGET_LABELS)
     if args.coverage_ledger:
@@ -123,15 +135,21 @@ def main(argv: list[str] | None = None) -> int:
         if not priorities:
             raise ValueError("coverage ledger has no measured priorities")
         target_labels |= priorities
+    prior = [row for path in args.exclude_file for row in _read_jsonl(path)]
+    excluded_evidence = {
+        (str(row.get("label") or ""), _norm_subject(str(row.get("subject") or "")))
+        for row in prior
+    }
     queue = build_balanced_queue(
         _read_jsonl(args.train),
         eval_entities=held,
         target_limit=args.target_limit,
         retention_limit=args.retention_limit,
         target_labels=target_labels,
+        excluded_evidence=excluded_evidence,
+        only_target_axes=args.only_target_axes,
+        exclude_held_out=args.exclude_held_out,
     )
-    if args.exclude_file:
-        queue = select_novel_rows(queue, _read_jsonl(args.exclude_file))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in queue),
