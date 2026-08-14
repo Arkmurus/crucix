@@ -1452,10 +1452,28 @@ def build_contradiction_trace(
     indep = _independent_sources(search_payload)
     if not indep:
         return None
-    adverse = [r for r in results
-               if isinstance(r, dict) and _domain_of(r.get("url")) in indep]
-    if not adverse:
+    graded_adverse = [
+        (
+            r,
+            _grade_stage(
+                f"{r.get('title') or ''} {r.get('snippet') or ''}",
+            ),
+        )
+        for r in results
+        if isinstance(r, dict) and _domain_of(r.get("url")) in indep
+    ]
+    graded_adverse = [
+        (result, stage) for result, stage in graded_adverse
+        if stage and stage != "resolved_cleared"
+    ]
+    if not graded_adverse:
         return None
+    adverse = [
+        result for result, _ in sorted(
+            graded_adverse,
+            key=lambda item: -_STAGE_RANK[item[1]],
+        )
+    ]
 
     lists = sorted(_sanctions_block(screen_payload).get("sources") or [])
     screen_id, search_id = _call_id("cscreen", entity), _call_id("csearch", entity)
