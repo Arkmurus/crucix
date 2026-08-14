@@ -34173,9 +34173,10 @@
       "title": "require adverse relevance in contradiction traces",
       "claimed_at": "2026-08-14T14:25:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ed5774bc",
+      "notes": null,
+      "shipped_at": "2026-08-14T14:35:39Z"
     },
     {
       "r_number": "R-F4024",
