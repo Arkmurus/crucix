@@ -1053,9 +1053,12 @@
       "title": "free/pro upload limit advertised below what the platform can serve",
       "claimed_at": "2026-08-14T13:04:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4020"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T13:14:36Z"
     }
   ]
 }
