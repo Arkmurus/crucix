@@ -34103,9 +34103,10 @@
       "title": "capture novel real contradiction evidence",
       "claimed_at": "2026-08-14T12:00:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "605ef7a7",
+      "notes": null,
+      "shipped_at": "2026-08-14T13:34:39Z"
     },
     {
       "r_number": "R-F4017",
@@ -34132,9 +34133,10 @@
       "title": "align compliance matched flag with records",
       "claimed_at": "2026-08-14T12:34:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "744f3c46",
+      "notes": null,
+      "shipped_at": "2026-08-14T13:34:39Z"
     },
     {
       "r_number": "R-F4020",
@@ -34151,9 +34153,10 @@
       "title": "evaluate novel contradiction captures",
       "claimed_at": "2026-08-14T13:07:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "21f756b5",
+      "notes": null,
+      "shipped_at": "2026-08-14T13:34:40Z"
     }
   ]
 }
