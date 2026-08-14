@@ -51,6 +51,7 @@ import { containsAnswerChunk } from './lib/aria_sse_delivery.mjs';  // R-F3075
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { enforceQuota } from './lib/billing/enforce.mjs';  // R-F2765 — per-tier quota enforcement on the web path
+import { uploadTooLarge, uploadTooLargeMessage } from './lib/billing/uploadLimit.mjs';  // R-F3988 — tier-aware upload cap
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
 // R-F42 (2026-05-09): public API surface — env-gated on ENABLE_PUBLIC_API.
@@ -1633,9 +1634,35 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
 app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
   // R-F2606 — this streaming upload is registered before the rate limiter and
   // has no body-size cap; reject oversized uploads up front via Content-Length.
-  if (Number(req.headers['content-length']) > 25 * 1024 * 1024) {
-    return res.status(413).json({ error: 'Document too large (max 25MB)' });
+  //
+  // R-F3988 (C-73) — the limit is the CALLER'S TIER limit, not one literal for
+  // everyone. The `25 * 1024 * 1024` this replaces was wrong for every tier at
+  // once: free and pro are sold 5 MB and could send 25 MB, while proIntel is
+  // sold 50 MB and was refused at 25 — a paid feature that did not exist. The
+  // decision lives in lib/billing/uploadLimit.mjs so it is contract-testable;
+  // this file boots a live app on import.
+  //
+  // `length_unknown` (a chunked body, no Content-Length) is passed through with
+  // the SAME behaviour as before — the old guard's `Number(undefined) > limit`
+  // was false too. That bypass is C-76 and is fixed separately; it is called out
+  // here so the next reader does not mistake this branch for a check.
+  const _upTier = (() => { try { return findUserById(req.user?.userId)?.tier || null; } catch { return null; } })();
+  const _upVerdict = uploadTooLarge(req.headers['content-length'], _upTier);
+  if (_upVerdict && _upVerdict.reason === 'too_large') {
+    return res.status(413).json({ error: uploadTooLargeMessage(_upVerdict) });
   }
+  // R-F3989 (C-74) — consume the uploadsPerDay allowance. Everything else needed
+  // to enforce it already existed (tiers.uploadsPerDay, the quotas.mjs 'upload'
+  // key, _capForKind, enforce.mjs's documented kind); the only missing piece was
+  // a caller, so the cap shown to the customer bounded nothing on the path they
+  // actually use.
+  //
+  // AFTER the size check on purpose: an upload refused for being too large must
+  // not burn a day's allowance. _quotaBlock keeps the R-F3618 exemptions, so
+  // admins and the internal/WA callers are unmetered exactly as on the other
+  // three lanes.
+  const _upq = await _quotaBlock(req, 'upload');
+  if (_upq) return res.status(429).json({ error: _upq.reason, quota: { current: _upq.current, cap: _upq.cap } });
   const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
   if (!ARIA_URL) {
     return res.status(503).json({ error: 'ARIA service unavailable' });

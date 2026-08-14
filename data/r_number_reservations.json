@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3993,
+  "next_available": 3994,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33865,6 +33865,15 @@
       "commit_sha": "0ae450b0",
       "notes": null,
       "shipped_at": "2026-08-14T08:28:05Z"
+    },
+    {
+      "r_number": "R-F3993",
+      "title": "build disjoint Phoenix curriculum and heldout progression gate",
+      "claimed_at": "2026-08-14T08:30:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -4133,3 +4133,125 @@ two-argument arity the production call no longer has; it now mirrors the real
 `(fn, *args)` signature rather than a frozen copy of it.
 
 Regression: 200 passed / 0 failed across the knowledge/flush/sidecar subset.
+
+
+## C-73 · the web upload cap ignored the caller's billing tier (R-F3988)
+
+`tiers.mjs` defines `uploadBytesMax` per tier, `/api/billing/me` reports it, and
+the public pricing page sells it. The route enforcing it compared Content-Length
+against one hardcoded literal — `25 * 1024 * 1024` — so the number was never the
+tier's. Measured against the live tier table, it was wrong for **every** tier at
+once:
+
+    free      sold  5 MB   enforced 25 MB   OVER-DELIVERS 20 MB
+    pro       sold  5 MB   enforced 25 MB   OVER-DELIVERS 20 MB
+    proIntel  sold 50 MB   enforced 25 MB   UNDER-DELIVERS 25 MB
+
+The under-delivery is the one that costs money: a £199/mo customer refused at
+half the limit they were sold. Neither direction surfaces as a complaint — nobody
+reports a limit that is too generous, and the customer who hits the low ceiling
+assumes it is theirs. Same class as R-F2765 (caps DEFINED but never CHECKED) and
+as the §1 gates "certified by an absence": a value displayed as though it
+governs, while the code consults something else.
+
+**The ceiling above us is real and is not ours.** Raising this route's number
+alone would have moved the failure downstream. The brain caps request bodies in
+`main.py::_limit_body_size` at ARIA_MAX_BODY_BYTES — verified UNSET on aria-intel
+2026-08-14, so the 50 MB default governs — and Content-Length measures the whole
+multipart REQUEST, which is strictly larger than the file. So proIntel's 50 MB is
+NOT fully deliverable today. The fix clamps to what the chain can carry and
+reports `constrainedByDownstream` rather than shortening the allowance in
+silence, which is the defect being fixed. Live now: free/pro 5.00 MB, proIntel
+49.94 MB (flagged). Closing the last 0.06 MB is an operator action — raise
+ARIA_MAX_BODY_BYTES above the tier limit plus envelope, or reduce the advertised
+figure.
+
+Decision logic lives in `lib/billing/uploadLimit.mjs`, not inline, for the reason
+R-F2170/R-F2775/R-F2785 give: server.mjs boots a live app on import, so anything
+left there can only be grep-tested, and a source-spelling assertion is not a
+contract test.
+
+Fixture-first: `test/upload-tier-limit-rf3988.test.mjs`, 9 tests, RED before
+(proven numerically against the live constant) and GREEN after. The wiring guard
+was proven falsifiable by reintroducing the literal: 8 passed / 1 failed, then
+restored.
+
+Two collateral repairs, both in guards rather than production code:
+`test/web-hardening-rf2603-2608.test.mjs` asserted the 25 MB literal — i.e. the
+defect — and was rewritten to the surviving intent (the route still refuses an
+oversized upload with 413) rather than deleted, per the R-F3859 lesson that the
+quickest way to green a red test is usually the one that removes the protection.
+And the comment-stripper in the new guard was twice wrong before it was right:
+`//.*$` matches nothing on this CRLF checkout because `.` does not match a
+carriage return, and a block-comment regex is not a parser — measured, it deleted
+122,623 characters of real server.mjs (38% of the file) and made two of three
+enforcement call sites vanish.
+
+Regression: 141 passed / 0 failed across the 18 billing/quota/tier/web-hardening
+files. Boot smoke: server.mjs reaches "Static dashboard live at /" and stays up.
+
+
+## C-74 · uploadsPerDay was defined, counted, and never consumed (R-F3989)
+
+Everything needed to enforce a per-day upload cap already existed: the tier field
+(`free` 15, `pro` 30, `proIntel` 200), the `crucix:quota:upl:<user>:<utc-day>`
+key in `quotas.mjs::_keyFor`, the `_capForKind` mapping, and `enforce.mjs`
+documenting `'upload'` as a supported kind. The only missing piece was a caller:
+
+    _quotaBlock(req, 'message')  ×2   (chat, chat/stream)
+    _quotaBlock(req, 'ddRun')    ×1   (dd/orchestrate)
+    _quotaBlock(req, 'upload')   ×0   ← nothing, ever
+
+So the limit shown to the customer bounded nothing on the path they use. A
+mechanism that reads as present because every part of it exists except the one
+that acts — the §1 "certified by an absence" shape.
+
+Verified before wiring that the brain does not already consume it (`quota_client`
+has one caller, `consume_dd_quota`), so this cannot double-count. Consumed AFTER
+the size check on purpose: an upload refused for being too large must not burn a
+day's allowance. `_quotaBlock` carries the R-F3618 exemptions, so admins and the
+internal/WA callers stay unmetered exactly as on the other three lanes.
+
+The load-bearing test is the generalised one: EVERY quota kind the tier table
+sells must have an enforcement call site. Written as a specific "upload is
+enforced" assertion it would have passed the day after the fix and said nothing
+about the fourth kind someone adds later.
+
+Fixture-first: `test/upload-quota-consumed-rf3989.test.mjs`, 5 tests. RED
+isolated the defect precisely — 3 passed (the machinery works), 2 failed (no
+caller) — then GREEN.
+
+
+## C-75 · the £79 tier exposed less than the free tier (R-F3990)
+
+`tiers.mjs` shipped `deepResearchEnabled: true` for free, `false` for pro, `true`
+for proIntel. Upgrading from Free to Essentials REMOVED a capability. Nothing
+caught it because nothing compared the tiers to each other — the same absence
+that let two escapers diverge (R-F3866) and four C-numbers collide (R-F3878).
+
+Corrected UPWARDS deliberately. Free is documented as having deep research on "to
+showcase depth" and the landing page sells Essentials as "For focused research
+and due diligence", so the £79 tier lacking it was the outlier, not the intent.
+Levelling the other way would have withdrawn a capability from existing free
+accounts to make a test green — a commercial decision, not one a fix may take.
+
+**What this change does NOT do is newly enforce anything.** `/api/billing/me`
+reports these flags as `capabilities` and account.html renders them, but the only
+capability flag enforced anywhere is `publicApiEnabled`; `deepResearchEnabled`
+and `autonomousEnabled` are read solely to be displayed. Enforcing deep research
+would remove a capability free and pro users have today, and enforcing
+`autonomousEnabled` would gate a per-account feature the platform does not have —
+the autonomous engine is one global loop (verified live 2026-08-14: enabled,
+running, L3, 98 tasks), not a per-user subscription. Both are operator decisions.
+
+So the guard asserts the property instead: a capability sold as a DIFFERENCE must
+be enforced, or listed in `KNOWN_UNENFORCED_DIFFERENCES`. That set is SHRINK-ONLY
+(same contract as KNOWN_DEAD_CALLS and the C-number LEGACY_COLLISIONS baseline)
+and holds exactly one entry, `autonomousEnabled`. Levelling deepResearchEnabled
+also made it uniform across all three tiers, so it no longer sells a difference
+it cannot enforce.
+
+Fixture-first: `test/tier-capability-monotonicity-rf3990.test.mjs`, 6 tests. RED
+named both halves of the defect verbatim ("pro (£79) loses 'deepResearchEnabled'
+that free (£0) has" and "differs between tiers but has no tierAllows() call
+site"), then GREEN.

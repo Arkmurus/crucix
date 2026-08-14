@@ -795,6 +795,33 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T08:08:08Z"
+    },
+    {
+      "c_number": "C-73",
+      "title": "web upload cap ignores billing tier",
+      "claimed_at": "2026-08-14T08:17:02Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-74",
+      "title": "uploadsPerDay quota never consumed on web upload path",
+      "claimed_at": "2026-08-14T08:17:02Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-75",
+      "title": "paid tier exposes fewer capabilities than free; flags gate nothing",
+      "claimed_at": "2026-08-14T08:17:02Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

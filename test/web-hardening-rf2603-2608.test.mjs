@@ -82,8 +82,23 @@ describe('R-F2606 — API-surface access control', () => {
     assert.ok(/_pinBodyUserId\(req\)/.test(ragSearch), 'rag/search must call _pinBodyUserId');
   });
   it('extract-document caps upload size', () => {
-    assert.ok(/content-length'\]\)\s*>\s*25\s*\*\s*1024\s*\*\s*1024/.test(SERVER),
-      'extract-document must reject uploads over 25MB');
+    // R-F3988 (C-75) — this asserted the LITERAL `25 * 1024 * 1024`, and that
+    // literal was itself the defect: one hardcoded ceiling for every tier, so
+    // free/pro (sold 5 MB) could send 25 MB and proIntel (sold 50 MB) was refused
+    // at 25. The cap is now resolved from the caller's tier.
+    //
+    // Rewritten to the SURVIVING INTENT — the route must still refuse an
+    // oversized upload before streaming it — rather than deleted. Deleting it
+    // would drop the guard entirely, which is how R-F3859's reversed assertion
+    // nearly disabled primary search: the quickest way to green a red test is
+    // usually the one that removes the protection.
+    const start = SERVER.indexOf("app.post('/api/aria/extract-document'");
+    assert.ok(start > 0, 'the extract-document route must exist');
+    const route = SERVER.slice(start, start + 3400);
+    assert.ok(/uploadTooLarge\(\s*req\.headers\['content-length'\]/.test(route),
+      'extract-document must measure Content-Length against the tier limit');
+    assert.ok(/res\.status\(413\)/.test(route),
+      'an oversized upload must still be refused with 413 before the body is streamed');
   });
 });
 
