@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4020,
+  "next_available": 4022,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34131,6 +34131,24 @@
       "r_number": "R-F4019",
       "title": "align compliance matched flag with records",
       "claimed_at": "2026-08-14T12:34:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4020",
+      "title": "raise the advertised free/pro upload limit to what was already possible (C-94)",
+      "claimed_at": "2026-08-14T13:04:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4021",
+      "title": "evaluate novel contradiction captures",
+      "claimed_at": "2026-08-14T13:07:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
