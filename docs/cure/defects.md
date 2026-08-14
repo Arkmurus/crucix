@@ -4943,3 +4943,110 @@ page. Effective limits with the live brain cap: free 25.00 MB, pro 25.00 MB,
 proIntel 50.00 MB, none constrained.
 
 Regression: 429 passed / 0 failed across 46 files. Boot smoke green.
+
+## C-95 · knowledge persistence rewrote the whole 389 MB graph to save ~10 KB (R-F4022)
+
+**Found by measurement, not by reading.** `/health` reported `loop.status:
+starved`, p95 3264 ms, max 9726 ms — while `status: operational`,
+`degraded_reasons: []` and the self-diagnostic said `GREEN` with 0 failures.
+
+### The evidence
+
+`/data/wedge_stacks` held **729 R-F704 dumps**. The newest covered 18 stalls in
+20 minutes (13:05–13:25 UTC), median 6.8 s, max 10.8 s. Across all 18:
+
+| frame | occurrences |
+|---|---|
+| `knowledge.py:_write_to_disk_atomic` | **18 / 18** |
+| — of those, inside `os.fsync` | 12 |
+| — inside `fdopen`/close | 3 |
+| — inside `os.replace` | 2 |
+| main thread in `selectors.select` (idle) | 18 / 18 |
+| `aiosqlite core.py:_connection_worker_thread` | 9–10 |
+
+The main thread being idle in `select` is R-F3252's documented signature of
+**starvation, not a blocking call** — so the question was what was saturating
+the volume everything else waits on.
+
+Sampling the file every 3 s answered it. A tmp file was present in *every*
+sample, and the canonical file was replaced every 18–26 s:
+
+```
+13:35:12  389,197,582
+13:35:38  389,208,553   (+10,971 bytes of new knowledge)
+13:35:56  389,217,502   (+ 8,949 bytes)
+```
+
+**389 MB rewritten, fsynced, renamed and dir-fsynced to persist ~10 KB — about
+39,000x write amplification, continuously, on the same volume as the 613 MB
+`aria_state.db`, its WAL, chromadb and the neural shards.**
+
+### Why it was self-worsening
+
+§7 forbids eviction, so the graph only grows. The cost of persisting one fact
+rises without bound as ARIA learns — **the better her memory gets, the more
+starved she becomes.** C-61 and C-72 had already cut what they could (skipping
+bookkeeping flushes, gating the sidecar) but both left the O(graph) term
+intact; the docstrings still describe a "~150-171 MB" graph that has since more
+than doubled.
+
+Raising `FLUSH_DEBOUNCE_S` would trade durability for latency and change
+nothing structural — the §1 band-aid. The complexity had to change, not the
+cadence.
+
+### The fix
+
+Persistence is now O(change). The hot path appends changed records to
+`<disk>.journal.jsonl`; the full snapshot is rewritten only on compaction
+(`_needs_compaction`, journal > 32 MB, age > 900 s, or `final=True`), and the
+loader replays the journal over the snapshot.
+
+Three properties are load-bearing:
+
+- **The journal is an UPSERT log keyed by record id, not positional.** New
+  facts are `insert(0, ...)`d at the HEAD, so a tail watermark would have been
+  wrong — and keying on id expresses an in-place edit for free.
+- **`_save()` with no declared record forces a full rewrite.** The safety
+  default, and the reason this is safe to add at all: a mutation site written
+  later by someone who never read the docstring degrades to today's behaviour
+  instead of silently losing data. "I was told nothing" must mean "write
+  everything".
+- **Structural changes compact.** `consolidate_facts` and `purge_by_keywords`
+  delete; replaying an upsert journal over a deletion would resurrect exactly
+  what was purged.
+
+Bookkeeping (C-61) now declares its record too, deduped by id. Without that,
+`_bk_due` fires every `BOOKKEEPING_MAX_AGE_S` and forces a full rewrite — and a
+crawl loop re-encountering known pages makes that continuous, which would have
+quietly halved the fix. A page seen 1,000 times in one window costs ONE
+journal line.
+
+Flushes are now serialised (`_flush_lock`): two concurrent flushes were merely
+wasteful before, but one compacting while another journals would drop the wrong
+pending entries — and it also stops two 389 MB writes overlapping on the volume.
+
+### Measured
+
+Same code path, instrumented, before vs after:
+
+| scenario | before | after |
+|---|---|---|
+| 30 new facts (2 MB snapshot) | 61,080,885 B | **12,790 B** |
+| 200 cycles of 1 new fact + 9 re-absorbs | 408,331,990 B in 3.99 s | **850,165 B in 0.19 s** |
+
+A 480x reduction on the production-shaped mix. The absolute saving on the live
+389 MB snapshot is ~190x larger again.
+
+Durability was verified by sequence, not assertion: facts stored through the
+public `store_fact` API survive two simulated restarts with no duplicates, an
+in-place edit replays as an update rather than a second copy, and a torn final
+journal line (the expected shape of a crash mid-append) is skipped while every
+complete record before it is kept.
+
+Regression: 12 new tests; 680 passed across every test importing `knowledge`,
+with only the 2 recorded `docs/suite_baseline.json` entries still red.
+
+**Collateral:** four `_save` test doubles pinned a copy of the signature and
+broke on the new keyword arguments. They now take `**kwargs` — a stub that
+hardcodes an argument list breaks on every future change while asserting
+nothing about it.

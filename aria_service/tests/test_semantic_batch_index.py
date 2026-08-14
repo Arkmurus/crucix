@@ -117,7 +117,9 @@ def test_store_fact_skip_semantic_index_flag_skips_per_fact_index():
     async def fake_load():
         return fake_db
 
-    async def fake_save():
+    # **kwargs so the double follows `_save`'s real signature instead of
+    # pinning a copy of it (R-F4022 added record=/kind=/structural=).
+    async def fake_save(**_kw):
         pass
 
     with patch.object(knowledge, "_load", fake_load), \

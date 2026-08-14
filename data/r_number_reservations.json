@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4022,
+  "next_available": 4023,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34157,6 +34157,15 @@
       "commit_sha": "21f756b5",
       "notes": null,
       "shipped_at": "2026-08-14T13:34:40Z"
+    },
+    {
+      "r_number": "R-F4022",
+      "title": "incremental knowledge persistence: append-journal + threshold compaction",
+      "claimed_at": "2026-08-14T13:40:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

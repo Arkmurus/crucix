@@ -31,6 +31,7 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -172,6 +173,203 @@ _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
 _flusher_stop = False
 FLUSH_DEBOUNCE_S = 2.0
 SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence
+
+# ── R-F4022 (C-95) — persistence costs O(change), not O(graph) ──────────────
+#
+# Every debounced flush used to call `_write_to_disk_atomic`, which serialises
+# the WHOLE graph, fsyncs it, renames it and fsyncs the directory. Measured on
+# aria-intel 2026-08-14: a 389 MB rewrite completing every ~18-26 s, back to
+# back, to persist ~9-11 KB of new content — ~39,000x write amplification, with
+# a tmp file present in every sample (the volume never stopped writing).
+# `_write_to_disk_atomic` appeared in 18 of 18 loop-stall dumps in a 20-minute
+# window (median 6.8 s, max 10.8 s), 12 of them inside `os.fsync`, while the
+# main thread sat idle in `selectors.select` — the R-F3252 signature of
+# starvation rather than a blocking call.
+#
+# It is SELF-WORSENING: §7 forbids eviction, so the graph only grows and the
+# cost of persisting one fact rises without bound as ARIA learns. Raising
+# FLUSH_DEBOUNCE_S would trade durability for latency and leave the O(graph)
+# term intact — the §1 band-aid. The complexity had to change, not the cadence.
+#
+# So the hot path now APPENDS the changed records to a journal (O(change)) and
+# the full snapshot is rewritten only on compaction. The journal is an UPSERT
+# log keyed by record id — deliberately not positional, because new facts are
+# `insert(0, ...)`d at the HEAD, and because the same design then expresses an
+# in-place edit for free.
+#
+# Compaction still happens on a bounded schedule, so boot replay stays small
+# and the snapshot never drifts far from the cache.
+JOURNAL_MAX_BYTES = int(os.getenv("ARIA_KNOWLEDGE_JOURNAL_MAX_BYTES",
+                                  str(32 * 1024 * 1024)))
+COMPACT_MAX_AGE_S = float(os.getenv("ARIA_KNOWLEDGE_COMPACT_MAX_AGE_S", "900"))
+
+#: Records changed since the last flush, as (kind, record) — held in memory and
+#: written by the debounced flusher, so the hot path never does file I/O (the
+#: same reason `_save` only ever set a flag before).
+_pending_journal: list[tuple[str, dict]] = []
+#: True when the next flush MUST write a full snapshot. Starts True so the
+#: first flush of a process establishes a base the journal can build on.
+_needs_compaction: bool = True
+_last_compaction_at: float | None = None
+#: Bookkeeping records (accessCount / last_seen_at) awaiting persistence,
+#: keyed by record id so a page re-encountered N times in one window costs one
+#: journal line. C-61 kept these off the hot path; this keeps them off the
+#: COMPACTION path too — without it `_bk_due` would force a full rewrite every
+#: BOOKKEEPING_MAX_AGE_S, and a crawl loop makes that continuous.
+_pending_bookkeeping: dict[str, dict] = {}
+#: Guards journal file access only (append / truncate) — never held across the
+#: snapshot write.
+_journal_lock = threading.Lock()
+#: Serialises flushes. Two concurrent flushes were previously merely wasteful
+#: (two full writes); now one can compact while the other journals, and the
+#: compaction's `del _pending_journal[:n]` would drop the wrong entries. It
+#: also stops two ~389 MB writes from ever overlapping on the volume.
+_flush_lock = asyncio.Lock()
+
+
+def _journal_path() -> str:
+    """Derived from `_DISK_PATH` at call time, not cached at import.
+
+    Tests and dev shells retarget `_DISK_PATH`; a module-level constant would
+    leave the journal pointing at the previous volume.
+    """
+    return _DISK_PATH + ".journal.jsonl"
+
+
+def _journal_size() -> int:
+    try:
+        return os.path.getsize(_journal_path())
+    except OSError:
+        return 0
+
+
+def _append_journal(entries: list[tuple[str, dict]]) -> None:
+    """Append changed records durably. Sync — always called via to_thread.
+
+    fsync'd per flush, so the crash window is the SAME ~2 s debounce as before:
+    this makes persistence cheaper, never weaker (§7).
+    """
+    if not entries:
+        return
+    path = _journal_path()
+    parent = os.path.dirname(path) or "."
+    try:
+        os.makedirs(parent, exist_ok=True)
+    except OSError:
+        pass
+    with _journal_lock:
+        with open(path, "a", encoding="utf-8") as fh:
+            for kind, rec in entries:
+                fh.write(json.dumps({"kind": kind, "rec": rec},
+                                    ensure_ascii=False, default=str) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    _fsync_dir(parent)
+
+
+def _truncate_journal_after_compaction(size_before: int) -> None:
+    """Drop only the journal bytes the just-written snapshot already contains.
+
+    A blind delete would lose any record appended WHILE the snapshot was being
+    serialised — `_write_to_disk_atomic` iterates a shallow copy, so a fact
+    inserted after that copy is taken is in neither the snapshot nor, after a
+    delete, the journal. Keeping the tail makes the race harmless.
+    """
+    path = _journal_path()
+    with _journal_lock:
+        try:
+            current = os.path.getsize(path)
+        except OSError:
+            return
+        try:
+            if current <= size_before:
+                os.unlink(path)
+                return
+            with open(path, "rb") as fh:
+                fh.seek(size_before)
+                tail = fh.read()
+            tmp = path + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(tail)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except OSError as e:
+            # Never fail a flush over journal hygiene — a journal that is
+            # longer than necessary only costs replay time, and replay is
+            # idempotent.
+            logger.warning("knowledge: journal truncate failed (non-fatal): %s", e)
+
+
+def _replay_journal(data: dict | None) -> dict | None:
+    """Upsert journalled records onto a freshly loaded snapshot.
+
+    Keyed by `id`, so replaying a record that the snapshot ALREADY contains is
+    a no-op rather than a duplicate — which matters because compaction and
+    journal-append legitimately race (see `_truncate_journal_after_compaction`).
+    New records are inserted at the head to preserve the newest-first ordering
+    that `store_fact`'s `insert(0, ...)` establishes.
+    """
+    if not isinstance(data, dict):
+        return data
+    path = _journal_path()
+    if not os.path.exists(path):
+        return data
+
+    _lists = {"fact": "facts", "query": "queries", "learning": "learnings"}
+    _index: dict[str, dict[str, dict]] = {}
+    for kind, key in _lists.items():
+        seq = data.get(key)
+        if not isinstance(seq, list):
+            data[key] = seq = []
+        _index[kind] = {
+            r["id"]: r for r in seq
+            if isinstance(r, dict) and r.get("id")
+        }
+
+    applied = 0
+    corrupt = 0
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    kind = entry.get("kind")
+                    rec = entry.get("rec")
+                    key = _lists.get(kind)
+                    if not key or not isinstance(rec, dict):
+                        corrupt += 1
+                        continue
+                    rid = rec.get("id")
+                    if not rid:
+                        corrupt += 1
+                        continue
+                    existing = _index[kind].get(rid)
+                    if existing is not None:
+                        existing.clear()
+                        existing.update(rec)
+                    else:
+                        data[key].insert(0, rec)
+                        _index[kind][rid] = rec
+                    applied += 1
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    # A torn final line is EXPECTED after a crash mid-append.
+                    # Skip it and keep every complete record before it — the
+                    # alternative (discarding the journal) would forget facts.
+                    corrupt += 1
+    except OSError as e:
+        logger.warning("knowledge: journal replay failed, snapshot only: %s", e)
+        return data
+
+    if applied or corrupt:
+        logger.info(
+            "knowledge: R-F4022 replayed %d journalled records (%d unreadable) "
+            "onto the snapshot", applied, corrupt,
+        )
+    return data
 
 
 def _resolve_disk_path() -> str:
@@ -746,10 +944,17 @@ def _write_to_disk_atomic(data: dict, write_sidecar: bool = True) -> None:
 
 
 async def _flush_to_disk(final: bool = False) -> None:
+    """Persist pending changes. Serialised — see `_flush_lock`."""
+    async with _flush_lock:
+        await _flush_to_disk_locked(final=final)
+
+
+async def _flush_to_disk_locked(final: bool = False) -> None:
     """Synchronously serialize the cache and write to disk in a thread
     executor (json.dump is sync C; doing it on the event loop blocks
     every other coroutine for the duration of the dump)."""
     global _dirty, _dirty_since_snapshot, _dirty_bookkeeping_since
+    global _needs_compaction, _last_compaction_at
     if not _cache:
         return
     # R-F3972 (C-61) — a bookkeeping-only change waits for a material flush to
@@ -760,7 +965,50 @@ async def _flush_to_disk(final: bool = False) -> None:
     )
     if not _dirty and not _bk_due:
         return
+
+    # R-F4022 (C-95) — decide COMPACT vs JOURNAL before doing any I/O.
+    #
+    # Bookkeeping rides the journal when it declared its record. It only forces
+    # a compaction when it did NOT — then the changed bytes are unknown and a
+    # full write is the only thing that persists them.
+    _bk_entries = [("fact", r) for r in _pending_bookkeeping.values()]
+    _bk_undeclared = _bk_due and not _bk_entries
+    _journal_due = _journal_size() >= JOURNAL_MAX_BYTES
+    _age_due = (
+        _last_compaction_at is None
+        or (time.monotonic() - _last_compaction_at) >= COMPACT_MAX_AGE_S
+    )
+    must_compact = (
+        final or _needs_compaction or _bk_undeclared or _journal_due or _age_due
+    )
+
+    if not must_compact:
+        # ── fast path: persist only what changed ────────────────────────────
+        journal_entries, _pending_journal[:] = list(_pending_journal), []
+        entries = _bk_entries + journal_entries
+        if not entries:
+            _dirty = False
+            return
+        try:
+            await asyncio.to_thread(_append_journal, entries)
+            _dirty = False
+            _dirty_since_snapshot = True
+            # Counters are now on disk, so the C-61 deferral is satisfied.
+            _pending_bookkeeping.clear()
+            _dirty_bookkeeping_since = None
+        except Exception as e:
+            # Put them back — an unwritten record must stay pending, never be
+            # dropped (§7). The next flush retries, and compaction would
+            # capture them anyway. Bookkeeping was never cleared, so it needs
+            # no restoring.
+            _pending_journal[:0] = journal_entries
+            logger.error("knowledge: journal append failed: %s", e)
+        return
+
+    # ── compaction: the original full-snapshot write, unchanged ────────────
     snapshot = _cache  # write-by-reference is safe — we don't mutate
+    _journal_bytes_before = _journal_size()
+    _pending_at_start = len(_pending_journal)
     try:
         # R-F787 — throttle the json.dump thread against intel_ledger
         # and neural_memory encoders. The recurring debounced flush
@@ -774,8 +1022,22 @@ async def _flush_to_disk(final: bool = False) -> None:
         # bookkeeping marker must clear or it would force a redundant ~300 MB
         # rewrite later for changes already on disk.
         _dirty_bookkeeping_since = None
+        _pending_bookkeeping.clear()   # R-F4022 — the full write carried them
         _dirty_since_snapshot = True
+        # R-F4022 — the snapshot now contains everything the journal held, so
+        # drop exactly those bytes. Anything appended DURING the write (the
+        # shallow-copy race) is beyond `_journal_bytes_before` and survives.
+        _needs_compaction = False
+        _last_compaction_at = time.monotonic()
+        del _pending_journal[:_pending_at_start]
+        await asyncio.to_thread(
+            _truncate_journal_after_compaction, _journal_bytes_before,
+        )
     except Exception as e:
+        # Leave `_needs_compaction` set so the next flush retries the full
+        # write rather than silently falling back to journalling onto a
+        # snapshot that was never updated.
+        _needs_compaction = True
         logger.error("knowledge: disk flush failed: %s", e)
 
 
@@ -878,6 +1140,10 @@ async def _load() -> dict:
     # single event loop (the 2026-06-29 warmup starvation).
     data = await _read_from_disk_chunked()
     if data:
+        # R-F4022 (C-95) — the snapshot is only current as of the last
+        # compaction; everything since then is in the journal. Replaying is
+        # what makes the cheap flush path safe.
+        data = _replay_journal(data)
         _cache = data
         logger.info(
             "knowledge: loaded %d facts from disk (%s)",
@@ -895,7 +1161,9 @@ async def _load() -> dict:
     except Exception as _se:
         logger.debug("R-F334 sharded load failed: %s", _se)
     if sharded:
-        _cache = sharded
+        # R-F4022 — a journal can outlive a lost snapshot file; replaying it
+        # here is a genuine recovery, and it is idempotent when it is not.
+        _cache = _replay_journal(sharded)
         logger.warning(
             "knowledge: hydrated from R-F334 sharded Redis snapshot "
             "(%d facts) — migrating to disk %s",
@@ -914,7 +1182,7 @@ async def _load() -> dict:
     raw = await rs.get(KEY)
     legacy = _decode_snapshot(raw)
     if legacy:
-        _cache = legacy
+        _cache = _replay_journal(legacy)   # R-F4022 — see above
         logger.warning(
             "knowledge: hydrated from legacy Redis blob (%d facts) — "
             "migrating to disk %s + will write shards on next flush",
@@ -929,12 +1197,17 @@ async def _load() -> dict:
         return _cache
 
     # 3. Cold start with no prior state.
-    _cache = {"facts": [], "queries": [], "learnings": [], "version": 1}
+    # R-F4022 — if a journal survived a lost snapshot, this is the only place
+    # those facts can come back. §7: never forget.
+    _cache = _replay_journal(
+        {"facts": [], "queries": [], "learnings": [], "version": 1}
+    )
     _ensure_flusher()
     return _cache
 
 
-async def _save(*, material: bool = True) -> None:
+async def _save(*, material: bool = True, record: dict | None = None,
+                kind: str = "fact", structural: bool = False) -> None:
     """Mark the cache dirty. Actual disk I/O is debounced through
     _flush_loop so brain_hook bursts (~14 absorbs/turn) coalesce into a
     single write.
@@ -957,16 +1230,49 @@ async def _save(*, material: bool = True) -> None:
     a derived usage statistic. §7's infinite-memory rule governs facts, not
     counters. Every material mutation still flushes exactly as before, and
     `material=True` is the default so no existing caller changes behaviour.
+
+    R-F4022 (C-95) — `record` is the thing that changed, and declaring it lets
+    the flush journal ~1 KB instead of rewriting ~389 MB.
+
+    **`record=None` on a material save forces a full rewrite.** That is the
+    safety default, and it is the whole reason this is safe to add: a mutation
+    site written later by someone who never read this docstring degrades to
+    exactly today's behaviour instead of silently losing data. The journal can
+    only ever be as correct as the set of changes it was told about, so "I was
+    told nothing" must mean "write everything", never "write nothing".
+
+    `structural=True` marks a removal or a wholesale list replacement. The
+    journal is an UPSERT log and cannot express a deletion — replaying it would
+    resurrect what was just removed — so those compact instead.
+
+    A BOOKKEEPING save should declare its record too. C-61 made these wait for
+    a flush to carry them; with a journal there is a flush cheap enough to
+    carry them, so declaring the record keeps `_bk_due` from forcing a full
+    compaction every BOOKKEEPING_MAX_AGE_S. They are held in a dict keyed by
+    record id, so a page re-encountered a thousand times in one window costs
+    ONE journal line, not a thousand.
     """
-    global _dirty, _dirty_bookkeeping_since
+    global _dirty, _dirty_bookkeeping_since, _needs_compaction
     if not _cache:
         return
-    if material:
+    if structural:
+        _needs_compaction = True
         _dirty = True
-    elif _dirty_bookkeeping_since is None:
-        # Deferred, never dropped: it rides the next material flush, and if none
-        # arrives it is written on its own once BOOKKEEPING_MAX_AGE_S has passed.
-        _dirty_bookkeeping_since = time.monotonic()
+    elif material:
+        _dirty = True
+        if record is None:
+            _needs_compaction = True
+        else:
+            _pending_journal.append((kind, record))
+    else:
+        if record is not None:
+            # Bookkeeping with a declared record — dedup by id, so a page
+            # re-encountered a thousand times costs ONE journal line.
+            _pending_bookkeeping[str(record.get("id") or id(record))] = record
+        if _dirty_bookkeeping_since is None:
+            # Deferred, never dropped: it rides the next flush, and if none
+            # arrives it is written once BOOKKEEPING_MAX_AGE_S has passed.
+            _dirty_bookkeeping_since = time.monotonic()
     _ensure_flusher()
 
 
@@ -1558,7 +1864,9 @@ async def store_fact(topic: str, content: str, source: str = "user",
         # A material save would rewrite the entire ~150-171 MB graph AND its
         # sidecar, and a re-encountered page is the most common outcome of the
         # crawl-and-absorb loop.
-        await _save(material=False)
+        # R-F4022 (C-95) — declare the record so this rides a ~1 KB journal
+        # line instead of forcing a whole-graph rewrite when it falls due.
+        await _save(material=False, record=f, kind="fact")
         return {
             "action": "duplicate_skipped",
             "fact_id": f["id"],
@@ -1586,14 +1894,14 @@ async def store_fact(topic: str, content: str, source: str = "user",
                 f["updatedAt"] = now
                 f["accessCount"] = f.get("accessCount", 0) + 1
                 f["contradictions_detected"] = (f.get("contradictions_detected", 0) or 0) + len(contradictions)
-                await _save()
+                await _save(record=f, kind="fact")   # R-F4022
                 return {"action": "superseded", "fact_id": f["id"], "contradictions": contradictions}
             else:
                 f["pending_conflicts"] = (f.get("pending_conflicts") or [])[-4:] + [{
                     "content": content[:200], "confidence": confidence,
                     "source": source, "noted_at": now,
                 }]
-                await _save()
+                await _save(record=f, kind="fact")   # R-F4022
                 return {"action": "conflict_logged", "fact_id": f["id"], "contradictions": contradictions}
 
         f["content"] = content
@@ -1603,7 +1911,7 @@ async def store_fact(topic: str, content: str, source: str = "user",
         f["accessCount"] = f.get("accessCount", 0) + 1
         if verified_meta:
             f.update(verified_meta)
-        await _save()
+        await _save(record=f, kind="fact")   # R-F4022
         return {"action": "updated", "fact_id": f["id"], "contradictions": []}
 
     # ── Brand-new fact ────────────────────────────────────────────────────
@@ -1714,7 +2022,7 @@ async def store_fact(topic: str, content: str, source: str = "user",
                 )
             except Exception:      # pragma: no cover
                 pass
-    await _save()
+    await _save(record=new_record, kind="fact")   # R-F4022 (C-95)
     # Index for semantic search — runs sync model.encode() under the hood,
     # which holds the GIL. Must be off the event loop or it will block the
     # /teach reply for hundreds of milliseconds (longer if first call cold-
@@ -1816,31 +2124,33 @@ async def get_contradictions(limit: int = 50) -> list[dict]:
 @fail_wire(module="knowledge", gap_type="engine_failure")
 async def record_query(query: str, summary: str, market: str = "", category: str = "") -> None:
     db = await _load()
-    db["queries"].insert(0, {
+    _record = {
         "id": str(uuid.uuid4())[:8],
         "query": query,
         "summary": summary,
         "market": market,
         "category": category,
         "createdAt": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    db["queries"].insert(0, _record)
     # R-F239 (2026-05-11) — no truncation; queries persist forever per the
     # infinite-memory rule. MAX_QUERIES is a warn sentinel only.
-    await _save()
+    await _save(record=_record, kind="query")   # R-F4022 (C-95)
 
 
 @fail_wire(module="knowledge", gap_type="engine_failure")
 async def store_learning(correction: str, context: str = "") -> None:
     db = await _load()
-    db["learnings"].insert(0, {
+    _record = {
         "id": str(uuid.uuid4())[:8],
         "correction": correction,
         "context": context,
         "createdAt": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    db["learnings"].insert(0, _record)
     # R-F239 (2026-05-11) — no truncation; learnings persist forever per
     # the infinite-memory rule.
-    await _save()
+    await _save(record=_record, kind="learning")   # R-F4022 (C-95)
 
 
 @fail_wire(module="knowledge", gap_type="engine_failure")
@@ -2237,7 +2547,10 @@ async def consolidate_facts() -> dict:
     # ── 3. Rebuild facts list — ONLY merged duplicates are removed.
     #       Aged facts are FLAGGED (above), never deleted (§7). ───────────
     db["facts"] = [f for i, f in enumerate(facts) if i not in to_remove]
-    await _save()
+    # R-F4022 (C-95) — STRUCTURAL: merged duplicates were removed and stale
+    # flags were edited in place. An upsert journal cannot express either, so
+    # this compacts.
+    await _save(structural=True)
 
     total_after = len(db["facts"])
     logger.info(
@@ -2333,7 +2646,9 @@ async def purge_by_keywords(
 
     if not dry_run and n_removed > 0:
         db["facts"] = keep
-        await _save()
+        # R-F4022 (C-95) — STRUCTURAL: a purge is a deletion, and replaying an
+        # upsert journal over it would resurrect exactly what was purged.
+        await _save(structural=True)
         logger.warning(
             "knowledge.purge_by_keywords: removed %d facts matching %s",
             n_removed, needles,

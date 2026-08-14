@@ -24,7 +24,11 @@ def test_knowledge_purge_dry_run_does_not_mutate(monkeypatch):
     })
     save_calls = []
 
-    async def _fake_save():
+    # **kwargs so this double tracks `_save`'s signature rather than pinning a
+    # copy of it — R-F4022 added record=/kind=/structural= and a stub that
+    # hardcodes the arg list breaks on every future change without ever
+    # asserting anything about it.
+    async def _fake_save(**_kw):
         save_calls.append(dict(kb._cache))
     monkeypatch.setattr(kb, "_save", _fake_save)
 
@@ -59,7 +63,11 @@ def test_knowledge_purge_removes_matching_facts(monkeypatch):
     })
     saves = []
 
-    async def _fake_save():
+    # **kwargs so this double tracks `_save`'s signature rather than pinning a
+    # copy of it — R-F4022 added record=/kind=/structural= and a stub that
+    # hardcodes the arg list breaks on every future change without ever
+    # asserting anything about it.
+    async def _fake_save(**_kw):
         saves.append(True)
     monkeypatch.setattr(kb, "_save", _fake_save)
 
@@ -83,7 +91,7 @@ def test_knowledge_purge_empty_keywords_returns_zero(monkeypatch):
         "facts": [{"id": "f1", "topic": "x", "content": "y", "source": "z"}],
         "queries": [], "learnings": [], "version": 1,
     })
-    monkeypatch.setattr(kb, "_save", lambda: _aio_noop())
+    monkeypatch.setattr(kb, "_save", lambda **_kw: _aio_noop())
 
     async def run_empty():
         return await kb.purge_by_keywords([], dry_run=False)
@@ -107,7 +115,7 @@ def test_knowledge_purge_case_insensitive(monkeypatch):
         "queries": [], "learnings": [], "version": 1,
     })
 
-    async def _save():
+    async def _save(**_kw):
         pass
     monkeypatch.setattr(kb, "_save", _save)
 

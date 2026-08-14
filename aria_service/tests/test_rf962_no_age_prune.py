@@ -34,7 +34,9 @@ def _patch_store(monkeypatch, db: dict):
     async def _fake_load():
         return db
 
-    async def _fake_save():
+    # **kwargs so the double follows `_save`'s real signature instead of
+    # pinning a copy of it (R-F4022 added record=/kind=/structural=).
+    async def _fake_save(**_kw):
         return None
 
     monkeypatch.setattr(kn, "_load", _fake_load)

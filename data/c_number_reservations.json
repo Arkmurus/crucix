@@ -1059,6 +1059,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T13:14:36Z"
+    },
+    {
+      "c_number": "C-95",
+      "title": "knowledge flush rewrites the whole 389MB graph to persist ~10KB, saturating the volume and starving the event loop",
+      "claimed_at": "2026-08-14T13:40:41Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4022"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T14:12:04Z"
     }
   ]
 }
