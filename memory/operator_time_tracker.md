@@ -1926,3 +1926,45 @@ OOM guard keeps its meaning.
 * free/pro upload capability is now 5 MB where 25 MB was previously *possible* —
   that enforces what those tiers are SOLD, but it is a reduction in what a user
   could actually do. Raising the sold limit instead is the operator's call.
+
+### Addendum — after the close record was first written
+
+Two further changes landed after the section above was committed, so the record is
+corrected here rather than left stale.
+
+**R-F4020 (C-94) — the advertised free/pro upload limit raised to 25 MB.** The
+close record listed "free/pro upload is now 5 MB where 25 MB was previously
+possible" as an operator decision left open. Operator chose to raise the advertised
+figure instead of enforcing the lower one, so free and pro are now sold 25 MB —
+exactly what the flat pre-C-73 cap had been serving them all along. No new
+exposure, no user experiences a change, and the first capability reduction of the
+workstream is reversed.
+
+Not differentiated by size on purpose: pro's advantage on uploads is the daily
+COUNT (30 vs 15), and any size split below 25 MB would reduce what one of the two
+tiers could already do.
+
+**The root cause was the guard, not the number.** R-F2755 pinned the landing
+page's `ddRunsPerMonth` against the tier table and nothing else, so the message and
+upload claims could drift freely — and the upload claim did, for over a year, with
+no test able to notice because no test looked. Every advertised figure now derives
+from the source of truth enforcement reads. Demonstrated by sequence: the new
+guards passed on the consistent state, went RED when the tier values moved and the
+copy did not, and returned green when the copy followed.
+
+Collateral, same lesson a layer down: the R-F4017 end-to-end test hardcoded a 6 MiB
+payload sized against the old limit, so raising the tier turned two CORRECT tests
+red. It now derives the over-limit size from the tier table.
+
+**Documentation correction.** `uploadLimit.mjs` still stated in the present tense
+that the tier table holds "free/pro 5 MB" — false after the raise, and sitting in
+the module that decides the limit, which is precisely where someone would look the
+value up. Found by grepping for stale copy after the change rather than assuming
+the change was complete. The historical table is kept as the evidence for why the
+cap is tier-resolved, but is now dated and points at tiers.mjs for live values.
+
+**Standing note for a fresh session:** `ARIA_MAX_BODY_BYTES` is a TWO-APP setting.
+It must be identical on aria-intel and aria-web, because the Node side reads the
+same variable name to stay in step; setting only the brain raises its ceiling while
+the Node clamp stays at its default and the advertised limit is still not
+delivered. Matching secret digests are the proof they agree.
