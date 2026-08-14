@@ -153,7 +153,11 @@ done
 mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
 KEYF=/tmp/rpkey_tooluse_dpo; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
-SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
+# RunPod reuses public IP:port endpoints across short-lived pods.  Never consult or
+# update the operator's persistent known_hosts file for these ephemeral identities:
+# OpenSSH otherwise rejects the replacement key even with StrictHostKeyChecking=no.
+SSH_HOST_KEYS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+SSH="ssh -i $KEYF $SSH_HOST_KEYS -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
 TSSH(){ timeout 75 $SSH "$@"; }
 arm_watchdog(){
   local command=$1
@@ -171,7 +175,7 @@ ok=0
 for _ in $(seq 1 40); do if TSSH -p "$PORT" root@"$HOST" 'echo ok' 2>/dev/null | grep -q ok; then ok=$((ok+1)); else ok=0; fi; [ "$ok" -ge 3 ] && break; sleep 5; done
 [ "$ok" -ge 3 ] || { log "FATAL SSH unstable"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" 'mkdir -p /workspace/checkpoints /workspace/datasets /workspace/eval /workspace/logs /workspace/crucix/scripts/train' || exit 1
-RSCP(){ timeout 180 scp -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -P "$PORT" "$1" root@"$HOST":"$2" 2>/dev/null; }
+RSCP(){ timeout 180 scp -i "$KEYF" $SSH_HOST_KEYS -o ConnectTimeout=15 -P "$PORT" "$1" root@"$HOST":"$2" 2>/dev/null; }
 for item in "$POD_RUNNER:/workspace/pod_tooluse_dpo.sh" "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh" "scripts/train/dpo_train.py:/workspace/crucix/scripts/train/dpo_train.py" "scripts/train/sft_train.py:/workspace/crucix/scripts/train/sft_train.py" "scripts/train/learning_curve_gate.py:/workspace/crucix/scripts/train/learning_curve_gate.py" "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" "scripts/train/build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" "scripts/train/serve_eval_shim.py:/workspace/crucix/scripts/train/serve_eval_shim.py" "$DPO_LOCAL:/workspace/datasets/aria_tooluse_dpo_v3.jsonl" "$EVAL_LOCAL:/workspace/datasets/aria_tooluse_eval.jsonl"; do
   src=${item%%:*}; dst=${item#*:}; RSCP "$src" "$dst" || { log "FATAL upload $src"; exit 1; }
 done
@@ -195,7 +199,7 @@ if [ "$FRESH_BASE" != 1 ]; then
   for slice in $(seq 1 "$UPLOAD_SLICES"); do
     if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' >/dev/null 2>&1; then SFTP_UPLOAD=reput; else SFTP_UPLOAD=put; fi
     log "slice $slice/$UPLOAD_SLICES mode=$SFTP_UPLOAD"
-    if printf '%s %s %s\n' "$SFTP_UPLOAD" "$UPLOAD_ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null; then UPLOAD_OK=1; break; fi
+    if printf '%s %s %s\n' "$SFTP_UPLOAD" "$UPLOAD_ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" $SSH_HOST_KEYS -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null; then UPLOAD_OK=1; break; fi
     STATE=$(pod_state); BYTES=$(TSSH -p "$PORT" root@"$HOST" 'stat -c %s /workspace/aria_tooluse_candidate.tgz 2>/dev/null || echo 0' 2>/dev/null | tr -d '\r[:space:]'); log "slice incomplete bytes=${BYTES:-unknown} state=$STATE"
     [ "$STATE" = RUNNING ] || break
   done
@@ -207,7 +211,7 @@ arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspa
 POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
-RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
+RSCP_PULL(){ timeout 600 scp -i "$KEYF" $SSH_HOST_KEYS -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
 persist_adapter(){
   local remote=$1 destination=$2 download="${2}.download"
   RSCP_PULL "$remote" "$download" || return 1

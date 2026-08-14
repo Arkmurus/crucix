@@ -91,3 +91,16 @@ def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:
     assert 'if [ "$(pod_state)" = NOT_RUNNING ]; then' in driver
     assert 'log "verified pod $POD_ID stopped"' in driver
     assert "stop unverified after 3 attempts" in driver
+
+
+def test_ephemeral_pod_transports_isolate_reused_host_keys() -> None:
+    """R-F3983: a recycled RunPod endpoint must not break cycle observability."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    contract = 'SSH_HOST_KEYS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"'
+
+    assert contract in driver
+    assert 'SSH="ssh -i $KEYF $SSH_HOST_KEYS ' in driver
+    assert 'scp -i "$KEYF" $SSH_HOST_KEYS ' in driver
+    assert 'sftp -b - -i "$KEYF" $SSH_HOST_KEYS ' in driver
+    assert "scp -i \"$KEYF\" -o StrictHostKeyChecking=no" not in driver
+    assert "sftp -b - -i \"$KEYF\" -o StrictHostKeyChecking=no" not in driver
