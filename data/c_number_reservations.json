@@ -771,6 +771,30 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T07:23:25Z"
+    },
+    {
+      "c_number": "C-71",
+      "title": "generic sector words are stripped so distinct defence companies collide into an exact sanctions match",
+      "claimed_at": "2026-08-14T07:43:57Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3984"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T08:08:08Z"
+    },
+    {
+      "c_number": "C-72",
+      "title": "the boot-acceleration sidecar is rewritten on every flush though it is only read at boot",
+      "claimed_at": "2026-08-14T08:00:57Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3985"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T08:08:08Z"
     }
   ]
 }

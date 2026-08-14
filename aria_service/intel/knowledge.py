@@ -127,6 +127,45 @@ _dirty_bookkeeping_since: float | None = None
 #: How long bookkeeping may wait for a material flush to carry it before it is
 #: written on its own. Long, because the data it protects is a counter.
 BOOKKEEPING_MAX_AGE_S = 300.0
+
+# ── R-F3985 (C-72) — the sidecar is BOOT acceleration, not a live mirror ─────
+# It has exactly one consumer, `_read_from_disk_chunked`, once per process. It
+# was rewritten on EVERY canonical flush, doubling the I/O of each flush.
+# Writing it on a plain timer would be WRONG: the reader only uses it when its
+# `_canonical` marker matches the canonical file, so a lagging sidecar is never
+# read and R-F2144's acceleration would be silently deleted while the cost
+# merely moved. The right question is "could a boot follow?" — see
+# `_should_write_sidecar`.
+SIDECAR_MIN_INTERVAL_S = 600.0
+#: None means NEVER WRITTEN in this process. Deliberately not 0.0:
+#: `time.monotonic()`'s origin is platform-defined (typically uptime), so
+#: 0.0 would mean 'written a long time ago' on one host and 'written just
+#: now' on another — the decision must not depend on that.
+_last_sidecar_write: float | None = None
+
+
+def _should_write_sidecar(*, final: bool, now: float | None = None) -> bool:
+    """Whether this flush should also refresh the boot sidecar.
+
+    `final=True` (shutdown, explicit flush) ALWAYS writes: a clean restart is
+    the common case and the one the sidecar exists for, and writing it in the
+    same call as the canonical guarantees the marker matches.
+
+    Otherwise at most once per SIDECAR_MIN_INTERVAL_S, as a crash hedge. That
+    hedge is real rather than theoretical because C-61 made flushes
+    MATERIAL-only, so quiet periods now exist in which a written sidecar stays
+    current.
+
+    A stale sidecar is SAFE by construction: the marker check makes the reader
+    fall back to the monolithic load and regenerate off the boot path — the
+    same route every fresh deploy already takes.
+    """
+    if final:
+        return True
+    if _last_sidecar_write is None:
+        return True          # never written in this process
+    _now = time.monotonic() if now is None else now
+    return (_now - _last_sidecar_write) >= SIDECAR_MIN_INTERVAL_S
 _flush_task: asyncio.Task | None = None
 _flusher_started: bool = False
 _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
@@ -587,7 +626,7 @@ def _fsync_dir(dir_path: str) -> None:
         pass
 
 
-def _write_to_disk_atomic(data: dict) -> None:
+def _write_to_disk_atomic(data: dict, write_sidecar: bool = True) -> None:
     """Atomic write via temp file + rename so a crash mid-write can't
     corrupt the canonical knowledge file.
 
@@ -681,10 +720,17 @@ def _write_to_disk_atomic(data: dict) -> None:
         # R-F2144: refresh the derived JSONL facts sidecar so the next boot can
         # stream facts in loop-yielding chunks. Best-effort — the canonical write
         # above already succeeded; a sidecar failure must NOT fail the flush.
-        try:
-            _write_facts_sidecar(data)
-        except Exception:
-            pass
+        # R-F3985 (C-72) — only when a boot might follow. See
+        # `_should_write_sidecar`; a stale sidecar is detected by its marker and
+        # falls back, so skipping a write is safe while doing it every time
+        # doubled the I/O of every flush for a once-per-process reader.
+        if write_sidecar:
+            try:
+                global _last_sidecar_write
+                _write_facts_sidecar(data)
+                _last_sidecar_write = time.monotonic()
+            except Exception:
+                pass
     except Exception:
         try:
             os.unlink(tmp_path)
@@ -699,7 +745,7 @@ def _write_to_disk_atomic(data: dict) -> None:
             gc.enable()
 
 
-async def _flush_to_disk() -> None:
+async def _flush_to_disk(final: bool = False) -> None:
     """Synchronously serialize the cache and write to disk in a thread
     executor (json.dump is sync C; doing it on the event loop blocks
     every other coroutine for the duration of the dump)."""
@@ -721,7 +767,8 @@ async def _flush_to_disk() -> None:
         # is the hot path; one-shot boot migrations below don't need
         # throttling (they run before traffic).
         from ._snapshot_throttle import run_in_thread_throttled
-        await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
+        _side = _should_write_sidecar(final=final)   # R-F3985 (C-72)
+        await run_in_thread_throttled(_write_to_disk_atomic, snapshot, _side)
         _dirty = False
         # R-F3972 (C-61) — this write persisted the counters too, so the
         # bookkeeping marker must clear or it would force a redundant ~300 MB
@@ -935,7 +982,7 @@ async def flush() -> None:
     global _dirty
     if _dirty_bookkeeping_since is not None:
         _dirty = True
-    await _flush_to_disk()
+    await _flush_to_disk(final=True)   # R-F3985 (C-72)
 
 
 @fail_wire(module="knowledge", gap_type="engine_failure")
@@ -959,7 +1006,9 @@ async def shutdown() -> None:
         _flush_task = None
         _flusher_loop = None
         _flusher_started = False
-    await _flush_to_disk()
+    # R-F3985 (C-72) — a clean shutdown MUST leave a current sidecar, or every
+    # restart falls back to the ~10-minute monolithic boot load.
+    await _flush_to_disk(final=True)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

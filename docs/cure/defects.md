@@ -4049,3 +4049,87 @@ demonstrated.
 
 Regression: 490 passed across the chain/fallback subset; the single failure
 (`test_rf1714_newsapi_full_onboarding`) is in `docs/suite_baseline.json`.
+
+## C-71 · generic sector words collide distinct defence companies into an EXACT sanctions match (R-F3984)
+
+Reproduced end-to-end against a store holding one sanctioned "Aviation Group":
+
+    Aviation Industry Corporation   -> HARD_STOP  matches=1  gate_blocked=0
+    Aviation Holdings Limited       -> HARD_STOP  matches=1  gate_blocked=0
+    Aviation Partners International -> HARD_STOP  matches=1  gate_blocked=0
+        each matched 'Aviation Group'  method=exact  score=1.0
+
+Three innocent, unrelated companies blocked. **The 2026-08-13 report called this
+"recall/precision dilution", which understated it** — it is a hard block on the
+wrong entity, and `gate_blocked=0` shows the R-F518 gate never treated it as a
+question at all.
+
+`_STOPWORDS` conflated two categories. LEGAL-FORM tokens (ltd, llc, jsc, gmbh)
+genuinely carry no identity and stripping them is what makes
+"JSC ROSOBORONEXPORT" match "Rosoboronexport". GENERIC BUSINESS nouns (group,
+holdings, industries, international, partners…) are weak identity — but they are
+exactly what DISTINGUISHES "Aviation Group" from "Aviation Industry
+Corporation". Strip them and both become the single token `aviation`, at which
+point `_evaluate_gate` rule (a) — "exact normalised-name equality" — returns True
+IMMEDIATELY, bypassing every corroboration rule beneath it.
+
+**Fixed at that one grant point.** Exact equality now also requires the
+CONSERVATIVE forms to agree (legal-form stripped, sector nouns kept). A true
+alias pair still agrees (`rosoboronexport` == `rosoboronexport`) and keeps its
+shortcut; a stripping artifact does not (`aviation industry` vs `aviation
+group`) and falls through to rules (b)/(c)/(d) — jurisdiction, address, or a
+≥2-token overlap.
+
+**It cannot produce a false clean.** Falling through does not drop the
+candidate: it is still scored, still gated, and still lands in `gate_blocked`,
+which C-48 surfaces as REVIEW. A human decides, which is the right answer for
+"these two names share the word aviation". Pinned by a test that the innocent
+company is NOT cleared either, and by one proving the real designation and true
+alias matches still HARD_STOP.
+
+`normalise_name` is byte-for-byte unchanged — `_STOPWORDS` is now the union of
+the two named sets — so matching recall and every stored `normalised_name` are
+untouched. The conservative form is used ONLY to qualify the shortcut, never for
+scoring or candidate selection, because using it to match would narrow recall.
+
+Fixture-first: `test_rf3984_stripping_artifact_is_not_an_exact_match.py`, 11
+tests, RED then GREEN.
+
+
+## C-72 · the boot sidecar was rewritten on every flush though it is read once (R-F3985)
+
+`_write_to_disk_atomic` writes the canonical file (~150-171 MB), fsyncs,
+renames, fsyncs the directory — then unconditionally writes the SAME data again
+as a JSONL sidecar with its own fsync. That sidecar has exactly one consumer:
+`_read_from_disk_chunked`, once per process, at boot.
+
+**C-61 deliberately left this, and the reason was right.** The reader only uses
+the sidecar when its `_canonical` marker (mtime+size) matches the canonical
+file, so writing it on a plain timer would leave it permanently stale — never
+read, R-F2144's boot acceleration silently deleted, and the I/O cost merely
+moved. The saving would be real and the feature would be gone, with nothing
+failing to say so.
+
+**The right question is not "how often" but "could a boot follow".** A boot
+follows a clean shutdown (deploys — the common case) or a crash. So `shutdown()`
+and the explicit `flush()` now pass `final=True`, which ALWAYS writes and makes
+the sidecar current against the canonical written in the same call; otherwise it
+is written at most once per `SIDECAR_MIN_INTERVAL_S` (600s) as a crash hedge.
+That hedge is genuine rather than theoretical because C-61 made flushes
+MATERIAL-only, so quiet periods now exist in which a written sidecar stays
+current.
+
+A stale sidecar remains SAFE by construction, and two tests pin both directions:
+a marker mismatch falls back to the monolithic load, and a MATCHING marker is
+still used (or the acceleration would be gone without anything failing).
+
+`_last_sidecar_write` is `None` for "never written", deliberately not `0.0`:
+`time.monotonic()`'s origin is platform-defined, so `0.0` would mean "long ago"
+on one host and "just now" on another, and the decision must not depend on that.
+
+Fixture-first: `test_rf3985_sidecar_written_when_a_boot_may_follow.py`, 9 tests.
+One collateral repair: C-61's test fake for `run_in_thread_throttled` pinned a
+two-argument arity the production call no longer has; it now mirrors the real
+`(fn, *args)` signature rather than a frozen copy of it.
+
+Regression: 200 passed / 0 failed across the knowledge/flush/sidecar subset.

@@ -62,7 +62,11 @@ def _writes(monkeypatch) -> list:
     """Capture actual disk writes."""
     seen = []
 
-    async def _fake_throttled(fn, snapshot):
+    # R-F3985 (C-72) added a `write_sidecar` argument to _write_to_disk_atomic,
+    # so the throttle is now called with three. The fake mirrors the REAL
+    # signature (`run_in_thread_throttled(fn, *args)`) rather than pinning an
+    # arity the production call no longer has.
+    async def _fake_throttled(fn, snapshot, *args):
         seen.append(snapshot)
 
     monkeypatch.setattr(

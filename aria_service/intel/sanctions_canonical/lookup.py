@@ -61,7 +61,8 @@ import time
 from typing import Any
 
 from . import store
-from .normalise import entity_tokens, jaccard, normalise_name
+from .normalise import (entity_tokens, jaccard, normalise_name,
+                        normalise_name_conservative)  # R-F3984 (C-71)
 
 logger = logging.getLogger("aria.sanctions_canonical.lookup")
 
@@ -352,6 +353,8 @@ def _evaluate_gate(
     jurisdiction: str,
     address: str,
     candidate_countries: list[str],
+    query_raw: str = "",          # R-F3984 (C-71) — for the conservative check
+    candidate_raw: str = "",
 ) -> tuple[bool, dict]:
     """Apply the R-F518 entity-overlap gate.
 
@@ -367,10 +370,38 @@ def _evaluate_gate(
     }
 
     # (a) Exact normalised-name equality — explicit lookup case.
+    #
+    # R-F3984 (C-71) — REQUIRE THE CONSERVATIVE FORMS TO AGREE TOO.
+    #
+    # `normalise_name` strips generic sector nouns, so "Aviation Group" and
+    # "Aviation Industry Corporation" both reduce to `aviation`. This rule then
+    # returned True immediately — bypassing every corroboration rule below — and
+    # an innocent defence company was HARD_STOPped against an unrelated
+    # designation. Reproduced live: three distinct companies, all HARD_STOP, all
+    # `method=exact score=1.0`, `gate_blocked=0`, so the gate never even treated
+    # it as a question.
+    #
+    # The conservative form keeps those sector nouns while still stripping
+    # legal-form tokens, so a TRUE alias match ("JSC ROSOBORONEXPORT" vs
+    # "Rosoboronexport") still agrees and keeps its shortcut, while a
+    # stripping artifact does not.
+    #
+    # Failing this check does NOT drop the candidate: it falls through to rules
+    # (b)/(c)/(d) below, so a bare shared sector word needs jurisdiction,
+    # address or a ≥2-token overlap. With none of those it lands in
+    # `gate_blocked`, which C-48 surfaces as REVIEW — a human decides, which is
+    # the right answer for "these two names share the word aviation". No false
+    # clean is possible here; only the shortcut to HARD_STOP is removed.
     if query_normalised and query_normalised == candidate_normalised:
-        evidence["exact_name_match"] = True
-        evidence["rule_applied"] = "exact_name"
-        return True, evidence
+        _q_cons = normalise_name_conservative(query_raw or query_normalised)
+        _c_cons = normalise_name_conservative(candidate_raw or candidate_normalised)
+        if _q_cons == _c_cons:
+            evidence["exact_name_match"] = True
+            evidence["rule_applied"] = "exact_name"
+            return True, evidence
+        evidence["exact_name_collision"] = True
+        evidence["conservative_query"] = _q_cons
+        evidence["conservative_candidate"] = _c_cons
 
     overlap_size = len(query_entity_tokens & candidate_entity_tokens)
 
@@ -596,6 +627,7 @@ def check_sanctions(
                 q_entity_tokens, q_normalised,
                 cand_entity_tokens, norm,
                 jurisdiction, address, countries,
+                query_raw=queried_name, candidate_raw=formatted,  # R-F3984
             )
 
             entry_dict = {
