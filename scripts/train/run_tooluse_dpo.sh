@@ -20,6 +20,7 @@ HELDOUT_BASELINE_SHA256="${HELDOUT_BASELINE_SHA256:-}"
 DIAGNOSTICS_LOCAL="${DIAGNOSTICS_LOCAL:-}"
 DIAGNOSTICS_REMOTE="${DIAGNOSTICS_REMOTE:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
 EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
+PROTECTED_DPO_AXES="${PROTECTED_DPO_AXES:-}"
 DPO_BETA="${DPO_BETA:-0.3}"
 DPO_LR="${DPO_LR:-2e-6}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
@@ -76,6 +77,33 @@ REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
 [ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
 for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
+if [ -n "$PROTECTED_DPO_AXES" ]; then
+  "$PYBIN" - "$DPO_LOCAL" "$EVAL_LOCAL" "$GOLDEN" "$PROBE_LOCAL" "$PROTECTED_DPO_AXES" <<'PY' || exit 3
+import sys
+from pathlib import Path
+
+from scripts.train.build_mixed_tooluse_cycle import (
+    _load_jsonl,
+    _subjects,
+    validate_protected_axis_evidence,
+)
+
+dpo_path, *forbidden_paths, axes_csv = sys.argv[1:]
+forbidden = set()
+for path in forbidden_paths:
+    if path:
+        forbidden.update(_subjects(_load_jsonl(Path(path))))
+required = frozenset(axis.strip() for axis in axes_csv.split(",") if axis.strip())
+counts = validate_protected_axis_evidence(
+    _load_jsonl(Path(dpo_path)),
+    forbidden_subjects=forbidden,
+    required_axes=required,
+)
+print("verified protected DPO evidence: " + ", ".join(
+    f"{axis}={counts[axis]}" for axis in sorted(required)
+))
+PY
+fi
 if [ -n "$PROBE_LOCAL" ]; then
   "$PYBIN" - "$DPO_LOCAL" "$PROBE_LOCAL" <<'PY' || exit 3
 import json, sys

@@ -20,6 +20,7 @@ test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907
 test "$(hash "$HELDOUT_BASELINE")" = 176f0c354fe4bc3d18169db84f47cac5331779dc5a360e8a9690364611f5e36e
 
 FRESH_BASE=0 EXPECTED_DPO_PAIRS=41 \
+  PROTECTED_DPO_AXES=tooluse_adverse,tooluse_contradiction,tooluse_resolution,tooluse_news_impact \
   POD_RUNNER=scripts/train/pod_tooluse_dpo.sh \
   ADAPTER_LOCAL="$ADAPTER" ADAPTER_SHA256="$(hash "$ADAPTER")" \
   PROBE_LOCAL="$PROBE" PROBE_SHA256="$(hash "$PROBE")" \

@@ -103,6 +103,21 @@ def validate_dpo(
     return counts
 
 
+def validate_protected_axis_evidence(
+    rows: list[dict], *, forbidden_subjects: set[str], required_axes: frozenset[str],
+) -> Counter[str]:
+    """Require genuine, held-out-disjoint preferences for protected axes."""
+    unknown = sorted(required_axes - ALL_AXES)
+    if unknown:
+        raise ValueError(f"unknown protected DPO axes: {unknown}")
+    return validate_dpo(
+        rows,
+        forbidden_subjects,
+        allowed_axes=ALL_AXES,
+        required_axes=required_axes,
+    )
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

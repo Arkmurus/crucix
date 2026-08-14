@@ -53,12 +53,12 @@ def test_builder_refuses_held_out_and_missing_canonical_trace() -> None:
         build_curriculum([[pair]], [], [])
 
 
-def test_launcher_binds_the_audited_curriculum_and_accepted_parent() -> None:
+def test_launcher_binds_the_disjoint_curriculum_and_accepted_parent() -> None:
     launch = (ROOT / "scripts/train/run_tooluse_citation_phoenix_v3.sh").read_text(
         encoding="utf-8"
     )
-    assert "EXPECTED_DPO_PAIRS=57" in launch
-    assert "32f15517b0a26b716c91c5f1d2003d8e3f01c47188fa873dbbae7f09a639d234" in launch
+    assert "EXPECTED_DPO_PAIRS=41" in launch
+    assert "7bb73249af5d460227f3c4d85d37d599a53a328e7b0773c468557f39e3c27fe3" in launch
     assert "99030c720f6db869f1fb4829d3389ee98f49cb67fea7b5169ca2f1b90417dac8" in launch
     assert "POD_RUNNER=scripts/train/pod_tooluse_dpo.sh" in launch
     assert "split_v1/eval.jsonl" in launch
