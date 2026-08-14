@@ -1644,3 +1644,113 @@ general chain is ONE deep, which is exactly why C-68 matters.
 **The full Python suite was NOT run.** Every Python figure is a named subset with
 its failures reconciled against `docs/suite_baseline.json`. The full NODE suite
 WAS run and reconciled.
+
+---
+
+# SESSION CLOSE — 2026-08-12/14
+
+**21 defects root-fixed, C-43 through C-70.** Every one fixture-first with RED
+proven before the fix; every runtime change live-verified by `build_rev` match.
+
+    C-43 R-F3952  crashed DD layer rendered [COMPLETED]
+    C-44 R-F3953  GREEN->AMBER data-gap trigger was dead code
+    C-45 R-F3954  cache served DeepSeek answers to Claude-pinned DDs
+    C-46 R-F3955  all-failed adverse-media sweep read as screened
+    C-47 R-F3957  400-day-stale sanctions list screened CLEAN
+    C-48 R-F3958  human-REVIEW near-miss discarded
+    C-52 R-F3963  containment measured in one direction only
+    C-53 R-F3964  un-normalisable name blamed an empty store
+    C-54 R-F3965  store failure rendered $0.00 and passed the cap  (with the peer)
+    C-55 R-F3966  person/UBO failures invisible
+    C-57 R-F3968  profiler sampled itself; sleeping watchdog counted as running
+    C-58 R-F3969  idle uvloop reported as sustained CPU
+    C-59 R-F3970  crawler refusals filled the coder's defect ledger
+    C-60 R-F3971  learning grader could not pass a correct answer
+    C-61 R-F3972  a duplicate fact rewrote the whole graph, twice
+    C-64 R-F3975  self-coder claimed 20 gaps/cycle against a 6/hr budget
+    C-66 R-F3977  silent 100% account-recovery failure
+    C-68 R-F3979  reasoning-truncation escalation fed the disease
+    C-69 R-F3980  ARIA Network DM reply had no delivery-outcome wire
+    C-70 R-F3982  rf3035 tests asserted a chain R-F3943 deliberately removed
+         R-F3961  CLAUDE.md §17 told every session to preserve the outage
+
+## The one measured before/after
+
+    C-61:  loop starved  p95 2058.1ms   ->   loop healthy  p95 14.1ms (600 samples)
+
+## Two findings whose evidence reversed the plan
+
+**Finding 15.** Recorded as evidence-blocked rather than guessed. That was right:
+six DeepSeek parameters probed live, five accepted with HTTP 200 and IGNORED.
+A fix built on `reasoning_effort` would have deployed green and changed nothing.
+Only `thinking.type=disabled` works — and the measurement also showed that
+DOUBLING the budget (R-F3627's cure) makes the model reason MORE, so the
+original escalation fed the disease.
+
+**DD routing.** I had drafted "DD IS NOT REACHING CLAUDE" into CLAUDE.md as a P0.
+Every static check supported it. A `mode=deep` run reversed it: 614 -> 648
+Anthropic calls, $0.435/report. Only deep mode calls the LLM at all, so quick and
+standard are a false negative for that question.
+
+## Corrections to my own diligence report
+
+Four of its findings were wrong or stale, each found only by re-checking against
+the current tree rather than fixing from the report:
+
+  * C-53 "an all-generic name screens CLEAN" — it returned INSUFFICIENT_DATA;
+    the defect was the reason STRING.
+  * finding 10's crawler-flood characterisation — different gap_type, different
+    volume than described.
+  * finding 14's `/chat` twin — R-F2704 had already wired it structurally.
+  * finding 14's Telegram helper — checks `res.ok` in four places.
+
+**Read the live instrument, not last week's description of it.** The most
+productive single act of the session was reading `/api/aria/capability-gaps/summary`,
+which yielded two defects (C-58, C-59) that no grep would have found.
+
+## What caught my mistakes — seven times
+
+The wiring gate (a stolen decorator, from anchoring an insert on the `def` when
+the file said not to eleven lines above), the defect-register gate twice
+(duplicate C-numbers with the peer), R-F3464's tests (first C-57 attempt),
+R-F2345's test (C-69 proximity guard), R-F3483's tests (C-60 seam), and the peer
+agent (month-rollover bug inside my C-54). **In every case the existing artefact
+was right and I was wrong.**
+
+Plus **four invalid fixtures** — red, convincing, and red for the wrong reason:
+C-52 (wrote to `entries`, pre-filter reads `aliases`), C-55 (`t_start=0.0`
+tripped the budget guard), C-57 (worker parked on `Event.wait`, correctly
+excluded), C-59 (**broke my own §3b** — called a function without checking its
+signature). RED is necessary and not sufficient.
+
+## STILL OPEN — two, both recorded with reasoning rather than guessed
+
+  * **The sidecar per-flush rewrite** (other half of C-61). It is read once per
+    boot so a slower cadence looks free, but the reader only uses a CURRENT
+    sidecar — that would delete R-F2144's boot acceleration instead of its I/O
+    cost. Needs a shutdown-write + crash safety net, in a path already carrying
+    four wedge fixes.
+  * **Sanctions stopword dilution** (`'Aviation Industry Corporation'` ->
+    `'aviation'`). Recall/precision, not a false clean; the most dangerous
+    suffix list in a defence-DD product to touch casually.
+
+## Operator-facing
+
+  * **Anthropic restored and verified** — HTTP 200, no cooldown, config safe.
+    DD confirmed on Claude in deep mode at ~$0.435/report.
+  * **The general chain is one provider deep** (`depth 1`) by your R-F3943
+    directive. Now a pinned, tested policy rather than an unexplained value.
+    Genuine redundancy would need a DIFFERENT vendor, not the same-account
+    DeepSeek spare — and C-70 makes that a deliberate decision.
+  * Peer commit `826090d7` (R-F3983, training control plane) was left UNPUSHED
+    deliberately — their in-flight work, their call.
+
+## Measurement honesty
+
+The full PYTHON suite was NOT run; every Python figure is a named subset with
+its failures reconciled against `docs/suite_baseline.json`. The full NODE suite
+WAS run and reconciled: 1857 pass / 8 fail, matching
+`docs/node_suite_baseline.json` exactly.
+
+Hours: not supplied, so `pace_ratio` is left blank rather than derived from
+agent wall-clock — the same rule as every prior entry.
