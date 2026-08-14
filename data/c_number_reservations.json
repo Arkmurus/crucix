@@ -897,36 +897,48 @@
       "title": "three DD guards assert superseded behaviour and sit permanently red",
       "claimed_at": "2026-08-14T10:40:40Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4002"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T10:54:55Z"
     },
     {
       "c_number": "C-82",
       "title": "secret comparisons are not constant-time",
       "claimed_at": "2026-08-14T10:43:56Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4003"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T10:54:55Z"
     },
     {
       "c_number": "C-83",
       "title": "vetting.html has neither a page gate nor a client auth guard",
       "claimed_at": "2026-08-14T10:43:56Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4004"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T10:54:55Z"
     },
     {
       "c_number": "C-84",
       "title": "nothing enforces parity across the hand-rolled HTML escapers",
       "claimed_at": "2026-08-14T10:43:56Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4005"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T10:54:56Z"
     }
   ]
 }
