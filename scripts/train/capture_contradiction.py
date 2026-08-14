@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -29,7 +30,7 @@ from scripts.train._subjects import (
     STATE_OWNED_ENTERPRISES,
 )
 from scripts.train.build_tooluse_corpus import (
-    build_contradiction_trace, write_multihop_corpus, validate_trace,
+    _norm_subject, build_contradiction_trace, write_multihop_corpus, validate_trace,
 )
 
 
@@ -58,6 +59,27 @@ def _roster() -> list[str]:
             if s not in seen:
                 seen.add(s); out.append(s)
     return out
+
+
+def select_capture_subjects(
+    subjects: list[str], *, forbidden_subjects: set[str], limit: int = 0,
+) -> list[str]:
+    """Deduplicate and exclude protected subjects before any paid request."""
+    if not forbidden_subjects:
+        raise ValueError("forbidden subjects are empty; capture contamination is unchecked")
+    selected: list[str] = []
+    seen: set[str] = set()
+    for subject in subjects:
+        normalized = _norm_subject(subject)
+        if not normalized or normalized in seen or normalized in forbidden_subjects:
+            continue
+        selected.append(subject.strip())
+        seen.add(normalized)
+        if limit and len(selected) == limit:
+            break
+    if not selected:
+        raise ValueError("no novel capture subjects remain after exclusions")
+    return selected
 
 
 async def capture(subjects: list[str], base: str, token: str) -> list[dict]:
@@ -106,6 +128,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--eval-blocklist", type=Path)
+    ap.add_argument("--subjects-file", type=Path,
+                    help="One explicit novel subject per line instead of the static roster")
+    ap.add_argument("--exclude-file", type=Path, action="append", default=[],
+                    help="Repeat JSONL files whose subjects must not be queried")
     ap.add_argument("--allow-unchecked-contamination", action="store_true")
     ap.add_argument("--base", default=os.getenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev"))
     ap.add_argument("--limit", type=int, default=0)
@@ -118,7 +144,22 @@ def main() -> int:
         blocklist = [ln.strip() for ln in a.eval_blocklist.read_text(encoding="utf-8").splitlines()
                      if ln.strip() and not ln.startswith("#")]
 
-    subs = _roster()[: a.limit] if a.limit else _roster()
+    if a.subjects_file:
+        source_subjects = [
+            line.strip() for line in a.subjects_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+    else:
+        source_subjects = _roster()
+    forbidden = {_norm_subject(subject) for subject in (blocklist or [])} - {""}
+    for path in a.exclude_file:
+        forbidden |= {
+            _norm_subject(str(json.loads(line).get("subject") or ""))
+            for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+        } - {""}
+    subs = select_capture_subjects(
+        source_subjects, forbidden_subjects=forbidden, limit=a.limit,
+    )
     traces = asyncio.run(capture(subs, a.base.rstrip("/"), token))
     n = write_multihop_corpus(traces, a.out, eval_subjects=blocklist,
                               allow_unchecked=a.allow_unchecked_contamination)
