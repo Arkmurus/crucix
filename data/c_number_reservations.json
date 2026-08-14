@@ -969,18 +969,24 @@
       "title": "the evidence rail is hidden below 1100px so the source promise is desktop-only",
       "claimed_at": "2026-08-14T11:32:09Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4009"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T11:45:32Z"
     },
     {
       "c_number": "C-88",
       "title": "explorer.html is reachable only from the admin brain page",
       "claimed_at": "2026-08-14T11:32:09Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4010"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T11:45:32Z"
     }
   ]
 }

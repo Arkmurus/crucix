@@ -34033,18 +34033,20 @@
       "title": "keep sources reachable on narrow screens (C-87)",
       "claimed_at": "2026-08-14T11:32:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e22a4c27",
+      "notes": null,
+      "shipped_at": "2026-08-14T11:45:31Z"
     },
     {
       "r_number": "R-F4010",
       "title": "put the Intelligence Explorer in the navigation (C-88)",
       "claimed_at": "2026-08-14T11:32:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e22a4c27",
+      "notes": null,
+      "shipped_at": "2026-08-14T11:45:31Z"
     },
     {
       "r_number": "R-F4011",
