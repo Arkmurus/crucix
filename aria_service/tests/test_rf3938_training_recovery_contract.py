@@ -158,6 +158,20 @@ def test_unreadable_upload_continues_only_with_fresh_recorded_pod_liveness() -> 
     assert "recorded pod SSH liveness unverified" in driver
 
 
+def test_host_deadline_covers_pod_before_remote_watchdog_is_reachable() -> None:
+    """R-F4000: a wedged Windows SSH child must not leave a paid pod exposed."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    state = driver.index('echo "POD_ID=$POD_ID"')
+    host_arm = driver.index('log "host pre-arm watchdog armed', state)
+    ssh_gate = driver.index("FATAL SSH unstable", host_arm)
+    remote_arm = driver.index('log "watchdog arm verified"', host_arm)
+    assert state < host_arm < ssh_gate
+    assert state < host_arm < remote_arm
+    assert 'PREARM_DEADLINE="${PREARM_DEADLINE:-900}"' in driver
+    assert 'curl.exe -s -X POST "$API/pods/$POD_ID/stop"' in driver
+    assert driver.count("disarm_prearm_watchdog") >= 4
+
+
 def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:
     """R-F3939: tokens and POST responses alone must never claim safety."""
     driver = DRIVER.read_text(encoding="utf-8")

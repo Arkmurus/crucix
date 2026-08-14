@@ -167,8 +167,16 @@ assert len(r)==expected, f"expected {expected} pairs, got {len(r)}"
 assert all(x.get("chosen") and x.get("rejected") and x["chosen"]!=x["rejected"] for x in r)
 print(f"verified {expected} non-degenerate DPO pairs")
 PY
-POD_ID=""; HOST=""; PORT=""
+POD_ID=""; HOST=""; PORT=""; PREARM_PID=""
+PREARM_DEADLINE="${PREARM_DEADLINE:-900}"
+disarm_prearm_watchdog(){
+  [ -n "$PREARM_PID" ] || return 0
+  kill "$PREARM_PID" 2>/dev/null || true
+  wait "$PREARM_PID" 2>/dev/null || true
+  PREARM_PID=""
+}
 release(){
+  disarm_prearm_watchdog
   [ -n "$POD_ID" ] || return 0
   log "stopping pod $POD_ID"
   for attempt in 1 2 3; do
@@ -196,6 +204,14 @@ done
 [ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ] || { log "BLOCKED no GPU capacity"; exit 2; }
 mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
+# Independent of SSH and the native OpenSSH process tree: if the driver wedges
+# before it can prove the on-pod watchdog alive, the recorded paid pod still stops.
+(
+  sleep "$PREARM_DEADLINE"
+  curl.exe -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true
+) &
+PREARM_PID=$!
+log "host pre-arm watchdog armed deadline=${PREARM_DEADLINE}s"
 KEYF=/tmp/rpkey_tooluse_dpo; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
 # RunPod reuses public IP:port endpoints across short-lived pods.  Never consult or
 # update the operator's persistent known_hosts file for these ephemeral identities:
@@ -244,6 +260,7 @@ done
   || { log "FATAL upload resume report"; exit 1; }
 if [ "$FRESH_BASE" != 1 ]; then
   arm_watchdog "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
+  disarm_prearm_watchdog
   log "uploading recovered SFT adapter with bounded resumable slices"; UPLOAD_OK=0
   for slice in $(seq 1 "$UPLOAD_SLICES"); do
     if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' >/dev/null 2>&1; then SFTP_UPLOAD=reput; else SFTP_UPLOAD=put; fi
@@ -265,6 +282,7 @@ if [ "$FRESH_BASE" != 1 ]; then
   TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 fi
 arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
+disarm_prearm_watchdog
 POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ -z "$HELDOUT_BASELINE_LOCAL" ] || POD_ENV="$POD_ENV HELDOUT_BASELINE=/workspace/eval/aria_tooluse_parent_heldout.json"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
