@@ -27,6 +27,7 @@ import pytest
 from aria_service.llm.openai_compat import OpenAICompatProvider
 from aria_service.llm.provider import LLMProvider, LLMResult, ProviderError
 from aria_service.llm import fallback as fb
+from aria_service.llm import openai_compat as oc   # R-F3982 (C-70)
 
 
 # Model ids DeepSeek retired. Anything still calling these gets HTTP 400.
@@ -229,60 +230,101 @@ def test_rf3034_unpinned_call_still_uses_deepseek():
 
 
 # ---------------------------------------------------------------------------
-# R-F3035 — a single model retirement must not zero the non-DD chain
+# R-F3035 - a single model retirement must not zero the non-DD chain
+#
+# -- R-F3982 (C-70) - RE-EXPRESSED, NOT DELETED, after R-F3943 ---------------
+#
+# The two tests that lived here asserted `len(default_order) >= 2`: the chain
+# must always hold a SECOND DeepSeek entry on a different model id. R-F3943 then
+# removed that entry BY OPERATOR DIRECTIVE ("just remove deepseek back up, we do
+# not need a backup"), so both went red - red because the POLICY changed, not
+# because the code broke. That is the R-F3859 shape: a red test can be the
+# defect, and the obvious way to green one is to delete the offending line.
+#
+# Deleting them would have thrown away four assertions that survive R-F3943
+# untouched, and one real production bug they were built to catch:
+#
+#   * no RETIRED model id may reach the chain (the original R-F3032 outage)
+#   * provider NAMES must be unique, or FallbackProvider per-name cooldowns
+#     collide and the second entry is never tried
+#   * `_stats` must cover every provider
+#   * built the PRODUCTION way (primary_provider="deepseek"), the
+#     `name == primary_provider` skip must not drop the fallback entries -
+#     the exact bug that made the original test pass while production was broken
+#
+# So the guarantee is split into what it always actually was:
+#
+#   test_rf3035_backup_is_OFF_by_default - the POLICY R-F3943 set, pinned so it
+#       cannot silently revert and resume billing ~3x/token.
+#   test_rf3035_the_backup_MECHANISM_still_works - R-F3035 machinery, proven
+#       intact under an explicit opt-in. The capability was disabled, not
+#       deleted; if it is ever re-enabled it must still work.
+#   test_rf3035_what_protects_us_now - what replaced the second entry: an
+#       env-driven model id (a retirement is a secret change, not a deploy) plus
+#       R-F3036 dead-chain loudness, tested below and green.
 # ---------------------------------------------------------------------------
 
-def test_rf3035_chain_has_a_second_deepseek_model_entry(monkeypatch):
-    """The outage was total because the default chain had exactly ONE member.
+def test_rf3035_backup_is_OFF_by_default(monkeypatch):
+    """R-F3943 policy: the second DeepSeek slot is DISABLED unless asked for.
 
-    Anthropic is preference-only (R-F2922) and groq/openai/gemini/ollama are
-    unset in production, so retiring one model id took the whole non-DD
-    ecosystem down. A second DeepSeek entry on a different model id survives
-    a model retirement.
+    Not a preference - a measured one. Both slots are built from the SAME
+    `DEEPSEEK_API_KEY` on the same account, so it was never redundancy against
+    an account/key/network failure, and the backup model cost ~3x the primary
+    per token ($0.572/M vs $0.193/M, measured 2026-08-12) across 1,584 calls
+    nobody asked it to serve.
 
-    FAILS BEFORE: exactly one deepseek entry.
+    FAILS IF: the backup silently returns, i.e. paid traffic resumes with no
+    operator decision.
     """
+    monkeypatch.delenv("ARIA_DEEPSEEK_BACKUP_ENABLED", raising=False)
+    assert oc.deepseek_backup_enabled() is False
+    assert oc.backup_deepseek_model() == "", (
+        "a disabled backup must resolve to NO model id - returning one lets a "
+        "caller re-add the slot by accident"
+    )
+
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     for var in ("GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_URL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.delenv("ARIA_DEEPSEEK_CHAT_MODEL", raising=False)
-    monkeypatch.delenv("ARIA_DEEPSEEK_BACKUP_MODEL", raising=False)
 
-    chain = fb.create_fallback_chain(primary_provider="", primary_key="")
+    chain = fb.create_fallback_chain(primary_provider="deepseek", primary_key="sk-test")
     pref_only = fb.preference_only_providers()
     default_order = [p for p in _chain_providers(chain)
                      if (p.name or "").lower() not in pref_only]
-
-    assert len(default_order) >= 2, (
-        f"default (non-DD) chain has {len(default_order)} member(s) — a single "
-        f"model retirement zeroes it: {[p.name for p in default_order]}"
+    assert len(default_order) == 1, (
+        f"the default chain should hold exactly the primary after R-F3943, got "
+        f"{[(p.name, getattr(p, '_model', '')) for p in default_order]}"
     )
-    # The second entry is registered under a distinct name (deepseek_backup)
-    # so it gets its OWN failure stats and cooldown — sharing `deepseek` would
-    # mean the first failure cooled both and the backup never ran.
-    ds = [p for p in default_order if (p.name or "").startswith("deepseek")]
-    ds_models = {getattr(p, "_model", "") for p in ds}
-    assert len(ds_models) >= 2, (
-        f"only one DeepSeek model id in the chain ({ds_models}) — no protection "
-        f"against a model retirement"
-    )
-    assert not (ds_models & RETIRED_DEEPSEEK_MODELS)
-    assert len({p.name for p in ds}) == len(ds), (
-        f"duplicate provider names {[p.name for p in ds]} — they would SHARE "
-        f"one cooldown and the backup would never be tried"
-    )
+    # The surviving R-F3032 guarantee: whatever IS in the chain is not retired.
+    models = {getattr(p, "_model", "") for p in default_order}
+    assert not (models & RETIRED_DEEPSEEK_MODELS), f"retired model in chain: {models}"
 
 
-def test_rf3035_backup_survives_the_PRODUCTION_chain_shape(monkeypatch):
-    """The same guarantee, built the way production actually builds it.
+def test_rf3035_a_typo_cannot_re_enable_paid_traffic(monkeypatch):
+    """Only explicit truthy words count. The safe default is the one that does
+    NOT spend, so a mistyped value must fail CLOSED."""
+    for raw in ("", "0", "false", "no", "off", "ture", "Y", "enabled", " "):
+        monkeypatch.setenv("ARIA_DEEPSEEK_BACKUP_ENABLED", raw)
+        assert oc.deepseek_backup_enabled() is False, f"{raw!r} enabled paid traffic"
+    for raw in ("1", "true", "TRUE", "yes", "on", " on "):
+        monkeypatch.setenv("ARIA_DEEPSEEK_BACKUP_ENABLED", raw)
+        assert oc.deepseek_backup_enabled() is True, f"{raw!r} did not enable it"
 
-    This test exists because the one above passed while production was still
-    broken. Production runs LLM_PROVIDER=deepseek, so the chain is built with
-    primary_provider="deepseek" — and the loop's `name == primary_provider`
-    skip then dropped BOTH DeepSeek fallback entries, including the new
-    backup. The no-primary fixture above never exercised that branch.
-    A green test proves the fixture, not production; assert the real shape.
+
+def test_rf3035_the_backup_MECHANISM_still_works(monkeypatch):
+    """R-F3035 machinery, proven intact under an explicit opt-in.
+
+    The capability was DISABLED, not deleted. If an operator ever re-enables it,
+    every property the original test guarded must still hold - otherwise
+    "re-enable the backup" would silently produce a chain that cannot fail over.
+
+    Built the PRODUCTION way (primary_provider="deepseek"), because that is the
+    branch where the original R-F3035 test passed while production was broken:
+    the loop `name == primary_provider` skip dropped BOTH DeepSeek fallback
+    entries, including the new backup.
     """
+    monkeypatch.setenv("ARIA_DEEPSEEK_BACKUP_ENABLED", "1")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("ARIA_ANTHROPIC_ENABLED", "1")
@@ -297,16 +339,16 @@ def test_rf3035_backup_survives_the_PRODUCTION_chain_shape(monkeypatch):
     default_order = [p for p in provs if (p.name or "").lower() not in pref_only]
 
     assert len(default_order) >= 2, (
-        f"PRODUCTION shape still has a single-member default chain: "
+        f"opted IN and the production shape still drops the backup: "
         f"{[(p.name, getattr(p, '_model', '')) for p in default_order]}"
     )
     models = {getattr(p, "_model", "") for p in default_order}
-    assert not (models & RETIRED_DEEPSEEK_MODELS), f"retired model in chain: {models}"
     assert len(models) >= 2, f"both default members run the same model: {models}"
+    assert not (models & RETIRED_DEEPSEEK_MODELS), f"retired model in chain: {models}"
 
     names = [p.name for p in provs]
     assert len(set(names)) == len(names), (
-        f"duplicate provider names {names} — FallbackProvider keys per-provider "
+        f"duplicate provider names {names} - FallbackProvider keys per-provider "
         f"cooldowns by name, so these would share one and the backup would "
         f"never be reached"
     )
@@ -315,6 +357,34 @@ def test_rf3035_backup_survives_the_PRODUCTION_chain_shape(monkeypatch):
         assert set(stats) == set(names), (
             f"stats keys {sorted(stats)} do not cover every provider {names}"
         )
+
+
+def test_rf3035_what_protects_us_now_that_the_chain_is_one_deep(monkeypatch):
+    """R-F3035 guarded MODEL RETIREMENT. With the backup off, two things do.
+
+    (1) The model id is env-driven, so a retirement is a SECRET CHANGE rather
+        than a code deploy - what made the 2026-07-25 outage total was the id
+        being hardcoded in eight places.
+    (2) A dead chain is LOUD (R-F3036), tested immediately below and green, so
+        a retirement surfaces in minutes instead of reading as $0.00 spend.
+
+    Pinned so nobody re-adds a paid warm spare believing it is the only
+    protection available.
+    """
+    monkeypatch.setenv("ARIA_DEEPSEEK_CHAT_MODEL", "deepseek-v9-hypothetical")
+    assert oc.default_deepseek_model() == "deepseek-v9-hypothetical", (
+        "the primary model id is not env-driven - recovering from a retirement "
+        "would need a code deploy, which is the R-F3032 outage"
+    )
+    monkeypatch.delenv("ARIA_DEEPSEEK_CHAT_MODEL", raising=False)
+    assert oc.default_deepseek_model() not in RETIRED_DEEPSEEK_MODELS, (
+        "the built-in default is a RETIRED id - the rescue path degrades into "
+        "the outage it exists to prevent"
+    )
+    assert any(n.startswith("test_rf3036") for n in globals()), (
+        "R-F3036 dead-chain loudness tests are gone - with the backup removed "
+        "they are the remaining protection against a silent model retirement"
+    )
 
 
 # ---------------------------------------------------------------------------

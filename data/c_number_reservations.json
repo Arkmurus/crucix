@@ -759,6 +759,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T06:33:12Z"
+    },
+    {
+      "c_number": "C-70",
+      "title": "the rf3035 chain tests assert a two-member chain that R-F3943 deliberately removed",
+      "claimed_at": "2026-08-14T07:07:58Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3982"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T07:23:25Z"
     }
   ]
 }

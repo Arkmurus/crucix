@@ -3993,3 +3993,59 @@ Fixture-first: `test/network-dm-delivery-outcome-rf3980.test.mjs`, 6 tests, RED
 `docs/node_suite_baseline.json` exactly** (the 9th failure was mine and is gone).
 
 aria-web tier — does NOT ship with the aria-intel workflow.
+
+## C-70 · the rf3035 tests asserted a chain R-F3943 deliberately removed (R-F3982)
+
+`test_rf3035_chain_has_a_second_deepseek_model_entry` and
+`test_rf3035_backup_survives_the_PRODUCTION_chain_shape` both asserted
+`len(default_order) >= 2` — the chain must always carry a SECOND DeepSeek entry.
+R-F3943 then removed that entry BY OPERATOR DIRECTIVE ("just remove deepseek
+back up, we do not need a backup"), so both went red. **Red because the POLICY
+changed, not because the code broke** — the R-F3859 shape, where a red test can
+be the defect and the obvious repair is to delete the offending line.
+
+Deleting them would have discarded four assertions that survive R-F3943 intact,
+and one real production bug they exist to catch:
+
+  * no RETIRED model id may reach the chain (the original R-F3032 outage)
+  * provider NAMES must be unique, or `FallbackProvider`'s per-name cooldowns
+    collide and the second entry is never tried
+  * `_stats` must cover every provider
+  * built the PRODUCTION way (`primary_provider="deepseek"`), the
+    `name == primary_provider` skip must not drop the fallback entries — the
+    exact bug that made the ORIGINAL test pass while production was broken
+
+So the guarantee is split into what it always actually was:
+
+  **`test_rf3035_backup_is_OFF_by_default`** — the policy R-F3943 set, pinned so
+  it cannot silently revert and resume billing ~3x/token ($0.572/M vs $0.193/M,
+  measured, across 1,584 calls nobody asked for). Also asserts a disabled backup
+  resolves to NO model id, so a caller cannot re-add the slot by accident.
+
+  **`test_rf3035_a_typo_cannot_re_enable_paid_traffic`** — only explicit truthy
+  words count; `"ture"`, `"Y"`, `"enabled"` all fail CLOSED. The safe default is
+  the one that does not spend.
+
+  **`test_rf3035_the_backup_MECHANISM_still_works`** — R-F3035's machinery under
+  an explicit opt-in. The capability was DISABLED, not deleted; if an operator
+  re-enables it, every property the original guarded must still hold, or
+  "re-enable the backup" would silently produce a chain that cannot fail over.
+  Built the production way, because that is the branch the original bug hid in.
+
+  **`test_rf3035_what_protects_us_now_that_the_chain_is_one_deep`** — the honest
+  statement of R-F3943's trade. R-F3035 guarded MODEL RETIREMENT; with the
+  backup off, two things do: the model id is env-driven (a retirement is a
+  secret change, not a deploy — the 2026-07-25 outage was total because the id
+  was hardcoded in eight places), and a dead chain is LOUD (R-F3036, tested in
+  the same file and green). Pinned so nobody re-adds a paid warm spare believing
+  it is the only protection available.
+
+**The new guards were proven to discriminate, not merely to pass.** Temporarily
+defaulting `deepseek_backup_enabled()` back to True made exactly the two POLICY
+tests fail while the mechanism tests stayed green — the correct split. The
+mechanism assertion is unchanged from the original, which was observably red for
+hours under the current production config, so its ability to fail is already
+demonstrated.
+
+Regression: 490 passed across the chain/fallback subset; the single failure
+(`test_rf1714_newsapi_full_onboarding`) is in `docs/suite_baseline.json`.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3982,
+  "next_available": 3983,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33761,6 +33761,15 @@
       "commit_sha": "dfcb4717",
       "notes": null,
       "shipped_at": "2026-08-14T06:37:17Z"
+    },
+    {
+      "r_number": "R-F3982",
+      "title": "C-70 re-express R-F3035 intent against the removed-backup policy",
+      "claimed_at": "2026-08-14T07:07:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
