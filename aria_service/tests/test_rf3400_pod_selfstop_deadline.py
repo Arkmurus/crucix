@@ -180,6 +180,36 @@ def test_deadline_still_stops_immediately_when_there_is_nothing_to_save(rig, wat
         f"must not apply when there are no artefacts")
 
 
+def test_v04_deadline_preserves_a_staged_dpo_adapter(rig):
+    """R-F3981: the real DPO output is a tgz, not an eval JSON.
+
+    The DPO cycle archives its trained adapter before held-out evaluation.  The
+    watchdog must treat that paid artifact as collectible and leave the pod up
+    for the configured harvest window instead of destroying ephemeral storage.
+    """
+    adapter = rig["tmp"] / "workspace" / "eval" / "aria_tooluse_dpo_adapter.tgz"
+    adapter.write_bytes(b"staged adapter")
+
+    import time as _t
+
+    t0 = _t.monotonic()
+    _run(
+        rig,
+        "pod_selfstop_watch_v04.sh",
+        {"DEADLINE": "2", "GRACE": "0", "POLL": "1", "COLLECT_GRACE": "3"},
+        timeout=90,
+    )
+    elapsed = _t.monotonic() - t0
+    calls = rig["calls"].read_text(encoding="utf-8") if rig["calls"].exists() else ""
+    log = (rig["tmp"] / "workspace" / "logs" / "_selfstop_v04.log").read_text(
+        encoding="utf-8"
+    )
+
+    assert elapsed >= 4, "watchdog skipped the adapter collection window"
+    assert "COLLECTION window 3s" in log
+    assert "/stop" in calls, "bounded collection must still end by stopping the pod"
+
+
 @pytest.mark.parametrize("watcher", WATCHERS)
 def test_the_collection_window_is_itself_bounded(rig, watcher):
     """A window that never closes is the unbounded pod again."""

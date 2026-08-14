@@ -359,6 +359,16 @@ class OpenAICompatProvider(LLMProvider):
                     system_prompt, user_message,
                     eff_model=_eff_model, max_tokens=_budget,
                     timeout=max(_remaining, _MIN_RETRY_SECONDS),
+                    # R-F3979 (C-68) — the escalation rung DISABLES THINKING.
+                    # Doubling the budget alone feeds the failure: measured
+                    # against the live key, the same prompt at max_tokens=8192
+                    # produced 20,826 chars of reasoning, i.e. more room buys
+                    # more deliberation. With thinking off the identical prompt
+                    # at the ORIGINAL 1024 produced a 4,743-char answer where
+                    # the baseline produced none — and in 13.9s rather than
+                    # 79.2s, which is what lets it fit inside the clock
+                    # R-F3629 guards.
+                    disable_thinking=(_attempt > 0),
                 )
             except ProviderError as e:
                 _curable = (
@@ -372,13 +382,53 @@ class OpenAICompatProvider(LLMProvider):
                     raise
                 _last_truncation = e
                 logger.warning(
-                    "[R-F3627] %s (%s) spent its %d-token budget reasoning; "
-                    "retrying ONCE with doubled headroom (%.1fs of %.1fs left). %s",
+                    "[R-F3627/R-F3979] %s (%s) spent its %d-token budget reasoning; "
+                    "retrying ONCE with thinking DISABLED + doubled answer room "
+                    "(%.1fs of %.1fs left). %s",
                     self.name, _eff_model, _budget,
                     _deadline - time.monotonic(), timeout, e,
                 )
         # Unreachable: the loop either returns or raises on the final attempt.
         raise ProviderError(self.name, "completion escalation fell through", kind="other")
+
+    def _completion_payload(
+        self, system_prompt: str, user_message: str, *,
+        eff_model: str | None, max_tokens: int,
+        disable_thinking: bool = False,
+    ) -> dict:
+        """The request body. Extracted so the escalation rung is testable
+        without a network call (R-F3979 / C-68).
+
+        `disable_thinking` sends `{"thinking": {"type": "disabled"}}`, which is
+        the ONE parameter measured to actually suppress DeepSeek's deliberation.
+        Probed against the live production key 2026-08-13/14 — every other
+        candidate was accepted with HTTP 200 and IGNORED:
+
+            reasoning_effort=low      -> 200, reasoning STILL 113 chars
+            reasoning_effort=minimal  -> 200, reasoning STILL 121 chars
+            enable_thinking=False     -> 200, reasoning STILL  30 chars
+            chat_template_kwargs      -> 200, reasoning STILL  41 chars
+            reasoning.max_tokens      -> 200, reasoning STILL  30 chars
+            thinking.type=disabled    -> 200, reasoning        0 chars
+
+        The API accepts unknown keys silently, so a fix built on any of the
+        others would have deployed green and changed nothing. This is why the
+        parameter had to be established by probing rather than by reading.
+
+        Only sent to a REASONING model: gpt-4o-mini / llama / gemini share this
+        provider class and have no such concept.
+        """
+        payload: dict = {
+            "model": eff_model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        if disable_thinking and _is_reasoning_model(eff_model):
+            payload["thinking"] = {"type": "disabled"}
+        return payload
 
     async def _one_completion(
         self,
@@ -388,6 +438,7 @@ class OpenAICompatProvider(LLMProvider):
         eff_model: str | None,
         max_tokens: int,
         timeout: float,
+        disable_thinking: bool = False,   # R-F3979 (C-68) — escalation rung 1
     ) -> LLMResult:
         """ONE request/response cycle at a FIXED budget (R-F3627).
 
@@ -421,14 +472,11 @@ class OpenAICompatProvider(LLMProvider):
             headers["Authorization"] = f"Bearer {self._api_key}"
 
         # (_eff_model resolved above — R-F3606.)
-        payload = {
-            "model": _eff_model,
-            "max_tokens": max_tokens,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-        }
+        payload = self._completion_payload(
+            system_prompt, user_message,
+            eff_model=_eff_model, max_tokens=max_tokens,
+            disable_thinking=disable_thinking,   # R-F3979 (C-68)
+        )
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:

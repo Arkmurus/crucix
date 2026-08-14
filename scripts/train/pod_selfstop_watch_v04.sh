@@ -46,7 +46,12 @@ if [ "$TIMED_OUT" = 1 ]; then
   # artefacts it still stops instantly - but when output exists the deadline
   # allows one bounded window to collect it.
   _have=0
-  for _f in "$EVALD"/*.json /workspace/eval/*.json; do
+  # R-F3981 — DPO persists its paid training result as a .tgz before starting
+  # the long evaluation.  Looking only for JSON classified that valid adapter
+  # as "nothing to collect" and destroyed it immediately at the deadline.
+  # Keep this allow-list to actual persisted outputs; including logs would make
+  # every hung run wait because this watcher creates its own log above.
+  for _f in "$EVALD"/*.json "$EVALD"/*.tgz; do
     [ -f "$_f" ] && { _have=1; break; }
   done
   if [ "$_have" = 1 ]; then

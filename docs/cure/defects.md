@@ -3901,3 +3901,95 @@ while the streaming twin reports all four. A §13 stream-bypass violation."
 classifies on the same `response_text` signal `finish_trace` uses (exception →
 `error`, empty → `error: empty_response`, else `delivered_real_answer`). Every
 exit path reports. Verified by AST, not by reading the comment.
+
+## C-68 · the reasoning-truncation escalation fed the disease (R-F3979)
+
+When DeepSeek spends its whole budget thinking and returns no answer, R-F3627
+retries the SAME provider with DOUBLE the token headroom. That is the wrong
+correction, and the live gap ledger still carried the failure with `attempts=1`.
+
+**Measured against the live production key, same prompt, same `max_tokens=1024`:**
+
+    baseline                       finish=length  reasoning=5334   answer=0      -> NO ANSWER
+    thinking:{"type":"disabled"}   finish=length  reasoning=0      answer=4743   -> ANSWER
+    baseline, max_tokens=8192      finish=stop    reasoning=20826  answer=10481  -> ANSWER
+
+Row 2 is the cure applied to the exact disease. Row 3 is why enlarging the budget
+is not the cure: **given more room the model reasons MORE** (20,826 chars), so a
+doubled budget buys deliberation, not answers. It can succeed, but only by paying
+for the thinking the error was complaining about — and it took **79.2s against
+the thinking-disabled retry's 13.9s**. That speed is load-bearing, because
+R-F3629 refuses the retry when under `_MIN_RETRY_SECONDS` (15s) of the caller's
+clock remains. That guard is what made `attempts=1` permanent; a 14-second retry
+fits inside it where a 79-second one never could.
+
+**THE SILENT-IGNORE TRAP — why this had to be probed, not read.** Every candidate
+parameter returned HTTP 200:
+
+    reasoning_effort=low      -> 200, reasoning STILL 113 chars
+    reasoning_effort=minimal  -> 200, reasoning STILL 121 chars
+    enable_thinking=False     -> 200, reasoning STILL  30 chars
+    chat_template_kwargs      -> 200, reasoning STILL  41 chars
+    reasoning.max_tokens      -> 200, reasoning STILL  30 chars
+    thinking.type=disabled    -> 200, reasoning        0 chars   <- the only one
+
+The API accepts unknown keys and ignores them. A fix built on `reasoning_effort`
+would have passed review, deployed green and changed nothing — the same
+"certified by an absence" family as the §1 gates, except the absence here is the
+absence of an error. **This is exactly why the previous session recorded it as
+evidence-blocked rather than guessing** (see the
+`reasoning-truncation-retry-trap` memory): the guess would have been wrong.
+
+The doubled budget is KEPT alongside, because with thinking disabled that
+headroom becomes pure ANSWER room — which is precisely what the failure lacked.
+The parameter is only sent to a REASONING model; gpt-4o-mini / llama / gemini
+share this provider class and have no such concept.
+
+Sharper now than when the finding was written: R-F3943 removed the DeepSeek
+backup on operator directive, so the general chain is ONE member deep and a
+reasoning truncation IS total chain exhaustion. There is no second provider to
+absorb it.
+
+Fixture-first: `test_rf3979_escalation_disables_thinking.py`, 9 tests, RED then
+GREEN. Four pin what must NOT change — attempt 0 still reasons, a non-curable
+error still raises without a retry, a successful first attempt never retries, and
+R-F3629's clock guard still refuses a retry it cannot finish.
+
+
+## C-69 · the ARIA Network DM reply had no delivery-outcome wire (R-F3980)
+
+§25 requires every surface producing a result for a user to report whether the
+intended result was actually produced. `_ariaChannelReply` produces ARIA's answer
+inside the Network DM thread and reported nothing on ANY path:
+
+    server.mjs:8648  catch -> console.warn; user sees "I could not reach my analysis engine"
+    server.mjs:8646  empty result -> "I could not produce a reply just now"
+    server.mjs:8721  outer .catch -> console.warn; the user receives NOTHING AT ALL
+
+§21b is explicit that console logging is DARK, so the brain could not tell a
+working Network DM from one apologising to every user, and the §25 self-heal loop
+had nothing to act on.
+
+**Everything needed was already present and simply not called**: `reportOutcome`
+(`server.mjs:3437`, retries once, fire-and-forget, never throws) and the shared
+R-F1965 classifier imported at line 49. Reusing that classifier is the point —
+a DEGRADED brain answer returns HTTP 200 and reads like a success, which is
+exactly what R-F1965 was written for and what the web chat path already avoids at
+`:5029`. A second classification here would have drifted from it.
+
+An EMPTY result is reported as `error / empty_response` rather than being allowed
+to pass as delivered behind a polite sentence.
+
+**I broke R-F2345's guard and the full Node suite caught it.** That test asserts
+`toId === ARIA_ID` and `_ariaChannelReply` within **60 characters** of each other
+— a routing guarantee anchored on textual proximity (the R-F3597 fragility
+class). My explanatory comment between them pushed the call out of the window.
+The routing never changed. Fixed by moving the comment ABOVE the guard so the two
+stay adjacent, rather than widening someone else's assertion: the guard is
+correct and weakening it to fit my comment would have been the wrong trade.
+
+Fixture-first: `test/network-dm-delivery-outcome-rf3980.test.mjs`, 6 tests, RED
+(5 of 6) then GREEN. Full Node suite: **1857 pass / 8 fail, matching
+`docs/node_suite_baseline.json` exactly** (the 9th failure was mine and is gone).
+
+aria-web tier — does NOT ship with the aria-intel workflow.

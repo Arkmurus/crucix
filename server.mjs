@@ -8639,15 +8639,36 @@ async function start() {
     ariaBusy.add(uid);
     _deliverToUser(uid, 'typing', { fromId: ARIA_ID, typing: true });
     let reply;
+    // R-F3980 (C-69) §25 — this surface produced ARIA's answer for a user and
+    // reported NOTHING on any path: a console.warn on failure, and a polite
+    // non-answer on an empty result. §21b is explicit that logging is DARK, so
+    // the brain could not tell a working Network DM from one apologising to
+    // every user. Everything needed was already here and simply not called —
+    // `reportOutcome` (server.mjs:3437) and the shared R-F1965 classifier
+    // imported at line 49. Reusing that classifier matters: a DEGRADED brain
+    // answer comes back HTTP 200 and reads like a success, which is the exact
+    // trap R-F1965 was written for and which the web chat path already avoids.
+    const _dmT0 = Date.now();
+    const _dmReqId = `network_dm_${uid}_${_dmT0}`;
     try {
       const u = findUserById(uid);
       const personaUserId = conversationKeyForUser(u) || slugifyIdentity(u?.email || u?.username || uid);
       const result = await _ariaChatAsyncPoll(userText, `network_${personaUserId}`, personaUserId, '');
-      reply = (result && String(result.response || result.answer || '').trim())
-        || 'I could not produce a reply just now — try rephrasing?';
+      const _answer = (result && String(result.response || result.answer || '').trim()) || '';
+      reply = _answer || 'I could not produce a reply just now — try rephrasing?';
+      // An EMPTY result is a produce-failure wearing a polite sentence. Classify
+      // it as such rather than letting the fallback text read as an answer.
+      reportOutcome(
+        'network_dm', _dmReqId, 'chat_answer',
+        _answer ? classifyDeliveryOutcome(result) : 'error',
+        Date.now() - _dmT0,
+        _answer ? degradedDetail(result) : 'empty_response',
+      );
     } catch (e) {
       console.warn('[network] ARIA reply failed:', e?.message || e);
       reply = '⚠️ I could not reach my analysis engine just now. Give me a moment and try again.';
+      reportOutcome('network_dm', _dmReqId, 'chat_answer', 'error',
+                    Date.now() - _dmT0, String(e?.message || e).slice(0, 200));
     } finally {
       ariaBusy.delete(uid);
       _deliverToUser(uid, 'typing', { fromId: ARIA_ID, typing: false });
@@ -8717,9 +8738,24 @@ async function start() {
       // R-F2345 — if this DM is addressed to ARIA, route it to her brain and
       // push her reply back into the thread (fire-and-forget; emits when ready).
       // .catch so a rare store/emit throw can't become an unhandled rejection.
+      // R-F3980 (C-69) §25 — the WORST of the three delivery paths: if
+      // _ariaChannelReply itself rejects, the user receives NOTHING (no
+      // apology, no message) and this used to console.warn only, so the brain
+      // never learned the surface had gone silent.
+      //
+      // NOTE the comment sits ABOVE the guard deliberately. R-F2345's test
+      // asserts `toId === ARIA_ID` and `_ariaChannelReply` within 60 characters
+      // of each other, so a comment between them breaks a routing guarantee
+      // check that is otherwise correct. Keeping the two adjacent preserves it
+      // without weakening anyone else's assertion.
+      const _dmOuterT0 = Date.now();
       if (!conversationId && toId === ARIA_ID) {
-        _ariaChannelReply(uid, safeText).catch(e =>
-          console.warn('[network] ARIA channel reply failed:', e?.message || e));
+        _ariaChannelReply(uid, safeText).catch(e => {
+          console.warn('[network] ARIA channel reply failed:', e?.message || e);
+          reportOutcome('network_dm', `network_dm_outer_${uid}_${_dmOuterT0}`,
+                        'chat_answer', 'error', Date.now() - _dmOuterT0,
+                        `no_reply_delivered:${String(e?.message || e).slice(0, 160)}`);
+        });
       }
     });
 

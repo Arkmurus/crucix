@@ -741,9 +741,24 @@
       "title": "the reasoning-truncation retry doubles the token budget which invites more reasoning instead of curing it",
       "claimed_at": "2026-08-13T22:42:11Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3979"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T06:33:12Z"
+    },
+    {
+      "c_number": "C-69",
+      "title": "the ARIA Network DM reply is the one web chat surface with no delivery-outcome wire",
+      "claimed_at": "2026-08-13T22:48:29Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3980"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T06:33:12Z"
     }
   ]
 }

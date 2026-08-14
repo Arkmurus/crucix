@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3980,
+  "next_available": 3982,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33736,6 +33736,24 @@
       "r_number": "R-F3979",
       "title": "C-67 the escalation must disable thinking not enlarge the budget",
       "claimed_at": "2026-08-13T22:42:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3980",
+      "title": "C-69 wire the network DM reply delivery outcome",
+      "claimed_at": "2026-08-13T22:48:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3981",
+      "title": "preserve DPO evidence across pod shutdown",
+      "claimed_at": "2026-08-14T06:26:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
