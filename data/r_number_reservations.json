@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4011,
+  "next_available": 4012,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34041,6 +34041,15 @@
       "r_number": "R-F4010",
       "title": "put the Intelligence Explorer in the navigation (C-88)",
       "claimed_at": "2026-08-14T11:32:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4011",
+      "title": "measure greedy contradiction failure tail",
+      "claimed_at": "2026-08-14T11:40:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
