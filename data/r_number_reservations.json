@@ -33824,27 +33824,30 @@
       "title": "tier-aware upload size cap on web upload path (C-73)",
       "claimed_at": "2026-08-14T08:17:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f96bd5f3",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:43:05Z"
     },
     {
       "r_number": "R-F3989",
       "title": "consume uploadsPerDay quota on web upload path (C-74)",
       "claimed_at": "2026-08-14T08:17:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f96bd5f3",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:43:05Z"
     },
     {
       "r_number": "R-F3990",
       "title": "tier capability matrix: no paid downgrade, no unenforced entitlement (C-75)",
       "claimed_at": "2026-08-14T08:17:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0677e1ca",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:43:05Z"
     },
     {
       "r_number": "R-F3991",
