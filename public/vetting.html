@@ -258,6 +258,22 @@
 <script src="js/app.js?v=10"></script>
 <script src="js/sidebar.js?v=13"></script>
 <script>
+// R-F4004 (C-83) — require a session BEFORE anything renders or fetches.
+//
+// This was the only authenticated PRODUCT page with neither a server-side page
+// gate (lib/auth/operatorPages.mjs) nor a client-side check, so an anonymous
+// visitor received the full chrome of a personnel-screening tool with every panel
+// failing and no explanation. No data leaked — all nine APIs are gated — but a
+// compliance product that renders a broken shell to strangers is not the
+// impression it needs to make.
+//
+// Sidebar.init() does NOT imply auth: it renders navigation and nothing more. The
+// page was relying on a function that never checked, which is why the gap
+// survived. requireAuth() redirects to /signin.html and returns false, so the
+// early return stops the page before it asks for data it cannot have.
+if (!Auth.requireAuth()) {
+  // Redirecting; do not initialise the page.
+} else {
 Sidebar.init('vetting');
 
 // ── R-F3213 — the vetting case file ──────────────────────────────────────
@@ -1734,6 +1750,7 @@ Sidebar.init('vetting');
     });
   }, 30000);
 })();
+}  // R-F4004 (C-83) — closes the `else` opened by the Auth.requireAuth() gate above.
 </script>
 </body>
 </html>

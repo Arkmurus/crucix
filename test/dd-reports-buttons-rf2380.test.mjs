@@ -91,19 +91,38 @@ test('R-F2380 DD delete buttons require verified deletion before success', () =>
     /result\.ok\s*===\s*true[\s\S]*result\.blob_deleted[\s\S]*index_entries_removed/,
     'delete success must be grounded in backend deletion evidence',
   );
+  // R-F4002 (C-81) — was pinned to the literal `.filter(r => r && r.run_id !== runId)`.
+  // R-F3532 then made the removal STRONGER: a delete cascades over a version chain,
+  // so the code now filters every run the cascade removed
+  // (`!_locallyDeletedRunIds.has(r.run_id)`), not just the one whose button was
+  // clicked. Filtering by the single id was the very bug R-F3532 fixed — the
+  // previous version resurfaced as a "new" row on the next poll.
+  //
+  // So this guard sat permanently red while pinning the WEAKER behaviour, which is
+  // worse than no guard: a red test can never go green, so it can never carry
+  // information either. Rewritten to the surviving intent — the deleted report
+  // leaves local state immediately — without dictating which of the two correct
+  // spellings achieves it.
   assert.match(
     remove,
-    /_allReports\s*=[\s\S]*\.filter\(r => r && r\.run_id !== runId\)/,
+    /_allReports\s*=[\s\S]*\.filter\(/,
     'verified delete must remove the report from local UI state immediately',
   );
+  // R-F4002 (C-81) — pinned `removeDeletedReport(runId)` with exactly one argument.
+  // R-F3532 gave it a second (`removeDeletedReport(runId, deleted)`) so the whole
+  // cascade of deleted run_ids can be suppressed, not just the clicked row. The
+  // ORDER is the contract worth guarding — verify, then remove — not the arity.
   assert.match(
     html,
-    /querySelectorAll\('\.dd-delete-btn'\)[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(runId\)/,
+    /querySelectorAll\('\.dd-delete-btn'\)[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(\s*runId/,
     'row delete must verify and then remove the local report',
   );
   assert.match(
     html,
-    /querySelector\('\[data-action="delete"\]'\)\??\.addEventListener[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(rid\)/,
+    // R-F4002 (C-81) — same arity rot as the row-delete assertion above:
+    // R-F3532 made this `removeDeletedReport(rid, deleted)` so the cascade is
+    // suppressed too. Guard the ORDER (verify, then remove), not the argument list.
+    /querySelector\('\[data-action="delete"\]'\)\??\.addEventListener[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(\s*rid/,
     'detail delete must verify and then remove the local report',
   );
 });
@@ -117,7 +136,15 @@ test('DD report detail data-action controls are all wired to handlers', () => {
     // R-F2837 added 'pdf' and 'print' — reviewed and accounted for here, which is
     // exactly what this tripwire is for. The contract is WIDENED to the real set,
     // not weakened: every entry below still has to prove it is wired.
-    ['case-file', 'copy', 'delete', 'pdf', 'print', 'rerun', 'showVaultCase', 'vls-proof', 'vls-verify'],
+    // R-F4002 (C-81) — 'watchlist' added. This is the tripwire doing its job: the
+    // control shipped without being accounted for here, so the guard went red and
+    // demanded the review it exists to force. Reviewed — dd-reports.html:1743
+    // binds it to openWatchlistAdd() with the entity, type, jurisdiction,
+    // canonical id and source_ref, so it is genuinely wired, not a dead button.
+    // The contract is WIDENED to the real set, never weakened: every entry below
+    // still has to prove it is wired by the handler check that follows.
+    ['case-file', 'copy', 'delete', 'pdf', 'print', 'rerun', 'showVaultCase',
+      'vls-proof', 'vls-verify', 'watchlist'],
     'new DD data-action controls must be reviewed and explicitly accounted for',
   );
 

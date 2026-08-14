@@ -167,11 +167,43 @@ test('a REQUIRED but UNAVAILABLE source is never pre-ticked', async () => {
   const rt = html.slice(html.indexOf('data-source="registry_trust"'));
   assert.ok(!rt.startsWith('data-source="registry_trust" checked'),
     'pre-ticking an unusable source promises a search that cannot happen');
-  assert.ok(rt.includes('disabled'), 'an unavailable source must not be selectable');
+  // R-F4002 (C-81) — was `assert.ok(rt.includes('disabled'))`, and that asserted a
+  // design the product deliberately replaced. R-F3465 made an unavailable source
+  // TICKABLE on purpose: ticking it ORDERS the search, and the report then records
+  // the section as ordered-but-not-searched, names the blocker, and excludes it
+  // from anything chargeable. The modal says exactly that to the user
+  // ("Tick to order it anyway"), and §18 requires it for the CCJ / Registry Trust
+  // case — an elected search that cannot run must record a data gap naming the env
+  // var, never a clean line.
+  //
+  // Disabling the box would REMOVE the ability to order a blocked register, which
+  // is a capability the operator relies on. Greening this test by "fixing" the
+  // code would have been a real regression dressed as a repair.
+  //
+  // The surviving intent is narrower and is what the test title always said: an
+  // unavailable source must never be PRE-TICKED (asserted above), and the blocker
+  // must be visible rather than a silent grey-out (asserted below).
+  assert.ok(/order it anyway/i.test(rt),
+    'an unavailable source must offer the explicit order-anyway path, not be silently disabled');
   // Assert the PROPERTY (a blocking source is visibly flagged), not one exact wording:
   // R-F3278 bans em dashes in displayed copy, so pinning the literal string would make
   // this guard fight a copy rule and lose.
-  assert.ok(/REQUIRED[^<]*UNAVAILABLE/.test(html),
+  // R-F4002 (C-81) — was /REQUIRED[^<]*UNAVAILABLE/, case-SENSITIVE and pinned to
+  // shouty wording the copy no longer uses: the pill now reads
+  // "Required &middot; not yet available". The comment two lines up already warned
+  // that pinning a literal string would make this guard fight a copy rule and
+  // lose — it then lost to a copy change anyway, because case and phrasing were
+  // still literal.
+  //
+  // The PROPERTY is what matters: both facts must be visible in the same flag —
+  // that the source is required, and that it cannot run yet. Asserted
+  // case-insensitively and against either phrasing, so a copy pass cannot rot it
+  // again while a silent grey-out still fails.
+  // Scoped to registry_trust's own <label>, not the whole list. Asserting over
+  // `html` would pass whenever ANY source is required and ANY OTHER is
+  // unavailable — two true facts about different rows, which is not the claim.
+  const rtRow = rt.slice(0, rt.indexOf('</label>') + 1 || rt.length);
+  assert.ok(/required/i.test(rtRow) && /(not yet available|unavailable)/i.test(rtRow),
     'a blocking source must be visibly flagged as required AND unavailable, not quietly greyed out');
 });
 

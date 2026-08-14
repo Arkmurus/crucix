@@ -4451,3 +4451,103 @@ injecting one.
 Regression: 497 passed / 2 failed across 47 files; both failures pre-existing and
 baselined by stashing the changes and re-running. Boot smoke: 34 CSP hashes
 computed, reaches "Static dashboard live at /" and stays up.
+
+
+## C-81 · three DD guards asserted superseded behaviour and sat permanently red (R-F4002)
+
+Surfaced by the aria-web audit as "pre-existing failures", initially suspected to
+be real wiring gaps. They are not. All three are rotted assertions, and a
+permanently-red test is worse than no test: it can never go green, so it can never
+carry information either — the exact reasoning R-F3858/R-F3859 record.
+
+1. `removeDeletedReport` was pinned to a filter on the single clicked `run_id`.
+   R-F3532 made the removal STRONGER — a delete cascades over a version chain, so
+   the code now filters every run the cascade removed. Filtering by the single id
+   was the bug R-F3532 fixed (the previous version resurfaced as a "new" row on
+   the next poll), so the guard was pinning the defect. Two sibling assertions had
+   the same arity rot: `removeDeletedReport(runId)` gained a second argument.
+
+2. The `data-action` tripwire fired correctly — `watchlist` had been added without
+   being accounted for. Reviewed: dd-reports.html:1743 binds it to
+   `openWatchlistAdd()` with the entity, type, jurisdiction, canonical id and
+   source_ref, so it is genuinely wired. The set is WIDENED to the real one, never
+   weakened; every entry still has to prove it is wired.
+
+3. `a REQUIRED but UNAVAILABLE source is never pre-ticked` asserted the checkbox
+   is `disabled`. R-F3465 deliberately replaced that: ticking an unavailable
+   source ORDERS it, and the report records the section as ordered-but-not-searched,
+   names the blocker and charges nothing. §18 requires exactly this for the CCJ /
+   Registry Trust case. Greening it by disabling the box would have REMOVED an
+   operator capability — a real regression dressed as a repair. The surviving
+   intent is what the title always said: never PRE-ticked, and the blocker must be
+   visible. Its sibling assertion pinned shouty copy (`/REQUIRED[^<]*UNAVAILABLE/`,
+   case-sensitive) that a copy pass had already changed to
+   "Required &middot; not yet available" — the comment beside it had warned that
+   pinning a literal would make the guard fight a copy rule and lose, and it then
+   lost anyway. Now asserted case-insensitively and scoped to that source's own
+   row, because asserting over the whole list would pass whenever ANY source is
+   required and ANY OTHER is unavailable — two true facts about different rows.
+
+No product code changed. 16 passed / 0 failed across both files.
+
+
+## C-82 · secret comparisons were not constant-time (R-F4003)
+
+`verifyToken` compared the HMAC signature with `!==`, `verifyPassword` compared
+the PBKDF2 hash with `===`. Both short-circuit at the first differing byte, so the
+time taken leaks how long a prefix matched. The token case is the one that
+matters: an attacker CONTROLS the candidate signature and can iterate it, which is
+the textbook precondition. Remote exploitation across a network is impractical,
+which is why this is Low and not High — but `timingSafeEqual` was already imported
+two files away, the fix is one shared helper, and the alternative is explaining to
+an auditor why this codebase compares one secret in constant time and its
+neighbour with `===`.
+
+`timingSafeEqual` THROWS on differing buffer lengths, so a naive swap turns a
+malformed token into a 500 rather than a clean rejection — and the throw is itself
+a length oracle. The helper compares lengths first and returns false, which is
+safe here because every value it guards has a fixed width (a base64url SHA-256
+signature, a hex PBKDF2 digest): the length carries no secret, only "wrong shape".
+
+A capability test drives the real thing — a good token verifies, a flipped
+signature is rejected, a malformed and a short token are both rejected cleanly
+rather than crashing — because a source-only assertion cannot show that
+authentication still works.
+
+
+## C-83 · vetting.html had no auth guard of any kind (R-F4004)
+
+The only authenticated PRODUCT page with neither a server-side page gate
+(`operatorPages.mjs`) nor a client-side `Auth.requireAuth()`. An anonymous visitor
+received the full 93 KB chrome of a personnel-screening tool with every panel
+failing and no explanation. No data leaked — all nine APIs are gated — but a
+compliance product that renders a broken shell to strangers is not the impression
+it needs to make.
+
+The page was relying on `Sidebar.init()`, which renders navigation and checks
+nothing. That is why the gap survived a page that otherwise looks conventional:
+the call that appears to bootstrap the page has no auth in it.
+
+
+## C-84 · nothing enforced parity across the hand-rolled escapers (R-F4005)
+
+`public/js/app.js:574` records that the global escaper was missing the single
+quote, that 15 of 17 escapers already covered the full set, and — the load-bearing
+part — that "nothing compared them". That was still true. Each page carries its own
+hand-rolled escaper and no test asserted they agree.
+
+GREEN ON ARRIVAL: every current escaper covers all five characters, so this closes
+no live defect. It is a regression guard for a defect that already happened once
+and is invisible when it recurs (in text position `&#39;` renders as an apostrophe,
+so a missing quote looks identical until it is inside a single-quoted attribute).
+
+Two properties make it worth having rather than decorative. It matches BOTH shapes
+present in the tree — `function esc(s){}` and `const esc = (s) => ...` — because
+the audit's first pass matched only the former and undercounted. And it asserts
+the population is non-empty before asserting parity over it: a guard whose universe
+is empty certifies everything, which is the failure mode §1 records for three
+Phase A gates and R-F3791 for the duplicate-route check.
+
+Regression across the three: 1052 passed / 3 failed over 142 files; all three
+failures pre-existing and baselined by stashing the changes and re-running.
+Boot smoke green.
