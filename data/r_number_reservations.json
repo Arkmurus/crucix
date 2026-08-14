@@ -33941,9 +33941,10 @@
       "title": "host pre-arm pod deadline",
       "claimed_at": "2026-08-14T09:15:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "282ea076",
+      "notes": null,
+      "shipped_at": "2026-08-14T09:18:21Z"
     }
   ]
 }
