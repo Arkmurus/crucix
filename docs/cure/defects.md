@@ -4338,3 +4338,116 @@ justification entry in the R-F3845 concatenation guard.
 Regression: 448 passed / 4 failed across the 40 affected files; the 4 are the
 pre-existing baseline, name-for-name identical to a clean-tree run of the same
 files. Boot smoke: reaches "Static dashboard live at /" and stays up.
+
+
+## C-78 · a chunked upload bypassed the size guard entirely (R-F3997)
+
+The guard measured the Content-Length HEADER and nothing else. A chunked request
+carries none, `Number(undefined)` is `NaN`, and `NaN > LIMIT` is **false** — so
+the request passed and the body was piped straight to the brain with
+`Readable.toWeb(req)`, unmeasured and unbounded. Omitting the header is a one-line
+change in any HTTP client. Same absence-reads-as-compliance shape as the §1 Phase
+A gates: a check that cannot see its subject reports success.
+
+R-F3988 narrowed the blast radius by refusing to CERTIFY an unmeasurable body
+(`reason: 'length_unknown'`) but deliberately left the behaviour alone — one
+defect per change. This is that change.
+
+**Measure, do not refuse.** Rejecting every request without a Content-Length
+would bound the body and break legitimate streaming clients, and would still be
+trusting a CLAIM: the header is what the client says, the bytes are what it sent.
+A counting Transform in the pipe aborts the moment the real total passes the tier
+limit, which also catches a LYING header (declare 10 bytes, send 5000) that the
+old check could never see. It aborts mid-stream, so an oversized upload costs
+roughly the limit rather than the whole payload.
+
+`createUploadMeter` THROWS on a falsy or non-positive budget rather than
+defaulting to unlimited — a meter that silently allows everything would be the
+defect wearing the name of the fix. The route keeps the meter outside the `try`
+so the catch can tell "the caller sent too much" (413) from "the upstream broke"
+(502); without that branch an oversized chunked upload returned proxy_error,
+which reads as "our service is broken, try again" and is both untrue and
+unactionable.
+
+Fixture-first: `test/upload-chunked-bypass-rf3997.test.mjs`, 7 tests. One
+collateral repair: the wiring assertion first used a `start + 4200` window and
+went red on a CORRECT fix because documenting the change pushed
+`createUploadMeter(` to offset 4881. It now bounds the slice by the route itself.
+That is the third fixed-window/text heuristic to misfire in this workstream
+(R-F3858's class); a guard must not fail because the code it inspects acquired
+comments.
+
+
+## C-79 · connect-src allowed exfiltration to any https host (R-F3998)
+
+The policy read `connectSrc: ["'self'", 'wss:', 'https:']`. A bare `https:`
+scheme source matches EVERY https origin, so any XSS or compromised dependency
+could POST the page's contents anywhere and the browser would allow it. Every
+other directive here is tight — hash-based script-src, `script-src-attr 'none'`,
+object-src 'none', frame-ancestors, base-uri, form-action — which made this one
+line the residual risk for all of them: CSP's protection against data theft lives
+almost entirely in connect-src.
+
+**Narrowing to `'self'` would have broken the Network page in production,
+silently.** `public/js/network.js:407` picks the socket origin by hostname: on
+fly.dev and localhost it connects same-origin, but on any OTHER host — which is
+the public imaria.io — it connects cross-origin to `https://aria-web.fly.dev`,
+because the marketing gateway does not serve the socket path. The allowlist names
+that origin for both the handshake (https) and the upgrade (wss).
+
+Everything else was verified UNUSED before removal rather than assumed: no
+absolute-URL fetch anywhere in public/ (every data call is relative), no
+Stripe.js (checkout is a redirect, not a fetch), no EventSource, and the Google
+font hosts are governed by style-src/font-src. A test pins the allowlist against
+what network.js actually connects to, so repointing the socket fails the test
+instead of the page.
+
+Fixture-first: `test/csp-connect-src-rf3998.test.mjs`, 6 tests.
+
+
+## C-80 · the lead form could mail arbitrary addresses on the anonymous tier (R-F3999)
+
+`POST /api/leads` is unauthenticated by necessity — a prospect has no account —
+and sends a verification email to whatever address the body names. It sat on the
+generic anonymous tier (150 requests / 15 min) with no bot defence, so one IP
+could send 150 emails per quarter-hour to an address of its choosing, from our
+domain and our SMTP reputation, and fill the operator's access-request queue with
+plausible entries. Every other outbound-mail path is authenticated or on the
+strict `auth` tier; this one was not, and nothing said why.
+
+**No CAPTCHA, deliberately.** §6 puts the burden of proof on any new third-party
+dependency, and a CAPTCHA is a third party watching the top of the funnel. It
+also taxes the one person the form exists for — a real prospect — to inconvenience
+a bot that can solve it for a fraction of a cent. A honeypot costs a legitimate
+user nothing because they never see the field.
+
+**The bound has to hold on the DESTINATION, not only the source.** A per-IP limit
+does not protect the victim of a mail-bomb: the source rotates trivially, the
+target is the constant. So the same address cannot be mailed more than three times
+an hour regardless of who asks — and the counter is per-address, not global,
+because a global one would let a single attacker deny access requests to every
+other prospect.
+
+Sizing is between two failure modes rather than at an extreme: the `auth` tier's
+10 is right for a login, but this is the top of the funnel and a shared office NAT
+legitimately produces several genuine requests in a window. Refusing those costs
+real signups, which is the more expensive error. 20 bounds abuse to a nuisance.
+
+The honeypot is off-canvas rather than `type="hidden"` — bots reliably skip hidden
+inputs precisely because that is the known honeypot shape — and carries
+`aria-hidden` plus `tabindex="-1"` so it is invisible to screen readers and the
+keyboard. Both refusals return the SAME 200 payload as a success: telling a bot it
+was detected teaches it what to change, and a distinct response would let an
+attacker probe which addresses have already been targeted.
+
+Fixture-first: `test/lead-form-abuse-rf3999.test.mjs`, 9 tests. One collateral
+repair: `inbound-leads-h3-rf2620` compared the FIRST 200-with-ok:true anywhere in
+the route against the `!r.ok` branch, so the new pre-fetch silent refusal failed a
+guard that exists to stop a fake "Thanks" when the brain is down. It is now
+anchored to the upstream call — ignoring anything that legitimately short-circuits
+before it, still catching a fake success after it — and was proven falsifiable by
+injecting one.
+
+Regression: 497 passed / 2 failed across 47 files; both failures pre-existing and
+baselined by stashing the changes and re-running. Boot smoke: 34 CSP hashes
+computed, reaches "Static dashboard live at /" and stays up.

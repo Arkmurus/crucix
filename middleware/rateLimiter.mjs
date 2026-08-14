@@ -139,6 +139,29 @@ const TIERS = {
     message:   { error: 'Too many attempts. Please wait and try again.' },
   },
 
+  // R-F3999 (C-80) — the landing lead form. UNAUTHENTICATED and it sends an
+  // email to a caller-chosen address, which made the generic anonymous tier
+  // (150/15min) a mail-bomb allowance: 150 messages per quarter-hour from our
+  // domain and our SMTP reputation, plus a flooded access-request queue.
+  //
+  // Sized between the two failure modes rather than at either extreme. The `auth`
+  // tier's 10 would be defensible for a login but this is the top of the funnel,
+  // and a shared office NAT or a conference wifi legitimately produces several
+  // genuine requests in a window; refusing them costs real signups, which is the
+  // more expensive error. 20 bounds abuse to a nuisance while leaving room for a
+  // busy building. The per-DESTINATION bound in lib/auth/leadGuard.mjs is what
+  // actually protects a victim, since a source address rotates and a target
+  // does not.
+  //
+  // No custom keyGenerator: under express-rate-limit v8 a hand-rolled one
+  // returned the Request object as the key and let every request through
+  // (R-F3076). The default IP key is correct here.
+  leads: {
+    windowMs:  15 * 60 * 1000,
+    max:       20,
+    message:   { error: 'Too many requests. Please wait and try again.' },
+  },
+
   auth: {
     windowMs:  15 * 60 * 1000,
     max:       10,
@@ -222,6 +245,10 @@ export function applyRateLimiting(app) {
   // Auth routes
   // R-F3180 — before the generic tiers so the tighter cap wins.
   app.use('/api/vetting-portal',            rateLimit(TIERS.vettingPortal));
+
+  // R-F3999 — before the generic tier so the tighter cap wins, same placement
+  // rationale as the vetting portal above.
+  app.use('/api/leads',                     rateLimit(TIERS.leads));
 
   app.use('/api/auth/login',                rateLimit(TIERS.auth));
   app.use('/api/auth/register',             rateLimit(TIERS.auth));
@@ -315,7 +342,26 @@ export function applySecurityHeaders(app) {
         styleSrc:    ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
         fontSrc:     ["'self'", 'fonts.gstatic.com'],
         imgSrc:      ["'self'", 'data:', 'blob:'],
-        connectSrc:  ["'self'", 'wss:', 'https:'],
+        // R-F3998 (C-79) — was ["'self'", 'wss:', 'https:']. A bare `https:`
+        // scheme source matches EVERY https origin on the internet, so any XSS or
+        // compromised dependency could POST the page's contents anywhere and the
+        // browser would allow it. Every other directive here is tight, which made
+        // this one line the residual risk for all of them: CSP's protection
+        // against data theft lives almost entirely in connect-src.
+        //
+        // aria-web.fly.dev is NOT decoration and must not be "tidied" away.
+        // public/js/network.js:407 picks the socket origin by hostname: on
+        // fly.dev and localhost it connects same-origin, but on any other host —
+        // which is the public imaria.io — it connects to aria-web.fly.dev,
+        // because the marketing gateway does not serve the socket path. Dropping
+        // it breaks real-time chat for every user on the public domain, silently.
+        // Both schemes are needed: https for the handshake, wss for the upgrade.
+        //
+        // Everything else was verified UNUSED before removal rather than assumed:
+        // no absolute-URL fetch anywhere in public/ (every data call is relative),
+        // no Stripe.js (checkout is a redirect, not a fetch), no EventSource, and
+        // the Google font hosts are style-src/font-src, which this does not gate.
+        connectSrc:  ["'self'", 'https://aria-web.fly.dev', 'wss://aria-web.fly.dev'],
         // R-F3559 — the public model card embeds the same-origin, authenticated
         // WhatsApp manager. Keep third-party frames blocked while permitting that
         // owner-scoped surface to render.

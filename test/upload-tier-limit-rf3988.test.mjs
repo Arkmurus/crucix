@@ -141,7 +141,7 @@ describe('R-F3988 — the enforced upload limit is the advertised one', () => {
   it('an absent Content-Length is not treated as zero bytes', () => {
     // A chunked request carries no Content-Length, so `Number(undefined) > limit`
     // is false and the old guard passed it through unmeasured. That bypass is
-    // tracked separately (C-76 / F-05) and is NOT fixed here — one defect per
+    // tracked separately (C-78 / F-05) and is NOT fixed here — one defect per
     // change. What this pins is that the new code does not silently CERTIFY an
     // unmeasurable body as being within the limit: it must report unknown.
     const verdict = uploadTooLarge(undefined, 'free');

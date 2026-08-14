@@ -70,8 +70,27 @@ check('the leads POST block was located (guard is not scanning an empty slice)',
   LEADS_POST.length > 200 && LEADS_POST.includes('/api/aria/leads/inbound'));
 check('POST relays the brain verdict — no fake success on upstream failure',
   /if \(!r\.ok\) return res\.status\(r\.status \|\| 502\)[\s\S]{0,120}ok: false/.test(LEADS_POST));
+// R-F3999 — anchored to the UPSTREAM CALL, was a first-occurrence comparison.
+//
+// The contract is unchanged and still worth having: once we have called the
+// brain, the `!r.ok` branch must return before any success reply, so an upstream
+// failure can never be reported as a recorded lead.
+//
+// The old form compared the FIRST `res.status(200).json({ ok: true` anywhere in
+// the route. C-80 added a deliberate early 200 BEFORE the fetch — the silent
+// refusal for a tripped honeypot or a mail-bombed destination, which must look
+// exactly like a success so a bot learns nothing — and that made this guard fail
+// on correct code.
+//
+// Deleting or loosening it was the wrong repair: it is the guard that stops a
+// fake "Thanks" when the brain is down, which is the defect R-F2581 exists for.
+// Searching from the upstream call forward ignores anything that legitimately
+// short-circuits BEFORE it, while still catching a fake success inserted after.
+const _upstreamAt = LEADS_POST.indexOf('/api/aria/leads/inbound');
+const _failAt = LEADS_POST.indexOf('if (!r.ok) return res.status', _upstreamAt);
+const _okAt = LEADS_POST.indexOf('return res.status(200).json({ ok: true', _upstreamAt);
 check('the success reply is reached only AFTER the failure branch has returned',
-  LEADS_POST.indexOf('if (!r.ok) return res.status') < LEADS_POST.indexOf('return res.status(200).json({ ok: true'));
+  _upstreamAt > -1 && _failAt > -1 && _okAt > -1 && _failAt < _okAt);
 check('GET /api/leads is admin-gated (requireAdmin)',
   /app\.get\('\/api\/leads',\s*requireAdmin/.test(SERVER));
 check('DELETE /api/leads/:leadId is admin-gated and forwarded as DELETE',

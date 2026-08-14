@@ -51,7 +51,7 @@ import { containsAnswerChunk } from './lib/aria_sse_delivery.mjs';  // R-F3075
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { enforceQuota } from './lib/billing/enforce.mjs';  // R-F2765 — per-tier quota enforcement on the web path
-import { uploadTooLarge, uploadTooLargeMessage } from './lib/billing/uploadLimit.mjs';  // R-F3988 — tier-aware upload cap
+import { uploadTooLarge, uploadTooLargeMessage, createUploadMeter, maxRequestBytesFor } from './lib/billing/uploadLimit.mjs';  // R-F3988 tier-aware cap + R-F3997 byte meter
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
 // R-F42 (2026-05-09): public API surface — env-gated on ENABLE_PUBLIC_API.
@@ -79,6 +79,7 @@ import { provisionDesignPartnerAccess, ACCESS_GRANTING_STATUSES } from './lib/au
 // R-F3332 — an issued temporary credential must be rotated before the account works.
 import { rotationBlocked, rotationClearedFields, ROTATION_REQUIRED_CODE } from './lib/auth/passwordRotation.mjs';
 import { isDisposableEmail, evaluateAutoApproval, MAX_VERIFY_ATTEMPTS } from './lib/auth/onboarding.mjs';
+import { leadHoneypotTripped, leadDestinationBlocked } from './lib/auth/leadGuard.mjs';  // R-F3999 — anonymous lead-form abuse bounds
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
@@ -1682,6 +1683,11 @@ app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
       hint: 'use the /api/aria/extract-document-json route for JSON callers',
     });
   }
+  // Declared outside the try so the catch can tell "the caller sent too much"
+  // apart from "the upstream broke" — those need different status codes, and a
+  // 502 on an oversized upload would tell the user to retry something that can
+  // never succeed.
+  let _meter = null;
   try {
     const { Readable } = await import('node:stream');
     // Use the seenode-side token (matches every other ariaProxy call): if
@@ -1695,10 +1701,21 @@ app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
     if (req.headers['content-length']) {
       headers['Content-Length'] = req.headers['content-length'];
     }
+    // R-F3997 (C-78) — measure the bytes that actually arrive.
+    //
+    // The Content-Length check above cannot see a chunked body: a request with no
+    // such header made `Number(undefined) > limit` false, and this line then piped
+    // it upstream unmeasured. Refusing chunked outright would bound it but break
+    // legitimate streaming clients, and would still be trusting a CLAIM — the
+    // header is what the client says, these bytes are what it sent. The meter
+    // catches the absent header and the LYING one with the same code, and aborts
+    // mid-stream rather than after the whole payload has been paid for.
+    _meter = createUploadMeter(maxRequestBytesFor(_upTier));
+    req.pipe(_meter.stream);
     const upstream = await fetch(`${ARIA_URL}/api/aria/extract-document`, {
       method: 'POST',
       headers,
-      body: Readable.toWeb(req),
+      body: Readable.toWeb(_meter.stream),
       duplex: 'half',                 // required by undici when body is a stream
       signal: AbortSignal.timeout(120000), // PDF OCR can take ~60-90s on cold cache
     });
@@ -1707,6 +1724,14 @@ app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
     res.status(upstream.status).type(respCt).send(bodyText);
   } catch (e) {
     const detail = e && e.message ? e.message : String(e);
+    // R-F3997 — an aborted-for-size stream is the CALLER's error, not ours. The
+    // fetch rejects either way, so without this branch an oversized chunked
+    // upload returned 502 proxy_error: it reads as "our service is broken, try
+    // again", which is both untrue and unactionable.
+    if (_meter && _meter.exceeded()) {
+      const _v = uploadTooLarge(Number.MAX_SAFE_INTEGER, _upTier);
+      return res.status(413).json({ error: uploadTooLargeMessage(_v) });
+    }
     console.warn(`[ARIA proxy] /extract-document threw: ${detail}`);
     res.status(502).json({ error: 'proxy_error', detail });
   }
@@ -3086,6 +3111,19 @@ app.post('/api/leads', async (req, res) => {
     const role = String(body.role || '').trim().slice(0, 160);
     if (!name || !email.includes('@')) {
       return res.status(400).json({ ok: false, error: 'A name and a valid email are required.' });
+    }
+    // R-F3999 (C-80) — bot and mail-abuse bounds. This route is unauthenticated by
+    // necessity (a prospect has no account) and mails a caller-chosen address, so
+    // it was the one anonymous outbound-mail path in the app.
+    //
+    // Both refusals return the SAME 200 shape as a success. Telling a bot it was
+    // detected teaches it what to change, and a distinct response for the
+    // destination bound would let an attacker probe which addresses have already
+    // been targeted. Nothing is recorded and nothing is sent; the caller cannot
+    // tell the difference. The honeypot costs a real user nothing — they never
+    // see the field.
+    if (leadHoneypotTripped(body) || leadDestinationBlocked(email)) {
+      return res.status(200).json({ ok: true, verification: 'sent' });
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 12000);
