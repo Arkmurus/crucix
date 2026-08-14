@@ -518,6 +518,26 @@
             </div>
             <input id="dd-r-mode" type="hidden" value="standard">
           </div>
+          <!-- R-F3996 (C-77) — who may open this report.
+               The engine has honoured share_to_company since R-F608 and the
+               orchestrate route reads it straight off the request body, but the
+               field appeared NOWHERE in the front-end: the opt-out existed and no
+               customer could reach it. A DD is company-visible by default and the
+               same predicate grants DELETE, so an M&A or internal-counterparty
+               subject could not be kept to the person who ran it.
+               Ships CHECKED. The default does not move — flipping it to private
+               would silently remove access colleagues rely on today. -->
+          <div class="sc-mod-field">
+            <label for="dd-r-share">Visibility</label>
+            <div class="dd-share-row">
+              <input id="dd-r-share" type="checkbox" checked>
+              <label for="dd-r-share" class="dd-share-lbl">Share with my organisation.
+                Colleagues on my email domain can open and delete this report.</label>
+            </div>
+            <p class="sc-hint">Leave this on to keep due diligence visible to your team.
+              Turn it off for a sensitive subject and only you will be able to open it.
+              This is fixed when the report is created and applies to that report only.</p>
+          </div>
           <!-- R-F3437 — metered / licence-gated sources, chosen BEFORE the run.
                Populated from GET /api/aria/dd/scope-options, which derives which of
                these THIS subject actually needs. Selecting one ELECTS the questions it
@@ -906,6 +926,23 @@ function renderTable(reports) {
         '<i class="bi bi-people-fill"></i> shared</span>';
     }
 
+    // R-F3996 (C-77) — the OWNER'S view of their own visibility choice.
+    //
+    // The badge above answers "is this someone else's report?"; it says nothing
+    // about whether MY report is visible to my colleagues. Without that, the new
+    // run-modal control is unverifiable: a user ticks it off and has no way to
+    // confirm the report is actually private.
+    //
+    // STRICT `=== false`. Legacy reports predate the field and a missing value
+    // means SHARED (the route's own default), so a loose test would stamp
+    // "private" on every report written before this shipped — announcing a
+    // confidentiality guarantee that does not hold. Absence is not privacy.
+    let privateBadge = '';
+    if (r.share_to_company === false) {
+      privateBadge = ' <span class="dd-shared-badge" title="Only you can open this report">' +
+        '<i class="bi bi-lock-fill"></i> private</span>';
+    }
+
     html += '<div class="dd-row" data-run-id="' + escAttr(r.run_id) + '" data-entity-type="' + escAttr(entityType) + '" data-jur="' + escAttr(jur) + '" tabindex="0" role="button" aria-expanded="false" aria-label="Open DD report for ' + escAttr(entityName) + '">' +
         '<div class="dd-row-inner">' +
           '<div class="dd-avatar" style="background:' + avatarColor + '">' + avatarLetter + '</div>' +
@@ -924,6 +961,7 @@ function renderTable(reports) {
               '<div class="dd-date">' + fmtDate(created) + '</div>' +
             '</div>' +
             sharedBadge +
+            privateBadge +
             '<div class="dd-row-actions">' +
               '<button class="dd-row-action-btn dd-rerun-btn" data-run-id="' + escAttr(r.run_id) + '" data-canonical-id="' + escAttr(r.canonical_entity_id || '') + '" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-jur-iso2="' + escAttr(r.jurisdiction_iso2 || '') + '" data-reg="' + escAttr(r.registration_number || '') + '" data-website="' + escAttr(r.website_url || r.website || '') + '" data-type="' + escAttr(entityType) + '" title="Re-run DD" aria-label="Re-run DD for ' + escAttr(entityName) + '"><i class="bi bi-arrow-clockwise"></i></button>' +
               '<button class="dd-row-action-btn dd-watch-btn" data-run-id="' + escAttr(r.run_id) + '" data-canonical-id="' + escAttr(r.canonical_entity_id || '') + '" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-type="' + escAttr(entityType) + '" title="Add to watchlist" aria-label="Monitor ' + escAttr(entityName) + '"><i class="bi bi-eye"></i></button>' +
@@ -2216,6 +2254,11 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       name,
       type: document.getElementById('dd-r-type').value,
       mode: document.getElementById('dd-r-mode').value,
+      // R-F3996 (C-77) — the user's visibility choice. Sent on every run so the
+      // value is explicit rather than relying on the server default; the route
+      // still treats an omitted field as shared, for callers that never send it
+      // (WhatsApp, the CLI, the public API).
+      share_to_company: document.getElementById('dd-r-share').checked,
     };
     const jur = document.getElementById('dd-r-jur').value.trim();
     const reg = document.getElementById('dd-r-reg').value.trim();

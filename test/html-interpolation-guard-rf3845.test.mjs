@@ -284,6 +284,12 @@ const CONCAT_JUSTIFIED = {
     'label',
     'lastRun',
     'm',
+    // R-F3996 — a locally-built markup fragment, exactly like 'sharedBadge'
+    // beside it: assembled a few lines above from static strings plus an
+    // escAttr()'d title, with no caller-supplied value reaching it unescaped.
+    // The only dynamic input is `r.share_to_company`, tested with strict
+    // `=== false` and never printed.
+    'privateBadge',
     'resp.status',
     'sec.subcalls',
     'sharedBadge',

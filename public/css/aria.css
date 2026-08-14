@@ -714,6 +714,19 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
    the most decision-relevant text on the panel — was rendered as muted body
    text indistinguishable from the rest of the row. */
 .dd-src-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* R-F3996 (C-77) — the DD visibility choice. Laid out like .dd-src (a control
+   the operator ticks before the run) rather than as a stray checkbox, because it
+   is the same kind of decision: it binds the report at creation and cannot be
+   changed afterwards. Grid, not a flex row, so a wrapped second line stays
+   aligned under the label text instead of under the box. */
+.dd-share-row {
+  display: grid; grid-template-columns: 18px 1fr; gap: 12px; align-items: start;
+  padding: 12px 14px; border: 1px solid var(--sc-border); border-radius: 10px;
+  background: #fff;
+}
+.dd-share-row input[type="checkbox"] { margin-top: 2px; }
+.dd-share-lbl { font-size: 13px; line-height: 1.5; cursor: pointer; margin: 0; }
 .dd-src {
   display: grid; grid-template-columns: 18px 1fr; gap: 12px; align-items: start;
   padding: 14px 16px; border: 1px solid var(--sc-border); border-radius: 10px;

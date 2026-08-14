@@ -4255,3 +4255,86 @@ Fixture-first: `test/tier-capability-monotonicity-rf3990.test.mjs`, 6 tests. RED
 named both halves of the defect verbatim ("pro (£79) loses 'deepResearchEnabled'
 that free (£0) has" and "differs between tiers but has no tierAllows() call
 site"), then GREEN.
+
+
+## C-76 · autonomous was sold as a tier difference that nothing enforced (R-F3995)
+
+`autonomousEnabled` was true for proIntel and false for free and pro, and
+`tiers.mjs` called it "the paid moat". It gated nothing. R-F3990 established that
+the only enforced capability flag in the tree is `publicApiEnabled`; this one was
+read solely to be DISPLAYED, by `/api/billing/me` and rendered in account.html.
+
+So the entitlement matrix was wrong in BOTH directions at once: free and pro
+users were shown a restriction that did not exist, and proIntel customers were
+shown a differentiator they were not actually being given. Same shape as the
+C-73 upload cap, where one hardcoded number was simultaneously too generous for
+two tiers and too strict for the third.
+
+It also could not have been enforced as written. The autonomous engine is ONE
+GLOBAL LOOP — verified live 2026-08-14: enabled, running, autonomy level 3, 98
+tasks loaded — not a per-account subscription, so there is no per-user unit to
+gate. Honouring the label would have meant either building per-account autonomy
+or degrading the shared loop for some users, and the second limits what ARIA can
+do for everyone in order to keep a word true.
+
+Operator direction 2026-08-14: make it available across all users. Levelling UP
+resolves the honesty problem in the direction that removes no capability from
+anyone — nobody loses access, the displayed matrix becomes true, and a uniform
+flag cannot misdescribe what a customer bought. Cost exposure is unchanged: spend
+stays bounded by the §17 monthly cap and by the message/DD/upload counters, which
+ARE enforced and are asserted here to remain finite and wired.
+
+The cleanup was FORCED rather than remembered. R-F3990's
+`KNOWN_UNENFORCED_DIFFERENCES` set is shrink-only and its guard asserts every
+entry is still a real difference, so making the flag uniform failed that test
+with the exact instruction to remove the entry. The set is now EMPTY and the
+bound is `=== 0`, deliberately not `<= 1`: a slot that stays open gets filled.
+
+Fixture-first: `test/autonomous-available-to-all-rf3995.test.mjs`, 5 tests, plus
+the forced RED in the R-F3990 suite. A future edit that re-gates autonomy by tier
+fails here and has to say why.
+
+
+## C-77 · the DD sharing opt-out was honoured by the engine and unreachable in the UI (R-F3996)
+
+A DD report is company-visible by default: `share_to_company` defaults to True
+and any colleague on the same email domain can read AND delete it. The engine has
+honoured `share_to_company: false` since R-F608 — the orchestrate route reads it
+straight off the request body and passes it to `orchestrate_dd` on both the async
+and the synchronous branch — but the string appeared ZERO times in the entire
+front-end. The control existed and no customer could reach it.
+
+For a due-diligence product that is the wrong default to be stuck with. An M&A
+team screening an acquisition target, or anyone running DD on an internal
+counterparty, could not keep it to themselves; and because the same predicate
+grants DELETE, a colleague could destroy a compliance artifact they did not run.
+
+Purely ADDITIVE — the default does not move. Flipping it to private would
+silently remove access colleagues rely on today: reports already visible would
+stay visible (the flag is stamped per report at run time) while every NEW report
+quietly vanished from their view. That trades one silent behaviour for another.
+The user now chooses at the moment they run the DD, and the box ships CHECKED.
+
+The control is only half the fix, so the other half shipped with it: a `private`
+marker on the report row. Without it the choice is unverifiable — a user ticks
+the box off and has no way to confirm it took. The pre-existing `shared` badge
+answers a different question (is this someone ELSE's report?). The marker tests
+STRICT `=== false`, because the field postdates most stored reports and a missing
+value means SHARED; a loose test would stamp a confidentiality guarantee on every
+report written before this shipped. Absence is not privacy — the same rule as the
+C-39 sanctions coverage.
+
+A cross-tier test pins the field name on both sides, so the control cannot be
+wired to something the brain stopped reading — which is the failure class being
+fixed, one layer up.
+
+Fixture-first: `test/dd-share-control-rf3996.test.mjs`, 8 tests. RED was precise:
+6 failed (no UI) while 2 passed, confirming the engine half already worked.
+
+Two convention repairs caught by verify pass 1, both mine: the label copy used an
+em dash (R-F3278 forbids them in displayed copy) and `privateBadge` needed a
+justification entry in the R-F3845 concatenation guard.
+
+Regression: 448 passed / 4 failed across the 40 affected files; the 4 are the
+pre-existing baseline, name-for-name identical to a clean-tree run of the same
+files. Boot smoke: reaches "Static dashboard live at /" and stays up.
