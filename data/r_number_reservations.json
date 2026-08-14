@@ -34004,18 +34004,20 @@
       "title": "disclose what each DD depth actually produces (C-85)",
       "claimed_at": "2026-08-14T10:59:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2dcfc4c1",
+      "notes": null,
+      "shipped_at": "2026-08-14T11:29:29Z"
     },
     {
       "r_number": "R-F4007",
       "title": "surface sanctions coverage as a first-class element (C-86)",
       "claimed_at": "2026-08-14T10:59:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2dcfc4c1",
+      "notes": null,
+      "shipped_at": "2026-08-14T11:29:30Z"
     },
     {
       "r_number": "R-F4008",

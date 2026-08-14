@@ -945,18 +945,24 @@
       "title": "DD depth cards do not disclose what each mode produces",
       "claimed_at": "2026-08-14T10:59:25Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4006"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T11:29:30Z"
     },
     {
       "c_number": "C-86",
       "title": "sanctions coverage renders as body text while lesser facts get pills",
       "claimed_at": "2026-08-14T10:59:25Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4007"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T11:29:30Z"
     }
   ]
 }
