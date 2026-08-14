@@ -4788,3 +4788,38 @@ before formatting so no server-controlled string reaches the DOM. Proven still
 falsifiable by injecting a second fetch.
 
 Regression across all four: 1070 passed / 0 failed over 149 files. Boot smoke green.
+
+
+## C-73 follow-up · ARIA_MAX_BODY_BYTES set — proIntel now gets its full 50 MB
+
+R-F3988 made the upload cap tier-aware but could not deliver proIntel's advertised
+50 MB, because the brain caps every request body at ARIA_MAX_BODY_BYTES (default
+50 MiB) and a 50 MiB FILE is a larger multipart REQUEST. The module clamped to what
+the chain could carry and reported `constrainedByDownstream: true` rather than
+shortening the allowance silently. Closing the gap was an operator action.
+
+Set 2026-08-14 on operator instruction:
+
+    ARIA_MAX_BODY_BYTES=52494336        (50 MiB + the 64 KiB envelope allowance)
+
+SET ON BOTH APPS, and that is the part worth remembering. `uploadLimit.mjs` reads
+the SAME variable name on the Node side so the two tiers can be kept in step;
+setting it only on aria-intel would have raised the brain's ceiling while the Node
+clamp stayed at its 50 MiB default, and the advertised limit would still not have
+been delivered. Both secrets carry the identical digest `9168a6c923c8f765`, which
+is itself the proof they agree.
+
+Sized to the minimum that delivers the advertised figure — a 0.12% increase — so
+the R-F1853 guard that exists to stop a multi-GB body OOMing the single-process
+brain keeps its meaning. It was not rounded up "for headroom": this cap is a
+memory-safety control, and headroom on it is risk with no product benefit.
+
+Verified: predicted locally against the exact value before touching production
+(proIntel 49.938 MiB constrained → 50.000 MiB unconstrained), then read back
+in-process on both machines with printenv. aria-intel reported `degraded` once
+during its boot with an EMPTY degraded_reasons list, then settled to `operational`
+on three consecutive polls — the §11c warmup transient, not a fault.
+
+Not live-probed end to end: exercising a 50 MB upload against production needs an
+authenticated proIntel session and would move real quota. Covered by 7 unit tests
+plus the in-process reads.
