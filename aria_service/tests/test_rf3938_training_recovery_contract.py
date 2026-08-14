@@ -147,6 +147,17 @@ def test_driver_wires_verified_parent_heldout_baseline_to_pod() -> None:
     assert 'POD_ENV="$POD_ENV HELDOUT_BASELINE=/workspace/eval/aria_tooluse_parent_heldout.json"' in driver
 
 
+def test_unreadable_upload_continues_only_with_fresh_recorded_pod_liveness() -> None:
+    """R-F3994: intermittent control visibility must not discard resumable bytes."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    unreadable = driver.index('if [ "$STATE" = UNREADABLE ]; then')
+    live_probe = driver.index("'echo upload-pod-alive'", unreadable)
+    promote = driver.index("STATE=RUNNING", live_probe)
+    stop = driver.index('[ "$STATE" = RUNNING ] || break', promote)
+    assert unreadable < live_probe < promote < stop
+    assert "recorded pod SSH liveness unverified" in driver
+
+
 def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:
     """R-F3939: tokens and POST responses alone must never claim safety."""
     driver = DRIVER.read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3994,
+  "next_available": 3997,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33873,6 +33873,33 @@
       "r_number": "R-F3993",
       "title": "build disjoint Phoenix curriculum and heldout progression gate",
       "claimed_at": "2026-08-14T08:30:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3994",
+      "title": "continue bounded upload on SSH-proven pod",
+      "claimed_at": "2026-08-14T08:52:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3995",
+      "title": "autonomous available to every tier (C-76)",
+      "claimed_at": "2026-08-14T08:54:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3996",
+      "title": "expose DD share-to-company control in the run modal (C-77)",
+      "claimed_at": "2026-08-14T08:54:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

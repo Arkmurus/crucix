@@ -250,6 +250,14 @@ if [ "$FRESH_BASE" != 1 ]; then
     log "slice $slice/$UPLOAD_SLICES mode=$SFTP_UPLOAD"
     if printf '%s %s %s\n' "$SFTP_UPLOAD" "$UPLOAD_ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" $SSH_HOST_KEYS -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null; then UPLOAD_OK=1; break; fi
     STATE=$(pod_state); BYTES=$(TSSH -p "$PORT" root@"$HOST" 'stat -c %s /workspace/aria_tooluse_candidate.tgz 2>/dev/null || echo 0' 2>/dev/null | tr -d '\r[:space:]'); log "slice incomplete bytes=${BYTES:-unknown} state=$STATE"
+    if [ "$STATE" = UNREADABLE ]; then
+      if TSSH -p "$PORT" root@"$HOST" 'echo upload-pod-alive' 2>/dev/null | grep -q upload-pod-alive; then
+        log "control plane unreadable; recorded pod SSH liveness verified"
+        STATE=RUNNING
+      else
+        log "control plane unreadable and recorded pod SSH liveness unverified"
+      fi
+    fi
     [ "$STATE" = RUNNING ] || break
   done
   [ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
