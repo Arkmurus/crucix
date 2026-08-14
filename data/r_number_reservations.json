@@ -34112,18 +34112,20 @@
       "title": "end-to-end capability test for the metered upload proxy",
       "claimed_at": "2026-08-14T12:29:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ec99f15",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:49:26Z"
     },
     {
       "r_number": "R-F4018",
       "title": "wire the lead-drop path and de-risk the decoy field (C-93)",
       "claimed_at": "2026-08-14T12:31:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ec99f15",
+      "notes": null,
+      "shipped_at": "2026-08-14T12:49:27Z"
     },
     {
       "r_number": "R-F4019",

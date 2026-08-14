@@ -1041,9 +1041,12 @@
       "title": "lead bot-drop path is dark and its decoy field invites autofill",
       "claimed_at": "2026-08-14T12:30:59Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4018"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T12:49:27Z"
     }
   ]
 }
