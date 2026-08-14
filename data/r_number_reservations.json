@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3984,
+  "next_available": 3987,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -33775,6 +33775,34 @@
       "r_number": "R-F3983",
       "title": "isolate ephemeral training SSH host keys",
       "claimed_at": "2026-08-14T07:25:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "42f4cf05",
+      "notes": null,
+      "shipped_at": "2026-08-14T08:04:05Z"
+    },
+    {
+      "r_number": "R-F3984",
+      "title": "C-71 exact-name gate must not fire on a stripping artifact",
+      "claimed_at": "2026-08-14T07:43:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3985",
+      "title": "C-72 write the sidecar when a boot may follow, not on every flush",
+      "claimed_at": "2026-08-14T08:00:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3986",
+      "title": "execute learning curve gate from staged repository",
+      "claimed_at": "2026-08-14T08:04:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -123,7 +123,7 @@ if [ -s "$PROBE_FILE" ]; then
   python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \
     --model aria-tooluse-dpo --eval-file "$PROBE_FILE" --out "$DPO_PROBE" \
     2>&1 | tee "$LOGS/tooluse_dpo_probe.log" || fail "DPO calibration failed"
-  python "$SCRIPTS/learning_curve_gate.py" --before "$BEFORE_PROBE" \
+  python -m scripts.train.learning_curve_gate --before "$BEFORE_PROBE" \
     --after "$DPO_PROBE" --verdict-out "$DPO_VERDICT" \
     --protected-axis tooluse_adverse --protected-axis tooluse_contradiction \
     --protected-axis tooluse_news_impact --protected-axis tooluse_resolution \

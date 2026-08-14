@@ -1,4 +1,8 @@
 """R-F3848 capability tests for monotonic staged training gates."""
+import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from scripts.train.build_positive_curve_assets import (
     calibration_indices, deduplicate_preferences, deficit_weighted_sft,
@@ -138,9 +142,43 @@ def test_recovered_dpo_must_pass_calibration_before_held_out() -> None:
     gate = pod.index('fail "SFT-to-DPO curve gate"')
     held_out = pod.index('log "evaluating unchanged 168-row held-out set"')
     assert calibration < gate < held_out
-    assert 'learning_curve_gate.py" --before "$BEFORE_PROBE"' in pod
+    assert 'python -m scripts.train.learning_curve_gate --before "$BEFORE_PROBE"' in pod
     assert "tooluse_adverse --protected-axis tooluse_contradiction" in pod
     assert "collect_diagnostics" in pod
+
+
+def test_staged_pod_can_execute_the_real_curve_gate(tmp_path: Path) -> None:
+    """R-F3986: module execution must resolve imports in the staged pod layout."""
+    staged_train = tmp_path / "scripts" / "train"
+    staged_train.mkdir(parents=True)
+    for name in ("learning_curve_gate.py", "eval_tooluse.py", "build_tooluse_corpus.py"):
+        shutil.copy2(ROOT / "scripts" / "train" / name, staged_train / name)
+    rows = [{"label": "axis", "subject": "Acme", "honest": True}]
+    report = {
+        "complete": True,
+        "total": 1,
+        "honest": 1,
+        "per_axis": [{"label": "axis", "total": 1, "honest": 1}],
+        "rows": rows,
+    }
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    verdict = tmp_path / "verdict.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.train.learning_curve_gate",
+         "--before", str(before), "--after", str(after),
+         "--verdict-out", str(verdict)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(verdict.read_text(encoding="utf-8"))["reason"] == "ceiling_preserved"
 
 
 def test_v4_continuation_cannot_fall_back_to_pure_dpo() -> None:
