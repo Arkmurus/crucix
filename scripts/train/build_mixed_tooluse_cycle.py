@@ -71,7 +71,12 @@ def select_retention_rows(
     return selected
 
 
-def validate_dpo(rows: list[dict], forbidden_subjects: set[str]) -> Counter[str]:
+def validate_dpo(
+    rows: list[dict],
+    forbidden_subjects: set[str],
+    allowed_axes: frozenset[str] = TARGET_AXES,
+    required_axes: frozenset[str] = TARGET_AXES,
+) -> Counter[str]:
     """Validate genuine collected preferences without synthesizing negatives."""
     counts: Counter[str] = Counter()
     if not rows:
@@ -79,7 +84,7 @@ def validate_dpo(rows: list[dict], forbidden_subjects: set[str]) -> Counter[str]
     for index, row in enumerate(rows, 1):
         label = str(row.get("label") or "")
         subject = _norm_subject(str(row.get("subject") or ""))
-        if label not in TARGET_AXES:
+        if label not in allowed_axes:
             raise ValueError(f"DPO row {index} is not a targeted failure axis: {label}")
         if not subject or subject in forbidden_subjects:
             raise ValueError(f"DPO row {index} overlaps held-out data: {subject}")
@@ -92,7 +97,7 @@ def validate_dpo(rows: list[dict], forbidden_subjects: set[str]) -> Counter[str]
         if not str(row.get("why") or "").strip():
             raise ValueError(f"DPO row {index} lacks validator failure evidence")
         counts[label] += 1
-    missing = sorted(TARGET_AXES - set(counts))
+    missing = sorted(required_axes - set(counts))
     if missing:
         raise ValueError(f"targeted axes lack genuine DPO signal: {missing}")
     return counts

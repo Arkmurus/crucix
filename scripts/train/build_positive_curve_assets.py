@@ -38,6 +38,16 @@ def deduplicate_preferences(rows: list[dict]) -> list[dict]:
     return result
 
 
+def exclude_subjects(rows: list[dict], forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+    """Separate preferences whose normalized subjects belong to an evaluation surface."""
+    forbidden = {_norm_subject(subject) for subject in forbidden}
+    kept, excluded = [], []
+    for row in rows:
+        target = excluded if _norm_subject(str(row.get("subject") or "")) in forbidden else kept
+        target.append(row)
+    return kept, excluded
+
+
 def calibration_indices(train: list[dict], quota: int) -> list[int]:
     """Select the first stable ``quota`` rows per axis from the immutable queue."""
     counts: Counter[str] = Counter()
@@ -121,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--train", type=Path, required=True)
     ap.add_argument("--dpo", type=Path, action="append", required=True,
                     help="genuine preference source; repeat to retain earlier axes")
+    ap.add_argument("--dpo-exclude-subjects", type=Path, action="append", default=[],
+                    help="evaluation JSONL whose subjects must be absent from DPO output")
     ap.add_argument("--raw-report", type=Path, required=True)
     ap.add_argument("--eval", type=Path, required=True)
     ap.add_argument("--golden", type=Path, required=True)
@@ -129,14 +141,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dpo-out", type=Path, required=True)
     ap.add_argument("--probe-out", type=Path, required=True)
     ap.add_argument("--baseline-out", type=Path, required=True)
+    ap.add_argument("--heldout-raw-report", type=Path)
+    ap.add_argument("--heldout-baseline-out", type=Path)
     ap.add_argument("--manifest-out", type=Path, required=True)
     args = ap.parse_args(argv)
+    if bool(args.heldout_raw_report) != bool(args.heldout_baseline_out):
+        ap.error("--heldout-raw-report and --heldout-baseline-out must be supplied together")
     train = load_jsonl(args.train)
     source_dpo = [row for path in args.dpo for row in load_jsonl(path)]
     dpo = deduplicate_preferences(source_dpo)
+    excluded_subjects = {
+        _norm_subject(str(row.get("subject") or ""))
+        for path in args.dpo_exclude_subjects for row in load_jsonl(path)
+    }
+    dpo, excluded_dpo = exclude_subjects(dpo, excluded_subjects)
     forbidden = {_norm_subject(str(row.get("subject") or ""))
                  for path in (args.eval, args.golden) for row in load_jsonl(path)}
-    validate_dpo(dpo, forbidden)
+    validate_dpo(dpo, forbidden, allowed_axes=ALL_AXES)
     indices = calibration_indices(train, args.quota)
     raw = json.loads(args.raw_report.read_text(encoding="utf-8"))
     if len(raw.get("rows") or []) != len(train):
@@ -156,19 +177,40 @@ def main(argv: list[str] | None = None) -> int:
                         encoding="utf-8", newline="\n")
     args.baseline_out.parent.mkdir(parents=True, exist_ok=True)
     args.baseline_out.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+    heldout_baseline = None
+    if args.heldout_raw_report:
+        heldout_baseline = rescore_answers(
+            load_jsonl(args.eval),
+            json.loads(args.heldout_raw_report.read_text(encoding="utf-8")),
+        )
+        args.heldout_baseline_out.parent.mkdir(parents=True, exist_ok=True)
+        args.heldout_baseline_out.write_text(
+            json.dumps(heldout_baseline, indent=2) + "\n", encoding="utf-8"
+        )
     manifest = {"complete": True, "calibration_is_promotion_evidence": False,
                 "sft_rows": len(sft), "source_sft_rows": len(train),
                 "sft_axis_weights": axis_weights,
                 "source_dpo_rows": len(source_dpo),
-                "deduplicated_dpo_rows": len(dpo), "calibration_rows": len(probe),
+                "deduplicated_dpo_rows": len(dpo) + len(excluded_dpo),
+                "excluded_dpo_rows": len(excluded_dpo),
+                "clean_dpo_rows": len(dpo), "calibration_rows": len(probe),
                 "calibration_quota": args.quota, "axes": sorted(ALL_AXES),
                 "protected_axes": sorted(RETENTION_AXES),
                 "input_sha256": {"train": sha(args.train),
                                   "dpo": {str(path): sha(path) for path in args.dpo},
+                                  "dpo_exclude_subjects": {
+                                      str(path): sha(path) for path in args.dpo_exclude_subjects
+                                  },
                                   "raw_report": sha(args.raw_report), "eval": sha(args.eval),
                                   "golden": sha(args.golden)},
                 "output_sha256": {"sft": sha(args.sft_out), "dpo": sha(args.dpo_out),
                                    "probe": sha(args.probe_out), "baseline": sha(args.baseline_out)}}
+    if args.heldout_raw_report:
+        manifest["heldout_baseline"] = {
+            "honest": heldout_baseline["honest"], "total": heldout_baseline["total"],
+            "input_sha256": sha(args.heldout_raw_report),
+            "output_sha256": sha(args.heldout_baseline_out),
+        }
     args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2))
     return 0

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from scripts.train.build_positive_curve_assets import (
     calibration_indices, deduplicate_preferences, deficit_weighted_sft,
-    rescore_answers, subset_report,
+    exclude_subjects, rescore_answers, subset_report,
 )
 from scripts.train.learning_curve_gate import progression_verdict
 
@@ -17,6 +17,29 @@ def test_dpo_deduplicates_subject_axis_without_synthesizing_preferences() -> Non
     rows = [{"label": "x", "subject": "Bank", "chosen": "a", "rejected": "b", "why": "e"},
             {"label": "x", "subject": "bank", "chosen": "c", "rejected": "d", "why": "e"}]
     assert deduplicate_preferences(rows) == rows[:1]
+
+
+def test_dpo_excludes_every_retention_subject_case_insensitively() -> None:
+    rows = [{"subject": "Serco Group plc"}, {"subject": "Chemring Group plc"}]
+    kept, excluded = exclude_subjects(rows, {"serco group plc"})
+    assert kept == rows[1:]
+    assert excluded == rows[:1]
+
+
+def test_positive_curve_accepts_genuine_failure_signal_on_retention_axis() -> None:
+    from scripts.train.build_mixed_tooluse_cycle import ALL_AXES, TARGET_AXES, validate_dpo
+    rows = [
+        {"label": axis, "subject": f"{axis} entity", "prompt": [{"role": "user", "content": "q"}],
+         "chosen": "grounded", "rejected": "wrong", "why": "measured failure"}
+        for axis in sorted(TARGET_AXES)
+    ]
+    rows.append({"label": "tooluse_adverse", "subject": "Adverse Entity",
+                 "prompt": [{"role": "user", "content": "q"}],
+                 "chosen": "grounded", "rejected": "wrong", "why": "measured failure"})
+
+    counts = validate_dpo(rows, set(), allowed_axes=ALL_AXES)
+
+    assert counts["tooluse_adverse"] == 1
 
 
 def test_calibration_has_deterministic_equal_axis_quotas() -> None:
@@ -145,6 +168,35 @@ def test_recovered_dpo_must_pass_calibration_before_held_out() -> None:
     assert 'python -m scripts.train.learning_curve_gate --before "$BEFORE_PROBE"' in pod
     assert "tooluse_adverse --protected-axis tooluse_contradiction" in pod
     assert "collect_diagnostics" in pod
+
+
+def test_full_heldout_requires_strict_parent_to_dpo_progression() -> None:
+    pod = (ROOT / "scripts/train/pod_tooluse_dpo.sh").read_text(encoding="utf-8")
+    heldout = pod.index('log "evaluating unchanged 168-row held-out set"')
+    completeness = pod.index('fail "held-out completeness gate failed"')
+    progression = pod.index('fail "parent-to-DPO held-out progression gate"')
+    complete = pod.index('log "cycle complete"')
+    assert heldout < completeness < progression < complete
+    assert 'python -m scripts.train.learning_curve_gate --before "$HELDOUT_BASELINE"' in pod
+    assert "aria_tooluse_heldout_verdict.json" in pod
+
+
+def test_phoenix_uses_reproducible_disjoint_curriculum_and_parent_gate() -> None:
+    wrapper = (ROOT / "scripts/train/run_tooluse_citation_phoenix_v3.sh").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads((ROOT / "data/eval_reports/tooluse_citation_phoenix_v3_disjoint_manifest.json").read_text(
+        encoding="utf-8"
+    ))
+    assert manifest["deduplicated_dpo_rows"] == 57
+    assert manifest["excluded_dpo_rows"] == 16
+    assert manifest["clean_dpo_rows"] == 41
+    assert manifest["heldout_baseline"]["honest"] == 160
+    assert manifest["heldout_baseline"]["total"] == 168
+    assert manifest["output_sha256"]["dpo"] == "7bb73249af5d460227f3c4d85d37d599a53a328e7b0773c468557f39e3c27fe3"
+    assert "EXPECTED_DPO_PAIRS=41" in wrapper
+    assert "aria_tooluse_citation_phoenix_v3_disjoint_dpo.jsonl" in wrapper
+    assert "HELDOUT_BASELINE_LOCAL=\"$HELDOUT_BASELINE\"" in wrapper
 
 
 def test_staged_pod_can_execute_the_real_curve_gate(tmp_path: Path) -> None:

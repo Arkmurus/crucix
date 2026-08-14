@@ -72,8 +72,8 @@ def test_driver_rejects_dpo_calibration_subject_contamination(tmp_path: Path) ->
         pytest.skip("bash unavailable")
     dpo = tmp_path / "dpo.jsonl"
     probe = tmp_path / "probe.jsonl"
-    dpo.write_text(json.dumps({"subject": "Serco Group plc"}) + "\n", encoding="utf-8")
-    probe.write_text(json.dumps({"subject": "serco group PLC"}) + "\n", encoding="utf-8")
+    dpo.write_text(json.dumps({"subject": "Chemring Group plc"}) + "\n", encoding="utf-8")
+    probe.write_text(json.dumps({"subject": "Chemring"}) + "\n", encoding="utf-8")
     env = dict(os.environ)
     env.update({
         "FRESH_BASE": "1",
@@ -111,7 +111,9 @@ def test_failed_cycle_reports_only_artifacts_that_were_recovered() -> None:
     assert "if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi" in driver
     assert 'if [ -n "$INTERMEDIATE_LOCAL" ]; then' in driver
     assert "if persist_intermediate; then INTERMEDIATE_SAVED=1; fi" in driver
-    assert "recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED" in driver
+    assert 'persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.failed"' in driver
+    assert "REPORT_SAVED=0" in driver
+    assert "recovered intermediate=$INTERMEDIATE_SAVED report=$REPORT_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED" in driver
 
 
 def test_failed_adapter_downloads_resume_and_phoenix_retains_them() -> None:
@@ -131,6 +133,18 @@ def test_failed_adapter_downloads_resume_and_phoenix_retains_them() -> None:
     assert 'INTERMEDIATE_REMOTE=/workspace/eval/aria_tooluse_dpo_adapter.tgz' in wrapper
     output_line = next(line for line in wrapper.splitlines() if "OUTPUT_LOCAL=" in line)
     assert "failed_candidate.tgz" not in output_line
+
+
+def test_driver_wires_verified_parent_heldout_baseline_to_pod() -> None:
+    """R-F3993: completeness alone cannot promote a paid candidate."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert 'REQUIRED_FILES+=("$HELDOUT_BASELINE_LOCAL")' in driver
+    assert "immutable held-out baseline hash mismatch" in driver
+    assert "verified parent held-out baseline" in driver
+    assert "held-out baseline surface does not match evaluation" in driver
+    assert 'RSCP "$HELDOUT_BASELINE_LOCAL" /workspace/eval/aria_tooluse_parent_heldout.json' in driver
+    assert 'remote held-out baseline hash mismatch' in driver
+    assert 'POD_ENV="$POD_ENV HELDOUT_BASELINE=/workspace/eval/aria_tooluse_parent_heldout.json"' in driver
 
 
 def test_watchdog_arm_and_pod_stop_require_live_readback() -> None:

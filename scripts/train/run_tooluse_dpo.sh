@@ -15,6 +15,8 @@ PROBE_LOCAL="${PROBE_LOCAL:-}"
 BASELINE_LOCAL="${BASELINE_LOCAL:-}"
 PROBE_SHA256="${PROBE_SHA256:-}"
 BASELINE_SHA256="${BASELINE_SHA256:-}"
+HELDOUT_BASELINE_LOCAL="${HELDOUT_BASELINE_LOCAL:-}"
+HELDOUT_BASELINE_SHA256="${HELDOUT_BASELINE_SHA256:-}"
 DIAGNOSTICS_LOCAL="${DIAGNOSTICS_LOCAL:-}"
 DIAGNOSTICS_REMOTE="${DIAGNOSTICS_REMOTE:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
 EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
@@ -70,19 +72,21 @@ REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
 [ -z "$SFT_LOCAL" ] || REQUIRED_FILES+=("$SFT_LOCAL")
 [ -z "$PROBE_LOCAL" ] || REQUIRED_FILES+=("$PROBE_LOCAL")
 [ -z "$BASELINE_LOCAL" ] || REQUIRED_FILES+=("$BASELINE_LOCAL")
+[ -z "$HELDOUT_BASELINE_LOCAL" ] || REQUIRED_FILES+=("$HELDOUT_BASELINE_LOCAL")
 [ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
 for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
 if [ -n "$PROBE_LOCAL" ]; then
   "$PYBIN" - "$DPO_LOCAL" "$PROBE_LOCAL" <<'PY' || exit 3
 import json, sys
+from scripts.train.build_tooluse_corpus import _norm_subject
 
 def subjects(path):
     rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
     missing = [i for i, row in enumerate(rows, 1) if not str(row.get("subject") or "").strip()]
     if missing:
         raise SystemExit(f"subject contamination gate: {path} missing subject at rows {missing[:5]}")
-    return {str(row["subject"]).strip().casefold() for row in rows}
+    return {_norm_subject(str(row["subject"])) for row in rows}
 
 overlap = sorted(subjects(sys.argv[1]) & subjects(sys.argv[2]))
 if overlap:
@@ -91,6 +95,26 @@ if overlap:
         + ", ".join(overlap[:10])
     )
 print("verified DPO/calibration subject disjointness")
+PY
+fi
+if [ -n "$HELDOUT_BASELINE_LOCAL" ]; then
+  printf '%s  %s\n' "$HELDOUT_BASELINE_SHA256" "$HELDOUT_BASELINE_LOCAL" \
+    | sha256sum -c - || { log "FATAL immutable held-out baseline hash mismatch"; exit 3; }
+  "$PYBIN" - "$HELDOUT_BASELINE_LOCAL" "$EVAL_LOCAL" <<'PY' || exit 3
+import json, sys
+from scripts.train.eval_tooluse import report_consistency_error
+
+baseline = json.load(open(sys.argv[1], encoding="utf-8"))
+evaluation = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+if baseline.get("complete") is not True or baseline.get("total") != len(evaluation):
+    raise SystemExit("held-out baseline is incomplete or has the wrong denominator")
+if report_consistency_error(baseline):
+    raise SystemExit("held-out baseline summary is inconsistent")
+measured = [(row.get("label"), row.get("subject")) for row in baseline.get("rows") or []]
+expected = [(row.get("label"), row.get("subject")) for row in evaluation]
+if measured != expected:
+    raise SystemExit("held-out baseline surface does not match evaluation")
+print(f"verified parent held-out baseline: {baseline['honest']}/{baseline['total']}")
 PY
 fi
 EXPECTED_SFT_ROWS=0
@@ -211,6 +235,11 @@ done
 [ -z "$PROBE_LOCAL" ] || TSSH -p "$PORT" root@"$HOST" \
   "printf '%s  %s\n%s  %s\n' '$PROBE_SHA256' /workspace/datasets/aria_tooluse_curve_probe.jsonl '$BASELINE_SHA256' /workspace/eval/aria_tooluse_curve_raw_probe.json | sha256sum -c -" \
   || { log "FATAL remote curve input hash mismatch"; exit 1; }
+[ -z "$HELDOUT_BASELINE_LOCAL" ] || RSCP "$HELDOUT_BASELINE_LOCAL" /workspace/eval/aria_tooluse_parent_heldout.json \
+  || { log "FATAL upload held-out baseline"; exit 1; }
+[ -z "$HELDOUT_BASELINE_LOCAL" ] || TSSH -p "$PORT" root@"$HOST" \
+  "printf '%s  %s\n' '$HELDOUT_BASELINE_SHA256' /workspace/eval/aria_tooluse_parent_heldout.json | sha256sum -c -" \
+  || { log "FATAL remote held-out baseline hash mismatch"; exit 1; }
 [ "$RESUME_MODE" = 0 ] || RSCP "$RESUME_REPORT_LOCAL" /workspace/eval/aria_tooluse_dpo_eval.json \
   || { log "FATAL upload resume report"; exit 1; }
 if [ "$FRESH_BASE" != 1 ]; then
@@ -229,6 +258,7 @@ if [ "$FRESH_BASE" != 1 ]; then
 fi
 arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
 POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
+[ -z "$HELDOUT_BASELINE_LOCAL" ] || POD_ENV="$POD_ENV HELDOUT_BASELINE=/workspace/eval/aria_tooluse_parent_heldout.json"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" $SSH_HOST_KEYS -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
@@ -289,13 +319,14 @@ harvest_logs(){
   return $((1-saved))
 }
 if [ "$RC" != 0 ]; then
-  INTERMEDIATE_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0
+  INTERMEDIATE_SAVED=0; REPORT_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0
   if [ -n "$INTERMEDIATE_LOCAL" ]; then
     if persist_intermediate; then INTERMEDIATE_SAVED=1; fi
   fi
+  if persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.failed"; then REPORT_SAVED=1; fi
   if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi
   if harvest_logs; then LOGS_SAVED=1; fi
-  log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED"
+  log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED report=$REPORT_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED"
   exit 1
 fi
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"

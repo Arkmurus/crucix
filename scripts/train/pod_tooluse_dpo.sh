@@ -14,6 +14,8 @@ BEFORE_PROBE="${BEFORE_PROBE:-/workspace/eval/aria_tooluse_curve_raw_probe.json}
 DPO_PROBE="${DPO_PROBE:-/workspace/eval/aria_tooluse_curve_dpo_probe.json}"
 DPO_VERDICT="${DPO_VERDICT:-/workspace/eval/aria_tooluse_curve_dpo_verdict.json}"
 DIAGNOSTICS="${DIAGNOSTICS:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
+HELDOUT_BASELINE="${HELDOUT_BASELINE:-}"
+HELDOUT_VERDICT="${HELDOUT_VERDICT:-/workspace/eval/aria_tooluse_heldout_verdict.json}"
 SCRIPTS="/workspace/crucix/scripts/train"
 LOGS="/workspace/logs"
 PORT=8888
@@ -30,7 +32,7 @@ mkdir -p "$DPO_OUT" /workspace/eval "$LOGS"
 rm -f /workspace/eval/_cycle_status
 collect_diagnostics(){
   local files=() name
-  for name in aria_tooluse_curve_dpo_probe.json aria_tooluse_curve_dpo_verdict.json; do
+  for name in aria_tooluse_curve_dpo_probe.json aria_tooluse_curve_dpo_verdict.json aria_tooluse_heldout_verdict.json; do
     [ ! -f "/workspace/eval/$name" ] || files+=("$name")
   done
   [ "${#files[@]}" -eq 0 ] || tar -czf "$DIAGNOSTICS" -C /workspace/eval "${files[@]}"
@@ -143,5 +145,12 @@ if d.get("complete") is not True or d.get("total") != n or len(d.get("rows") or 
     raise SystemExit(f"report does not prove {n} complete rows")
 print(f"verified complete held-out evaluation: n={n}")
 PY
+if [ -n "$HELDOUT_BASELINE" ]; then
+  [ -s "$HELDOUT_BASELINE" ] || fail "parent held-out baseline missing"
+  python -m scripts.train.learning_curve_gate --before "$HELDOUT_BASELINE" \
+    --after "$REPORT" --verdict-out "$HELDOUT_VERDICT" \
+    || fail "parent-to-DPO held-out progression gate"
+  collect_diagnostics || fail "held-out verdict diagnostics archive"
+fi
 pkill -f serve_eval_shim 2>/dev/null || true
 log "cycle complete"
