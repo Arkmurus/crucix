@@ -938,3 +938,63 @@ question that matters BEFORE it is spent — and surfaced as `brave_usage` on
   `unreadable | never_observed | stale | fresh` — **only `fresh` is headroom you can
   act on**, because a plan can be downgraded between observations. Do not "simplify"
   these back to a bare `None`.
+
+## 28. Knowledge persistence is JOURNALLED — do not "fix" the journal away (R-F4022/C-95, 2026-08-14)
+
+`_write_to_disk_atomic` used to rewrite the **whole** knowledge graph on every
+debounced flush. Measured live 2026-08-14: **389 MB serialised + fsynced +
+renamed every ~18-26 s, back to back, to persist ~9-11 KB** — ~39,000x write
+amplification, with a tmp file present in EVERY 3-second sample (it never
+stopped writing). `knowledge.py:_write_to_disk_atomic` appeared in **18 of 18**
+event-loop stall dumps in a 20-minute window (median 6.8 s, max 10.8 s), 12 of
+them inside `os.fsync`, while the main thread sat idle in `selectors.select` —
+the R-F3252 signature of **starvation, not a blocking call**. 729 wedge dumps
+had accumulated on the volume.
+
+**It was self-worsening, and that is the part to remember.** §7 forbids
+eviction, so the graph only grows and the cost of persisting one fact rises
+without bound — *the better ARIA's memory got, the more starved she became.*
+Any O(total-data) step under an infinite-memory policy is this same bug.
+
+**Now:** the hot path appends changed records to
+`/data/aria_knowledge.json.journal.jsonl`; the full snapshot is written only on
+compaction (`_needs_compaction` / journal >32 MB / age >900 s / `final=True`),
+and `_load` replays the journal over the snapshot.
+
+**Load-bearing properties — do not simplify any of these away:**
+- The journal is an **UPSERT log keyed by record id, not positional.** New facts
+  are `insert(0, ...)`d at the HEAD, so a tail watermark is WRONG; keying on id
+  also expresses an in-place edit for free.
+- **`_save()` with no declared `record=` forces a full rewrite.** This is the
+  safety default: a mutation site added later degrades to the old behaviour
+  instead of silently losing data. "I was told nothing" must mean "write
+  everything". Never relax it into a journal write.
+- **Structural changes compact** (`consolidate_facts`, `purge_by_keywords`).
+  Replaying an upsert journal over a deletion RESURRECTS what was purged.
+- **Bookkeeping declares its record too**, deduped by id. Without that, C-61's
+  `_bk_due` forces a full rewrite every `BOOKKEEPING_MAX_AGE_S` and a crawl loop
+  makes that continuous — it would silently halve the fix.
+
+**Measured, same path instrumented:** 30 new facts 61,080,885 → **12,790 B**;
+production-shaped mix (1 new fact + 9 re-absorbs, x200) 408,331,990 B in 3.99 s
+→ **850,165 B in 0.19 s** (480x). Live: `/health.loop` went `starved` p95
+**3264 ms → healthy p95 1.1 ms**; stall dumps went **21 in one pre-fix process →
+0 across ~23 min of two post-fix processes**. Facts 533,034 → 533,103 across the
+deploy (nothing lost). Steady-state journal growth ~21 KB/min.
+
+⚠️ **EXPECT a ~4 s loop-lag spike roughly every 15 minutes — that is the
+compaction, and it is NOT a regression.** It sits below the 5 s stall threshold
+so it no longer produces a wedge dump. Removing it needs an incremental/sharded
+snapshot, which is real work; **do not "fix" it by lengthening
+`COMPACT_MAX_AGE_S` without measuring**, and do not delete the journal file —
+it holds every fact written since the last compaction.
+
+**R-F4024 (C-96) — `/health` now reads the gauge it publishes.** It used to
+return `loop.status: starved` (p95 3264 ms) beside `status: operational`,
+`degraded_reasons: []` and a GREEN self-diagnostic, in the SAME payload. That is
+why C-95 ran unnoticed: `knowledge.py:953` recorded `starved` p95 2058 ms on
+2026-08-13 and nothing escalated, because no verdict in the tree could express
+it. `event_loop_starved` and `event_loop_monitor_stale` (the monitor runs ON the
+loop, so a wedge silences it and the gauge then serves its last healthy numbers
+forever) are now degraded reasons. `busy` and a freshly-booted `unknown`
+deliberately are NOT — a verdict that cries wolf is one nobody reads.
