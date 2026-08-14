@@ -33914,27 +33914,30 @@
       "title": "measure the actual upload body not just Content-Length (C-78)",
       "claimed_at": "2026-08-14T09:15:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9f03ca49",
+      "notes": null,
+      "shipped_at": "2026-08-14T09:41:23Z"
     },
     {
       "r_number": "R-F3998",
       "title": "narrow connect-src to the origins actually used (C-79)",
       "claimed_at": "2026-08-14T09:15:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9f03ca49",
+      "notes": null,
+      "shipped_at": "2026-08-14T09:41:23Z"
     },
     {
       "r_number": "R-F3999",
       "title": "bound lead-form abuse with a honeypot and tighter tier (C-80)",
       "claimed_at": "2026-08-14T09:15:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9f03ca49",
+      "notes": null,
+      "shipped_at": "2026-08-14T09:41:24Z"
     },
     {
       "r_number": "R-F4000",

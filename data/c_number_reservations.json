@@ -861,27 +861,36 @@
       "title": "chunked upload bypasses the Content-Length size guard",
       "claimed_at": "2026-08-14T09:15:05Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3997"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T09:41:24Z"
     },
     {
       "c_number": "C-79",
       "title": "connect-src allows exfiltration to any https host",
       "claimed_at": "2026-08-14T09:15:06Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3998"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T09:41:24Z"
     },
     {
       "c_number": "C-80",
       "title": "lead form sends mail to arbitrary addresses on the anonymous rate tier",
       "claimed_at": "2026-08-14T09:15:06Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F3999"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T09:41:24Z"
     }
   ]
 }
