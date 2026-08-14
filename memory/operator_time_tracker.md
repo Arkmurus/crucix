@@ -1562,3 +1562,85 @@ month-rollover bug inside my C-54. In every case the existing artefact was right
 
 **The full suite was NOT run.** Every figure is a named subset, and each subset's
 failures were checked against `docs/suite_baseline.json`.
+
+---
+
+## Session 2026-08-14 (part 6) — finding 15 closed, finding 14 finished
+
+**Shipped:** R-F3979 (C-68, aria-intel) and R-F3980 (C-69, aria-web).
+**Session total: 20 defects, C-43..C-69.**
+
+### Finding 15 was evidence-blocked, and the evidence reversed the plan
+
+The previous session recorded it as unfixable-without-evidence rather than
+guessing. That was right, and the guess would have been wrong. Six candidate
+parameters were probed against the live DeepSeek key:
+
+    reasoning_effort=low      -> HTTP 200, reasoning STILL 113 chars
+    reasoning_effort=minimal  -> HTTP 200, reasoning STILL 121 chars
+    enable_thinking=False     -> HTTP 200, reasoning STILL  30 chars
+    chat_template_kwargs      -> HTTP 200, reasoning STILL  41 chars
+    reasoning.max_tokens      -> HTTP 200, reasoning STILL  30 chars
+    thinking.type=disabled    -> HTTP 200, reasoning        0 chars
+
+**The API accepts unknown keys and ignores them.** A fix built on
+`reasoning_effort` — the most natural-looking option — would have passed review,
+deployed green and changed nothing. The absence of an error was the trap.
+
+Then the cure on the disease, same prompt, same `max_tokens=1024`:
+
+    baseline                      reasoning 5334   answer 0      -> NO ANSWER
+    thinking disabled             reasoning 0      answer 4743   -> ANSWER
+    baseline, max_tokens=8192     reasoning 20826  answer 10481  -> ANSWER in 79.2s
+
+Row 3 is why R-F3627's doubling was the wrong correction: **given more room the
+model reasons MORE**. And the thinking-disabled retry takes 13.9s against 79.2s,
+which is what lets it pass R-F3629's `_MIN_RETRY_SECONDS` guard — the guard that
+made `attempts=1` permanent.
+
+### Three of the report's finding-14 claims were already fixed
+
+Checked before working: the non-streaming `/chat` twin (R-F2704 wired it
+structurally, in a `finally:` over the whole handler) and the Telegram helper
+(checks `res.ok` at 461/541/1249/1444, with a comment at 523 recording the prior
+fix). Only the email path and the Network DM reply were genuinely dark, and both
+are now wired.
+
+### The full Node suite caught a regression I would otherwise have shipped
+
+R-F2345 asserts `toId === ARIA_ID` and `_ariaChannelReply` within **60
+characters** of each other — a routing guarantee anchored on textual proximity.
+My explanatory comment between them broke it while changing no behaviour. Fixed
+by moving the comment ABOVE the guard rather than widening someone else's
+assertion. **1857 pass / 8 fail now matches `docs/node_suite_baseline.json`
+exactly.**
+
+### Running tally of what caught my mistakes this session
+
+The wiring gate (stolen decorator), the defect-register gate (twice, duplicate
+C-numbers), R-F3464's tests (first C-57 attempt), R-F2345's test (this one),
+R-F3483's tests (C-60 seam), and the peer agent (month-rollover bug in C-54).
+**Six catches, and in every case the existing artefact was right and I was
+wrong.** Four invalid fixtures on top of that, one of which broke my own §3b.
+
+### STILL OPEN — two items, both recorded with reasoning rather than guessed
+
+- **The sidecar per-flush rewrite** (the other half of C-61). It is read once per
+  boot, so a slower cadence looks free — but the reader only uses a CURRENT
+  sidecar, so that would silently delete R-F2144's boot acceleration instead of
+  its I/O cost. Needs a shutdown-write plus crash safety net, in a path already
+  carrying four wedge fixes.
+- **Sanctions stopword dilution** (`'Aviation Industry Corporation'` ->
+  `'aviation'`). Recall/precision, not a false clean; that suffix list is the
+  most dangerous one in a defence-DD product to touch casually.
+
+**A stale test worth the operator's attention:**
+`test_rf3035_chain_has_a_second_deepseek_model_entry` asserts a two-member chain
+that R-F3943 **deliberately removed** on operator directive ("just remove
+deepseek back up"). It is red because the policy changed, not because the code
+broke — the R-F3859 "a red test can be the defect" class. It also means the
+general chain is ONE deep, which is exactly why C-68 matters.
+
+**The full Python suite was NOT run.** Every Python figure is a named subset with
+its failures reconciled against `docs/suite_baseline.json`. The full NODE suite
+WAS run and reconciled.
