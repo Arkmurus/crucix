@@ -1071,6 +1071,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T14:12:04Z"
+    },
+    {
+      "c_number": "C-96",
+      "title": "health verdict published loop.status=starved next to status=operational and never consulted it",
+      "claimed_at": "2026-08-14T14:25:35Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4024"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-14T14:33:02Z"
     }
   ]
 }

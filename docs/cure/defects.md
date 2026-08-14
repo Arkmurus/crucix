@@ -5050,3 +5050,66 @@ with only the 2 recorded `docs/suite_baseline.json` entries still red.
 broke on the new keyword arguments. They now take `**kwargs` — a stub that
 hardcodes an argument list breaks on every future change while asserting
 nothing about it.
+
+## C-96 · /health published `loop.status: starved` and a verdict of `operational` (R-F4024)
+
+The response that exposed C-95 contained both of these, in the same payload, at
+the same instant:
+
+```
+"loop":              {"status": "starved", "p50_ms": 0.7,
+                      "p95_ms": 3264.1, "max_ms": 9726.2}
+"status":            "operational"
+"degraded_reasons":  []
+"diagnostic":        {"overall": "GREEN", "pass": 76, "fail": 0}
+```
+
+The event loop was blocking for up to **9.7 seconds** and every verdict in the
+tree said fine. `_loop_health` is *returned* by the handler and was never read
+when building `_degraded_reasons` — the gauge was in hand and unconsulted.
+
+The comment directly above that block says it exists so this surface cannot
+become "a status page divorced from reality" (R-F3667). It was, about the one
+number it already had.
+
+**This is why C-95 ran unnoticed.** `knowledge.py:953` records the loop reading
+`starved` at p95 2058 ms on 2026-08-13; nothing escalated, and by the next day
+it was 3264 ms with 729 wedge dumps on the volume. A measurement nothing
+consults is not observability — it is the §1 "certified by an absence" shape
+with the absence on the *reading* side instead of the writing side.
+
+### The fix
+
+`_loop_degraded_reasons()` — pure, module-level, unit-testable for the same
+reason `_should_force_restart` is. Two reasons, both measured:
+
+- **`event_loop_starved`** — the gauge's own band for "I/O callbacks are waiting
+  behind CPU work".
+- **`event_loop_monitor_stale`** — the samples stopped. The monitor runs *on*
+  the loop, so a wedge silences it and the gauge then serves its last healthy
+  numbers indefinitely. A frozen instrument certifying the thing it stopped
+  measuring is the R-F3791 blind-guard shape, and it is the one reading that
+  would otherwise look best exactly when things are worst.
+
+Deliberately NOT included: **`busy`** (elevated but turning is normal under
+load, and a verdict that cries wolf is one nobody reads when a real `starved`
+arrives), and **`unknown` with no samples** (the detector arms 120 s after boot
+by design; flagging it would make every deploy flap).
+
+Never raises — a health endpoint that 500s because its own gauge is malformed is
+worse than one that reports nothing — and the two signals are read
+independently, so an unparseable age cannot suppress a readable `starved`.
+
+### Verified
+
+15 tests. The two capability tests drive the real `/health` handler with the
+exact live payload above, and were proven to **discriminate**: with the one-line
+wiring removed, `test_real_health_endpoint_degrades_when_the_loop_is_starved`
+FAILS and the healthy-path negative control still passes. A guard that cannot
+fail is not a guard (R-F3858). 405 passed across the health/loop-monitor
+families, 0 failed.
+
+**Scope note:** `routes/aria.py`'s `/api/aria/health` keeps its own
+`degraded_reasons` for QUALITY signals (grounding, mastery, ecosystem) and does
+not publish `loop`. This fix is confined to the infra surface that already had
+the gauge, so it does not create the third-aggregator problem R-F2639 closed.

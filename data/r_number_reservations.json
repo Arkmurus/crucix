@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4023,
+  "next_available": 4025,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34162,6 +34162,25 @@
       "r_number": "R-F4022",
       "title": "incremental knowledge persistence: append-journal + threshold compaction",
       "claimed_at": "2026-08-14T13:40:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "63942b56",
+      "notes": null,
+      "shipped_at": "2026-08-14T14:24:03Z"
+    },
+    {
+      "r_number": "R-F4023",
+      "title": "require adverse relevance in contradiction traces",
+      "claimed_at": "2026-08-14T14:25:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4024",
+      "title": "wire event-loop health into the health verdict",
+      "claimed_at": "2026-08-14T14:25:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

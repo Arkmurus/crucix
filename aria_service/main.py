@@ -689,6 +689,67 @@ def _should_force_restart(
     except (TypeError, ValueError):
         return False
 
+
+#: How stale the R-F2849 lag gauge may get before the FEED itself is suspect.
+#: The monitor samples once a second from a task running ON the event loop, so
+#: a gap this large means the loop stopped turning — the gauge's own silence is
+#: the signal. Generous vs the 1 s interval so ordinary scheduling jitter, a GC
+#: pause or a slow health call never trips it.
+LOOP_MONITOR_STALE_S = 60.0
+
+
+def _loop_degraded_reasons(loop_health) -> list[str]:
+    """R-F4024 (C-96) — turn the event-loop gauge into health VERDICT input.
+
+    `/health` published `loop` and `degraded_reasons` in the same payload and
+    never read the former. Live 2026-08-14: `loop.status: starved`, p95
+    3264 ms, max 9726 ms, alongside `status: operational`, `degraded_reasons:
+    []` and a GREEN self-diagnostic. The loop was blocking for up to 9.7 s and
+    no verdict in the tree could say so — which is why C-95 ran for at least a
+    day after `knowledge.py` recorded the same `starved` reading.
+
+    Pure + module-level for the same reason as `_should_force_restart`: the
+    decision is testable without standing up the app.
+
+    Two reasons, both MEASURED:
+
+    - `event_loop_starved` — the gauge's own band for "I/O callbacks are
+      waiting behind CPU work". `busy` is deliberately NOT included: elevated
+      but turning is normal under load, and a verdict that cries wolf is one
+      nobody reads when it finally matters.
+    - `event_loop_monitor_stale` — the samples stopped. The monitor runs ON the
+      loop, so a wedge silences it and the gauge then serves its last healthy
+      numbers indefinitely. Reading that as health is the "guard that goes
+      blind rather than fails" shape (R-F3791): a frozen instrument certifying
+      the very thing it stopped measuring.
+
+    `unknown` with no samples is NOT degraded — the detector arms 120 s after
+    boot by design, and flagging that would make every deploy flap.
+
+    Never raises: a health endpoint that 500s because its own gauge is odd is
+    worse than one that reports nothing. Each signal is read independently, so
+    an unparseable age cannot suppress a readable `starved`.
+    """
+    reasons: list[str] = []
+    if not isinstance(loop_health, dict):
+        return reasons
+    try:
+        if str(loop_health.get("status") or "").lower() == "starved":
+            reasons.append("event_loop_starved")
+    except Exception:      # pragma: no cover - defensive
+        pass
+    try:
+        age = loop_health.get("last_sample_age_s")
+        samples = loop_health.get("samples") or 0
+        # Only meaningful once the monitor has actually produced samples;
+        # age is None on a fresh boot, which is not staleness.
+        if int(samples) > 0 and age is not None:
+            if float(age) > LOOP_MONITOR_STALE_S:
+                reasons.append("event_loop_monitor_stale")
+    except (TypeError, ValueError):
+        pass
+    return reasons
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -5385,6 +5446,8 @@ async def health():
         _log_health.debug("[R-F3704] operating mode unreadable: %s", _mode_err)
     if diagnostic_ind and str(diagnostic_ind.get("overall", "")).upper() == "RED":
         _degraded_reasons.append("self_diagnostic_red")
+    # R-F4024 (C-96) — the loop gauge is RIGHT THERE in this payload; read it.
+    _degraded_reasons.extend(_loop_degraded_reasons(_loop_health))
 
     return {
         "loop": _loop_health,
