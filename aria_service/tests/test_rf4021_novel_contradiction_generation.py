@@ -11,6 +11,8 @@ from scripts.train.build_tooluse_corpus import (
     _norm_subject,
     validate_trace,
 )
+from scripts.train.build_tooluse_dpo import build_pairs
+from scripts.train.eval_tooluse import score_one
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,3 +73,40 @@ def test_launcher_pins_capture_and_cannot_start_dpo() -> None:
     assert "aria_tooluse_citation_phoenix_v3_failed_candidate.tgz" in launcher
     assert "exec bash scripts/train/run_tooluse_generation.sh" in launcher
     assert "run_tooluse_dpo.sh" not in launcher
+
+
+def test_real_report_yields_only_genuine_disjoint_preference_pairs() -> None:
+    corpus = _rows(
+        ROOT / "data/training/aria_tooluse_contradiction_novel_v2.jsonl"
+    )
+    report = json.loads(
+        (ROOT / "data/eval_reports/aria_tooluse_novel_contradiction_generations.json")
+        .read_text(encoding="utf-8")
+    )
+    held = {
+        _norm_subject(str(row.get("subject") or ""))
+        for row in _rows(ROOT / "data/training/split_v1/eval.jsonl")
+    } - {""}
+    pairs = build_pairs(
+        report, corpus, eval_entities=held, validate_chosen=True,
+    )
+    written_pairs = _rows(
+        ROOT / "data/training/aria_tooluse_novel_contradiction_dpo.jsonl"
+    )
+
+    assert written_pairs == pairs
+    assert {pair["subject"] for pair in pairs} == {
+        "Goldman Sachs Group",
+        "Intesa Sanpaolo",
+        "Banco Bilbao Vizcaya Argentaria",
+        "Nordea Bank Abp",
+    }
+    assert len(pairs) == 4
+    by_subject = {
+        _norm_subject(str(row["subject"])): row for row in corpus
+    }
+    for pair in pairs:
+        assert _norm_subject(pair["subject"]) not in held
+        trace = by_subject[_norm_subject(pair["subject"])]
+        assert score_one(trace, pair["rejected"])["honest"] is False
+        assert score_one(trace, pair["chosen"])["honest"] is True
