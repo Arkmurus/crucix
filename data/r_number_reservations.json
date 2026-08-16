@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4050,
+  "next_available": 4051,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34390,18 +34390,20 @@
       "title": "age-triggered compaction rewrites the whole graph to retire a trivial journal",
       "claimed_at": "2026-08-16T15:28:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6b163615",
+      "notes": null,
+      "shipped_at": "2026-08-16T17:12:06Z"
     },
     {
       "r_number": "R-F4046",
       "title": "route knowledge-producing modules to real topics; guard the gap",
       "claimed_at": "2026-08-16T15:40:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1e65369c",
+      "notes": null,
+      "shipped_at": "2026-08-16T17:12:06Z"
     },
     {
       "r_number": "R-F4047",
@@ -34417,14 +34419,24 @@
       "title": "permanently-red coder autodeploy tests pin a pre-R-F2689 contract",
       "claimed_at": "2026-08-16T16:10:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7bc5a989",
+      "notes": null,
+      "shipped_at": "2026-08-16T17:12:07Z"
     },
     {
       "r_number": "R-F4049",
       "title": "build positive protected-axis correction from genuine choices",
       "claimed_at": "2026-08-16T17:00:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4050",
+      "title": "preserve repo root through positive immutable wrapper",
+      "claimed_at": "2026-08-16T17:11:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
