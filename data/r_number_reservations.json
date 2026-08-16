@@ -34456,9 +34456,10 @@
       "title": "wire the five import-only learning modules to the brain",
       "claimed_at": "2026-08-16T17:19:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "492800e2",
+      "notes": null,
+      "shipped_at": "2026-08-16T18:27:44Z"
     },
     {
       "r_number": "R-F4053",
