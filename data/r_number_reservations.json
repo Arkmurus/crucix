@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4057,
+  "next_available": 4059,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34498,6 +34498,24 @@
       "commit_sha": "9e3f843c",
       "notes": null,
       "shipped_at": "2026-08-16T18:48:54Z"
+    },
+    {
+      "r_number": "R-F4057",
+      "title": "reading-queue backlog starved by FSRS candidates; reserve a slot",
+      "claimed_at": "2026-08-16T19:15:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4058",
+      "title": "route fresh contradiction evaluation across secure GPU stock",
+      "claimed_at": "2026-08-16T19:19:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
