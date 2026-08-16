@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 from scripts.train.build_mixed_tooluse_cycle import validate_protected_axis_evidence
@@ -63,3 +64,20 @@ def test_probe_uses_reviewed_recipe_and_cannot_claim_promotion() -> None:
     assert "HELDOUT_BASELINE_LOCAL" not in launcher
     assert "failed_candidate.tgz" in launcher
     assert "OUTPUT_LOCAL=data/training/checkpoints/aria_tooluse_resolution_dpo_probe_v1.tgz" not in launcher
+
+
+def test_every_launcher_hash_matches_post_checkout_worktree_bytes() -> None:
+    launcher = (
+        ROOT / "scripts/train/run_tooluse_resolution_dpo_probe_v1.sh"
+    ).read_text(encoding="utf-8")
+    paths = (
+        "data/training/checkpoints/aria_tooluse_protected_positive_v1_failed_candidate.tgz",
+        "data/training/aria_tooluse_curve_v5_probe.jsonl",
+        "data/eval_reports/rf4054_recovery_baseline/aria_tooluse_sft_child_probe.json",
+        "data/training/aria_tooluse_protected_positive_v1_resolution_dpo.jsonl",
+        "data/training/split_v1/eval.jsonl",
+    )
+
+    for relative in paths:
+        digest = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+        assert digest in launcher, f"launcher does not pin current bytes for {relative}"
