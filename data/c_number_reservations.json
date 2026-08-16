@@ -1095,6 +1095,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-14T14:56:47Z"
+    },
+    {
+      "c_number": "C-98",
+      "title": "R-F334 off-host snapshot now writes 83.7MB of gzipped shards to the SAME volume it backs up, every 600s",
+      "claimed_at": "2026-08-16T08:40:07Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

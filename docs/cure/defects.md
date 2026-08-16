@@ -5166,3 +5166,76 @@ mis-reporting it as a flush failure or re-arming compaction.
 
 9 tests, RED before. 689 passed across every test importing `knowledge`, with
 only the 2 recorded `docs/suite_baseline.json` entries still red.
+
+## C-98 · the "off-host backup" writes 83.7 MB to the volume it backs up, every 600 s — OPEN
+
+**Status: OPEN — measured and registered, NOT fixed. It is a backup path, so
+changing it needs an operator decision (and §26 forbids deletion outright).**
+
+Found while chasing the residual loop spike left after C-95. `_flush_loop` has a
+second job: every `SNAPSHOT_INTERVAL_S = 600` it calls
+`_save_sharded_snapshot(_cache)`, which `_split_into_shards` + gzips **the whole
+533k-fact graph** and writes the shards through `rs.set`.
+
+### The premise is void
+
+R-F334 built this in 2026-05-11 as the "Redis off-host backup tier" — genuinely
+off-host at the time. Then R-F745 (2026-05-20) flipped the default backend to
+sqlite and Upstash was cancelled (§6/§18). Measured live 2026-08-14:
+
+```
+ARIA_STATE_BACKEND=sqlite
+REDIS_URL          (unset)
+```
+
+So `rs.set` now lands in `/data/aria_state.db` — **the same volume as
+`/data/aria_knowledge.json`, the file it exists to back up.** A backup that
+shares a failure domain with its original is not a backup.
+
+### The cost, measured
+
+```sql
+SELECT COUNT(*), SUM(LENGTH(value)) FROM state WHERE key LIKE '%knowledge:shard%';
+  -> 225 keys, 83,660,672 bytes
+SELECT COUNT(*), SUM(LENGTH(value)) FROM state;
+  -> 534,802 keys, 272,304,981 bytes
+```
+
+**The knowledge shards are 31% of the entire state store.** Every 10 minutes
+this rewrites all 83.7 MB (~500 MB/hour) onto the volume C-95 just freed, plus a
+whole-graph gzip whose own docstring records it producing **19-25 s wedges** when
+it ran on the loop and "starving the loop for 30s+" under concurrent encoders.
+
+It is the same self-worsening O(total-graph) shape as C-95 — cost rises with
+every fact ARIA learns, forever, under §7 — just on a 10-minute timer instead of
+a 2-second one.
+
+### Suspected, NOT confirmed, as the residual spike
+
+After C-95 the loop is `healthy` at p95 1.1-1.2 ms but still shows a recurring
+~5 s `max_ms` outlier (5133.9 then 5031.6). Compaction is **disproven** as the
+cause: sampling `/health.loop` against the canonical file's mtime showed the
+spike landing with `canon` unchanged, and a real compaction (canon moved,
+journal truncated 490,908 -> 8,888 bytes) produced no new spike at all (cost
+<= ~500 ms). The 600 s snapshot timing fits the spike, but a log line tying the
+two together has not been captured. **Do not record it as the cause until it is.**
+
+Two instruments also disagree and that is unresolved: `loop_monitor` recorded
+5133.9 ms while the R-F704 wedge log stayed 0 bytes with no `[R-F703]` warning.
+One of them is wrong about a >5 s stall.
+
+### Options for the operator (none taken)
+
+1. **Gate it on the backend being genuinely off-host** — skip when the state
+   store resolves to the same volume as the canonical file. Restores the
+   original intent rather than removing anything, and reclaims the I/O.
+2. **Make it real again** — point it at an actual off-host store. Costs money
+   (§6 says the burden of proof is on any new third-party) and re-opens the
+   Upstash decision.
+3. **Leave it** — accept ~500 MB/hour and a whole-graph gzip for a same-volume
+   copy that does add crash-consistency redundancy for the JSON file even though
+   it shares a disk.
+
+Option 1 is the recommendation. It is not a deletion and it does not weaken any
+guarantee that currently holds, because a same-volume copy already provides no
+off-host guarantee.
