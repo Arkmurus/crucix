@@ -135,4 +135,4 @@ def test_complete_protected_recipe_is_current_scoring_and_generation_gated() -> 
     assert "PROTECTED_DPO_AXES=tooluse_adverse,tooluse_contradiction,tooluse_resolution,tooluse_news_impact" in launcher
     assert "aria_tooluse_citation_phoenix_v3_failed_candidate.tgz" in launcher
     assert "tooluse_novel_resolution_generation_queue.jsonl" in launcher
-    assert "exec bash scripts/train/run_tooluse_dpo.sh" in launcher
+    assert "exec bash scripts/train/run_immutable_shell.sh scripts/train/run_tooluse_dpo.sh" in launcher

@@ -36,4 +36,4 @@ FRESH_BASE=0 EXPECTED_DPO_PAIRS=20 \
   STATE_FILE=data/eval_reports/.tooluse_protected_dpo_v1_pod_state \
   REMOTE_DPO_OUT=/workspace/checkpoints/aria_tooluse_protected_dpo_v1 \
   MIN_CYCLE_DEADLINE=7200 CYCLE_DEADLINE=14400 \
-  exec bash scripts/train/run_tooluse_dpo.sh
+  exec bash scripts/train/run_immutable_shell.sh scripts/train/run_tooluse_dpo.sh
