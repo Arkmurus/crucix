@@ -34352,9 +34352,10 @@
       "title": "create stock-selected secure pod through GraphQL",
       "claimed_at": "2026-08-16T14:08:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b8033129",
+      "notes": null,
+      "shipped_at": "2026-08-16T14:46:09Z"
     }
   ]
 }
