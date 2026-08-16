@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4037,
+  "next_available": 4038,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34305,6 +34305,15 @@
       "commit_sha": "a8bf618d",
       "notes": null,
       "shipped_at": "2026-08-16T12:08:03Z"
+    },
+    {
+      "r_number": "R-F4037",
+      "title": "preserve repository root across immutable driver snapshot",
+      "claimed_at": "2026-08-16T12:09:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
