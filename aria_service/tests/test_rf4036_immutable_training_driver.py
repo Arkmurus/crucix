@@ -38,7 +38,10 @@ def test_inflight_driver_survives_source_mutation(tmp_path: Path) -> None:
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     assert process.stdout is not None
-    assert process.stdout.readline().strip() == "driver-started"
+    first_line = process.stdout.readline().strip()
+    if first_line != "driver-started":
+        _, startup_stderr = process.communicate(timeout=10)
+        pytest.fail(f"immutable driver did not start: {startup_stderr}")
     source.write_text(") syntax-corrupted-after-launch\n", encoding="utf-8")
     stdout, stderr = process.communicate(timeout=10)
 
