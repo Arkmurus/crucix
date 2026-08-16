@@ -7191,3 +7191,45 @@ A fixture caught its own harness bug worth recording: the memory probe both
 READS and WRITES the health-ping key, so patching only `get` left the write
 raising `state_store: no connection` and the whole block landing in its except —
 the test would have passed for the wrong reason on-box.
+
+### Correction to 3684b94d's subject line
+
+That commit's subject reads `(C-109..C-119, C-122)`. The shadow-guard defect
+landed as **C-123**, not C-122 — C-122 was taken by `ae03f75e` while the batch
+was mid-rebase, and the land script retargeted my citations at push time. The
+register heading, the ledger entry and every in-code citation say C-123; only
+the commit subject is stale, and a pushed subject cannot be amended.
+
+Recorded here because §26a's entire point is that a defect must be **citable**:
+an identifier that resolves to two different things is what made C-18, C-19,
+C-22 and C-23 unusable as references.
+
+**Four rounds of collision in one batch, all against the same peer, is a
+process finding, not bad luck.** What happened, in order:
+
+1. Reserved R-F4054..R-F4058 and C-120 from the shared ledger.
+2. The peer pushed those same numbers first. Renumbered to R-F4059..R-F4070 /
+   C-121.
+3. `R-F4057`, `R-F4058` and `C-121` turned out to be cited by **pushed commits
+   that were never written to the ledger** — so `reserve_r_number.py` could not
+   have warned me, and the true high-water mark had to come from a git scan.
+   Renumbered again.
+4. `R-F4059`, `R-F4060` and `C-122` were taken during the rebase itself.
+   Renumbered a third time, and the C-number a fourth time at push.
+
+Two things would each have prevented most of this:
+
+* **The ledger is not authoritative while numbers are cited without being
+  reserved.** `reserve_*_number.py audit` reports what is IN the ledger;
+  §2's rule is about what is CITED IN A PUSHED COMMIT. Those diverged by four
+  numbers here. An allocator that also scanned pushed commits — bounded to the
+  plausible range, because fixture strings like `R-F99999` and `R-F900001`
+  otherwise push it four orders of magnitude — would have caught it.
+* **Reserve-then-land must be one short operation.** Every manual
+  check-then-push round trip lost the race. The batch only landed once the
+  fetch, rebase, ledger resolution, collision re-check and push ran as a single
+  invocation that refuses to push rather than clobber a pushed citation.
+
+The three shared append-only files (`docs/cure/defects.md` and both ledgers)
+conflict on every concurrent rebase and must never be textually merged: take
+origin's copy, re-apply your own additions, recompute `next_available`.
