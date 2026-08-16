@@ -147,7 +147,33 @@ _PHONE_RE = re.compile(
 )
 _LONG_NUM_RE = re.compile(r"\b\d{12,}\b")
 
-_REDIS_STATS_KEY = "crucix:learning:harvest:stats_24h"
+# ── R-F4080 (C-128) — the key must name the window it actually keeps ────────
+#
+# This was `crucix:learning:harvest:stats_24h` while the write below uses
+# `ex=14 * 86400`. The 14-day window is DELIBERATE (see `_incr_stats`: an
+# earlier version reset the TTL on every event so the counter never rolled at
+# all) — the NAME was the defect. Measured live 2026-08-16 against every
+# sibling:
+#
+#     281.5h  crucix:learning:harvest:stats_24h     <- this one
+#       0.7h  crucix:learning:spider:stats_24h
+#       3.8h  crucix:learning:research:stats_24h
+#       7.5h  crucix:learning:memory_backup:stats_24h
+#
+# Found during the C-109 TTL audit and left standing, which is how a fix for a
+# CLASS of defect becomes a fix for one instance. Anyone comparing
+# `harvest.total_scored` against a genuinely-24h sibling was comparing a
+# fortnight to a day with nothing on the surface to say so.
+#
+# The duration is now the single source for both the TTL and the key suffix, so
+# a future change to one cannot leave the other behind.
+_STATS_TTL_S = 14 * 86400
+_REDIS_STATS_KEY = f"crucix:learning:harvest:stats_{_STATS_TTL_S // 86400}d"
+_LEGACY_STATS_KEY = "crucix:learning:harvest:stats_24h"
+# Carry the old counters across once rather than discarding a fortnight of
+# scoring to fix a label. Process-local: one extra read per process, not per
+# harvest event.
+_legacy_stats_migrated = False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -267,6 +293,19 @@ async def _incr_stats(passed: bool, dry_run: bool) -> None:
     try:
         from ..intel import redis_store as rs
         existing = await rs.get_json(_REDIS_STATS_KEY)
+        # R-F4080 — one-time carry-over from the misnamed key, then retire it.
+        # Retiring matters: two live counters for one thing is worse than the
+        # wrong name, because the next reader has to guess which is current.
+        global _legacy_stats_migrated
+        if not isinstance(existing, dict) and not _legacy_stats_migrated:
+            _legacy_stats_migrated = True
+            try:
+                legacy = await rs.get_json(_LEGACY_STATS_KEY)
+                if isinstance(legacy, dict):
+                    existing = legacy
+                    await rs.delete(_LEGACY_STATS_KEY)
+            except Exception as _mig_e:
+                logger.debug("harvest stats carry-over skipped: %s", _mig_e)
         is_fresh = not isinstance(existing, dict)
         stats = existing if isinstance(existing, dict) else {
             "total_scored": 0,
@@ -282,7 +321,7 @@ async def _incr_stats(passed: bool, dry_run: bool) -> None:
         elif passed:
             stats["total_written"] = int(stats.get("total_written", 0)) + 1
         if is_fresh:
-            await rs.set_json(_REDIS_STATS_KEY, stats, ex=14 * 86400)
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=_STATS_TTL_S)
         else:
             await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception as e:

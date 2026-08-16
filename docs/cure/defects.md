@@ -7333,7 +7333,7 @@ restored from HEAD and only these two entries re-appended. §26a's allocator is
 not enough on a shared tree when two agents reserve between one another's
 commits — the ledger merge is the failure point.
 
-### R-F4075 — C-111 follow-up: the panel was told to look shallower than the break
+### R-F4079 — C-111 follow-up: the panel was told to look shallower than the break
 
 Found by **live-smoking the deployed fix**, not by inspection, and it is worth
 recording as its own lesson.
@@ -7374,7 +7374,7 @@ tests were green, the endpoint was correct, and the panel was still going to
 show the wrong verdict — because the only thing that exercised the real depth
 was hitting the deployed system.
 
-### R-F4075 — C-111 follow-up: the panel was told to look shallower than the break
+### R-F4079 — C-111 follow-up: the panel was told to look shallower than the break
 
 Found by **live-smoking the deployed fix**, not by inspection, and it is worth
 recording as its own lesson.
@@ -7443,7 +7443,7 @@ asserts the **cross-file contract**: whatever key the page reads must be a key
 `/health` puts inside `quality`, and the current name is pinned so a rename has
 to be deliberate on both sides.
 
-**Both residuals in this batch (this and R-F4075) were found by live smoke, and
+**Both residuals in this batch (this and R-F4079) were found by live smoke, and
 neither was reachable from the unit tests** — one because the panel's configured
 depth was below the damage, one because the failure mode was a silent empty
 string. §23's "reproduce the operator's actual path" is doing real work here:

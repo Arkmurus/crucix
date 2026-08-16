@@ -1260,7 +1260,7 @@
       "status": "closed",
       "r_numbers": [
         "R-F4070",
-        "R-F4075"
+        "R-F4079"
       ],
       "notes": null,
       "closed_at": "2026-08-16T20:14:48Z"
@@ -1284,7 +1284,8 @@
       "claimed_by": "claude",
       "status": "closed",
       "r_numbers": [
-        "R-F4063"
+        "R-F4063",
+        "R-F4076"
       ],
       "notes": null,
       "closed_at": "2026-08-16T20:14:33Z"

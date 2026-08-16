@@ -179,7 +179,7 @@ async def test_deep_break_is_found_when_coverage_reaches_it(wires):
 # ── 5. the panel must look deep enough to reach the break ──────────────────
 
 def test_panel_depth_reaches_the_known_break():
-    """R-F4075 — found by live-smoking the deployed R-F4070 fix, not by
+    """R-F4079 — found by live-smoking the deployed R-F4070 fix, not by
     inspection.
 
     The verdict was honest about coverage and I had told it to cover less than

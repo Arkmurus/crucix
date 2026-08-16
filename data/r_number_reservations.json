@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4081,
+  "next_available": 4082,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34694,8 +34694,8 @@
       "title": "core-composition row read a field name the backend never published",
       "claimed_at": "2026-08-16T20:18:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
+      "status": "shipped",
+      "commit_sha": "eebef531",
       "notes": null
     },
     {
@@ -34729,6 +34729,15 @@
       "r_number": "R-F4080",
       "title": "four failures hidden by the CLI collection abort",
       "claimed_at": "2026-08-16T20:40:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4081",
+      "title": "restore the inner result loop so multilingual adverse-media hits reach the report",
+      "claimed_at": "2026-08-16T20:40:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

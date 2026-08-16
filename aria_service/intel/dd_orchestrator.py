@@ -9955,7 +9955,22 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                     _probe_failed_langs = [
                                         _l for _l, _, _ok in _results if not _ok
                                     ]
+                                    # R-F4081 (C-129) — the inner loop over the
+                                    # results was lost in 3e0d8497 (2026-08-13),
+                                    # leaving the body referencing an unbound
+                                    # `_r`. Every iteration raised NameError,
+                                    # the enclosing `except … logger.debug`
+                                    # swallowed it, and
+                                    # `adverse_media_hits` was NEVER populated:
+                                    # multilingual adverse media returned
+                                    # nothing and read as a clean subject. A
+                                    # FALSE CLEAN on the DD path, latent for
+                                    # three days — the exact class C-39 exists
+                                    # to prevent. Found by R-F1908's
+                                    # undefined-name gate, which had gone red
+                                    # and unattributed in the standing set.
                                     for _lang, _res_list, _ok in _results:
+                                        for _r in (_res_list or []):
                                             _adverse_hits.append({
                                                 "lang":    _lang,
                                                 "title":   getattr(_r, "title", "")[:240],

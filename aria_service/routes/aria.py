@@ -28540,7 +28540,7 @@ def _dashboard_panel_registry() -> dict:
         # rows that read as an intact permanent record, while the live chain was
         # verifiably broken and nothing checked.
         #
-        # R-F4075 — the depth was 200 and the live break is at index 411, so the
+        # R-F4079 — the depth was 200 and the live break is at index 411, so the
         # panel reported `partial_ok` on a chain that a full check calls
         # `broken` (breaks at 411 and 530, the latter a chain restart to the
         # genesis hash). Caught by live-smoking the deployed fix, not by
