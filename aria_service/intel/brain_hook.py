@@ -289,6 +289,39 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "self_restart":         ["general"],
     "dead_letter_queue":    ["general", "compliance"],
     "circuit_breaker":      ["general", "compliance"],
+
+    # ── R-F4046 (C-106) — modules that call absorb() but had no topic entry ──
+    #
+    # `absorb` routes knowledge by `_MODULE_TOPICS.get(module, ["general"])`, so
+    # these were absorbing real domain knowledge into an undifferentiated
+    # `general` bucket. Measured 2026-08-16: 25 of the 124 distinct absorb()
+    # module names were unregistered.
+    #
+    # Only absorb() callers are listed. 343 further names report through
+    # `record_signal`/`wire_*`, which never consult topics — registering those
+    # would be decoration, and `_MODULE_TOPICS` is a ROUTING TABLE, not an
+    # inventory of what exists (C-104 measured 87.8% of live signals arriving
+    # from names outside it).
+    #
+    # Topics are taken from the vocabulary already in this table and matched to
+    # existing precedent — a WRONG topic is worse than the `general` default,
+    # because mis-tagged knowledge is retrieved for the wrong questions.
+    # Genuinely ambiguous / infrastructure absorbers are left on the default and
+    # declared in `DELIBERATELY_GENERAL` in the R-F4046 test.
+    "crypto_sanctions":       ["compliance", "legal", "sanctions"],
+    "rca_screening":          ["compliance", "legal", "sanctions"],
+    "fcpa_enforcement":       ["compliance", "legal"],
+    "tbml_detection":         ["compliance", "finance"],
+    "registration_check":     ["compliance", "legal"],
+    "companies_house":        ["compliance", "legal", "market_intel"],
+    "dd_registry_enrichment": ["compliance", "legal"],
+    "counter_intelligence":   ["osint", "geopolitics"],
+    "web_explorer":           ["osint", "general"],
+    "deal_predictor":         ["market_intel", "procurement"],
+    "commercial_coherence":   ["market_intel", "procurement"],
+    "strategic_evolution":    ["market_intel", "geopolitics"],
+    "precall_brief":          ["relationships", "market_intel"],
+    "meeting_notes":          ["relationships", "general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)

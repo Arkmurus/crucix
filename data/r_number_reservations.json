@@ -34395,6 +34395,15 @@
       "notes": null
     },
     {
+      "r_number": "R-F4046",
+      "title": "route knowledge-producing modules to real topics; guard the gap",
+      "claimed_at": "2026-08-16T15:40:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
       "r_number": "R-F4047",
       "title": "rotate GraphQL creation across approved GPU stock",
       "claimed_at": "2026-08-16T15:48:46Z",

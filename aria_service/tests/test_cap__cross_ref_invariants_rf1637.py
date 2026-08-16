@@ -173,6 +173,15 @@ def test_all_brain_hook_entries_have_modules():
         "tech_classifier", "aria_peers", "predictor",
         "self_assess", "self_monitor", "ingest_sweep", "news_monitor",
         "self_introspect_guard", "ground_truth_loop",
+        # R-F4046 (C-106) — absorb()-only knowledge producers given real topics.
+        # Same category as the entries above: they wire via brain_hook.absorb()
+        # and are not self_diagnostic engines, so they have no _MODULES entry.
+        # They were selected BECAUSE they call absorb(), so this is the
+        # documented orphan class, not a widened guard.
+        "crypto_sanctions", "rca_screening", "fcpa_enforcement",
+        "registration_check", "companies_house", "dd_registry_enrichment",
+        "web_explorer", "deal_predictor", "commercial_coherence",
+        "strategic_evolution", "precall_brief", "meeting_notes",
         "bd_strategy", "engagement",
     }
     actual_orphans = [o for o in orphaned if o not in known_orphans]

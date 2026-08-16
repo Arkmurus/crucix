@@ -5879,3 +5879,74 @@ daily compaction I/O : ~78.8 GB/day  ->  ~1.5 GB/day  (~53x, with C-103)
 only 2 red are the recorded `docs/suite_baseline.json` entries verified
 unrelated. Full-tree compile gate green; lint clean; bandit unchanged at 0
 medium/high.
+
+---
+
+## C-106 · knowledge-producing modules routed to `general` (R-F4046)
+
+`brain_hook.absorb()` routes a module's knowledge into the learning tiers by
+topic: `topics = list(_MODULE_TOPICS.get(module, ["general"]))`. A module missing
+from the table is not broken — its knowledge is still absorbed — but it lands in
+an undifferentiated `general` bucket rather than `compliance` / `sanctions` /
+`market_intel`, which is where the topic-aware tiers look.
+
+### The measurement that scoped the fix
+
+```
+registry entries                : 159
+distinct absorb() module names  : 124
+distinct telemetry module names : 481
+unregistered AND using absorb() :  25    <- real routing loss
+unregistered, telemetry-only    : 343    <- topics never consulted
+```
+
+**481 against a 159-entry table settles what `_MODULE_TOPICS` is**: a ROUTING
+TABLE, not an inventory of what exists — and it never could be one. C-104 had
+already measured 87.8% of live brain signals arriving from names outside it
+(`redis_store` alone sends 15,481). Registering all 343 telemetry names would be
+decoration, since only `absorb` reads topics.
+
+So the actionable set is 25, not 149 — and among those a WRONG topic is worse
+than the safe default, because mis-tagged knowledge is retrieved for the wrong
+questions.
+
+### The fix
+
+14 modules registered with topics drawn from the vocabulary already in the table
+and matched to existing precedent (`sanctions` family →
+`["compliance","legal","sanctions"]`). Weights are deliberately NOT added:
+`_MODULE_WEIGHT.get(module, 0.15)` already has a sane default, and inventing
+per-module weights would be fabrication.
+
+11 absorb() callers are left on `general` **on purpose** and declared in
+`DELIBERATELY_GENERAL` — infrastructure and self-observation (`aria_coder`,
+`deploy`, `boot_diagnostic`, `rag_store`, …) whose output is not domain
+knowledge, or whose topic varies per call.
+
+### The anti-rot mechanism is the point
+
+A hand-maintained list against a growing tree always rots — §27d says exactly
+this about the search-engine list — and this one had already drifted to 25. The
+guard now **fails when a NEW `absorb()` module appears** with neither a topic
+entry nor a deliberate declaration, forcing the decision at the moment someone
+actually knows the domain. It also carries a guard-the-guard test: a scan
+finding <50 absorb sites fails, because a guard whose universe is empty always
+certifies (§1).
+
+### A third registry, and why the orphan entry is legitimate
+
+R-F1637 cross-checks `_MODULE_TOPICS` against `self_diagnostic._MODULES` and
+flagged 12 of the new entries. `_MODULES` is the self-diagnostic health-check
+inventory; absorb()-only knowledge producers are not engines in it, which is
+why `known_orphans` exists and already carries ~100 such names (`sanctions`,
+`knowledge_spider`, `writer_orchestrator`). The 12 were added to that documented
+category — they were selected BECAUSE they call `absorb()`, so this is the
+class the set describes, not a widened guard.
+
+### Verified
+
+6 tests, 2 RED first. 35 pass across the new file plus C-104's and the R-F1637
+invariant. 1481 passed across every test importing `brain_hook`, back to the
+pre-existing 8 failures (7 recorded baseline entries + the pre-existing
+`test_rf1696` sanctions failure proven unrelated by stashing). Compile gate
+green; bandit unchanged at 0 medium/high.
