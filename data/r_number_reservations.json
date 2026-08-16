@@ -34332,9 +34332,10 @@
       "title": "sidecar hedge interval shorter than compaction cadence — never throttled",
       "claimed_at": "2026-08-16T13:39:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0317a0f6",
+      "notes": null,
+      "shipped_at": "2026-08-16T13:58:26Z"
     },
     {
       "r_number": "R-F4040",
