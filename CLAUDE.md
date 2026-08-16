@@ -1019,10 +1019,37 @@ back up.** If so it is a redundant local second copy costing a whole-graph gzip
 every 10 minutes. Confirm that before changing anything; it is a BACKUP path, so
 removing or re-scoping it needs operator sign-off (and §26 forbids deletion).
 
-Two instruments DISAGREED here and that is unresolved: `loop_monitor` recorded
-5134 ms while the R-F704 wedge log stayed **0 bytes** and no `[R-F703]` warning
-was found. One of them is wrong about a >5 s stall. Establish which before
-trusting either for this class.
+~~Two instruments DISAGREED here and that is unresolved~~ — **RESOLVED 2026-08-16
+(R-F4030/C-99): they never disagreed, and the "0 bytes" reading was of the wrong
+file.** `/data/wedge_stacks` holds **733** dumps; the process running at the time
+wrote **723 KB / 60 dumps**. A wedge log is created by `open(..., "a")` at boot
+and stays 0 bytes until its FIRST dump, so a freshly-booted process always shows
+one — reading it as "the watchdog never fired" is the same absence-reads-as-health
+shape §1 records three times. The two instruments **cannot** disagree by
+construction: `main.py:1928` feeds `record_lag` from the SAME `elapsed` the stall
+check reads, in the same iteration, against the same 5.0 s threshold.
+
+⚠️ **AND THE PRIME SUSPECT NAMED ABOVE IS WRONG — the sharded snapshot appears in ZERO
+of 59 parsed main-thread frames.** Parsing the prior process's log: **50 of 59
+(85%)** show a bare `asyncio/runners.py:119` innermost frame — uvloop's C loop,
+idle, nothing blocking — i.e. R-F3252 **starvation**, not a blocking call. Only 9
+show a real blocking call (ssl.read 2, gzip.compress 2, logging.emit 2,
+`_rank_knowledge_facts` 1, …). Compaction is also disproven as the driver: stall
+inter-arrival is **median 33.2 min, range 1.3–123 min**, not a 900 s period. CPU
+is disproven too: PSI `cpu` is `0.00` across avg10/60/300, steal is flat, the box
+is **shared-cpu-8x with 8 usable vCPUs** (`nproc`=1 is `OMP_NUM_THREADS=1`, a BLAS
+setting, NOT a CPU limit), and threads are stable at 28 — so not the R-F3252 leak
+either. **The surviving, measured lead is IO:** PSI `io` shows `full
+total=145.97 s` since boot (`full` = every runnable task blocked → the whole
+process freezes → idle main thread + stale heartbeat), near-zero in steady state,
+so it arrives in bursts. Writer not yet attributed. Do not chase this with a
+timeout.
+
+**One real cause WAS found and fixed (C-99):** `memory_leak_detector.py` ran a
+synchronous `import torch` on the loop — caught mid-import by a wedge dump during
+a measured 5.25 s stall, two lines above the `gc.collect()` R-F3924 had already
+moved off-loop. Rare (one cold import per process), so it explains one stall
+class, not the residual.
 
 Never delete the journal file — it holds every fact written since the last
 compaction.

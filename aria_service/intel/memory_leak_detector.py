@@ -180,6 +180,62 @@ def process_memory_report() -> dict[str, Any]:
     }
 
 
+# R-F4030 (C-99) — one-shot so a persistent torch API break announces once per
+# process, not every GC pass. Same reasoning as C-98's degraded-state notice: a
+# per-occurrence signal on a recurring path floods the ledgers (§21a).
+_TORCH_CLEAR_FAILURE_WIRED = False
+
+
+def _clear_torch_caches() -> None:
+    """Drop torch's CUDA + autocast caches. SYNC — ALWAYS call via to_thread.
+
+    R-F1332 clears these before GC because sentence_transformers' model.encode()
+    holds tensor references in thread-local caches that GC cannot reach; clearing
+    them is what lets GC actually reclaim the resident memory (live evidence: GC
+    freed 0.0MB every 5min while RSS sat at 2588.4MB).
+
+    R-F4030 — WHY THIS IS A SEPARATE FUNCTION AND NOT INLINE. `import torch` is
+    cheap only once sys.modules is warm; the FIRST threshold crossing in a
+    process loads a large C-extension tree and takes seconds. It sat inline on
+    the event-loop thread, two lines above the gc.collect() that R-F3924 had
+    already moved off-loop for this exact starvation class. Live evidence
+    (2026-08-16, aria-intel): an R-F704 wedge stack caught the main thread
+    mid-`import torch` under this frame during a measured 5.25s loop stall.
+
+    The failure branch is WIRED (§21a): it used to be `except Exception: pass`,
+    so a torch API change would have silently stopped memory reclamation with
+    nothing observable anywhere.
+    """
+    global _TORCH_CLEAR_FAILURE_WIRED
+    try:
+        import torch as _torch
+        if hasattr(_torch, "cuda") and _torch.cuda.is_available():
+            _torch.cuda.empty_cache()
+        # Clear CPU-side tensor caches in sentence_transformers
+        if hasattr(_torch, "_C"):
+            _torch._C._clear_autocast_cache()
+    except ImportError:
+        # torch genuinely absent (win32/ARM64 per §16) — not a failure.
+        pass
+    except Exception as exc:
+        if not _TORCH_CLEAR_FAILURE_WIRED:
+            _TORCH_CLEAR_FAILURE_WIRED = True
+            try:
+                wire_failure(
+                    module="memory_leak_detector",
+                    detail=(
+                        f"torch cache clear failed ({type(exc).__name__}: {exc}) — "
+                        f"tensor caches are no longer being released before GC, so "
+                        f"RSS will keep climbing even when collection runs. Announced "
+                        f"once per process."
+                    ),
+                    gap_type="performance",
+                    source="memory_leak_detector:_clear_torch_caches",
+                )
+            except Exception:      # pragma: no cover - telemetry never blocks
+                pass
+
+
 class MemoryLeakDetector:
     """Detects and reports memory growth patterns.
 
@@ -296,24 +352,9 @@ class MemoryLeakDetector:
                             "[memory_leak_detector] RSS %.1fMB exceeds threshold %dMB — triggering GC",
                             snapshot["rss_mb"], _THRESHOLD_MB,
                         )
-                        # R-F1332: clear torch CUDA/tensor caches before GC.
-                        # The profiler shows 35% CPU in thread._worker + 23% in
-                        # aiosqlite — sentence_transformers model.encode() holds
-                        # tensor references in thread-local caches that GC can't
-                        # reach. Clearing them frees the resident memory so GC
-                        # can actually reclaim it (live evidence: GC freed 0.0MB
-                        # every 5min while RSS stayed at 2588.4MB).
-                        try:
-                            import torch as _torch
-                            if hasattr(_torch, "cuda") and _torch.cuda.is_available():
-                                _torch.cuda.empty_cache()
-                            # Clear CPU-side tensor caches in sentence_transformers
-                            if hasattr(_torch, "_C"):
-                                _torch._C._clear_autocast_cache()
-                        except ImportError:
-                            pass
-                        except Exception:
-                            pass
+                        # R-F4030 (C-99) — OFF THE EVENT LOOP, for the same reason
+                        # the gc.collect() below already is. See _clear_torch_caches.
+                        await asyncio.to_thread(_clear_torch_caches)
 
                         # R-F3924 — OFF THE EVENT LOOP. A full gc.collect() walks
                         # every tracked object; at 6.7GB live that is exactly the

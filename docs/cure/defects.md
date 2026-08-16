@@ -5295,3 +5295,94 @@ write.
 **Verified:** 10 tests, RED before. 699 passed across every test importing
 `knowledge` plus the semantic-index file; only the 2 recorded
 `docs/suite_baseline.json` entries still red. Full-tree compile gate green.
+
+---
+
+## C-99 · a synchronous `import torch` on the event loop (R-F4030)
+
+`memory_leak_detector.run_forever` cleared torch's CUDA + autocast caches
+inline, on the loop thread, immediately **above** the `gc.collect()` that
+R-F3924 had already moved off-loop for this exact starvation class. The fix
+addressed the line below and missed the line above.
+
+`import torch` is a dict lookup only once `sys.modules` is warm. On the FIRST
+threshold crossing in a process it loads a large C-extension tree and takes
+seconds — and that is precisely when it ran, because the branch is gated on RSS
+exceeding 6144 MB, which a fresh process reaches only after real work.
+
+### The evidence
+
+An R-F704 wedge stack caught the main thread mid-import, during a **measured
+5.25 s stall** (aria-intel, 2026-08-16 09:12:11 UTC, process booted 09:09:53):
+
+```
+File "/app/aria_service/intel/memory_leak_detector.py", line 307 in run_forever
+File "/usr/local/lib/python3.13/site-packages/torch/__init__.py", line 2821 in <module>
+File "/usr/local/lib/python3.13/site-packages/torch/export/__init__.py", line 42 in <module>
+```
+
+This is an **application frame on the main thread**, which is R-F3252's own
+discriminator for "something blocked the loop" as against thread starvation.
+
+### The fix
+
+`_clear_torch_caches()` is now a module-level sync function called via
+`asyncio.to_thread`, preserving order (caches cleared, then GC). Its failure
+branch is **wired** (§21a) — it was `except Exception: pass`, so a torch API
+change would have silently stopped memory reclamation with nothing observable.
+Announced once per process, not per GC pass (the C-98 flood reasoning).
+
+`ImportError` stays silent: torch is genuinely absent on win32/ARM64 (§16) and
+that is not a failure.
+
+### Verified
+
+Both tests RED first, for the right reason (`assert 55344 != 55344` — the clear
+ran on the loop thread), then GREEN. They are behavioural, not a `to_thread`
+grep, because a structural check would pass on a fix that threads the wrong
+call: (1) the work runs on a non-loop thread, (2) the loop keeps turning while
+it runs. 14/14 green including R-F3924's and R-F1148's existing contracts.
+
+### What this does NOT explain — three hypotheses killed on evidence
+
+C-99 is **one** cause among several, and is rare (one cold import per process).
+Parsing all 59 main-thread frames from the prior process's wedge log:
+
+| main-thread innermost frame | dumps | reading |
+|---|---:|---|
+| bare `asyncio/runners.py:119` (uvloop C loop, idle) | 50 | starved, nothing blocking |
+| `ssl.py:868 read` | 2 | blocking call |
+| `gzip.py:610 compress` | 2 | blocking call |
+| `logging/__init__.py:1154 emit` | 2 | blocking stdout write |
+| `knowledge.py:2370 _rank_knowledge_facts` | 1 | blocking call |
+
+Killed, each having been a stated prime suspect:
+
+1. **The R-F334 sharded snapshot** (CLAUDE.md §28's "prime suspect"): appears in
+   **zero** of 59 dumps. C-98 gated it off; it was never this.
+2. **Compaction cadence** (`COMPACT_MAX_AGE_S=900`): stall inter-arrival is
+   median **33.2 min**, range 1.3–123 min over 42 dumps — not a 15-min period.
+3. **CPU starvation / oversubscription**: PSI `cpu` reads `avg10=avg60=avg300=0.00`
+   and `/proc/stat` steal is flat. The box is **shared-cpu-8x** with 8 usable
+   vCPUs; `nproc`=1 is `OMP_NUM_THREADS=1` (deliberate BLAS tuning), not a CPU
+   limit. Thread count is stable at 28 (11 aiosqlite + 11 futures workers), so
+   this is also not the R-F3252 thread leak (that was 56, peak 140).
+
+**The surviving lead is IO, and it is measured, not guessed.** PSI `io` shows
+`full total=145.97 s` accumulated since boot — `full` meaning *every* runnable
+task was blocked, which freezes the whole process and produces exactly an idle
+uvloop main thread with a stale heartbeat and no blocking Python frame. It is
+near-zero in steady state (107 µs over 9 min), so it is concentrated in bursts.
+Not yet attributed to a writer. **Do not fix this by lengthening a timeout.**
+
+### Correction to a standing claim
+
+CLAUDE.md §28 recorded that "two instruments DISAGREED — `loop_monitor` recorded
+5134 ms while the R-F704 wedge log stayed **0 bytes**". **The wedge log is not
+0 bytes and the instruments do not disagree.** `/data/wedge_stacks` holds 733
+files; the prior process wrote **723 KB / 60 dumps**, and the current one 38 KB
+/ 3 dumps. Both instruments are fed by the *same* `elapsed` in the *same*
+iteration (`main.py:1928` feeds `record_lag` from the value the stall check
+reads) and share the same 5.0 s threshold, so they cannot disagree by
+construction. The earlier reading was of a freshly-created log, which is 0 bytes
+until its first dump — `open(..., "a")` creates it at boot.

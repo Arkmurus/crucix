@@ -1107,6 +1107,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T09:04:16Z"
+    },
+    {
+      "c_number": "C-99",
+      "title": "synchronous import torch stalls the event loop",
+      "claimed_at": "2026-08-16T10:29:45Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4030"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T10:34:06Z"
     }
   ]
 }
