@@ -232,7 +232,7 @@ for i in $(seq 1 "$MAX_CREATE_TRIES"); do
   fi
   rm -f "$CREATE_ERR"
   for _ in $(seq 1 40); do
-    PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY"); ST=$(printf '%s' "$PD" | jget desiredStatus)
+    PD=$(curl.exe -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY"); ST=$(printf '%s' "$PD" | jget desiredStatus)
     HOST=$(printf '%s' "$PD" | jget publicIp); PORT=$(printf '%s' "$PD" | pmget)
     [ "$ST" = RUNNING ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break; sleep 10
   done
