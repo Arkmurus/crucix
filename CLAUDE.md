@@ -1027,6 +1027,40 @@ trusting either for this class.
 Never delete the journal file — it holds every fact written since the last
 compaction.
 
+**R-F4028 (C-98) — the R-F334 "off-host backup" was neither off-host nor free,
+and it is now GATED.** `_flush_loop`'s other job gzipped the whole 533k-fact
+graph every `SNAPSHOT_INTERVAL_S=600` and wrote it through `rs.set`. R-F334
+built that as a genuine off-host tier; **R-F745 flipped the backend to sqlite
+and Upstash was cancelled (§6/§18), voiding the premise, and nothing revisited
+it.** Measured 2026-08-14 (`ARIA_STATE_BACKEND=sqlite`, `REDIS_URL` unset):
+
+```sql
+SELECT COUNT(*), SUM(LENGTH(value)) FROM state WHERE key LIKE '%knowledge:shard%';
+  -> 225 keys, 83,660,672 bytes     -- 31% of the ENTIRE state store
+```
+
+83.7 MB rewritten every 600 s into `/data/aria_state.db` — the same volume as
+the `/data/aria_knowledge.json` it backs up (~500 MB/hour) — plus a whole-graph
+gzip its own docstring records producing 19-25 s wedges. A copy sharing a
+failure domain with its original is not a backup.
+
+`_snapshot_target_is_offhost()` is **tri-state and its safety default is the
+OPPOSITE of `_save`'s**: `True` (remote backend, or sqlite on another volume) →
+runs; `False` (same volume) → skipped; **`None` (unmeasurable) → RUNS**. "I
+could not measure" must never silently stop backing data up. A remote backend
+still snapshots (pinned for `upstash`/`redis`), so re-pointing the state store
+off-host resumes the backup with **no code change** — do not "simplify" that
+branch away. Device identity is compared via `st_dev`, not path strings, so a
+symlink or bind mount cannot masquerade as a second failure domain. The skip
+announces **once per process** (a 600 s steady state defeats the 300 s cooldown
+and would emit ~144/day — the `sanctions_coverage_degraded` flood shape).
+
+**The transferable lesson is the premise, not the plumbing:** R-F334 was correct
+when written. A change *somewhere else* (the backend default) silently voided
+its reason to exist, and the code kept doing exactly what it was told for three
+months. When a mechanism looks expensive, check whether the thing it was built
+for is still true.
+
 **R-F4024 (C-96) — `/health` now reads the gauge it publishes.** It used to
 return `loop.status: starved` (p95 3264 ms) beside `status: operational`,
 `degraded_reasons: []` and a GREEN self-diagnostic, in the SAME payload. That is
