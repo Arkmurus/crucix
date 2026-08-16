@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import _norm_subject, validate_trace
+from scripts.train.build_tooluse_dpo import build_pairs
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,3 +47,26 @@ def test_launcher_pins_current_candidate_and_is_generation_only() -> None:
     assert "exec bash scripts/train/run_tooluse_generation.sh" in launcher
     assert "run_tooluse_dpo.sh" not in launcher
     assert "run_tooluse_sft" not in launcher
+
+
+def test_complete_report_yields_only_eight_observed_resolution_failures() -> None:
+    report = json.loads(
+        (ROOT / "data/eval_reports/aria_tooluse_protected_positive_v1_resolution_generations.json")
+        .read_text(encoding="utf-8")
+    )
+    corpus = _rows(ROOT / "data/training/tooluse_novel_resolution_generation_queue.jsonl")
+    held = {
+        _norm_subject(str(row.get("subject") or ""))
+        for row in _rows(ROOT / "data/training/split_v1/eval.jsonl")
+    } - {""}
+    pairs = build_pairs(report, corpus, eval_entities=held, validate_chosen=True)
+    written = _rows(
+        ROOT / "data/training/aria_tooluse_protected_positive_v1_resolution_dpo.jsonl"
+    )
+
+    assert report["complete"] is True
+    assert report["total"] == 15
+    assert sum(row["honest"] is True for row in report["rows"]) == 7
+    assert written == pairs
+    assert len(pairs) == 8
+    assert {pair["label"] for pair in pairs} == {"tooluse_resolution"}
