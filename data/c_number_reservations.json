@@ -1143,6 +1143,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T12:06:54Z"
+    },
+    {
+      "c_number": "C-102",
+      "title": "security audit findings never reached the brain",
+      "claimed_at": "2026-08-16T13:22:21Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4038"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T13:27:39Z"
     }
   ]
 }

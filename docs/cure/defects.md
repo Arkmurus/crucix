@@ -5554,3 +5554,64 @@ that compaction cadence was already disproven as *the* driver (stall
 inter-arrival median 33.2 min vs a 900s period). Knowledge persistence remains
 the standing suspect for the starved class; establish it from a distribution
 over dumps, as C-99 did, before acting.
+
+---
+
+## C-102 · the security audit's findings never reached the brain (R-F4038)
+
+§21a defines a path as wired only if BOTH branches emit to `brain_hook` /
+`capability_gaps` / `mistake_ledger` / a metric, and says explicitly that
+"logged to console" is DARK.
+
+`run_security_audit` was dark on every branch. Its CRITICAL findings — a leaked
+API key or a system-prompt fragment in the knowledge base — reached only a
+`logger.warning` in `self_improve` (Step 6) and the HTTP response body. So:
+
+  * ARIA could not see her own security findings;
+  * the coder loop could never pick one up, though §21e says every finding that
+    can be a Gap MUST become a Gap;
+  * a check that SKIPPED — went blind — was indistinguishable from one that
+    passed.
+
+**Why it looked covered.** This module DOES call `wire_failure`/`wire_success`
+— on the knowledge-INGESTION function (R-F996), ~150 lines below. A grep for
+wiring tokens in `security_protocol.py` returns hits, so the module reads as
+wired while its highest-value output is not. Same shape as C-97, where
+R-F4022's own failure branches were dark inside a module full of wiring.
+
+### The fix
+
+`_wire_audit_outcome(result)` on the `run_security_audit` entry point (both
+callers — `self_improve` Step 6 and `POST /api/aria/security/audit` — go
+through it):
+
+  * findings (critical **or** actionable warning) → `wire_failure`, which
+    R-F3036 routes to BOTH `capability_gaps.record_gap` (the coder) and
+    `brain_hook.record_signal(success=False)` (the health metric);
+  * clean → `wire_success`;
+  * **a SKIP is reported as a failure** — "could not look" is not "looked and
+    found nothing", the exact collapse §1 records for three Phase A gates.
+
+`gap_type="security_audit_finding"` is a new string. Verified safe before use:
+`AUTONOMY_LEVEL.get(gap_type, (False, False, False))` means an unrecognised
+type is **never auto-fixable**, so this cannot hand the coder a security finding
+to fix unattended. Non-enum gap types are already used in-tree
+(`compliance_engine_failure`, `sanctions_coverage_degraded`).
+
+**Flood control is load-bearing.** The audit runs every 2h while `record_gap`
+dedupes only 1h, so reporting every cycle would push ~12 gaps/day of a STANDING
+finding into a 500-slot ledger — the shape CLAUDE.md already records for
+`sanctions_coverage_degraded`. The outcome is reported on CHANGE of the finding
+SET. A new finding re-reports, and **so does a recovery to clean** — otherwise
+the brain's last word on this module would stay "failing" forever.
+
+The telemetry guard logs rather than `pass`es: a wiring failure must not break a
+security audit, but it must not be dark either. Wiring the wiring failure would
+be circular.
+
+### Verified
+
+8 tests, all RED first. 101 tests pass across every `security_protocol`
+consumer. Full-tree compile gate green. **bandit 0 issues at every severity** —
+the first draft's `except: pass` raised a B110 Low, fixed by logging rather than
+by suppressing the warning.

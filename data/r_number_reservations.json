@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4038,
+  "next_available": 4039,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34316,6 +34316,15 @@
       "commit_sha": "0d08724c",
       "notes": null,
       "shipped_at": "2026-08-16T12:33:47Z"
+    },
+    {
+      "r_number": "R-F4038",
+      "title": "wire security audit outcome to the brain (dark since R-F749)",
+      "claimed_at": "2026-08-16T13:22:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

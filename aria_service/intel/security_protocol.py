@@ -24,6 +24,8 @@ from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 import time
@@ -856,6 +858,76 @@ def classify_data_sensitivity(text: str) -> str:
     return "PUBLIC"
 
 
+# R-F4038 (C-102) — signature of the LAST outcome reported to the brain. The
+# audit runs every 2h while `record_gap` dedupes only 1h, so reporting every
+# cycle would push ~12 gaps/day of a STANDING finding into a 500-slot ledger —
+# the flood shape CLAUDE.md records for `sanctions_coverage_degraded`. Report on
+# CHANGE instead: a new finding, or a recovery to clean, both emit.
+_LAST_AUDIT_SIGNATURE: str | None = None
+
+
+def _audit_signature(critical: list, warning: list) -> str:
+    payload = json.dumps(
+        {"critical": sorted(str(c) for c in critical),
+         "warning": sorted(str(w) for w in warning)},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _wire_audit_outcome(result: dict) -> None:
+    """§21a — report the audit's outcome to the brain, on BOTH branches.
+
+    R-F4038 — WHY. This module's only wires were on the knowledge-INGESTION
+    function (R-F996), so a grep for `wire_failure` made it look covered while
+    `run_security_audit` was dark on every branch. Its CRITICAL findings — a
+    leaked API key, a system-prompt fragment in the knowledge base — reached
+    only a `logger.warning` in self_improve and the HTTP response, which §21a
+    defines as DARK. The coder could therefore never pick one up (§21e).
+
+    A SKIPPED check is reported as a FAILURE: "could not look" is not "looked
+    and found nothing" — the distinction §1 records three Phase A gates for
+    losing. Never raises: telemetry must not break the audit.
+    """
+    global _LAST_AUDIT_SIGNATURE
+    try:
+        critical = list(result.get("critical") or [])
+        # Only actionable warnings — advisory placeholders are not findings.
+        warning = [w for w in (result.get("warning") or [])
+                   if "FAIL" in str(w) or "SKIP" in str(w)]
+
+        sig = _audit_signature(critical, warning)
+        if sig == _LAST_AUDIT_SIGNATURE:
+            return                     # unchanged state — already reported
+        _LAST_AUDIT_SIGNATURE = sig
+
+        if critical or warning:
+            head = "; ".join(str(x)[:160] for x in (critical + warning)[:3])
+            wire_failure(
+                module="security_protocol",
+                detail=(
+                    f"security audit: {len(critical)} critical, {len(warning)} "
+                    f"warning — {head}"
+                ),
+                gap_type="security_audit_finding",
+                source="security_protocol:run_security_audit",
+            )
+        else:
+            wire_success(
+                module="security_protocol",
+                summary=(
+                    f"security audit clean "
+                    f"({len(result.get('clean_areas') or [])} checks passed)"
+                ),
+                source_id="security_protocol:run_security_audit",
+            )
+    except Exception as exc:           # pragma: no cover - telemetry never blocks
+        # Swallowed on purpose: a brain-wiring failure must not break a SECURITY
+        # audit. Logged rather than `pass`ed so the failure is not itself dark —
+        # wiring the wiring failure would be circular.
+        logger.debug("[R-F4038] audit outcome wiring failed: %s", exc)
+
+
 async def run_security_audit() -> dict:
     """Perform the ARIA self-audit checklist.
 
@@ -883,7 +955,9 @@ async def run_security_audit() -> dict:
     timestamp = datetime.now(timezone.utc).isoformat()
     logger.info("Security audit started at %s", timestamp)
     all_facts = await knowledge.get_all_facts()
-    return await asyncio.to_thread(_run_security_audit_sync, all_facts, timestamp)
+    result = await asyncio.to_thread(_run_security_audit_sync, all_facts, timestamp)
+    _wire_audit_outcome(result)        # R-F4038 (C-102) — §21a, both branches
+    return result
 
 
 # R-F4032 (C-100) — bounded work unit for the corpus scan. This number IS the
