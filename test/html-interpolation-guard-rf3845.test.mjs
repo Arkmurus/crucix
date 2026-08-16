@@ -109,7 +109,11 @@ const EXPECTED_RAW = {
     "chips || '<span class=\"neutral\">none</span>'",
     "providerChips || '<span class=\"neutral\">No LLM providers configured</span>'",
     'resilience.local_brain_ready ? \'<span class="value good">READY</span>\' : \'<span class="value bad">OFF</span>\'',
-    'mem.redis_reachable ? \'<span class="value good">up</span>\' : \'<span class="value bad">down</span>\'',
+    // R-F4065 (C-117) — same two literal markup constants, renamed subject.
+    // The field said "Redis" while the state store is SQLite (Upstash
+    // decommissioned 2026-05-12), so the variable is now `storeUp` and the
+    // label is escaped separately.
+    'storeUp ? \'<span class="value good">up</span>\' : \'<span class="value bad">down</span>\'',
     "arr.map(_card).join('')",    // the eco-card grid; each card escapes its own fields
   ]),
 };

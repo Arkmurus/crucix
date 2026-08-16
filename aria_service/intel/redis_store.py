@@ -647,6 +647,33 @@ async def hget(key: str, field: str) -> Optional[str]:
         return None
 
 
+async def hdel(key: str, field: str) -> bool:
+    """Delete one hash field. Returns True if it existed.
+
+    R-F4068: `state_store.hdel` has existed since R-F1518 but had no
+    redis_store wrapper, so `rs.hdel(...)` raised AttributeError — the same
+    missing-wrapper shape as R-F2486 (hget) and R-F2625 (hincrby). Needed to
+    keep a bucketed counter bounded: without a delete the hash grows one field
+    per hour forever, which is the unbounded-growth class §28 records.
+    """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.hdel(key, field)
+    if _client:
+        try:
+            return bool(await _client.hdel(key, field))
+        except Exception as e:
+            logger.warning("Redis HDEL %s.%s failed: %s", key, field, e)
+    try:
+        existing = json.loads(_mem_store.get(key, "{}"))
+        had = field in existing
+        existing.pop(field, None)
+        _mem_store[key] = json.dumps(existing)
+        return had
+    except Exception:
+        return False
+
+
 async def hincrby(key: str, field: str, amount: int = 1, *, critical: bool = False) -> int:
     """Atomically increment an integer hash field, returning the new value.
 

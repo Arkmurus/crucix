@@ -1362,6 +1362,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T19:42:45Z"
+    },
+    {
+      "c_number": "C-123",
+      "title": "the builtin-shadow guard blocks 31 false positives and CI never runs it",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

@@ -110,16 +110,71 @@ _MAX_STALENESS_OVERRIDES: dict[str, int] = {
 DEFAULT_MAX_STALENESS_HOURS = 168  # 7 days
 
 
+# R-F4067 (C-110) — ONE prefix table, read by both `_max_staleness_for` and
+# `_is_protected`. They were about to become two hand-maintained lists of the
+# same curated prefixes, which is how the next one silently rots out of sync.
+_PREFIX_STALENESS: tuple[tuple[str, int], ...] = (
+    ("defence_market:", 24),
+    ("language:", 720),   # languages fundamentally slow-changing
+)
+
+_MAX_TRACKED_DOMAINS = 1000
+# A domain that comes back is a real ingest surface. Live 2026-08-16, 999 of
+# the 1000 tracked entries had refresh_count == 1 — one-off research topics
+# minted per extracted fact by knowledge.add_fact (R-F96).
+_MIN_REFRESHES_TO_PROTECT = 2
+
+
 def _max_staleness_for(domain: str) -> int:
     """Return max-staleness hours for a domain, with prefix-match for
     market-specific domains (e.g. defence_market:angola → 24h)."""
     if domain in _MAX_STALENESS_OVERRIDES:
         return _MAX_STALENESS_OVERRIDES[domain]
-    if domain.startswith("defence_market:"):
-        return 24
-    if domain.startswith("language:"):
-        return 720  # languages fundamentally slow-changing
+    for prefix, hours in _PREFIX_STALENESS:
+        if domain.startswith(prefix):
+            return hours
     return DEFAULT_MAX_STALENESS_HOURS
+
+
+def _is_protected(domain: str, record: dict | None = None) -> bool:
+    """Is this a domain the tracker exists to watch, rather than a one-off?
+
+    R-F4067 (C-110). Protection is deliberately NOT an allowlist. Plain
+    recurring topics like `compliance` are genuine ingest surfaces and are not
+    in `_MAX_STALENESS_OVERRIDES`, so an allowlist-only rule would have evicted
+    them just as the flood did. Recurrence is the honest discriminator and it is
+    already in the data.
+    """
+    if domain in _MAX_STALENESS_OVERRIDES:
+        return True
+    if any(domain.startswith(p) for p, _h in _PREFIX_STALENESS):
+        return True
+    if record is None:
+        return False
+    try:
+        return int(record.get("refresh_count", 0)) >= _MIN_REFRESHES_TO_PROTECT
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_expired_ambient(domain: str, record: dict) -> bool:
+    """An unprotected, seen-once topic that is already past its own window.
+
+    It has no SLA left to miss, so it must not hold a slot against a real
+    domain. A PROTECTED domain being stale is the signal this module exists to
+    emit — never prune one.
+    """
+    if _is_protected(domain, record):
+        return False
+    last = record.get("last_refreshed_at")
+    if not last:
+        return True  # tracked, never refreshed, and not protected
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except Exception:
+        return True
+    hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+    return hours > _max_staleness_for(domain)
 
 
 async def _redis():
@@ -166,16 +221,46 @@ async def record_refresh(
         record["signals_count"]        = int(record.get("signals_count", 0)) + max(0, signals_added)
         record["refresh_count"]        = int(record.get("refresh_count", 0)) + 1
         existing[domain] = record
-        # Cap to 1000 domains (way more than we'll ever need; defends
-        # against pathological input from a typo'd domain string)
-        if len(existing) > 1000:
-            # Keep most-recently-touched
+
+        # ── R-F4067 (C-110) — drain the one-off topics, protect the domains ──
+        #
+        # The cap plus "keep most-recently-touched" was the whole defect. Live
+        # 2026-08-16: 999 of 1000 entries were minted inside 24h by
+        # knowledge.add_fact registering every fact TOPIC as a domain
+        # ('rage_bait_pays'_headline, 13-year-old_shoplifting_suspect …). The
+        # table turned over in under 48h against a 168h staleness window, so
+        # eviction always beat the clock — `stale_count` was pinned at 0 by
+        # construction — and every curated domain (sanctions_screening,
+        # fatf_ml_typologies, weapon_systems, eccn_classification,
+        # fcpa_enforcement, virtual_assets) had been evicted. That starved
+        # `stale_domains()`, which is the R-F90 orchestrator's Layer-1 urgency
+        # input, so the surfaces with 24h SLAs were never re-targeted.
+        #
+        # Raising the cap was NOT the fix: it delays the same failure behind an
+        # unbounded blob (and this function already read-modify-writes the whole
+        # dict on every ingest). Two ordered steps instead:
+        #   1. prune ambient entries that are already past their own window —
+        #      a seen-once topic has no SLA left to miss;
+        #   2. if still over cap, evict UNPROTECTED first, then oldest.
+        # A protected domain is never dropped by either step, so it can always
+        # be reported stale.
+        # Step 1 runs on every write, not only when over cap: without it the
+        # store sticks at exactly the cap forever (the flood stops growing but
+        # nothing drains), and the curated domains never get their slots back.
+        # It is O(n) over a dict this function already reads and writes whole.
+        existing = {
+            d: r for d, r in existing.items()
+            if d == domain or not _is_expired_ambient(d, r)
+        }
+        if len(existing) > _MAX_TRACKED_DOMAINS:
             sorted_items = sorted(
                 existing.items(),
-                key=lambda kv: kv[1].get("last_refreshed_at", ""),
+                # protected first, then most-recently-touched
+                key=lambda kv: (_is_protected(kv[0], kv[1]),
+                                kv[1].get("last_refreshed_at", "")),
                 reverse=True,
             )
-            existing = dict(sorted_items[:1000])
+            existing = dict(sorted_items[:_MAX_TRACKED_DOMAINS])
         await rs.set_json(_REDIS_KEY, existing, ex=_TTL_SECONDS)
     except Exception as e:
         logger.debug("learning_progress record_refresh failed (non-fatal): %s", e)
@@ -275,11 +360,22 @@ async def stats() -> dict[str, Any]:
     all_d = await get_all_domains()
     stale = [d for d in all_d if d.get("is_stale")]
     fresh = [d for d in all_d if not d.get("is_stale")]
+    # R-F4067 (C-110) — the two populations, reported separately. `0 stale /
+    # 1000` read as a green light because 999 of the 1000 were one-off research
+    # topics that could not go stale before being evicted. The legacy fields
+    # keep their exact meaning (other readers depend on them); these say WHICH
+    # traffic they are made of, so a headline can be built on the population
+    # that has an SLA rather than on the one that never will.
+    protected = [d for d in all_d if _is_protected(d.get("domain", ""), d)]
+    ambient = [d for d in all_d if not _is_protected(d.get("domain", ""), d)]
     return {
         "tracked_total":  len(all_d),
         "fresh_count":    len(fresh),
         "stale_count":    len(stale),
         "stale_pct":      round(len(stale) / len(all_d) * 100, 1) if all_d else 0,
+        "protected_total": len(protected),
+        "protected_stale": sum(1 for d in protected if d.get("is_stale")),
+        "ambient_total":   len(ambient),
         "top_stale": sorted(
             [
                 {

@@ -853,6 +853,57 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             }
         except Exception as _e:
             logger.debug("autonomy composite failed (non-fatal): %s", _e)
+        # ── R-F4066 (C-112) — the calibration correction's scheduled home ─────
+        #
+        # `calibration_review.run_calibration_review()` both COMPUTES the review
+        # and MUTATES mastery (`student.lift_all_topics`, ±3-8pp on every
+        # topic). It had no periodic caller: the only production callers were
+        # `GET /api/aria/calibration/review` — which the brain-dashboard
+        # aggregate polls — and `save_baseline()`. So the operator opening the
+        # command centre was the clock driving mastery corrections, and the
+        # module's own hourly rate-limit existed "so dashboard polling doesn't
+        # compound", conceding the point instead of fixing it.
+        #
+        # Every read path now passes the default (False) and this hourly task is
+        # the one caller that passes True. It is the right home: this branch
+        # already owns the other hourly evaluations (operating mode, composite),
+        # and the module's `_CORRECT_COOLDOWN` is 3600s — the cadence it was
+        # always written for.
+        #
+        # Reported either way, following the R-F3761 pattern immediately above:
+        # `calibration_evaluated` records the no-change case too, so "evaluated
+        # and nothing to correct" stays distinguishable from "never ran".
+        try:
+            from ..intel import calibration_review as _cr
+            _review = await _cr.run_calibration_review(apply_correction=True)
+            _applied = _review.get("correction_applied") or {}
+            report["calibration_evaluated"] = {
+                "status": _review.get("calibration_status"),
+                "corrected": bool(_applied.get("applied")),
+                "excluded_signals": sorted(_review.get("excluded_signals") or {}),
+            }
+            if _applied.get("applied"):
+                logger.warning(
+                    "[ecosystem_reassess] calibration correction applied: %s",
+                    _applied)
+        except Exception as _e:
+            report["calibration_evaluation_error"] = f"{type(_e).__name__}: {_e}"
+            logger.error(
+                "[R-F4066] calibration review FAILED (%s: %s) — mastery "
+                "self-correction is now scheduled here and nowhere else, so a "
+                "silent failure means it stops entirely.",
+                type(_e).__name__, _e, exc_info=True,
+            )
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf2
+                _wf2(module="calibration_review",
+                     detail=(f"scheduled calibration review failed "
+                             f"({type(_e).__name__}: {str(_e)[:110]}) — mastery "
+                             f"self-correction has no other caller"),
+                     gap_type="engine_failure",
+                     source="tasks:ecosystem_reassess:R-F4066")
+            except Exception:
+                pass
         return {"ecosystem": report}
 
     elif tool_kind == "core_develop":

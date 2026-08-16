@@ -37,6 +37,9 @@ _FRONTEND_REFRESH_PATHS = {
     "/learning/stats", "/cost/monthly", "/cost/external", "/diagnostic/details",
     "/learning/coverage", "/learning/coverage/gaps?max_targets=15",
     "/learning/freshness", "/hallucination/stats",
+    # R-F4070 (C-111) — the Chat Audit panel now fetches a chain verdict.
+    # Served from the aggregate so surfacing it costs no extra fan-out request.
+    "/chat-audit/verify?sample=200",
 }
 
 

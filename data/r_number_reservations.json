@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4061,
+  "next_available": 4073,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34532,6 +34532,114 @@
       "r_number": "R-F4060",
       "title": "enable the read-only cost-free learning preview; keep writes gated",
       "claimed_at": "2026-08-16T19:39:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4061",
+      "title": "deferred diagnostic modules are not failures and belong in the tally",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4062",
+      "title": "a failed brain panel must not read Loading forever",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4063",
+      "title": "core mastery must publish its composition: at-ceiling, at-floor, freely measured",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4064",
+      "title": "external service panel must surface the failure rate not just an error count",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4065",
+      "title": "brain readings must carry their age window and the backend they actually use",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4066",
+      "title": "calibration ground truth excludes unmeasurable signals and the correction leaves the GET path",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4067",
+      "title": "protect recurring freshness domains from single-shot eviction so staleness can be reported",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4068",
+      "title": "chat audit 24h window keyed by hour instead of a losable TTL",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4069",
+      "title": "builtin-shadow check: module-level only, allowlist the deliberate redis mirror, run in CI",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4070",
+      "title": "chat audit chain verdict must state coverage and a break must reach the brain",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4071",
+      "title": "resilience verdict must read the serving chain not the key set",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4072",
+      "title": "brain page must not render unmeasured signals as measured health",
+      "claimed_at": "2026-08-16T19:00:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

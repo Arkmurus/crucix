@@ -6342,3 +6342,852 @@ flag.
 pin the write gate, which must not move. 565 passed across every test touching
 `tasks.yaml` or `cost_free`; the only 2 red are recorded baseline entries,
 proven unrelated by stashing. YAML re-parsed (98 tasks). Lint clean.
+
+## C-112 · calibration's ground truth was two structural zeros, and a GET was what wrote them into mastery (R-F4066)
+
+Found by a panel-by-panel forensic review of `imaria.io/aria-brain` (2026-08-16,
+against build `R-F4048 · 7bc5a989`). The Calibration Review panel read:
+
+```
+Mastery (self-assessed) 82%   Accuracy (ground truth) 24%   Delta 58.7pp
+Status: OVERCONFIDENT
+"MASTERY IS OVERCONFIDENT by 59%. A headline mastery of 82% is predicting
+ only 24% actual accuracy."
+```
+
+Measured live minutes later, the four signals behind that 24%:
+
+```
+{honesty_accuracy: 0.0,  adversarial_accuracy: 0.802,
+ mistake_rate: 2.3907,   eval_pass_rate: 0.333}   → mean 0.2838
+```
+
+**Two of the four are zeros for structural reasons, not accuracy reasons.**
+
+### 1. A ratio above 1.0 is not a rate — and it was clamped into a measured zero
+
+`mistake_rate = rs.llen("crucix:mistake_ledger:log") / chat_audit_log.total_entries`.
+Measured: **2888 / 1208 = 2.3907**. The two are different populations — the
+ledger spans every module it serves (autonomous tasks, `source_validator`,
+`verified_intel`, `web_atlas`; see its own reason codes), while the denominator
+counts chat turns from a log that has itself lost 37% of its entries (C-111).
+
+`1.0 - min(mistake_rate, 1.0)` then turned "these numbers do not describe the
+same thing" into a flat **0.0** and averaged it in — a quarter of the headline,
+manufactured. R-F169's comment shows the denominator was chosen carefully to
+avoid *inflation*; nothing guarded the other direction.
+
+The honest denominator for this ledger does not exist today, so the fix does not
+invent one: an out-of-range ratio is **reported and excluded**. Do not
+"simplify" this back to `min(rate, 1.0)` — that is the original defect, and it
+asserts a measurement nobody made.
+
+### 2. n=1, accepted by the one consumer that can write
+
+`honesty_accuracy` was `avg_honesty_score: 0.0` from **`scored_sample_size: 1`**
+(against a lifetime 0.236). The same reading is refused by
+`autonomy_scorer` (`_MIN_SIGNAL_SAMPLES`, R-F1907 → `insufficient_samples_n1`)
+and by `operating_modes` (`GROUNDED_MIN_SAMPLES`, R-F3764). calibration_review
+was the only consumer that accepted it — **and the only one with write authority
+over mastery.** The guarded consumers were the read-only ones.
+
+`scored_sample_size` is co-computed with the value in `get_honesty_stats`, so it
+describes the same window — the R-F3696 property that makes this guard safe.
+
+### 3. The write had no scheduled home. The dashboard was the clock.
+
+This is the root, and it is worse than a bad input. A repo-wide search finds **no
+periodic caller of `run_calibration_review()`**. Its production callers were
+`GET /api/aria/calibration/review` — which is in the brain-dashboard aggregate
+registry, polled by the page — and `save_baseline()`. R-F166's overconfident
+branch calls `student.lift_all_topics(-drop)`, up to **-3pp on every topic**.
+
+So **opening the operator's command centre is what marked ARIA's mastery down.**
+The module comment rate-limits the correction hourly "so rapid dashboard
+refreshes don't compound" — conceding that dashboard polling was the driver
+rather than removing it. Live proof it fires:
+`crucix:calibration:last_correction` was written 24.4 minutes before the
+measurement above, with status `overconfident`; and the RED fixture run for this
+fix logged `OVERCONFIDENT by 44.4pp — lowered mastery ... (R-F166)` from a plain
+read call.
+
+Downstream, three of the ten `CORE_MASTERY_TAGS` sit at **exactly** their
+`HARD_FLOORS` value (`nato_standards` 0.500 / 68 samples / 65 correct,
+`strategic_geography` 0.500 / 76, `export_control` 0.509 / 281) — arithmetically
+impossible under `MASTERY_LR_POSITIVE = 0.18` unless something is pushing them
+down. That is C-113's subject; this is its most likely engine.
+
+**The capability is relocated, not deleted.** Bidirectional calibration is
+wanted. `run_calibration_review(apply_correction: bool = False)` — every read
+path takes the default, and the hourly `ecosystem_reassess` task passes `True`.
+That task already owns the other hourly evaluations (operating mode, composite
+score) and `_CORRECT_COOLDOWN` is 3600s, the cadence this was always written for.
+It reports `calibration_evaluated` either way, following the R-F3761 pattern
+beside it, so "evaluated, nothing to correct" stays distinguishable from "never
+ran"; a failure is an ERROR, is wired (§21a), and lands in the
+`/autonomous/run-now` response. **Computing and persisting the review is still
+free on a read — only the mastery mutation moved.**
+
+### 4. The durable record could not say whether it had written
+
+`rs.set_json(_K_REVIEW, review, ...)` ran **before** the correction block set
+`review["correction_applied"]`, so the stored review never carried it. Live
+2026-08-16 the persisted record read `correction_applied: None` at the same
+instant the API response carried a real verdict — the one field an audit of this
+defect would want. The persist now runs last, and `correction_applied` is
+initialised with `applied: False` up front so the shape never depends on which
+branch fired.
+
+### 5. A dark branch this fix would otherwise have widened
+
+`wire_success(... f"accuracy {estimated_accuracy:.0%}")` raises `TypeError` when
+the estimate is `None`, inside `except Exception: pass` — so on the
+`insufficient_data` path this module's only success wire **silently never
+fired** (§21a). Excluding an unmeasurable signal is exactly what produces
+`insufficient_data`, so the fix would have made a dark path more common.
+Formatted defensively, and the summary now names the excluded signals.
+
+### Verified
+
+Fixture-first, `test_rf4066_calibration_ground_truth_guards.py`:
+**RED 6 failed / 2 passed → GREEN 8 passed.** The two that passed at RED are the
+deliberate can-it-still-pass guards (an in-range mistake_rate and a well-sampled
+honesty score must still be USED) — a guard that cannot pass is as useless as one
+that cannot fail.
+
+Targeted regression across calibration / autonomy_scorer / ecosystem_reassess /
+mastery / capability_card / system_health: **139 passed, 2 failed**, both proven
+not mine — `test_student_lang_weak_topic_pickup` is in the recorded §16 baseline,
+and `test_rf3938_training_recovery_contract` fails in a worktree because the
+gitignored `.env` does not travel (`grep: .env: No such file or directory` →
+driver exits 1 instead of 3), with zero references to calibration. Whole-tree
+compile gate green.
+
+## C-110 · Domain Freshness could not report a stale domain, and every domain it exists for had been evicted (R-F4067)
+
+The brain page rendered `0 stale / 1000 · Tracked 1000 · Fresh 1000 · Stale 0
+(0%)` — a green light that could not turn red. Measured live 2026-08-16 against
+`crucix:aria:learning_progress:domains`:
+
+```
+tracked: 1000        oldest first_seen: 47.1h ago     newest: 0.14h ago
+minted <24h: 999     minted <168h: 1000
+source prefix: knowledge 993 · intel_ledger 7
+
+sanctions_screening    EVICTED/absent      fcpa_enforcement     EVICTED/absent
+fatf_ml_typologies     EVICTED/absent      virtual_assets       EVICTED/absent
+weapon_systems         EVICTED/absent      eccn_classification  EVICTED/absent
+```
+
+`is_stale` is `hours_since_refresh > max_staleness_hours`, default 168h.
+`record_refresh` capped the store at 1000 and evicted the least-recently-touched.
+`knowledge.add_fact` (R-F96) registers **every fact's topic** as a domain — live
+entries include `'rage_bait_pays'_headline` and `13-year-old_shoplifting_suspect`
+— at a rate that turned the whole table over in under 48 hours. **Eviction always
+beat the staleness clock, so `stale_count` was pinned at zero by construction.**
+A guard whose universe empties faster than its own window can never fire: the
+same shape as the three Phase A gates §1 records as "certified by an absence",
+and as R-F3791's route audit that certified a 770-route app on an empty
+inventory.
+
+R-F96's free-text fallback was deliberate and its comment says so. What nobody
+anticipated is that the free-text population would then **evict the curated one**
+through a shared 1000-slot LRU.
+
+### It is not a display defect. A scheduler went dark.
+
+`stale_domains()` feeds `continuous_update.recompute_priorities()` — the R-F90
+orchestrator's Layer-1 urgency input (`continuous_update.py:90`). With an empty
+stale list, Layer 1 contributes nothing and priorities collapse to coverage gaps
+alone. So the surfaces `_MAX_STALENESS_OVERRIDES` gives 24h SLAs
+(`sanctions_screening`, `ofac_sdn`, `ofsi_consolidated`, `eu_fsf`,
+`un_sc_sanctions`, `virtual_assets`) were never re-targeted for refresh, and the
+panel above said everything was fresh.
+
+### What was NOT done
+
+* **Not a bigger cap.** That delays the identical failure behind an unbounded
+  blob, and `record_refresh` already read-modify-writes the whole dict on every
+  single fact ingest.
+* **Not an allowlist.** Plain recurring topics like `compliance` are genuine
+  ingest surfaces and are absent from `_MAX_STALENESS_OVERRIDES`; an
+  allowlist-only rule would have evicted them exactly as the flood did.
+* **Not a change to `knowledge.add_fact`.** R-F96's intent — any ingest updates
+  freshness — is sound. The defect is in how the tracker triages what it is
+  given.
+
+### The fix
+
+`_is_protected(domain, record)` — in the override map, or matching a curated
+prefix, **or having recurred** (`refresh_count >= 2`). Recurrence is the honest
+discriminator and it was already in the data: 999 of the 1000 live entries had
+`refresh_count: 1`. A topic that comes back is a real ingest surface; one seen
+once is not.
+
+Then two ordered steps on write:
+
+1. **Prune ambient entries already past their own window.** A seen-once
+   free-text topic has no SLA left to miss, so it must not hold a slot against a
+   real domain. This runs on every write, not only over cap — without it the
+   store sticks at exactly the cap forever (the flood stops growing, but nothing
+   drains and the curated domains never get their slots back).
+2. **If still over cap, evict UNPROTECTED first, then oldest.**
+
+A protected domain is never dropped by either step, so a curated domain being
+long-stale is REPORTED rather than pruned — that reading is the signal this
+module exists to emit, and a test pins it.
+
+`_PREFIX_STALENESS` is now one table read by both `_max_staleness_for` and
+`_is_protected`. They were about to become two hand-maintained lists of the same
+prefixes, which is how the next one silently rots out of sync.
+
+`stats()` gains `protected_total` / `protected_stale` / `ambient_total`, and the
+panel headlines the population that can actually go stale, with the ambient count
+shown and explained beside it. Legacy `tracked_total` / `stale_count` keep their
+exact meaning — other readers depend on them — and the frontend falls back to
+them when the new fields are absent, so an older backend degrades rather than
+rendering zeros.
+
+### Verified
+
+Fixture-first, `test_rf4067_freshness_protects_recurring_domains.py`:
+**RED 6 failed / 1 passed → GREEN 7 passed.** The one passing at RED is the
+never-prune-a-protected-domain guard.
+
+Regression over `learning_progress / freshness / continuous_update / coverage`:
+**254 passed, 1 failed** — and the like-for-like matters here. The single failure
+(`test_rf1696_sanctions_source_unavailable`) initially looked like mine because I
+compared a `-k` selection against a single-test run. Re-running the **identical
+`-k` selection** with the change stashed produced the **same failure**
+(247 passed / 1 failed vs 254 passed / 1 failed, the +7 being the new fixture):
+pre-existing and order-dependent within that selection. Node guards
+184 passed / 0 failed after R-F3278 caught an em dash in the new displayed copy.
+Whole-tree compile gate green.
+
+## C-109 · the "Auto-allowed (24h)" column reported two numbers that were not 24h (R-F4068)
+
+Measured live 2026-08-16 against the brain page and the state store:
+
+```
+✅ Auto-allowed (24h)
+   Autonomous task fires   431      <- genuinely 24h (fires_24h, TTL 12.9h)
+   Chat turns served       758      <- a LIFETIME tally; the real figure was ~10
+   Audit-trail entries    1208      <- the LIFETIME total, unlabelled
+
+state row: crucix:chat_audit:entries_24h = '758'   expires_at = NULL
+list_entries dated 2026-08-16 → 10        dated 2026-08-15 → 6
+```
+
+### 1. A counter that could never re-arm
+
+`record_chat()` incremented `crucix:chat_audit:entries_24h` and set a 25h TTL
+**only when the increment returned 1**. The live row had `expires_at = NULL`, so
+it never expired, so the increment never returned 1 again, so the TTL could
+never be re-applied. **The defect repairs its own trigger** — once the TTL is
+lost the counter is a lifetime tally forever, and no amount of traffic recovers
+it. Roughly a **50x** overstatement of the most visible "what did ARIA do today"
+number on the command centre.
+
+Of the seven `*24h*` keys in the store this was the only one without a TTL, so
+it is not a systemic pattern — `crucix:autonomous:fires_24h` (432, TTL 12.9h) is
+sound, and the 431 beside it was trustworthy.
+
+The comment above that code describes fixing this same bug **in the opposite
+direction**: an earlier version called `expire()` on every increment, which
+under continuous traffic refreshed the TTL forever so the key never rolled. One
+TTL-dependent failure was swapped for another.
+
+**So the fix is not a third TTL rule.** The window moves into the KEY: an
+hourly-bucketed hash, one atomic `hincrby` per turn (same cost as the old
+incr), summed over the buckets inside the window on read. A lost TTL cannot
+corrupt the figure because no TTL is consulted — a bucket outside the window is
+simply never read again. Bounded by construction (`_HOURLY_BUCKETS_KEPT = 30`,
+pruned on write) so it does not become the unbounded-growth class §28 records.
+
+The poisoned key is retired once per process rather than left as a 758-valued
+orphan inviting the next reader to "restore" it, so no operational step is
+needed after deploy.
+
+`redis_store.hdel` did not exist (only `hset`/`hgetall`/`hget`/`hincrby`) even
+though `state_store.hdel` has since R-F1518 — the same missing-wrapper shape as
+R-F2486 (hget) and R-F2625 (hincrby), both of which failed silently through a
+broad `except`. Added.
+
+### 2. A lifetime total filed under a 24h heading
+
+`autonomy_surface.audit_entries` reads `chat_audit_log.get_stats()["total_entries"]`
+— the lifetime `llen`. It rendered as "Audit-trail entries" inside the 24h
+column, which is why the page showed **1208 in the 24h column and 1208 as the
+Chat Audit panel's "Total Entries" on the same screen**. The adjacent line in
+the same function correctly reads `entries_24h` for `chat_turns_served`, so one
+row in that column was a window and the next was a lifetime with no visual
+distinction.
+
+The value is genuine and worth showing; the placement was the lie. The field
+keeps its meaning (other readers may depend on it) and the UI now names it
+"Audit-trail entries (lifetime)". `test/aria-brain-24h-labels-rf4068.test.mjs`
+pins the label and pins `chat_turns_served` to the windowed field, so the two
+numbers cannot be made to agree by repointing the row at the lifetime total.
+
+### Verified
+
+Fixture-first, `test_rf4068_chat_audit_24h_window.py`: **RED (7 errors — the
+fixture could not even construct, `redis_store` had no `hdel`) → GREEN 7
+passed.** §3b earned its keep mid-fix: the append function is `record_chat`,
+not `record`, and the first fixture called the name I assumed.
+
+Regression `-k "chat_audit or autonomy_surface or audit"`: **184 passed, 0
+failed**. Node: new label suite 2/2; guards + web-output 169/169. Whole-tree
+compile gate green.
+
+## C-123 · the builtin-shadow guard blocked 32 sites, 31 of them false positives, and CI never ran it (R-F4069)
+
+Found while landing C-109: the commit hook refused a change to
+`aria_service/intel/redis_store.py`, citing a **pre-existing** shadow on a line
+I had not touched.
+
+`check_builtin_shadowing` documents itself as checking "that no **module-level**
+function shadows a Python built-in". It used `ast.walk`, which yields methods
+too. Measured across the tree (excluding `.venv`, `node_modules`, `.claude`):
+
+```
+MODULE-LEVEL shadows: {'set': 1}
+    aria_service/intel/redis_store.py:193   async def set(...)
+METHOD-level shadows: 31
+    {'set': 21, 'list': 3, 'setattr': 3, 'next': 1, 'format': 1,
+     'help': 1, 'exit': 1}
+```
+
+A method named `set` on a class cannot shadow `builtins.set` at module scope —
+exactly what the docstring says. **31 of the 32 hits were noise, and every file
+containing one was un-committable.**
+
+The remaining one is deliberate. `redis_store` mirrors the Redis command surface
+so call sites read as Redis, and the module **already applies the remedy the
+checker itself recommends** — `import builtins` at line 32, the same convention
+`state_store.py` uses at its `lrem` fallback. With no allowlist, the guard made
+that file permanently un-committable; R-F4068 needed to add an `hdel` wrapper
+there and could not.
+
+Two further faults surfaced in the same function:
+
+* **Defined twice, verbatim.** Two identical `def check_builtin_shadowing` in
+  `pre_commit_checks.py`; the first was dead. Identical today, free to drift
+  tomorrow.
+* **The two gates disagreed.** The staged path calls it
+  (`scripts/pre-commit:594`); `check_all_files()` (CI `--check-all`) does not.
+  Live proof from this session: `pre-commit --check-all` printed *"OK — all
+  files checked, no issues"* on the exact tree whose commit the hook then
+  BLOCKED. `scripts/pre-commit` already records this same fork ~line 536 for a
+  different guard, and §1 records it for the Phase A gate aggregators. One
+  measure, two answers.
+
+### The fix
+
+`_non_method_functions()` yields function defs that are not class methods —
+nested functions ARE still yielded, because `def sorted(...)` inside a function
+body really does rebind the name for the rest of that scope. A narrow
+`BUILTIN_SHADOW_ALLOWLIST` keyed on `(path suffix, function name)` with a
+mandatory reason; a test asserts allowlisting `redis_store::set` does not exempt
+a different builtin in the same file, nor the same name elsewhere. The duplicate
+definition is gone, and CI now runs the check — safe to enable because after the
+scoping fix the whole tree measures zero violations, and a test asserts that so
+turning it on cannot go red on day one.
+
+**The guard can still fail**, which is the point: a new module-level `def set`
+in a temp file is still caught, and so is a nested one.
+
+### A live capability was hiding behind the missing wrapper
+
+`("aria_service.intel.redis_store", "hdel")` sat in `KNOWN_DEAD_CALLS` — the
+shrink-only baseline of call targets that do not exist. It was not merely a dead
+reference. `dd_trigger_pipeline.resolve_operator_pending()` calls `rs.hdel`
+twice inside a bare `except Exception: return False`, so the `AttributeError`
+was swallowed, the function **always returned False, and an entity stuck in
+`operator_pending` could never be cleared**. That is the third instance of this
+exact family in that one module, after R-F2486 (`hget` missing → the DD trigger
+guard failed OPEN) and R-F2625 (`hincrby` missing → DD per-layer stats never
+written) — both also failing open through a broad except.
+
+Adding the wrapper (R-F4068) revived it, so the baseline entry was removed and
+the restored behaviour is pinned by a capability test that asserts both hash
+fields are actually cleared and the function returns True. `KNOWN_DEAD_CALLS` is
+shrink-only by contract and its own test enforces that: it went red the moment
+the call came alive, which is the mechanism working.
+
+### Verified
+
+Fixture-first, `test_rf4069_builtin_shadow_guard.py`: **RED 5 failed / 4 passed
+→ GREEN 9 passed** (the four passing at RED are the can-it-still-fail guards).
+`pre-commit --check-all` green with the check now included.
+`test_rf3556_precommit_gate` green after the baseline shrink. 39 passed across
+the three affected suites.
+
+**Landed with R-F4068 in one commit deliberately.** These are one causal unit —
+the guard blocked the wrapper C-109 needed, and the wrapper revived a call the
+guard's own baseline had written off. Splitting them would leave a broken
+intermediate commit. The register entries stay separate so both remain citable.
+
+## C-111 · the audit trail's tamper-evidence check certified a chain it had barely looked at (R-F4070)
+
+Measured on aria-intel 2026-08-16, directly against `/data/aria_state.db`:
+
+```
+rows=1208   min seq=177   max seq=1922
+  head lost before min seq : 176
+  interior gaps            : 538   (first block starts at seq 276)
+  total missing            : 714   (37.1%)
+
+GET /chat-audit/verify?sample=100  -> {"verified":true, "checked":100,"breaks":[]}
+GET /chat-audit/verify?sample=500  -> {"verified":false,"checked":500,
+      "breaks":[{"index":409,"expected_prev":"a220b59a…","actual_prev":"0d26aaa1…"}]}
+```
+
+The brain page showed `Total Entries 1208 · Head Hash b664de09858c… · Retention
+36500 days` — three rows that together read as an intact, permanent,
+tamper-evident record, on a chain that was verifiably broken. The module header
+states the intent: *"Compliance-grade audit logs must not self-delete; HMAC
+chain integrity also degrades if entries vanish from the tail."* Both halves had
+already happened.
+
+### Three faults, one family
+
+1. **`verified: True` on an EMPTY log.** Zero entries returned
+   `{"verified": True, "checked": 0}` — an audit trail with nothing in it
+   certifying itself. The §1 "certified by an absence" shape, on the one surface
+   whose whole job is to be un-fakeable.
+2. **A whole-chain verdict from a partial sample.** The default depth is 100 of
+   1208 and the field name carried no coverage, so the default answered "true"
+   while the damage began at 409. A caller reading `verified` could not tell
+   what had been examined.
+3. **A detected break reported SUCCESS to the brain.** `wire_success` fired
+   unconditionally before the return; `wire_failure` was imported and **never
+   called**. The one event this module exists to detect was dark (§21a) — the
+   unused import was the tell.
+
+### The fix
+
+`verified` keeps its literal meaning (no break in the span examined) and can no
+longer be mistaken for a whole-chain claim. `complete` says whether the log was
+fully covered; `verdict` is the field to read:
+
+```
+intact        whole log checked, no breaks
+broken        a break was found
+partial_ok    no break in the span checked, but the log is longer
+unverifiable  nothing to check          (was: verified true)
+```
+
+The default sample stays bounded — a dashboard poll must not walk the whole log
+— but **a bounded check can no longer render as a clean bill of health**. Both
+branches wire to the brain, and the empty case wires a failure rather than
+silently passing.
+
+Missing entries need no separate detector: they break the
+`prev_hash → chain_hash` linkage of their surviving neighbours, which is exactly
+the live break at index 409.
+
+The panel now shows the verdict beside the head hash, served through the R-F2234
+aggregate so it costs no extra fan-out request, and renders **`NOT CHECKED`**
+rather than a blank when the probe fails — an unchecked chain is not a clean one.
+`Retention` is relabelled `Retention (configured)`: 36500 days is the setting,
+and the setting was true while 37% of the entries were gone. Expect the live
+panel to read **CHAIN BROKEN** after deploy. That is the fix working.
+
+### Cause of the loss: NOT established
+
+The surviving rows split cleanly — 500 contiguous entries (seq 814–1313) carry a
+100-year TTL, the other 708 carry none — which points at a migration from a
+legacy 500-entry JSON blob. **Not proven, and not asserted.** No ongoing loss:
+the TTL sweep only deletes rows with a non-null expiry, so nothing currently in
+the log is scheduled for deletion.
+
+**The chain is deliberately NOT repaired.** Rewriting the hashes to make them
+join up would forge continuity across entries that are genuinely gone, which
+destroys the only property the chain has. A broken chain is evidence; a
+convincing one is a lie.
+
+### Verified
+
+Fixture-first, `test_rf4070_audit_chain_verdict.py`: **RED 5 failed / 1 passed →
+GREEN 6 passed.** One RED iteration was my own fixture's fault, kept as a
+documented trap: `get_recent` returns NEWEST FIRST, so a build-order break index
+tests the wrong link. 92 passed across the chat-audit and dashboard-registry
+suites; the R-F2234 registry guard correctly caught the new path until the
+frontend list was updated. Node guards 170/170. Compile gate green.
+
+## C-115 · the resilience verdict counted providers that cannot serve general traffic (R-F4071)
+
+Two surfaces, the same instant, 2026-08-16:
+
+```
+/autonomy/surface.resilience
+    providers: [{name: anthropic, status: active, calls: 0, failures: 0,
+                 reliability: null},
+                {name: deepseek,  status: active, ...}]
+    providers_active: 2   resilience_count: 3   verdict: "ROBUST"
+
+/health.llm_chain
+    active_providers: ["deepseek"]      chain_order: ["deepseek"]
+    preference_only_providers: ["anthropic"]
+    general_vendor_depth: 1
+```
+
+The brain page rendered **"🛡️ Resilience floor: ROBUST (3 independent paths) ·
+anthropic: active · deepseek: active"** while the chain a general call actually
+walks was one vendor deep.
+
+`_resilience_floor` enumerated a hardcoded `provider_keys` map from `os.getenv`
+and called a provider "active" when a key was present and no cooldown was set.
+It never asked whether the provider is reachable on the general path. Under RULE
+ONE (§17) Anthropic is `preference_only` — reserved for DD and deliberately
+unreachable by general dispatch (R-F3034/R-F3767). This is precisely the error
+R-F3634 had already fixed one layer down, in `fallback.get_health()`:
+
+> *"it advertised a chain the request could not use ... The dispatcher was right
+> and the surface describing it was wrong, which is the worst way round."*
+
+The fix was applied there and this second, older opinion was left standing.
+
+**It overstated and understated at the same time.**
+
+* Overstated: on 2026-08-12, with the Anthropic balance exhausted and DD down,
+  this panel would still have read ROBUST — the key was present and no cooldown
+  was set. The row's own `calls: 0, failures: 0, reliability: null` said the
+  provider had served nothing.
+* Understated: `deepseek_backup` served **1,591 calls** this month and did not
+  appear at all, being absent from the hardcoded map.
+* And `deepseek` + `deepseek_backup` are two entries but ONE vendor. R-F3634's
+  `general_vendor_depth` already collapses them, because a vendor-side timeout
+  takes both and failing over between them cannot help.
+
+### The fix
+
+Read `FallbackProvider.get_health()` — the same method `/health` publishes —
+instead of keeping a second opinion. Status comes from the chain's own verdict
+rather than being re-derived from a cooldown timestamp in a second place, since
+two computations of one thing is how they come to disagree.
+
+`resilience_count` is now **distinct general vendors + local brain**. Reserved
+providers are still SHOWN, carrying `role: "reserved_dd"` and rendering as
+"reserved for DD" in neutral rather than green — hiding a configured provider
+would be its own lie, and the old panel had no way to express the difference
+between "configured" and "reachable by this call".
+
+An unreadable chain yields depth 0 and lands on the CRITICAL rung: *could not
+measure* must never render as ROBUST on the strength of an env var being set,
+which is exactly what the old path did. The timeout default carries the new keys
+with `verdict: "unknown"`.
+
+§14 is unchanged: a cooling provider is the chain working as designed and is
+reported, not counted against the floor.
+
+### Verified
+
+Fixture-first, `test_rf4071_resilience_reads_serving_chain.py`: **RED 5 failed /
+1 passed → GREEN 6 passed**, including a can-it-still-pass guard (a genuinely
+three-vendor chain must still read ROBUST) and an unmeasurable-is-not-healthy
+case. 164 passed across the autonomy_surface suites. The R-F3845 interpolation
+guard caught a pre-built markup fragment in the new panel copy and was right to;
+the note is plain text escaped at the site. Node 170/170, compile gate green.
+
+## C-114 · the brain page rendered three unmeasured states as measured health (R-F4072)
+
+Three independent readings on `imaria.io/aria-brain`, one class: a value that
+was never measured, presented with the styling of a measurement.
+
+**1. "Grounded Rate 0%", in red, from n=1.** `/health.quality.grounded_rate`
+published the rate and not its sample size. Live 2026-08-16 the rate was `0.0`
+from `effective_sample_size: 1`. Both consumers that ACT on that number refuse
+it at that size — `autonomy_scorer` (`insufficient_samples_n1`, R-F1907) and
+`operating_modes` (`GROUNDED_MIN_SAMPLES`, R-F3764, which is precisely why the
+platform correctly stayed NORMAL). Only the surface that merely displays it
+treated it as fact, and coloured it as a failing measurement. It is also
+EVAL-ONLY traffic by construction (`source_verifier` records nothing from the
+chat path today; `aria_engine.py:5398` is an acknowledged no-op), which the
+label did not say either. `/health` now publishes `grounded_rate_samples` and
+`grounded_rate_source` beside the rate; below the floor the panel greys it and
+names `n`.
+
+**2. `Verification verified 24h: 0`, hardcoded green.** The class argument was
+the literal `'good'`, so zero verifications rendered in the same green as a
+hundred. Live: both counters 0, and the most recent verification record was
+2026-08-13 — a gate that had not run in three days reading clean. Zero with no
+runs in the window is now neutral, with a line saying so. A real zero against a
+real sample is still green.
+
+**3. `excluded (no qualifying data)` threw away the reason the backend
+supplied.** The composite panel rendered provenance when a signal HAD a value
+and discarded it exactly when the signal was excluded, which is when it matters.
+So `insufficient_samples_n1` (there IS data, just not enough),
+`no_data_neutral_prior` (there is none) and `error` (**the probe failed**)
+printed one identical sentence. "Could not measure" and "measured nothing"
+collapsed into the same words, on the one panel built to keep them apart.
+
+R-F2910's test pinned that exact sentence. It was **widened, not relaxed**: its
+contract (say EXCLUDED, never substitute a plausible default) still holds and is
+still asserted; the fixture already supplied two different reasons, and the test
+now requires them to render differently.
+
+## C-116 · System Health painted deferred modules as failures and dropped them from the tally (R-F4061)
+
+Live 2026-08-16:
+
+```
+counts: {pass: 76, warn: 0, fail: 0, deferred: 2}   modules_checked: 78
+worldbank_debarred  worst_status = DEFERRED
+acled               worst_status = DEFERRED
+renderer: PASS ? 'green tick' : WARN ? 'amber warn' : 'RED cross'
+```
+
+Both deferrals are deliberate and documented: `worldbank_debarred` has no
+self-service access at all (the module's own investigation records
+`apigwext.worldbank.org` returning 403 with no signup, and OpenSanctions carries
+the same signal), and `acled` is operator-deferred per §18. The API ships a
+reason string for each in a `deferred` map.
+
+The page showed neither. DEFERRED fell through the ternary to a **red cross,
+visually identical to a genuine failure**, while the summary line read
+"Pass / Warn / Fail = 76 / 0 / 0" against 78 modules checked, which does not add
+up. An operator saw two red crosses and an arithmetic hole.
+
+DEFERRED now has its own neutral treatment (pause glyph, paper background), the
+tally gains a fourth number when any exist, and the tile shows the recorded
+reason instead of the first failing probe, which was telling the operator to go
+fix something that is deliberately off. Overall verdict logic is untouched:
+measured GREEN at close, so a deferral does not force AMBER.
+
+## C-119 · a failed brain panel could read "Loading..." forever (R-F4062)
+
+`clearStuckLoading` matched three ASCII periods while six placeholders on the
+page emit the U+2026 ellipsis: `halluc-summary`, `halluc-metrics`,
+`cov-summary`, `cov-heatmap`, `fresh-summary`, `fresh-list`. A genuinely dead
+panel among those would sit at its placeholder indefinitely with no banner and
+no message, **indistinguishable from a slow one** — the worst reading a command
+centre can offer, because the operator waits instead of acting.
+
+Not firing at audit time. Every panel eventually loaded, and the two that showed
+a placeholder in the first capture were simply still in flight: the ecosystem
+map and hallucination panels land in the last stagger wave. Latent, not live.
+
+`loadHallucination`'s failure branch had the same shape from the other
+direction: it set `el` and returned, leaving `sumEl` at its placeholder and
+never dropping the `.loading` class, so a failed load rendered a permanent
+placeholder line above an error message with the badge still showing its boot
+dash. It now clears every surface it owns.
+
+The sweeper matches both forms case-insensitively, and a test enumerates the
+placeholders the page actually ships and asserts the sweeper's set covers every
+one, so a seventh placeholder spelt differently cannot reintroduce this
+silently.
+
+### Verified (C-114 / C-116 / C-119)
+
+`test/aria-brain-unmeasured-not-health-rf4072.test.mjs`: **8 passed.**
+Full Node sweep over the brain page **183 passed / 0 failed**, after the R-F3845
+interpolation guard caught two pre-built markup fragments in the new copy and
+was right both times. Python `-k "health or diagnostic or rf396 or grounded"`:
+**654 passed, 3 failed, none mine.** Two (`rf2003_brain_opportunities`,
+`rf2286_citation_grounding_breadth`) are in the recorded §16 baseline; the third
+(`rf4033_dpo_create_diagnostics`) fails in a worktree because the gitignored
+`.env` does not travel (`grep: .env: No such file or directory`, driver exits 1
+instead of 2) — the environment-delta trap §16 records. Compile gate green.
+
+Landed as one commit: one file, one defect class, three separate register
+entries so each stays citable.
+
+## C-113 · the 82% mastery headline is ceiling-saturated and floor-clamped, and said neither (R-F4063)
+
+The number that drives Phase A gate #1, `autonomy_scorer` and
+`calibration_review`. Measured live 2026-08-16, the ten `CORE_MASTERY_TAGS`
+behind it:
+
+```
+lang:pt   0.980  samples 3794  correct 3793  wrong  1   <- MASTERY_CEILING
+lang:ar   0.980  samples 1089  correct 1085  wrong  4   <- ceiling
+lang:fr   0.980  samples  378  correct  377  wrong  1   <- ceiling
+lang:es   0.980  samples 1029  correct 1029  wrong  0   <- ceiling, 100%
+lang:zh   0.980  samples  473  correct  462  wrong 11   <- ceiling
+lang:ru   0.968  samples  293  correct  290  wrong  3
+sanctions 0.845  samples 3092  correct 2945  wrong 147  <- the one free score
+nato_standards      0.500  samples  68  correct  65     <- HARD_FLOORS 0.50
+strategic_geography 0.500  samples  76  correct  60     <- HARD_FLOORS 0.50
+export_control      0.509  samples 281  correct 255     <- HARD_FLOORS 0.50
+                                      mean = 0.8222 -> the 82% headline
+```
+
+**Six of ten are LANGUAGE tags welded to the ceiling.** A grader returning
+"correct" on 3,793 of 3,794 samples is measuring participation, not
+comprehension, and a tag sitting at its ceiling cannot move, so it contributes
+no information to a number that exists to track change. `lang:ru`/`lang:zh`/
+`lang:ar` are emitted by *script detection* — "does this text contain 20+
+Cyrillic characters" (`student.detect_topics`) — which is a detection signal,
+not a competence one.
+
+**Three more are pinned at their hard floor.** 0.500 after 68 graded
+observations at 96% correct is arithmetically impossible under
+`MASTERY_LR_POSITIVE = 0.18` unless something is pushing them down. C-112's
+hourly calibration drop is the measured candidate:
+`crucix:calibration:last_correction` had fired 24 minutes before this reading,
+with status `overconfident`, and `lift_all_topics(-drop)` moves **every** topic.
+
+So the headline is held up at one end by a ceiling and at the other by a floor,
+with **two** freely-moving cells underneath it.
+
+### `0.500` meant two opposite things
+
+It is both the `INITIAL_MASTERY` scaffold — the value /health's
+`core_mastery_all_scaffolded` check looks for, and which §1 records as "never
+represents an answered question" — and a score clamped at `HARD_FLOORS` after
+hundreds of observations. Same number, opposite situations, nothing
+distinguishing them. `samples` does, and nothing was reporting it.
+
+### The value is deliberately unchanged
+
+§1 forbids closing a gate by measuring less, and this is the direction that
+matters: **dropping the language tags would RAISE the headline**, not lower it.
+`get_mastery_report` now publishes `core_mastery_composition` —
+`at_ceiling` / `at_floor` / `freely_measured`, with each floored entry carrying
+its score, its floor, its sample count and a `clamped` flag that separates the
+two meanings of 0.500. `/health.quality` and the Quality panel render it.
+
+`floor_band` (0.02) is published in the payload rather than hidden in the code:
+`export_control` sat 0.9pp above its floor with 281 samples at 91% correct, and
+a strict equality test would have called that "freely measured" and understated
+the finding by a rounding error. A stated judgement can be disagreed with; a
+buried one cannot. A test pins the other side too — 0.56 against a 0.50 floor is
+low but moving, and must NOT be reported as floored, or "at floor" stops meaning
+anything.
+
+### Verified
+
+`test_rf4063_core_mastery_composition.py`: **8 passed**, driven from the exact
+live mastery cache. Includes a regression guard that the headline value is
+still 0.822 (reporting composition must not move the number), the
+scaffold-versus-clamp distinction in both directions, and a healthy-spread case
+so the report can say "nothing is pinned". Python `-k "student or mastery or
+health or composite"`: **538 passed, 1 failed** — `test_student_lang_weak_topic_pickup`,
+in the recorded §16 baseline. Node 177 passed. Compile gate green.
+
+## C-118 · a 42% failure rate on the paid DD engine was rendered as the number "71" (R-F4064)
+
+Measured live 2026-08-16:
+
+```
+/api/aria/cost/external
+    brave: {calls: 168, cost_usd: 0.84, errors: 71}
+/api/aria/search/health.brave_usage.monthly
+    {total: 234, ok: 135, empty: 99}
+```
+
+**71 of 168 is 42%.** Nearly half of every call to Brave — the paid,
+DD-exclusive search engine that RULE ONE reserves for customer-facing due
+diligence — returned nothing usable. The External-services panel printed `71` in
+an Errors column beside `168` in a Calls column, where a raw count reads as
+small next to a bigger count. The surface could not express the one thing that
+matters about those two numbers: their ratio.
+
+`error_rate` is now computed per service and rendered as a Fail-rate column,
+red at 20% or above. It is **None, not 0.0, when a service has no calls** — a
+service nobody called has no failure rate, and 0% would read as perfect health,
+which is the absence-as-measurement shape this whole batch is about. A test pins
+the other side too: a genuinely clean service must report `0.0`, or None would
+mean two different things.
+
+### The audit's first reading was wrong, and dating the commits disproved it
+
+The two meters disagree on the absolute (234 vs 168) and the review flagged that
+cost might therefore be understated by about a third. It is not. Both landed on
+2026-08-11: `brave_usage` in R-F3868, and `cost_tracker.record_brave_call` wired
+hours later the same day in R-F3884 (`0234e011`). `_record_spend` is called from
+the same function that increments the usage counter, so from that point the two
+move together and the gap is a **start offset, not a counting defect**. They
+already agree on the ratio — 99 empty of 234 is 42.3%, against 71 of 168 at
+42.3%. **Nothing was "fixed" here to make the numbers match**, because making
+them match would have meant inventing 66 calls.
+
+### A pre-existing fragility the fixture caught
+
+`get_external_summary`'s totals assumed every aggregate value is a dict, so ONE
+malformed row raised `AttributeError` out of a read endpoint and took the entire
+cost panel down. Found by the malformed-entry case written for the rate, not by
+inspection. Both sums now skip non-dict rows while still returning them under
+`by_service`, so a bad row is visible rather than fatal.
+
+### Verified
+
+`test_rf4064_external_failure_rate.py`: **5 passed**, driven from the exact live
+aggregate. Python `-k "cost or external or brave"`: **342 passed, 0 failed.**
+Node guards 168 passed. Compile gate green.
+
+### Still open, and NOT a code defect
+
+42% of calls to the paid DD engine coming back empty is an operational finding
+in its own right — see §27 on datacenter IP blocking and the engine-rot problem.
+This change makes it visible on the command centre; it does not make Brave
+answer. Watch the new Fail-rate column.
+
+## C-117 · readings with no age, no window, or a decommissioned backend's name (R-F4065)
+
+Four small omissions on the command centre, each of which makes a reading look
+current or complete when it is neither. Measured live 2026-08-16.
+
+**1. "Memory: Redis: up".** The field is set by probing the STATE STORE, which
+is SQLite on the fly volume. Upstash was decommissioned 2026-05-12 (§6/§18) and
+`REDIS_URL` is unset — a fact stated **on this same page**, in the cost panel's
+State backend box, and the Infrastructure panel gets it right with "State Store
+Read". Only the resilience row still said Redis. A stale name is how a future
+session goes hunting a dependency that does not exist. `state_store_reachable` +
+`state_store_backend` are published; `redis_reachable` is kept unchanged for any
+existing reader, because renaming in place would be its own break.
+
+**2. Operating Mode showed transitions only.** The newest history entry was
+2026-08-07, **nine days old**, while the evaluator runs hourly — so the panel
+could not distinguish "evaluated, nothing to change" from "the evaluator died".
+Here it was the former: R-F3764's minimum-sample floor correctly ignores the n=1
+grounded rate, which is exactly why NORMAL held (see C-114). But the panel had no
+way to say so, and `evaluate_auto_transition` is the ONLY route out of DEGRADED,
+a state that suppresses all external delivery. `autonomous/tasks.py` already
+reports `mode_evaluated` for precisely this reason (R-F3761); nothing durable
+existed for the dashboard to read.
+
+`evaluate_auto_transition` now stamps `last_evaluated_at` on every run,
+transition or not, with a **72h TTL against an hourly check** — so an absent
+stamp means "has not run in three days", which is a reading, where a
+never-expiring stamp would decay into an ambiguous old timestamp. The panel
+renders "not in the last 72h" in red rather than a blank. A failed stamp can
+never block the transition: bookkeeping must not be able to strand the platform
+in DEGRADED, and a test pins that.
+
+**3. "Tasks Fired 29 · Ticks 50" were per-process and unlabelled.** aria-intel
+restarted at 17:11Z mid-audit and they became 5/7, so after every restart the
+engine appears to have done almost nothing. The honest 24h figure sits two
+panels away (`autonomous_task_fires: 431`, from a properly TTL'd key — verified
+sound in C-109). Both rows now say "(since boot, Nh ago)".
+
+**4. Bare timestamps presented as current.** Layer 5c's "Latest run
+2026-08-13" was three days stale; the training corpus's 1882 examples carried
+the honest "no model currently consumes these" caveat but no staleness, and the
+last export was 2026-08-03, thirteen days earlier. Both now render an age, and
+Layer 5c warns past a week.
+
+The age helper returns **null**, not 0, on an absent or unparseable timestamp —
+"0h ago" would read as the freshest possible value, which is this batch's
+recurring failure mode in miniature.
+
+### Verified
+
+`test_rf4065_readings_carry_their_age.py` (backend halves): **RED 4 failed / 1
+passed with the two source files stashed → GREEN 5 passed.** Includes the
+stamp-failure-must-not-block-the-transition case.
+`test/aria-brain-age-labels-rf4065.test.mjs` (rendering halves): **5 passed.**
+Python `-k "operating_mode or autonomy_surface or layer_5c or learning_stats or
+rf3761 or rf3764"`: **55 passed, 0 failed.** Full Node guard sweep 189 passed
+after R-F3845 caught the renamed variable in its justified-raw list — updated
+there rather than worked around, since the interpolation is still two literal
+markup constants. Compile gate green.
+
+A fixture caught its own harness bug worth recording: the memory probe both
+READS and WRITES the health-ping key, so patching only `get` left the write
+raising `state_store: no connection` and the whole block landing in its except —
+the test would have passed for the wrong reason on-box.

@@ -47,9 +47,34 @@ _CORRECT_COOLDOWN  = 3600   # seconds — once per hour max
 _CORRECT_DROP_THRESHOLD = 0.15  # only drop when |delta| > 15pp
 _CORRECT_DROP_CAP       = 0.03  # never drop more than 3pp in one run
 
+# ── R-F4066 (C-112) — a signal we cannot measure must be EXCLUDED, never
+# contributed to the mean as a zero. Two sibling consumers of the same inputs
+# already apply this floor and this module — the only one with WRITE AUTHORITY
+# over mastery — did not:
+#     autonomy_scorer._MIN_SIGNAL_SAMPLES = 5   (R-F1907)
+#     operating_modes.GROUNDED_MIN_SAMPLES      (R-F3764)
+# Kept numerically identical to autonomy_scorer's so the two cannot drift into
+# disagreeing about whether the same reading is evidence.
+_MIN_SIGNAL_SAMPLES = 5
 
-async def run_calibration_review() -> dict:
-    """Run a full calibration review comparing mastery to ground truth."""
+
+async def run_calibration_review(apply_correction: bool = False) -> dict:
+    """Run a full calibration review comparing mastery to ground truth.
+
+    ``apply_correction`` — R-F4066 (C-112). This function both COMPUTES the
+    review and, historically, MUTATED mastery via ``student.lift_all_topics``.
+    Its only production callers were ``GET /api/aria/calibration/review`` (which
+    the brain-dashboard aggregate polls) and ``save_baseline()``; a repo-wide
+    search found no scheduled caller at all. So the operator opening the command
+    centre was what drove the hourly mastery correction — the module comment
+    above even rate-limits "so rapid dashboard refreshes don't compound",
+    acknowledging the driver rather than removing it.
+
+    The correction is a wanted capability, so it is relocated rather than
+    deleted: the hourly ``ecosystem_reassess`` task passes ``True`` (it already
+    owns the other hourly evaluations — operating mode, composite score), and
+    every read path keeps the default. **A GET must not move a score.**
+    """
 
     # 1. Get mastery scores. Use `headline_mastery` (= min(overall, core) per
     # the 0150187 honest-rollup doctrine) instead of `overall_mastery`
@@ -73,12 +98,38 @@ async def run_calibration_review() -> dict:
         pass
         overall_mastery = 0.5
 
+    # R-F4066 (C-112) — signals we could not measure, and why. This is the
+    # difference between "measured zero" and "no measurement", and it is
+    # load-bearing: everything in here is kept OUT of the ground-truth mean and
+    # is still reported, so an operator can see what was dropped instead of
+    # inferring it from a number that moved.
+    excluded_signals: dict[str, str] = {}
+
     # 2. Get honesty judge accuracy (ground truth)
+    #
+    # Two names on purpose: `*_observed` is WHAT WE READ and is always reported;
+    # `honesty_accuracy` is what enters the ground-truth mean and is None when
+    # the reading is not evidence. Collapsing them is how a value that was
+    # deliberately discarded reappears as a measurement.
     honesty_accuracy = None
+    honesty_observed = None
     try:
         from . import honesty_judge
         stats = await honesty_judge.get_honesty_stats()
         honesty_accuracy = stats.get("avg_honesty_score")
+        # R-F4066 — `scored_sample_size` is co-computed with `avg_honesty_score`
+        # in get_honesty_stats (both are the 24h "ok"-with-a-score population),
+        # so it describes the SAME window as the value — the R-F3696 property
+        # that made the equivalent guard safe in autonomy_scorer. Live
+        # 2026-08-16: avg 0.0 from scored_sample_size 1, against a lifetime
+        # 0.236. One judged turn was setting 25% of ARIA's "ground truth".
+        _h_n = stats.get("scored_sample_size")
+        _h_n = int(_h_n or 0)
+        honesty_observed = honesty_accuracy
+        if honesty_accuracy is not None and _h_n < _MIN_SIGNAL_SAMPLES:
+            excluded_signals["honesty_accuracy"] = (
+                f"insufficient_samples_n{_h_n} (floor {_MIN_SIGNAL_SAMPLES})")
+            honesty_accuracy = None
     except Exception:
         pass
         pass
@@ -132,7 +183,25 @@ async def run_calibration_review() -> dict:
     # estimated_accuracy upward (toward "ARIA is ~100% accurate").
     # The honest denominator is chat turns served, where user-facing
     # output mistakes actually matter.
+    #
+    # ── R-F4066 (C-112) — a ratio above 1.0 is not a rate, it is proof the two
+    # populations do not match, and it must not become a measured zero.
+    #
+    # Measured live 2026-08-16: 2888 mistake-ledger rows / 1208 chat-audit rows
+    # = 2.3907. The numerator spans every module the ledger serves (autonomous
+    # tasks, source_validator, verified_intel, web_atlas — see the reason codes
+    # at the top of mistake_ledger.py), not just chat; and the denominator is a
+    # log that has itself lost 37% of its entries (C-111). `1.0 - min(rate, 1.0)`
+    # then clamped that to a flat **0.0** and averaged it in as if ARIA had been
+    # measured at zero accuracy — one quarter of the "ground truth" headline,
+    # manufactured.
+    #
+    # The honest denominator for this ledger does not exist today, so the fix is
+    # NOT to invent one: an out-of-range ratio is reported and excluded. Do not
+    # "simplify" this to `min(rate, 1.0)` — that is the original defect, and it
+    # asserts a measurement nobody made.
     mistake_rate = None
+    mistake_rate_observed = None
     try:
         from . import chat_audit_log as cal
         from . import redis_store as rs
@@ -140,7 +209,19 @@ async def run_calibration_review() -> dict:
         cal_stats = await cal.get_stats()
         total_interactions = (cal_stats or {}).get("total_entries", 0)
         if total_interactions > 0:
-            mistake_rate = total_mistakes / total_interactions
+            mistake_rate_observed = total_mistakes / total_interactions
+            if mistake_rate_observed > 1.0:
+                excluded_signals["mistake_rate"] = (
+                    f"population_mismatch_rate_{mistake_rate_observed:.2f}"
+                    f" ({total_mistakes} ledger entries over "
+                    f"{total_interactions} chat-audit entries — a rate above 1.0"
+                    " means the numerator and denominator do not describe the"
+                    " same population)"
+                )
+            else:
+                mistake_rate = mistake_rate_observed
+        else:
+            excluded_signals["mistake_rate"] = "no_denominator_zero_interactions"
     except Exception:
         pass
         pass
@@ -224,9 +305,13 @@ async def run_calibration_review() -> dict:
         "calibration_delta": calibration_delta,
         "calibration_status": calibration_status,
         "signals": {
-            "honesty_accuracy": round(honesty_accuracy, 4) if honesty_accuracy is not None else None,
+            # R-F4066 — these report WHAT WAS READ, including readings that were
+            # excluded from the mean. `excluded_signals` below says which ones
+            # and why. Reporting only the surviving signals would hide the
+            # artifact that motivated this fix.
+            "honesty_accuracy": round(honesty_observed, 4) if honesty_observed is not None else None,
             "adversarial_accuracy": round(adversarial_accuracy, 4) if adversarial_accuracy is not None else None,
-            "mistake_rate": round(mistake_rate, 4) if mistake_rate is not None else None,
+            "mistake_rate": round(mistake_rate_observed, 4) if mistake_rate_observed is not None else None,
             # R-F169 — surface the eval pass_rate so the dashboard /
             # operator can see which signal is pulling the average.
             "eval_pass_rate": round(eval_pass_rate, 4) if eval_pass_rate is not None else None,
@@ -238,15 +323,17 @@ async def run_calibration_review() -> dict:
             estimated=estimated_accuracy,
         ),
         "reviewed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # R-F4066 — {signal: reason} for every reading kept out of the mean.
+        # Empty dict means "everything read was used", which is different from
+        # the key being absent (an older payload that predates this field).
+        "excluded_signals": excluded_signals,
+        # R-F4066 — always present, and always decided BEFORE the correction
+        # block runs, so the shape does not depend on which branch fires.
+        # `applied: False` on a read is a statement, not an omission.
+        "correction_applied": {"applied": False, "reason": (
+            "read_only_call" if not apply_correction
+            else "no_correction_warranted")},
     }
-
-    # Persist
-    try:
-        from . import redis_store as rs
-        await rs.set_json(_K_REVIEW, review, ex=30 * 86400)
-    except Exception:
-        pass
-        pass
 
     # Signal brain if calibration is off
     if calibration_status in ("overconfident", "underconfident"):
@@ -276,10 +363,17 @@ async def run_calibration_review() -> dict:
     #
     # The downward cap is tighter (3pp vs 8pp) so honest gaps stay
     # surfaced for at least a few cycles before mastery follows reality
-    # down. Rate-limited to once per hour so dashboard polling doesn't
-    # compound.
+    # down.
+    #
+    # R-F4066 (C-112) — the hourly rate-limit used to read "so dashboard polling
+    # doesn't compound", which conceded that DASHBOARD POLLING WAS THE CLOCK.
+    # It is not any more: `apply_correction` is False on every read path, and
+    # the hourly ecosystem_reassess task is the caller that passes True. The
+    # cooldown stays as a belt-and-braces guard against a second scheduled
+    # caller ever being added.
     if (
-        calibration_status == "underconfident"
+        apply_correction
+        and calibration_status == "underconfident"
         and calibration_delta is not None
         and abs(calibration_delta) > _CORRECT_THRESHOLD
         and estimated_accuracy is not None
@@ -297,6 +391,7 @@ async def run_calibration_review() -> dict:
                 new_scores = await student.lift_all_topics(bump)
                 await rs.set(_K_LAST_CORRECTION, str(now_ts))
                 review["correction_applied"] = {
+                    "applied": True,
                     "bump_pp": round(bump * 100, 2),
                     "gap_before_pp": round(gap * 100, 2),
                     "topics_lifted": len(new_scores or {}),
@@ -318,17 +413,20 @@ async def run_calibration_review() -> dict:
                     pass
             else:
                 review["correction_applied"] = {
+                    "applied": False,
                     "bump_pp": 0.0,
                     "skipped": "cooldown",
                     "minutes_until_next": int((_CORRECT_COOLDOWN - (now_ts - last_ts)) / 60),
                 }
         except Exception as exc:
             logger.warning("self-calibration correction failed: %s", exc)
-            review["correction_applied"] = {"error": str(exc)[:160]}
+            review["correction_applied"] = {"applied": False,
+                                            "error": str(exc)[:160]}
 
     # ── R-F166 (2026-05-11) — overconfident downward correction ──
     elif (
-        calibration_status == "overconfident"
+        apply_correction
+        and calibration_status == "overconfident"
         and calibration_delta is not None
         and calibration_delta > _CORRECT_DROP_THRESHOLD
         and estimated_accuracy is not None
@@ -345,6 +443,7 @@ async def run_calibration_review() -> dict:
                 new_scores = await student.lift_all_topics(-drop)
                 await rs.set(_K_LAST_CORRECTION, str(now_ts))
                 review["correction_applied"] = {
+                    "applied": True,
                     "drop_pp": round(drop * 100, 2),
                     "gap_before_pp": round(gap * 100, 2),
                     "topics_lowered": len(new_scores or {}),
@@ -370,6 +469,7 @@ async def run_calibration_review() -> dict:
                     pass
             else:
                 review["correction_applied"] = {
+                    "applied": False,
                     "drop_pp": 0.0,
                     "skipped": "cooldown",
                     "minutes_until_next": int((_CORRECT_COOLDOWN - (now_ts - last_ts)) / 60),
@@ -377,14 +477,47 @@ async def run_calibration_review() -> dict:
                 }
         except Exception as exc:
             logger.warning("R-F166 overconfident correction failed: %s", exc)
-            review["correction_applied"] = {"error": str(exc)[:160], "direction": "down"}
+            review["correction_applied"] = {"applied": False,
+                                            "error": str(exc)[:160],
+                                            "direction": "down"}
+
+    # ── Persist ──────────────────────────────────────────────────────────────
+    # R-F4066 (C-112) — this used to run BEFORE the correction block, so
+    # `correction_applied` was only ever on the returned object and never on the
+    # durable record. The stored review therefore could not answer the one
+    # question an audit of this module asks: did this run move mastery? Live
+    # 2026-08-16 the persisted record read `correction_applied: None` at the
+    # same instant the API response carried a real correction verdict.
+    # Persisting here means the record includes the outcome of the write it
+    # describes. Keep it last.
+    try:
+        from . import redis_store as rs
+        await rs.set_json(_K_REVIEW, review, ex=30 * 86400)
+    except Exception:
+        pass
+        pass
 
     # R-F1304 — wire to brain (§21a)
+    #
+    # R-F4066 — `{estimated_accuracy:.0%}` raises TypeError when the estimate is
+    # None, and the whole block is wrapped in `except Exception: pass`, so on the
+    # `insufficient_data` path this module's ONLY success wire silently never
+    # fired. That is a dark branch by §21a, and this change makes the path it
+    # affects more common: excluding an unmeasurable signal is exactly what
+    # produces insufficient_data. Format defensively and report the reason, so
+    # "could not calibrate" reaches the brain as an observation rather than as
+    # nothing at all.
     try:
         from .engine_wiring import wire_success, wire_failure
+        _acc = (f"{estimated_accuracy:.0%}" if estimated_accuracy is not None
+                else "unmeasured")
+        _excl = (f"; excluded: {', '.join(sorted(excluded_signals))}"
+                 if excluded_signals else "")
         wire_success(
             module="calibration_review",
-            summary=f"Calibration review: {calibration_status} (mastery {overall_mastery:.0%}, accuracy {estimated_accuracy:.0%})",
+            summary=(f"Calibration review: {calibration_status} "
+                     f"(mastery {overall_mastery:.0%}, accuracy {_acc}"
+                     f"{_excl})"),
             source_id="calibration_review:run_calibration_review",
         )
     except Exception:

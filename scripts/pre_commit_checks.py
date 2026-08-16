@@ -414,7 +414,14 @@ KNOWN_DEAD_CALLS = {
     ("aria_service.intel.knowledge", "query"),
     ("aria_service.intel.knowledge", "add_fact"),
     ("aria_service.intel.news_monitor", "recall"),
-    ("aria_service.intel.redis_store", "hdel"),
+    # R-F4068/R-F4069 (C-109/C-123) — `redis_store.hdel` REMOVED from this list
+    # because it now exists. It was not merely a dead reference: the two live
+    # callers in dd_trigger_pipeline.resolve_operator_pending() raised
+    # AttributeError into a bare `except Exception: return False`, so an entity
+    # stuck in `operator_pending` could never be resolved and the function
+    # always reported failure. Third instance of this exact family in that one
+    # module after R-F2486 (hget) and R-F2625 (hincrby). This is the shrink-only
+    # contract working as intended: an entry that comes alive must be deleted.
     ("aria_service.intel.eval_golden_seed", "get_all"),
     ("aria_service.intel.correction_learner", "get_all"),
     ("aria_service.intel.feedback", "get_stats"),
@@ -479,71 +486,102 @@ def _is_capability_guarded(lines: list, line_num: int, func_name: str) -> bool:
            f"hasattr(" in window and f"'{func_name}'" in window
 
 
+# R-F4069 (C-123) — deliberate, documented shadows, keyed on (path suffix,
+# function name). Narrow by construction: allowlisting one name in one file must
+# not exempt every builtin in that file, nor the same name elsewhere. Every
+# entry states WHY, and a test asserts the reason is non-trivial.
+BUILTIN_SHADOW_ALLOWLIST: dict[tuple[str, str], str] = {
+    ("aria_service/intel/redis_store.py", "set"): (
+        "redis_store deliberately mirrors the Redis command surface "
+        "(set/get/delete/expire) so call sites read as Redis. The module "
+        "already applies this checker's own remedy — `import builtins` at the "
+        "top — which is the convention state_store.py uses too. Renaming it "
+        "would churn every call site in the tree for no safety gain."
+    ),
+}
+
+
+def _shadow_allowed(file_path: Path, func_name: str) -> bool:
+    posix = str(file_path).replace("\\", "/")
+    for (suffix, name), _reason in BUILTIN_SHADOW_ALLOWLIST.items():
+        if name == func_name and posix.endswith(suffix):
+            return True
+    return False
+
+
+def _non_method_functions(tree: ast.AST):
+    """Yield every function definition that is NOT a class method.
+
+    R-F4069 — this used `ast.walk`, which also yields methods, contradicting the
+    docstring below and producing 31 false positives across the tree (21 of them
+    a `set` method on some store/cache class). A method named `set` cannot
+    shadow `builtins.set` at module scope. Nested functions ARE yielded: a `def
+    sorted(...)` inside a function body really does rebind the name for the rest
+    of that scope.
+    """
+    stack = list(getattr(tree, "body", []))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.ClassDef):
+            # Descend past the class into its methods' BODIES (a nested
+            # function inside a method still shadows), but never treat the
+            # methods themselves as shadowing.
+            for member in node.body:
+                if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stack.extend(member.body)
+                else:
+                    stack.append(member)
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node
+            stack.extend(node.body)
+            continue
+        for child in ast.iter_child_nodes(node):
+            stack.append(child)
+
+
 def check_builtin_shadowing(files: list[Path]) -> list[str]:
     """R-F1518 — Check that no module-level function shadows a Python built-in.
-    
+
     A function named `set()` shadows `builtins.set()`, causing confusing bugs
     when code inside the module calls `set(...)` expecting the built-in but
     getting the module function instead. This check scans every changed .py
     file for functions whose names collide with built-in names.
-    
+
+    R-F4069 (C-123): three faults fixed.
+      * It walked the whole AST, so it flagged METHODS as well — 31 false
+        positives tree-wide, against exactly ONE real module-level shadow. Any
+        commit touching one of those files was blocked.
+      * No allowlist, so the one real shadow (`redis_store.set`, a deliberate
+        Redis-API mirror that already `import builtins`) made that file
+        permanently uncommittable. R-F4068 hit this adding an `hdel` wrapper.
+      * It was defined TWICE, verbatim; the first copy was dead.
+
     Returns a list of issue strings (empty if all pass).
     """
     import builtins
     builtin_names = {name for name in dir(builtins) if not name.startswith('_')}
     issues = []
-    
+
     for file_path in files:
         if file_path.suffix != ".py":
             continue
         try:
             source = file_path.read_text(encoding="utf-8")
             tree = ast.parse(source)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if node.name in builtin_names:
-                        issues.append(
-                            f"{file_path}:{node.lineno}: function '{node.name}()' "
-                            f"shadows builtins.{node.name}(). Rename the function "
-                            f"or use 'builtins.{node.name}' explicitly."
-                        )
+            for node in _non_method_functions(tree):
+                if node.name not in builtin_names:
+                    continue
+                if _shadow_allowed(file_path, node.name):
+                    continue
+                issues.append(
+                    f"{file_path}:{node.lineno}: function '{node.name}()' "
+                    f"shadows builtins.{node.name}(). Rename the function "
+                    f"or use 'builtins.{node.name}' explicitly."
+                )
         except SyntaxError:
             pass
-    
-    return issues
 
-
-def check_builtin_shadowing(files: list[Path]) -> list[str]:
-    """R-F1518 — Check that no module-level function shadows a Python built-in.
-    
-    A function named `set()` shadows `builtins.set()`, causing confusing bugs
-    when code inside the module calls `set(...)` expecting the built-in but
-    getting the module function instead. This check scans every changed .py
-    file for functions whose names collide with built-in names.
-    
-    Returns a list of issue strings (empty if all pass).
-    """
-    import builtins
-    builtin_names = {name for name in dir(builtins) if not name.startswith('_')}
-    issues = []
-    
-    for file_path in files:
-        if file_path.suffix != ".py":
-            continue
-        try:
-            source = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(source)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if node.name in builtin_names:
-                        issues.append(
-                            f"{file_path}:{node.lineno}: function '{node.name}()' "
-                            f"shadows builtins.{node.name}(). Rename the function "
-                            f"or use 'builtins.{node.name}' explicitly."
-                        )
-        except SyntaxError:
-            pass
-    
     return issues
 
 

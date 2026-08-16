@@ -90,7 +90,17 @@ assert.match(partial['composite-badge'].textContent, /^PARTIAL SCORE: 82% MEDIUM
 assert.match(partial['composite-metrics'].innerHTML, /Measured Weight.*38%/s);
 assert.match(partial['composite-metrics'].innerHTML, /Displayed Tier.*MEDIUM \(capped, signal-pending\) \(2\)/s);
 assert.match(partial['composite-metrics'].innerHTML, /Raw Tier.*HIGH \(3\): confidence cap applied/s);
-assert.match(partial['composite-metrics'].innerHTML, /excluded.*no qualifying data; excluded from score/s);
+// R-F4072 (C-114) — WIDENED, not relaxed. R-F2910's contract is "say the
+// signal is EXCLUDED, never substitute a plausible default", and that still
+// holds below. What this line used to pin was the exact sentence
+// "no qualifying data; excluded from score", which was printed for EVERY
+// exclusion — so `insufficient_samples_n2` (there IS data, just not enough),
+// `no_data_neutral_prior` (there is none) and `error` (the probe FAILED) were
+// indistinguishable on the one panel built to keep them apart. This fixture
+// supplies two different reasons; assert they render differently.
+assert.match(partial['composite-metrics'].innerHTML, /excluded/);
+assert.match(partial['composite-metrics'].innerHTML, /excluded from score: insufficient_samples_n2, n=2/);
+assert.match(partial['composite-metrics'].innerHTML, /excluded from score: no_data_neutral_prior, n=0/);
 assert.doesNotMatch(partial['composite-metrics'].innerHTML, /default to 50%|50%\*/);
 
 // One missing signal out of three is above the 25% boundary and must cap a

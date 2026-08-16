@@ -195,6 +195,20 @@ def check_all_files() -> list[str]:
                 )
                 if issue not in issues:
                     issues.append(issue)
+    # R-F4069 (C-123) — run the builtin-shadow guard in CI too.
+    #
+    # It was called ONLY from the staged-commit path (below), so `--check-all`
+    # reported "OK — all files checked, no issues" on the exact tree whose
+    # commit the hook then BLOCKED. Two modes, two answers, same code: the same
+    # fork this file already records ~line 536 for a different guard, and the
+    # same shape §1 records for the Phase A gate aggregators.
+    #
+    # Safe to enable: with R-F4069's module-level scoping and the narrow
+    # allowlist, the whole tree has zero violations (measured — 1 real
+    # module-level shadow, allowlisted; 31 method-level false positives, gone).
+    shadow_files = [p for p in ARIA_SERVICE.rglob("*.py")
+                    if "__pycache__" not in p.parts]
+    issues.extend(f"  {s}" for s in check_builtin_shadowing(shadow_files))
     return issues
 
 

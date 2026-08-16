@@ -22,6 +22,7 @@ from .engine_wiring import wire_success, wire_failure
 
 import logging
 import time
+from datetime import datetime, timezone
 from enum import IntEnum
 
 logger = logging.getLogger("aria.operating_modes")
@@ -29,6 +30,12 @@ logger = logging.getLogger("aria.operating_modes")
 _K_MODE = "crucix:aria:operating_mode"
 _K_MODE_HISTORY = "crucix:aria:operating_mode:history"
 _K_PREDICTOR_BLOCKS_24H = "crucix:predictor:blocks:24h"
+# R-F4065 (C-117) — when the evaluator last RAN, as distinct from when it last
+# changed something. A 72h TTL is deliberate: the check is hourly, so an absent
+# stamp means it has not run in three days, and "absent" then reads as a real
+# signal instead of decaying into an ambiguous old timestamp.
+_K_LAST_EVAL = "crucix:aria:operating_mode:last_evaluated_at"
+_LAST_EVAL_TTL_S = 72 * 3600
 
 
 class Mode(IntEnum):
@@ -269,6 +276,27 @@ async def evaluate_auto_transition() -> dict | None:
     elif grounded_rate is not None and grounded_rate < DEGRADED_GROUNDED_RATE:
         target = Mode.DEGRADED
         reason = f"grounded rate {grounded_rate:.0%} < {DEGRADED_GROUNDED_RATE:.0%}"
+
+    # R-F4065 (C-117) — stamp WHEN this ran, not only when it changed something.
+    #
+    # The Operating Mode panel renders `history`, which only records
+    # TRANSITIONS. Live 2026-08-16 the newest entry was 2026-08-07 — nine days
+    # old — so the panel could not distinguish "evaluated hourly, nothing to
+    # change" from "the evaluator died nine days ago". Here it was the former
+    # (R-F3764's minimum-sample floor correctly ignores the n=1 grounded rate,
+    # which is why NORMAL held), but the panel had no way to say so, and this is
+    # the ONLY route out of DEGRADED — a state that suppresses all external
+    # delivery. `tasks.py` already reports `mode_evaluated` for exactly this
+    # reason; the durable stamp makes it readable from the dashboard too.
+    try:
+        from . import redis_store as rs
+        await rs.set(
+            _K_LAST_EVAL,
+            datetime.now(timezone.utc).isoformat(),
+            ex=_LAST_EVAL_TTL_S,
+        )
+    except Exception as e:  # never block the transition on bookkeeping
+        logger.debug("[R-F4065] last-evaluated stamp failed: %s", e)
 
     if target != current:
         return await set_mode(target, reason)

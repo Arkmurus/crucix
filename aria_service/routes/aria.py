@@ -26421,16 +26421,35 @@ async def health_check_ep():
             "core_breakdown": report.get("core_mastery_breakdown", {}),
             "core_weak_topics": report.get("core_weak_topics", []),
             "weak_topics": report.get("weak_topics", []),
+            # R-F4063 (C-113) — the headline is held up at both ends by clamps
+            # (6 of 10 core tags at MASTERY_CEILING, 3 at their HARD_FLOORS).
+            # Publish the composition so the number can be read for what it is.
+            "core_composition": report.get("core_mastery_composition") or {},
         }
     except Exception:
         pass
 
     grounded = None
     grounded_data_source = None
+    grounded_samples = None
     try:
         stats = await source_verifier.get_verification_stats()
         grounded = stats.get("avg_grounded_rate")
         grounded_data_source = stats.get("data_source")
+        # R-F4072 (C-114) — publish the sample size WITH the rate.
+        #
+        # The dashboard printed "Grounded Rate 0%" in red from n=1. Both
+        # consumers that ACT on this number refuse it at that size —
+        # autonomy_scorer (`insufficient_samples_n1`, R-F1907) and
+        # operating_modes (`GROUNDED_MIN_SAMPLES`, R-F3764) — and only the
+        # surface that merely displays it treated it as a verdict. It is also
+        # EVAL-ONLY traffic by construction (source_verifier records nothing
+        # from the chat path today), which the label did not say either.
+        # `effective_sample_size` is co-computed with the rate (R-F3696) so the
+        # two always describe the same window.
+        grounded_samples = stats.get("effective_sample_size")
+        if grounded_samples is None:
+            grounded_samples = stats.get("rate_sample_size")
     except Exception:
         pass
 
@@ -26619,9 +26638,13 @@ async def health_check_ep():
             "mastery_weighted": mastery.get("weighted"),
             "core_mastery": mastery.get("core"),
             "core_mastery_breakdown": mastery.get("core_breakdown", {}),
+            "core_mastery_composition": mastery.get("core_composition", {}),
             "core_weak_topics": mastery.get("core_weak_topics", []),
             "weak_topics": mastery.get("weak_topics", []),
             "grounded_rate": grounded,
+            # R-F4072 (C-114) — a rate with no sample size is not a measurement.
+            "grounded_rate_samples": grounded_samples,
+            "grounded_rate_source": grounded_data_source,
             "adversarial_score": adversarial,
             "adversarial_run_at": adversarial_run_at,
             "adversarial_age_hours": adversarial_age_hours,
@@ -27700,7 +27723,14 @@ async def operating_mode_get_ep():
     from ..intel import redis_store as rs
     mode = await om.get_mode()
     history = await rs.get_json("crucix:aria:operating_mode:history") or []
-    return {"mode": mode.name, "value": mode.value, "history": history[:20]}
+    # R-F4065 (C-117) — publish when the evaluator last RAN. `history` records
+    # only transitions, so a nine-day-old newest entry (live 2026-08-16) could
+    # mean "nothing to change" or "the evaluator died", and this is the only
+    # route out of DEGRADED. None = not evaluated in the last 72h, which is
+    # itself the signal.
+    last_eval = await rs.get(om._K_LAST_EVAL)
+    return {"mode": mode.name, "value": mode.value, "history": history[:20],
+            "last_evaluated_at": last_eval}
 
 
 @router.post("/operating-mode/set")
@@ -28504,6 +28534,12 @@ def _dashboard_panel_registry() -> dict:
         "/predictor/block_rate": predictor_block_rate_ep,
         "/chat-audit/stats": chat_audit_stats_ep,
         "/chat-audit/recent?limit=10": lambda: chat_audit_recent_ep(limit=10),
+        # R-F4070 (C-111) — served from the aggregate so the Chat Audit panel
+        # can show a chain verdict without adding a 25th fan-out request. The
+        # panel previously printed Total Entries + Head Hash + Retention, three
+        # rows that read as an intact permanent record, while the live chain was
+        # verifiably broken and nothing checked.
+        "/chat-audit/verify?sample=200": lambda: chat_audit_verify_ep(sample=200),
         "/student/mastery/heatmap": mastery_heatmap_ep,
         "/autonomous/dlq": dlq_get_ep,
         "/student/mastery": student_mastery_ep,

@@ -864,6 +864,74 @@ async def get_mastery_report() -> dict:
     headline_mastery = min(overall, core_mastery)
     core_weak = [t for t in CORE_MASTERY_TAGS
                  if mastery.get(t, {}).get("score", 0) < WEAK_THRESHOLD]
+
+    # ── R-F4063 (C-113) — publish what the headline is MADE OF ───────────────
+    #
+    # The number above drives Phase A gate #1, autonomy_scorer and
+    # calibration_review, and it is held up at both ends by clamps. Measured
+    # live 2026-08-16, the ten CORE_MASTERY_TAGS were:
+    #
+    #   lang:pt 0.980 (3794 samples, 3793 correct)   lang:ar 0.980 (1089)
+    #   lang:fr 0.980 (378)                          lang:es 0.980 (1029, 0 wrong)
+    #   lang:zh 0.980 (473)                          lang:ru 0.968 (293)
+    #   sanctions 0.845 (3092)
+    #   nato_standards 0.500 (68 samples, 65 correct)
+    #   strategic_geography 0.500 (76)
+    #   export_control 0.509 (281)      -> mean 0.8222 = the 82% headline
+    #
+    # Six of ten are LANGUAGE tags welded to MASTERY_CEILING; a tag at its
+    # ceiling cannot move, so it carries no information. Three more sit at
+    # exactly their HARD_FLOORS value despite 68/76/281 graded observations at
+    # ~90% correct — arithmetically impossible under MASTERY_LR_POSITIVE = 0.18
+    # unless something is pushing them down (C-112's hourly calibration drop is
+    # the measured candidate). Only `sanctions` moves freely.
+    #
+    # `0.500` therefore means two contradictory things in this system —
+    # "never measured" (the INITIAL_MASTERY scaffold that /health's
+    # `core_mastery_all_scaffolded` check looks for) and "clamped at floor after
+    # 68 observations" — and nothing distinguished them. `samples` does.
+    #
+    # The VALUE is deliberately unchanged: §1 forbids closing a gate by
+    # measuring less, and dropping the language tags would RAISE the headline.
+    # This reports composition so the number can be read for what it is.
+    # `_FLOOR_BAND` is a stated judgement, not a hidden one, and it is
+    # published in the payload so a reader can disagree with it. Live,
+    # `export_control` sat at 0.509 against a 0.50 floor — 0.9pp clear, with 281
+    # graded observations at 91% correct. Calling that "freely measured" on a
+    # strict equality test would understate the finding by a rounding error;
+    # 2pp is the smallest band that captures "pinned to the floor" without
+    # sweeping in a genuinely low-but-moving score.
+    _EPS = 1e-6
+    _FLOOR_BAND = 0.02
+    _at_ceiling, _at_floor, _free = [], [], []
+    for t in CORE_MASTERY_TAGS:
+        _m = mastery.get(t) or {}
+        _s = _m.get("score", INITIAL_MASTERY)
+        _floor = HARD_FLOORS.get(t, INITIAL_MASTERY)
+        if _s >= MASTERY_CEILING - _EPS:
+            _at_ceiling.append(t)
+        elif _s <= _floor + _FLOOR_BAND + _EPS:
+            _at_floor.append({
+                "topic": t,
+                "score": round(_s, 3),
+                "floor": _floor,
+                "samples": _m.get("samples", 0),
+                # A floored tag WITH samples is clamped; one without is
+                # scaffolded. Same number, opposite meanings.
+                "clamped": bool(_m.get("samples", 0) > 0),
+            })
+        else:
+            _free.append(t)
+    core_composition = {
+        "at_ceiling": _at_ceiling,
+        "at_floor": _at_floor,
+        "freely_measured": _free,
+        "ceiling": MASTERY_CEILING,
+        # Published so the "at floor" judgement is auditable rather than magic.
+        "floor_band": _FLOOR_BAND,
+        "total": len(CORE_MASTERY_TAGS),
+    }
+
     return {
         "overall_mastery": round(overall, 3),
         "core_mastery": round(core_mastery, 3),
@@ -873,6 +941,8 @@ async def get_mastery_report() -> dict:
             for t in CORE_MASTERY_TAGS
         },
         "core_weak_topics": core_weak,
+        # R-F4063 (C-113) — what the headline is made of, see above.
+        "core_mastery_composition": core_composition,
         "total_samples": total_samples,
         "topics": {
             t: {

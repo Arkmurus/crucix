@@ -694,6 +694,52 @@ function heatColor(score) {
   return 'rgba(220,38,38,0.10)';
 }
 
+// R-F4065 (C-117) — age helpers. A reading with no age cannot be told apart
+// from a fresh one, and every panel that showed a timestamp showed it raw.
+function _ageHours(iso) {
+  if (!iso) return null;
+  const t = typeof iso === 'number' ? iso * 1000 : Date.parse(iso);
+  if (!isFinite(t)) return null;
+  return (Date.now() - t) / 3600000;
+}
+function _ageLabel(iso) {
+  const h = _ageHours(iso);
+  if (h == null) return '';
+  if (h < 1) return `${Math.round(h * 60)}m ago`;
+  if (h < 48) return `${h.toFixed(1)}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+function _sinceBoot(startedAt) {
+  const label = _ageLabel(startedAt);
+  return label ? ` (since boot, ${label})` : ' (since boot)';
+}
+
+// R-F4063 (C-113) — composition of the core-mastery headline.
+// Returns '' when the backend does not send it (older build), so the panel
+// degrades to its previous shape rather than rendering an empty claim.
+function _coreCompositionRow(comp) {
+  if (!comp || comp.total == null) return '';
+  const ceiling = (comp.at_ceiling || []).length;
+  const floored = (comp.at_floor || []);
+  const free = (comp.freely_measured || []).length;
+  if (!ceiling && !floored.length) return '';
+  const parts = [];
+  if (ceiling) parts.push(`${ceiling} at ceiling (${pct(comp.ceiling)})`);
+  if (floored.length) {
+    const clamped = floored.filter(f => f.clamped).length;
+    parts.push(`${floored.length} at floor${clamped ? ` (${clamped} clamped, not unmeasured)` : ''}`);
+  }
+  parts.push(`${free} freely measured`);
+  const names = floored.map(f => `${f.topic} ${pct(f.score)} (floor ${pct(f.floor)}, n=${f.samples})`);
+  return metricRow('Core composition', parts.join(' · '),
+                   free <= 1 ? 'warn' : 'neutral')
+    + (names.length
+        ? `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;line-height:1.5">`
+          + `At floor: ${escapeHtml(names.join('; '))}. A clamped score is not a `
+          + `measurement, and a tag at its ceiling cannot move.</div>`
+        : '');
+}
+
 function metricRow(label, value, cls='neutral') {
   return `<div class="metric"><span class="label">${escapeHtml(label)}</span><span class="value ${escapeHtml(cls)}">${escapeHtml(value)}</span></div>`;
 }
@@ -765,8 +811,29 @@ async function loadHealth() {
   document.getElementById('quality-metrics').innerHTML =
     metricRow('Mastery Overall', pct(q.mastery_overall), scoreClass(q.mastery_overall, 0.8, 0.55)) +
     metricRow(`Core Mastery (${coreTotal} load-bearing)`, pct(q.core_mastery), scoreClass(q.core_mastery, 0.7, 0.55)) +
+    // R-F4063 (C-113) — say what the headline is MADE OF. Live 2026-08-16 the
+    // ten core tags were 6 language tags welded to the 0.98 ceiling (lang:pt
+    // scored "correct" on 3793 of 3794 samples), 3 pinned at their hard floor
+    // despite 68/76/281 graded observations, and ONE freely-measured capability
+    // tag. A tag at its ceiling cannot move, so it carries no information; a
+    // tag at its floor is clamped, not measured. The VALUE is deliberately
+    // unchanged: dropping the language tags would RAISE it, and §1 forbids
+    // closing a gate by measuring less.
+    _coreCompositionRow(q.core_composition) +
     metricRow('Mastery Weighted (by samples)', pct(q.mastery_weighted), 'neutral') +
-    metricRow('Grounded Rate', pct(q.grounded_rate), scoreClass(q.grounded_rate)) +
+    // R-F4072 (C-114) — a rate with no sample size is not a verdict.
+    // This rendered a flat red "0%" from n=1 EVAL-only data. The two consumers
+    // that ACT on the number both refuse it at that size (autonomy_scorer
+    // `insufficient_samples_n1`, operating_modes `GROUNDED_MIN_SAMPLES`); only
+    // the surface that displays it treated it as fact. Below the floor it is
+    // greyed and labelled, never coloured as a failing measurement.
+    metricRow(
+      'Grounded Rate' + (q.grounded_rate_samples != null ? ` (n=${q.grounded_rate_samples}, eval)` : ''),
+      pct(q.grounded_rate),
+      (q.grounded_rate_samples != null && q.grounded_rate_samples < 5)
+        ? 'neutral'
+        : scoreClass(q.grounded_rate),
+    ) +
     metricRow('Adversarial Score', pct(q.adversarial_score), scoreClass(q.adversarial_score, 0.8, 0.5)) +
     metricRow('Predictor Blocks (24h)', q.predictor_blocks_24h || 0, q.predictor_blocks_24h > 3 ? 'bad' : 'good') +
     metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ': ' + coreWeak.join(', ') : ''), coreTotal === 0 ? 'neutral' : (coreWeak.length ? 'warn' : 'good')) +
@@ -787,6 +854,18 @@ async function loadMode() {
   mb.className = `badge ${cls}`;
 
   let html = metricRow('Current Mode', d.mode, d.mode === 'NORMAL' ? 'good' : 'warn');
+  // R-F4065 (C-117) — "evaluated and nothing to change" versus "the evaluator
+  // stopped". The history below records only TRANSITIONS, and live its newest
+  // entry was nine days old while the check runs hourly. This is the only route
+  // out of DEGRADED, which suppresses all external delivery, so an evaluator
+  // that quietly stopped would leave delivery off with nothing saying why.
+  const evalAge = _ageLabel(d.last_evaluated_at);
+  html += metricRow(
+    'Last evaluated',
+    d.last_evaluated_at ? evalAge : 'not in the last 72h',
+    !d.last_evaluated_at ? 'bad'
+      : (_ageHours(d.last_evaluated_at) > 3 ? 'warn' : 'good'),
+  );
   if (d.history?.length) {
     html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Recent transitions:</div>';
     d.history.slice(0, 5).forEach(h => {
@@ -817,8 +896,13 @@ async function loadEngine() {
     metricRow('Running', e.running ? 'Yes' : 'No', e.running ? 'good' : 'bad') +
     metricRow('Autonomy Level', `L${e.autonomy_level || 0} (${e.autonomy_label || 'OFF'})`, e.autonomy_level >= 2 ? 'good' : 'warn') +
     metricRow('Dry Run', e.dry_run ? 'Yes' : 'No', e.dry_run ? 'warn' : 'good') +
-    metricRow('Tasks Fired', e.fire_count || 0, 'neutral') +
-    metricRow('Ticks', e.tick_count || 0, 'neutral');
+    // R-F4065 (C-117) — these are PER-PROCESS counters and said no such thing.
+    // aria-intel restarted at 17:11Z mid-audit and they went 29/50 -> 5/7, so
+    // after every restart the engine appears to have done almost nothing. The
+    // honest 24h figure is two panels down (autonomous_task_fires, 431, from a
+    // properly TTL'd key). Name the window and show the uptime it covers.
+    metricRow(`Tasks Fired${_sinceBoot(e.started_at)}`, e.fire_count || 0, 'neutral') +
+    metricRow(`Ticks${_sinceBoot(e.started_at)}`, e.tick_count || 0, 'neutral');
 }
 
 async function loadAdversarial() {
@@ -1345,7 +1429,13 @@ async function loadLayer5c() {
     + metricRow('GREEN (clean)', green, 'good')
     + metricRow('ELEVATED', elevated, elevated > 0 ? 'warn' : 'good')
     + metricRow('HIGH', high, high > 0 ? 'bad' : 'good')
-    + metricRow('Latest run', d.latest_run_at || '--', 'neutral');
+    // R-F4065 (C-117) — a bare timestamp is not an age. Live this read
+    // "2026-08-13", three days stale, presented exactly as a current figure.
+    + metricRow('Latest run',
+                d.latest_run_at
+                  ? `${String(d.latest_run_at).slice(0, 16).replace('T', ' ')} (${_ageLabel(d.latest_run_at)})`
+                  : '--',
+                _ageHours(d.latest_run_at) > 168 ? 'warn' : 'neutral');
   const flagged = d.top_flagged_jurisdictions || [];
   if (flagged.length) {
     html += '<div style="margin-top:8px;font-weight:600;color:#ca8a04">Top flagged jurisdictions</div>';
@@ -1384,10 +1474,40 @@ async function loadAudit() {
     document.getElementById('audit-recent').innerHTML = '<span class="neutral">No entries yet</span>';
     return;
   }
+  // R-F4070 (C-111) — the chain verdict belongs beside the head hash.
+  // "Total Entries · Head Hash · Retention 36500 days" read as an intact,
+  // permanent, tamper-evident record. Measured live 2026-08-16: 714 of 1922
+  // entries absent and `/chat-audit/verify?sample=500` returning
+  // verified:false with a break at index 409 — while the panel checked
+  // nothing. A retention SETTING is not evidence of retention.
+  const chain = await fetchJson('/chat-audit/verify?sample=200');
+  let chainRow = '';
+  if (chain && chain.verdict) {
+    const label = {
+      intact:       ['CHAIN INTACT', 'good'],
+      partial_ok:   ['no break found in sample', 'neutral'],
+      broken:       ['CHAIN BROKEN', 'bad'],
+      unverifiable: ['unverifiable (no entries)', 'warn'],
+    }[chain.verdict] || [chain.verdict, 'neutral'];
+    const scope = chain.complete
+      ? `all ${chain.total_entries} entries`
+      : `${chain.checked} of ${chain.total_entries} checked`;
+    chainRow = metricRow('Chain integrity', `${label[0]} · ${scope}`, label[1]);
+    if (chain.verdict === 'broken' && (chain.breaks || []).length) {
+      chainRow += `<div style="margin-top:6px;font-size:0.78em;color:#b91c1c;line-height:1.5">`
+        + `${escapeHtml(chain.breaks.length)} broken link(s); first at entry `
+        + `${escapeHtml(chain.breaks[0].index)}. Entries are missing or were `
+        + `rewritten: the hash chain no longer joins up.</div>`;
+    }
+  } else {
+    // Never render a silent blank: an unchecked chain is not a clean one.
+    chainRow = metricRow('Chain integrity', 'NOT CHECKED', 'warn');
+  }
   document.getElementById('audit-metrics').innerHTML =
     metricRow('Total Entries', d.total_entries || 0, 'neutral') +
     metricRow('Head Hash', (d.head_hash || '--').slice(0, 12) + '...', 'neutral') +
-    metricRow('Retention', `${d.ttl_days || 90} days`, 'neutral');
+    metricRow('Retention (configured)', `${d.ttl_days || 90} days`, 'neutral') +
+    chainRow;
 
   // Recent entries
   const recent = await fetchJson('/chat-audit/recent?limit=10');
@@ -1827,7 +1947,17 @@ async function loadComposite() {
       provenanceParts.push(`${d.details.mastery_topics} topics`);
     }
     const provenance = provenanceParts.join(', ');
-    const noteText = val == null ? 'no qualifying data; excluded from score' : provenance;
+    // R-F4072 (C-114) — keep the REASON on the excluded branch. The panel
+    // rendered provenance when a signal had a value and threw it away exactly
+    // when it mattered, so `insufficient_samples_n1` (there IS data, just not
+    // enough) and `no_data_neutral_prior` (there is none) and `error` (the
+    // probe FAILED) all printed the same sentence. "Could not measure" and
+    // "measured nothing" are different states, on the one panel built to keep
+    // them apart.
+    const excludedNote = provenance
+      ? `excluded from score: ${provenance}`
+      : 'no qualifying data; excluded from score';
+    const noteText = val == null ? excludedNote : provenance;
     const note = noteText ? ` <span style="font-size:0.75em;color:#6b6862">(${escapeHtml(noteText)})</span>` : '';
     html += `<div class="metric"><span class="label">${escapeHtml(sig)}${escapeHtml(w)}</span><span class="value neutral">${escapeHtml(display)}${note}</span></div>`;
   }
@@ -1877,7 +2007,13 @@ async function loadSurface() {
   html += metricRow('Autonomous task fires', auto.autonomous_task_fires ?? 0, 'good');
   html += metricRow('Chat turns served',     auto.chat_turns_served ?? 0,     'neutral');
   html += metricRow('Corpus ingests',        auto.corpus_ingests ?? 0,        'neutral');
-  html += metricRow('Audit-trail entries',   auto.audit_entries ?? 0,         'neutral');
+  // R-F4068 (C-109) — this row is the LIFETIME total
+  // (chat_audit_log.get_stats().total_entries), not a 24h figure, and it sat
+  // under the "Auto-allowed (24h)" heading. Live 2026-08-16 it read 1208 —
+  // the identical number the Chat Audit panel prints as "Total Entries" on the
+  // same screen. The value is genuine and worth showing; the placement was the
+  // lie. Labelled, so it cannot silently read as a day's work again.
+  html += metricRow('Audit-trail entries (lifetime)', auto.audit_entries ?? 0, 'neutral');
   html += metricRow('Bright-lines fired',    auto.bright_lines_triggered ?? 0,
                     (auto.bright_lines_triggered ?? 0) > 0 ? 'warn' : 'good');
   const bl = auto.bright_lines_by_code || {};
@@ -1919,10 +2055,29 @@ async function loadSurface() {
                      : verdict === 'SINGLE_POINT' ? 'warn'
                      : 'bad';
     html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#f5f4ef; border:1px solid #e9e6df; border-radius:6px">';
-    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor: ${escapeHtml(verdict)} (${escapeHtml(resilience.resilience_count || 0)} independent paths)</div>`;
+    // R-F4071 (C-115) — say what the paths ARE. This read "ROBUST (3
+    // independent paths) · anthropic: active · deepseek: active" while the
+    // chain a general call walks was one vendor deep, because the count came
+    // from API-key presence rather than from the serving chain.
+    // Built as PLAIN TEXT and escaped at the interpolation site — a pre-built
+    // markup fragment would be a raw interpolation the R-F3845 guard cannot
+    // see through, and rightly refuses.
+    const depth = resilience.general_vendor_depth;
+    const depthNote = depth != null
+      ? ` · ${depth} general vendor${depth === 1 ? '' : 's'}`
+        + (resilience.local_brain_ready ? ' + local brain' : '')
+      : '';
+    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor: ${escapeHtml(verdict)} (${escapeHtml(resilience.resilience_count || 0)} independent paths)${escapeHtml(depthNote)}</div>`;
     const providerChips = (resilience.providers || []).map(p => {
-      const cls = p.status === 'active' ? 'good' : (p.status === 'cooling' ? 'warn' : 'neutral');
-      return `<span class="value ${escapeHtml(cls)}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${escapeHtml(p.name)}: ${escapeHtml(p.status)}</span>`;
+      // A reserved provider is configured and reachable BY NAME (DD pins it),
+      // but a general call can never fall onto it. Colouring it green as an
+      // "active" fallback is what overstated the floor.
+      const reserved = p.role === 'reserved_dd' || p.status === 'reserved';
+      const cls = reserved ? 'neutral'
+                : p.status === 'active' ? 'good'
+                : (p.status === 'cooling' ? 'warn' : 'neutral');
+      const label = reserved ? `${p.name}: reserved for DD` : `${p.name}: ${p.status}`;
+      return `<span class="value ${escapeHtml(cls)}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${escapeHtml(label)}</span>`;
     }).join('');
     html += `<div style="margin-top:4px">${providerChips || '<span class="neutral">No LLM providers configured</span>'}</div>`;
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Local brain: ${resilience.local_brain_ready ? '<span class="value good">READY</span>' : '<span class="value bad">OFF</span>'}`;
@@ -1932,7 +2087,16 @@ async function loadSurface() {
     html += '</div>';
     const mem = resilience.memory || {};
     const memBits = [];
-    memBits.push(`Redis: ${mem.redis_reachable ? '<span class="value good">up</span>' : '<span class="value bad">down</span>'}`);
+    // R-F4065 (C-117) — name the backend actually in use. This said "Redis: up"
+    // while the state store is SQLite on the fly volume and Upstash was
+    // decommissioned 2026-05-12 — a fact stated on this same page, in the cost
+    // panel's State backend box. Falls back to the old field so an older
+    // backend still renders.
+    const storeUp = mem.state_store_reachable != null
+      ? mem.state_store_reachable : mem.redis_reachable;
+    const storeName = mem.state_store_backend
+      ? `State store (${mem.state_store_backend})` : 'State store';
+    memBits.push(`${escapeHtml(storeName)}: ${storeUp ? '<span class="value good">up</span>' : '<span class="value bad">down</span>'}`);
     if ((mem.rag_chunks || 0) > 0) memBits.push(`RAG: ${mem.rag_chunks} chunks`);
     if ((mem.mem0_facts || 0) > 0) memBits.push(`mem0: ${mem.mem0_facts} facts`);
     // R-F2334: claim-ledger — honest availability (count deliberately not probed).
@@ -2031,7 +2195,13 @@ async function loadLearning() {
   // consumed by any live model. They're corpus for the future R-F92
   // fine-tune run (RunPod, ~$30-45). Without this caveat the headline
   // implied "active learning" when the JSONL files are inert until SFT.
-  html += `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;font-style:italic">corpus for R-F92 fine-tune (no model currently consumes these)</div>`;
+  // R-F4065 (C-117) — the honest "no model consumes these" caveat was here; the
+  // STALENESS was not. Live the count read 1882 with the last export on
+  // 2026-08-03, thirteen days earlier, and nothing said so.
+  const exportAge = _ageLabel(te.last_export);
+  html += `<div style="margin-top:4px;font-size:0.78em;color:#9b968c;font-style:italic">corpus for R-F92 fine-tune (no model currently consumes these)`
+        + (exportAge ? ` · last export ${escapeHtml(exportAge)}` : ' · export date unknown')
+        + `</div>`;
   html += metricRow('Spider fetches 24h',       sp.fetches_24h ?? 0, 'neutral');
   html += metricRow('Spider ingests 24h',       sp.ingests_24h ?? 0,
                     (sp.ingests_24h ?? 0) > 0 ? 'good' : 'neutral');
@@ -2054,10 +2224,22 @@ async function loadLearning() {
                     sRatio != null ? sRatio : '--',
                     sRatio != null && sRatio >= 3 ? 'good' : sRatio != null && sRatio >= 1 ? 'warn' : 'bad');
   html += metricRow('Novelties logged',       mj.novelties ?? 0, 'neutral');
-  html += metricRow('Verification verified 24h',   vg.verified_24h ?? 0, 'good');
+  // R-F4072 (C-114) — colour on MEASUREMENT, not on the value. The class here
+  // was the literal 'good', so zero verifications rendered in the same green as
+  // a hundred. Live 2026-08-16 both counters were 0 and the most recent
+  // verification record was 2026-08-13 — a gate that had not run in three days
+  // reading clean. Zero-with-no-runs is neutral, not healthy.
+  const verified24 = vg.verified_24h ?? 0;
   const unverified = vg.unverified_24h ?? 0;
+  const noVerificationSample = (verified24 + unverified) === 0;
+  html += metricRow('Verification verified 24h', verified24,
+                    noVerificationSample ? 'neutral' : 'good');
   html += metricRow('Verification unverified 24h', unverified,
-                    unverified > 0 ? 'warn' : 'good');
+                    unverified > 0 ? 'warn' : (noVerificationSample ? 'neutral' : 'good'));
+  if (noVerificationSample) {
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#9b968c">`
+          + `No verifications recorded in the window: unmeasured, not clean.</div>`;
+  }
   html += metricRow('Blocking disagreements 24h',  vg.blocking_disagreements_24h ?? 0,
                     (vg.blocking_disagreements_24h ?? 0) > 0 ? 'bad' : 'good');
   if (vg.verification_rate != null) {
@@ -2283,10 +2465,17 @@ async function loadLlmCost() {
       const svcRows = Object.entries(services).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
       if (svcRows.length) {
         html += '<div><div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">API spend</div>';
-        html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th></tr>';
+        // R-F4064 (C-118) — show the RATE. "71" in an Errors column reads as
+        // small next to "168" in a Calls column; 42% of every call to the paid,
+        // DD-exclusive search engine coming back unusable does not. A service
+        // with no calls has no rate, and 0% there would read as perfect health.
+        html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th><th style="text-align:right">Fail rate</th></tr>';
         for (const [name, row] of svcRows) {
           const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
-          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(4))}</td><td class="${escapeHtml(errCls)}" style="text-align:right">${escapeHtml(row.errors||0)}</td></tr>`;
+          const rate = row.error_rate;
+          const rateTxt = rate == null ? 'n/a' : `${(rate * 100).toFixed(0)}%`;
+          const rateCls = rate == null ? 'neutral' : rate >= 0.20 ? 'bad' : rate > 0 ? 'warn' : 'good';
+          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(4))}</td><td class="${escapeHtml(errCls)}" style="text-align:right">${escapeHtml(row.errors||0)}</td><td class="${escapeHtml(rateCls)}" style="text-align:right">${escapeHtml(rateTxt)}</td></tr>`;
         }
         html += '</table></div>';
       } else {
@@ -2363,8 +2552,24 @@ async function loadSystemHealth() {
 
   // Summary line
   const counts = d.counts || {pass: 0, warn: 0, fail: 0};
+  // R-F4061 (C-116) — DEFERRED is a fourth state and it was invisible here.
+  // Live 2026-08-16: counts {pass:76, warn:0, fail:0, deferred:2} against
+  // modules_checked 78, so the tally read "76 / 0 / 0" and did not add up,
+  // while the two deferred modules rendered as red ✗ identical to a failure.
+  // Both are deliberate: worldbank_debarred has no self-service access at all,
+  // and acled is operator-deferred per §18. The API carries a reason string
+  // for each and the page showed neither.
+  const deferredCount = counts.deferred || 0;
   let html = `<div class="metric"><span class="label">Modules checked</span><span class="value">${escapeHtml(d.modules_checked || 0)}</span></div>`;
-  html += `<div class="metric"><span class="label">Pass / Warn / Fail</span><span class="value ${escapeHtml(counts.fail ? 'bad' : counts.warn ? 'warn' : 'good')}">${escapeHtml(counts.pass)} / ${escapeHtml(counts.warn)} / ${escapeHtml(counts.fail)}</span></div>`;
+  // Label and value built as plain text, escaped at the interpolation site —
+  // a conditional literal spliced straight into markup is a raw interpolation
+  // the R-F3845 guard cannot see through, and it is right to refuse it.
+  const tallyLabel = 'Pass / Warn / Fail' + (deferredCount ? ' / Deferred' : '');
+  const tallyValue = `${counts.pass} / ${counts.warn} / ${counts.fail}`
+                   + (deferredCount ? ` / ${deferredCount}` : '');
+  html += `<div class="metric"><span class="label">${escapeHtml(tallyLabel)}</span>`
+        + `<span class="value ${escapeHtml(counts.fail ? 'bad' : counts.warn ? 'warn' : 'good')}">`
+        + `${escapeHtml(tallyValue)}</span></div>`;
   if (d.critical_failures && d.critical_failures.length) {
     html += `<div class="metric"><span class="label bad">Critical failures</span><span class="value bad">${escapeHtml(d.critical_failures.join(', '))}</span></div>`;
   }
@@ -2373,13 +2578,27 @@ async function loadSystemHealth() {
   if (d.modules && d.modules.length) {
     html += '<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">';
     for (const m of d.modules) {
+      // R-F4061 (C-116) — DEFERRED gets its own neutral treatment. The old
+      // ternary fell through to red ✗, so a module nobody can enable looked
+      // exactly like one that is broken.
+      const deferred = m.worst_status === 'DEFERRED';
       const colour = m.worst_status === 'PASS' ? 'rgba(22,163,74,0.12)' :
-                     m.worst_status === 'WARN' ? 'rgba(202,138,4,0.12)' : 'rgba(220,38,38,0.10)';
-      const tag = m.worst_status === 'PASS' ? '✓' : m.worst_status === 'WARN' ? '⚠' : '✗';
+                     m.worst_status === 'WARN' ? 'rgba(202,138,4,0.12)' :
+                     deferred ? '#f5f4ef' : 'rgba(220,38,38,0.10)';
+      const tag = m.worst_status === 'PASS' ? '✓' :
+                  m.worst_status === 'WARN' ? '⚠' :
+                  deferred ? '⏸' : '✗';
       const critBadge = m.critical ? ' <span style="color:#dc2626;font-size:0.75em">[CRIT]</span>' : '';
       // First non-PASS check note for tooltip
       const firstIssue = (m.checks || []).find(c => c.status !== 'PASS');
-      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">${escapeHtml(firstIssue.check)}: ${escapeHtml(firstIssue.note.slice(0,80))}</div>` : '';
+      // A deferral has a REASON and the API already carries it. Showing the
+      // failing probe instead told the operator to go fix something that is
+      // deliberately off.
+      const deferReason = deferred ? (d.deferred || {})[m.name] : '';
+      const issueNote = deferred
+        ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">deferred: `
+          + `${escapeHtml(String(deferReason || 'no reason recorded').slice(0, 110))}</div>`
+        : (firstIssue ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">${escapeHtml(firstIssue.check)}: ${escapeHtml(firstIssue.note.slice(0,80))}</div>` : '');
       html += `<div style="padding:8px;background:${escapeHtml(colour)};border-radius:6px">
         <div><span style="font-weight:600">${escapeHtml(tag)} ${escapeHtml(m.name)}</span>${critBadge}</div>
         ${issueNote}
@@ -2504,12 +2723,29 @@ async function loadFreshness() {
     return;
   }
   const stats = d.stats || {};
-  badge.textContent = `${stats.stale_count || 0} stale / ${stats.tracked_total || 0}`;
-  badge.className = 'badge ' + ((stats.stale_count || 0) > (stats.tracked_total || 0) * 0.3 ? 'warn' : 'good');
-  sumEl.innerHTML = `Tracked: <strong>${escapeHtml(stats.tracked_total || 0)}</strong> · `
-                  + `Fresh: <strong class="good">${escapeHtml(stats.fresh_count || 0)}</strong> · `
-                  + `Stale: <strong class="warn">${escapeHtml(stats.stale_count || 0)}</strong> `
-                  + `(${stats.stale_pct || 0}%)`;
+  // R-F4067 (C-110) — headline the population that can actually GO stale.
+  // This badge read "0 stale / 1000" as green while 999 of the 1000 tracked
+  // "domains" were one-off research topics minted in the previous 24h against
+  // a 168h window: eviction beat the clock, so the count was pinned at zero by
+  // construction, and every curated domain had been evicted. `protected_*`
+  // counts only domains with a real SLA (in the override map, a curated
+  // prefix, or recurring). Absent fields = an older backend, so fall back to
+  // the legacy pair rather than rendering zeros.
+  const hasSplit = stats.protected_total != null;
+  const pTotal = hasSplit ? stats.protected_total : (stats.tracked_total || 0);
+  const pStale = hasSplit ? (stats.protected_stale || 0) : (stats.stale_count || 0);
+  badge.textContent = `${pStale} stale / ${pTotal}`;
+  badge.className = 'badge ' + (pTotal === 0 ? 'warn'
+                    : (pStale > pTotal * 0.3 ? 'warn' : 'good'));
+  sumEl.innerHTML = `Tracked: <strong>${escapeHtml(pTotal)}</strong> · `
+                  + `Fresh: <strong class="good">${escapeHtml(Math.max(0, pTotal - pStale))}</strong> · `
+                  + `Stale: <strong class="warn">${escapeHtml(pStale)}</strong> `
+                  + `(${escapeHtml(pTotal ? Math.round(pStale / pTotal * 100) : 0)}%)`
+                  + (hasSplit
+                      ? ` <span style="color:#9b968c">· plus ${escapeHtml(stats.ambient_total || 0)} `
+                        + `one-off ingest topics, excluded: seen once, so they `
+                        + `cannot miss a refresh window</span>`
+                      : '');
   const domains = d.domains || [];
   if (!domains.length) {
     el.innerHTML = '<span class="neutral">No domains tracked yet.</span>';
@@ -2569,9 +2805,17 @@ async function loadHallucination() {
   const sumEl = document.getElementById('halluc-summary');
   const badge = document.getElementById('halluc-rate-badge');
   if (!d) {
+    // R-F4062 (C-119) — the failure branch updated `el` but left `sumEl` at its
+    // "Loading…" placeholder and never dropped the `.loading` class, so a dead
+    // hallucination panel showed a permanent "Loading…" line above an error.
+    // Clear every surface this renderer owns, including the badge.
     el.innerHTML = '<span class="bad">Failed to load. Endpoint unavailable.</span>';
+    el.classList.remove('loading');
+    if (sumEl) sumEl.innerHTML = '<span class="bad">Unavailable: guard counters not read.</span>';
+    if (badge) { badge.textContent = 'UNKNOWN'; badge.className = 'badge badge-yellow'; }
     return;
   }
+  el.classList.remove('loading');
   const sum = d.summary || {};
   const scg = d.self_claim_guard || {};
   const sg = d.stream_guards || {};
@@ -2694,10 +2938,20 @@ async function refreshAll() {
   ], 3, 250);
 }
 
-// Clear any stuck "Loading..." panels after 10 seconds
+// Clear any stuck loading placeholders after 10 seconds.
+//
+// R-F4062 (C-119) — this tested for `'Loading...'` (three ASCII periods) while
+// six placeholders on this page emit `'Loading…'` (U+2026): halluc-summary,
+// halluc-metrics, cov-summary, cov-heatmap, fresh-summary, fresh-list. A
+// genuinely dead panel among those would sit at "Loading…" indefinitely with no
+// banner and no message — indistinguishable from a slow one, which is the worst
+// reading a command centre can offer. Match both forms, and normalise the
+// comparison so a future placeholder cannot slip past on punctuation.
+const _STUCK_PLACEHOLDERS = new Set(['loading...', 'loading…', 'loading']);
 function clearStuckLoading() {
   document.querySelectorAll('.loading').forEach(el => {
-    if (el.textContent.trim() === 'Loading...') {
+    const text = (el.textContent || '').trim().toLowerCase();
+    if (_STUCK_PLACEHOLDERS.has(text)) {
       el.innerHTML = '<span class="neutral">No data. Check connection.</span>';
       el.classList.remove('loading');
     }

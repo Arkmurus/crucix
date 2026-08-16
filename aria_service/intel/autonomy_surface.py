@@ -76,6 +76,13 @@ async def _auto_allowed_summary() -> dict[str, Any]:
     try:
         from . import chat_audit_log as cal
         stats = await cal.get_stats()
+        # R-F4068 (C-109) — these two are DIFFERENT WINDOWS and the dashboard
+        # rendered both under one "(24h)" heading:
+        #   chat_turns_served -> entries_24h    (rolling window; hourly buckets)
+        #   audit_entries     -> total_entries  (LIFETIME, by design)
+        # Live 2026-08-16 that made the 24h column show 1208 — the same number
+        # the Chat Audit panel prints as "Total Entries". `audit_entries` keeps
+        # its meaning (other readers may rely on it); the UI now names it.
         out["chat_turns_served"] = int(stats.get("entries_24h", 0)) if isinstance(stats, dict) else 0
         out["audit_entries"] = int(stats.get("total_entries", 0)) if isinstance(stats, dict) else 0
     except Exception as e:
@@ -369,18 +376,59 @@ async def _resilience_floor() -> dict[str, Any]:
     }
 
     # ── Provider chain health ──
+    #
+    # R-F4071 (C-115) — read the chain DISPATCH ACTUALLY WALKS, not the key set.
+    #
+    # This enumerated a hardcoded `provider_keys` map from os.getenv and called a
+    # provider "active" when a key was present and no cooldown was set. It never
+    # asked whether the provider is reachable on the general path. Under RULE ONE
+    # (§17) Anthropic is `preference_only`: reserved for DD and deliberately
+    # unreachable by general dispatch (R-F3034/R-F3767).
+    #
+    # Measured live 2026-08-16, same instant: this panel said "ROBUST (3
+    # independent paths) · anthropic: active · deepseek: active" while /health
+    # said active_providers ["deepseek"], general_vendor_depth 1. It overstated
+    # (anthropic reported active with calls 0 / failures 0 / reliability null —
+    # on 2026-08-12, with its balance exhausted and DD down, this would still
+    # have read ROBUST) and understated (deepseek_backup served 1,591 calls this
+    # month and was absent, being missing from the hardcoded map).
+    #
+    # `FallbackProvider.get_health()` is the same method /health publishes and
+    # already carries R-F3634's lesson — "publish what dispatch actually reads,
+    # or the surface describes a different system from the one running" — plus
+    # `general_vendor_depth`, which collapses deepseek + deepseek_backup into the
+    # ONE vendor they are (a vendor-side timeout takes both, so failing over
+    # between them cannot help). Reuse it rather than keeping a second opinion.
+    chain_health: dict = {}
     try:
-        import os
-        provider_keys = {
-            "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
-            "deepseek":  os.getenv("DEEPSEEK_API_KEY", ""),
-            "groq":      os.getenv("GROQ_API_KEY", ""),
-            "openai":    os.getenv("OPENAI_API_KEY", ""),
-            "gemini":    os.getenv("GEMINI_API_KEY", ""),
-            "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
-            "mistral":   os.getenv("MISTRAL_API_KEY", ""),
-        }
-        configured = [n for n, k in provider_keys.items() if k]
+        from ..main import app as _app0
+        _inner = getattr(getattr(_app0, "state", None), "llm_provider", None)
+        while _inner is not None and not hasattr(_inner, "get_health"):
+            _inner = (getattr(_inner, "inner", None)
+                      or getattr(_inner, "_inner", None)
+                      or getattr(_inner, "wrapped", None))
+        if _inner is not None and callable(getattr(_inner, "get_health", None)):
+            raw = _inner.get_health()
+            if isinstance(raw, dict):
+                chain_health = raw
+    except Exception as _e:
+        logger.debug("[autonomy_surface] chain health probe failed: %s", _e)
+
+    # Unreadable chain -> depth 0 and the verdict ladder lands on CRITICAL.
+    # "Could not measure" must never render as ROBUST on the strength of an
+    # env var being set, which is what the old path did.
+    out["general_vendor_depth"] = int(chain_health.get("general_vendor_depth") or 0)
+    out["chain_order"] = list(chain_health.get("chain_order") or [])
+    out["reserved_providers"] = list(
+        chain_health.get("preference_only_providers") or [])
+
+    try:
+        _active = list(chain_health.get("active_providers") or [])
+        _cooling = {c.get("name"): c for c in
+                    (chain_health.get("cooling_providers") or [])
+                    if isinstance(c, dict)}
+        configured = list(out["chain_order"]) + [
+            p for p in out["reserved_providers"] if p not in out["chain_order"]]
         out["providers_configured"] = len(configured)
 
         # Cooldown state — pull live from the FallbackProvider's in-process
@@ -406,20 +454,40 @@ async def _resilience_floor() -> dict[str, Any]:
         except Exception as _stats_err:
             logger.debug("[autonomy_surface] live LLM stats probe failed: %s", _stats_err)
 
-        now_ts = datetime.now(timezone.utc).timestamp()
         for name in configured:
             try:
                 s = live_stats.get(name) or {}
-                cd = float(s.get("cooldown_until") or 0)
-                cooling = cd > now_ts
-                status = "cooling" if cooling else "active"
-                out["providers"].append({"name": name, "status": status,
-                                         "reliability": s.get("reliability"),
-                                         "calls": s.get("calls", 0),
-                                         "failures": s.get("failures", 0)})
+                # R-F4071 — status comes from the chain's OWN verdict, not from
+                # re-deriving it out of a cooldown timestamp here. Two places
+                # computing the same thing is how they end up disagreeing.
+                reserved = name in out["reserved_providers"]
+                cooling = name in _cooling
+                if reserved:
+                    status = "reserved"
+                elif cooling:
+                    status = "cooling"
+                elif name in _active:
+                    status = "active"
+                else:
+                    status = "unknown"
+                out["providers"].append({
+                    "name": name,
+                    "status": status,
+                    # The distinction the old panel could not express: a
+                    # reserved provider exists and is reachable BY NAME (DD pins
+                    # it), but a general call can never fall onto it, so it is
+                    # not a fallback path.
+                    "role": "reserved_dd" if reserved else "general",
+                    "reliability": s.get("reliability"),
+                    "calls": s.get("calls", 0),
+                    "failures": s.get("failures", 0),
+                    "cooling_reason": (_cooling.get(name) or {}).get("reason"),
+                })
+                if reserved:
+                    continue
                 if cooling:
                     out["providers_cooling"] += 1
-                else:
+                elif status == "active":
                     out["providers_active"] += 1
             except Exception:
                 out["providers"].append({"name": name, "status": "unknown"})
@@ -450,6 +518,20 @@ async def _resilience_floor() -> dict[str, Any]:
         _ping = await rs.get("crucix:aria:health_ping")
         await rs.set("crucix:aria:health_ping", "ok", ex=60)
         out["memory"]["redis_reachable"] = True
+        # R-F4065 (C-117) — the honest name. This probes the STATE STORE, which
+        # is SQLite on the fly volume; Upstash was decommissioned 2026-05-12
+        # (§6/§18) and `REDIS_URL` is unset. The brain page rendered
+        # "Memory: Redis: up" from this field while the same page's cost panel
+        # said "SQLite (fly volume /data) · Upstash decommissioned". A stale
+        # name is how a future session goes hunting a dependency that does not
+        # exist. `redis_reachable` is kept as-is for any existing reader.
+        out["memory"]["state_store_reachable"] = True
+        try:
+            from . import redis_store as _rs_probe
+            out["memory"]["state_store_backend"] = (
+                "sqlite" if _rs_probe._use_sqlite() else "redis")
+        except Exception:
+            out["memory"]["state_store_backend"] = None
     except Exception as e:
         logger.debug("redis probe failed: %s", e)
 
@@ -483,13 +565,22 @@ async def _resilience_floor() -> dict[str, Any]:
 
     # ── Resilience count ──
     # How many independent fallback paths are available RIGHT NOW?
-    # Active providers + local_brain (always +1 if ready).
     #
     # A cooling provider is NOT a resilience loss — the fallback chain is
-    # exactly designed to route around it. So we deliberately count only
-    # `providers_active` (which excludes cooling) and leave `providers_cooling`
-    # as operator-visible detail, not a verdict input.
-    out["resilience_count"] = out["providers_active"] + (1 if out["local_brain_ready"] else 0)
+    # exactly designed to route around it (§14). `providers_cooling` stays
+    # operator-visible detail, not a verdict input.
+    #
+    # R-F4071 (C-115) — the count is DISTINCT GENERAL VENDORS, not active
+    # provider entries. Two changes, both narrowing:
+    #   * a preference-only provider (Anthropic under RULE ONE) is reserved for
+    #     DD and unreachable by general dispatch, so it is not a fallback path;
+    #   * deepseek + deepseek_backup are two entries and ONE vendor, and a
+    #     vendor-side timeout takes both — R-F3634's `general_vendor_depth`
+    #     already collapses them, so read that rather than counting rows.
+    # Live 2026-08-16 this moved the verdict from ROBUST (3) to the truth: one
+    # general vendor plus the local brain.
+    out["resilience_count"] = (
+        out["general_vendor_depth"] + (1 if out["local_brain_ready"] else 0))
 
     # Load-bearing "am I broken" signal. Used by /health, meta_query, and
     # any consumer that needs a boolean "can ARIA serve the next request?".
@@ -569,6 +660,13 @@ _DEFAULT_RESILIENCE: dict[str, Any] = {
     },
     "resilience_count": 0,
     "verdict": "unknown",
+    # R-F4071 (C-115) — present on the timeout default too, so a consumer
+    # reading these never gets a KeyError and never mistakes "the sub-task timed
+    # out" for "the chain has no depth". `verdict: unknown` is the honest word
+    # here; the ladder is only applied when the chain was actually read.
+    "general_vendor_depth": 0,
+    "chain_order": [],
+    "reserved_providers": [],
     "_degraded_marker": "R-F347_subtask_timeout",
 }
 

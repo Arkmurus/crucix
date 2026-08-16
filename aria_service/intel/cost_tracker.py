@@ -794,11 +794,35 @@ async def get_external_summary(month: str | None = None) -> dict:
     # records, not the hot write path R-F2483 exists to coalesce.
     await _flush_external_pending(force=True)
     agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
+    # R-F4064 (C-118) — publish the RATE, not just a raw error count.
+    #
+    # Live 2026-08-16 this returned `brave: {calls: 168, cost_usd: 0.84,
+    # errors: 71}` and the panel printed "71" in an Errors column. 71 of 168 is
+    # **42%** of every call to the paid, DD-exclusive search engine coming back
+    # unusable — a first-order operational finding that the surface could not
+    # express, because a bare count reads as small next to a bigger count. The
+    # independent `brave_usage` meter agreed on the ratio (99 empty of 234) and
+    # differs on the absolute only because it began counting hours earlier on
+    # 2026-08-11 than `record_brave_call` was wired (R-F3868 vs R-F3884) — a
+    # start offset, not a counting defect.
+    #
+    # None, not 0.0, when there are no calls: a service nobody called has no
+    # error rate, and rendering 0% would read as perfect health.
+    for _svc in agg.values():
+        if not isinstance(_svc, dict):
+            continue
+        _calls = int(_svc.get("calls", 0) or 0)
+        _errors = int(_svc.get("errors", 0) or 0)
+        _svc["error_rate"] = round(_errors / _calls, 4) if _calls > 0 else None
+    # R-F4064 — the totals assumed every value is a dict, so ONE malformed row
+    # raised AttributeError out of a read endpoint and took the whole cost panel
+    # down with it. Found by the malformed-entry case written for the rate above.
+    _rows = [v for v in agg.values() if isinstance(v, dict)]
     return {
         "by_service": agg,
-        "total_calls": sum(int(v.get("calls", 0)) for v in agg.values()),
+        "total_calls": sum(int(v.get("calls", 0) or 0) for v in _rows),
         "total_cost_usd": round(
-            sum(float(v.get("cost_usd", 0.0)) for v in agg.values()),
+            sum(float(v.get("cost_usd", 0.0) or 0.0) for v in _rows),
             6,
         ),
     }
