@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4035,
+  "next_available": 4037,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34286,6 +34286,24 @@
       "commit_sha": "f6a7d872",
       "notes": null,
       "shipped_at": "2026-08-16T11:56:54Z"
+    },
+    {
+      "r_number": "R-F4035",
+      "title": "attribute audit matches per-fact; CHECK 3 could never fire",
+      "claimed_at": "2026-08-16T11:58:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4036",
+      "title": "run paid training from immutable script snapshot",
+      "claimed_at": "2026-08-16T12:01:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

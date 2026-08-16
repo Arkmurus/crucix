@@ -5459,3 +5459,83 @@ The audit is still O(corpus) and will keep growing with the fact store. It no
 longer freezes the loop, but a ~13 s CPU pass on a growing corpus is a cost to
 revisit — sampling or incremental scanning would need a deliberate decision
 about reduced coverage, which is an operator call, not a silent optimisation.
+
+---
+
+## C-101 · CHECK 3 of the security audit could not fail (R-F4035)
+
+CHECK 3 detects system-prompt-fragment leakage and its findings are `critical`.
+It dismissed a signature hit as a false positive whenever ANY string from
+`_INTERNAL_KNOWLEDGE_PREFIXES` appeared anywhere in the corpus **content**:
+
+```python
+from_internal = any(pfx.lower() in facts_lower for pfx in _INTERNAL_KNOWLEDGE_PREFIXES)
+```
+
+Measured live 2026-08-16 across **559,393 facts**: **63 facts** contain such a
+string (62 `nato_standards:`, 1 `reasoning_library:`). `from_internal` was
+therefore unconditionally True, so **no CHECK 3 finding could ever be
+reported**. It read as a clean PASS only because no signature happened to be
+present — a check certified by an absence, the class §1 records three times for
+the Phase A gates, sitting on the audit's highest-severity check.
+
+The pre-fix code states its own cause: *"If facts_text is a blob we cannot
+attribute per-fact"*. R-F4032 replaced that blob with batches, which is what
+made the real fix available.
+
+### The fix — attribute the match to the fact that produced it
+
+The prefixes (`security_protocol:`, `dd_case_library:`, …) are **source
+labels** and always were; matching them against fact CONTENT, corpus-wide, was
+the defect. `_scan_corpus` now returns `index -> {source}`: the batch blob is
+still what gets scanned (fast), and the fact list is walked **only** for a batch
+that actually contains a hit.
+
+Coverage is not reduced anywhere:
+
+| check | rule |
+|---|---|
+| CHECK 1 (secrets) | **never** exempt by source — a key is legitimate nowhere; sources reported only so it can be found |
+| CHECK 2 (paths) | exempt only a hit whose OWN source is internal knowledge; anything else warns **and names the source** |
+| CHECK 3 (prompt) | same, per hit — an unrelated fact can no longer suppress it |
+| unattributable | `_SPANS_FACTS` is never internal → **fails closed** |
+
+`_MAX_ATTRIBUTED_SOURCES = 10` bounds attribution so a pattern matching
+everywhere cannot turn it back into an O(corpus) walk.
+
+### Why this also removes a noise floor
+
+CHECK 2 warned permanently about 2 patterns whose only sources were
+`security_protocol:self_audit_checklist` and `security_protocol:security_principles`
+— **this module's own audit checklist, which by definition contains the paths it
+hunts for**. A warning that is always present is one nobody reads (the same
+cry-wolf reasoning C-96 used to keep `busy` out of `degraded_reasons`), and it
+would have hidden the next real leak.
+
+### Verified
+
+6 tests; the 3 that pin C-101 were RED first, the other 3 are guards that must
+hold on BOTH sides (CHECK 1 never exempt, seam fails closed, clean corpus
+clean). 93 tests pass across every `security_protocol` consumer. Full-tree
+compile gate green; **bandit 0 issues at every severity**.
+
+Fuzz, 250 randomised trials: 0 missed CHECK 1 (random index), 0 missed CHECK 1
+(random seam), **0 missed CHECK 3 leaks in the presence of internal-prefix
+noise** — the case that was previously always suppressed — and 0 false
+positives on clean corpora.
+
+Cost re-measured on the hostile shape (a path pattern hitting in EVERY batch,
+forcing attribution constantly): wall 7.24s, worst loop gap **0.098s** — no
+regression against R-F4032's 0.137s, because the source cap stops re-scanning a
+saturated pattern.
+
+### C-100 follow-up closed on evidence: the O(corpus) audit needs no surgery
+
+The audit runs from `main.py:_self_improve_loop` on a verified
+`asyncio.sleep(7200)` — every 2h — and takes 10.4s live. That is **0.18% of one
+core** on an 8-vCPU box, and it no longer touches the event loop. An incremental
+scanner would need a persistent per-fact watermark, pattern-version
+invalidation, and correct handling of head-insertion and in-place edits (the
+C-95 lesson) — real complexity and risk added to a security check to reclaim
+0.18% of a core. **Revisit only if the CADENCE tightens**; linear corpus growth
+is not the trigger (5M facts would still be ~1.4%).

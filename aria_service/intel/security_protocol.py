@@ -918,58 +918,112 @@ def _iter_audit_batches(all_facts):
 
     `time.sleep(0)` is the yield: it drops the GIL and lets the loop thread run.
     Batching WITHOUT it would starve the loop just as effectively.
+
+    R-F4035: yields `(text, facts)` so a match can be credited to the FACT that
+    produced it. The blob is still what gets scanned (fast); the fact list is
+    only walked when a batch actually contains a hit.
     """
     if not isinstance(all_facts, list):
         # Not a fact list (already a blob) — small by construction; scan as one.
-        yield str(all_facts)
+        # No facts to attribute against, so any hit fails closed (see _attribute).
+        yield str(all_facts), []
         return
 
     carry = ""
     for start in range(0, len(all_facts), _AUDIT_BATCH_FACTS):
+        batch = all_facts[start:start + _AUDIT_BATCH_FACTS]
         chunk = " ".join(
             str(f.get("content", "")) if isinstance(f, dict) else str(f)
-            for f in all_facts[start:start + _AUDIT_BATCH_FACTS]
+            for f in batch
         )
-        yield carry + chunk
+        yield carry + chunk, batch
         carry = chunk[-_AUDIT_OVERLAP_CHARS:]
         time.sleep(0)          # release the GIL — the whole point of batching
+
+
+# R-F4035 — a hit no single fact can account for (it spans the seam between two
+# adjacent facts). It is reported and treated as NOT internal: attribution
+# failure must fail CLOSED, never silently exempt.
+_SPANS_FACTS = "(spans adjacent facts)"
+# Bound on how many distinct sources we name per pattern. The verdict only needs
+# one non-internal source; this cap stops a pattern that matches everywhere from
+# turning attribution back into an O(corpus) walk.
+_MAX_ATTRIBUTED_SOURCES = 10
+
+
+def _fact_source(f) -> str:
+    if isinstance(f, dict):
+        return str(f.get("source") or f.get("topic") or "?")
+    return "?"
+
+
+def _is_internal_source(source: str, internal_prefixes) -> bool:
+    """Is this fact part of ARIA's own internals-referencing knowledge?
+
+    R-F4035 — the prefixes (`security_protocol:`, `dd_case_library:`, …) are
+    SOURCE labels and always were; the pre-fix code searched for them in fact
+    CONTENT, corpus-wide, which is what made CHECK 3 unable to fail.
+    """
+    s = (source or "").strip().lower()
+    return any(s.startswith(p.strip().lower()) for p in internal_prefixes)
+
+
+def _attribute(needle, batch, lowered: bool) -> set[str]:
+    """Sources of the facts in `batch` that individually contain `needle`.
+
+    Empty batch, or a match no single fact reproduces, yields `_SPANS_FACTS`.
+    """
+    found: set[str] = set()
+    for f in batch:
+        content = str(f.get("content", "")) if isinstance(f, dict) else str(f)
+        hay = content.lower() if lowered else content
+        hit = (needle in hay) if lowered else bool(needle.search(hay))
+        if hit:
+            found.add(_fact_source(f))
+            if len(found) >= _MAX_ATTRIBUTED_SOURCES:
+                break
+    return found or {_SPANS_FACTS}
 
 
 def _scan_corpus(all_facts, key_pats, path_pats, prompt_sigs, internal_prefixes):
     """One bounded pass answering every check at once.
 
-    Returns (key_hits, path_hits, sig_hits, internal_seen) as index sets.
+    Returns (key_srcs, path_srcs, sig_srcs): dicts of index -> set of SOURCE
+    labels of the facts that produced the match.
 
-    A pattern already matched is not re-tested on later batches — same verdict,
-    less work. `.lower()` is computed ONCE PER BATCH rather than once per
-    signature: the old code re-lowered the entire corpus inside the signature
-    loop (and again at the internal-prefix check), so a 410MB corpus cost several
-    GB of transient allocation per audit.
+    R-F4035 — attribution replaces the corpus-wide `internal_seen` heuristic
+    that made CHECK 3 unable to fail. `internal_prefixes` is accepted for
+    signature compatibility but is applied at REPORTING time, per hit, against
+    the hit's own source.
+
+    `.lower()` is computed ONCE PER BATCH rather than once per signature: the old
+    code re-lowered the entire corpus inside the signature loop (and again at the
+    internal-prefix check), so a 410MB corpus cost several GB of transient
+    allocation per audit.
     """
-    key_hits: set[int] = set()
-    path_hits: set[int] = set()
-    sig_hits: set[int] = set()
-    internal_seen = False
+    key_srcs: dict[int, set[str]] = {}
+    path_srcs: dict[int, set[str]] = {}
+    sig_srcs: dict[int, set[str]] = {}
 
     sigs_lower = [s.lower() for s in prompt_sigs]
-    prefixes_lower = [p.lower() for p in internal_prefixes]
 
-    for text in _iter_audit_batches(all_facts):
+    def _saturated(store, i) -> bool:
+        return len(store.get(i, ())) >= _MAX_ATTRIBUTED_SOURCES
+
+    for text, batch in _iter_audit_batches(all_facts):
         lowered = text.lower()
 
         for i, pat in enumerate(key_pats):
-            if i not in key_hits and pat.search(text):
-                key_hits.add(i)
+            if not _saturated(key_srcs, i) and pat.search(text):
+                key_srcs.setdefault(i, set()).update(_attribute(pat, batch, False))
         for i, pat in enumerate(path_pats):
-            if i not in path_hits and pat.search(text):
-                path_hits.add(i)
+            if not _saturated(path_srcs, i) and pat.search(text):
+                path_srcs.setdefault(i, set()).update(_attribute(pat, batch, False))
         for i, sig in enumerate(sigs_lower):
-            if i not in sig_hits and sig in lowered:
-                sig_hits.add(i)
-        if not internal_seen and any(p in lowered for p in prefixes_lower):
-            internal_seen = True
+            if not _saturated(sig_srcs, i) and sig in lowered:
+                sig_srcs.setdefault(i, set()).update(_attribute(sig, batch, True))
 
-    return key_hits, path_hits, sig_hits, internal_seen
+    return key_srcs, path_srcs, sig_srcs
 
 
 def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
@@ -1025,41 +1079,68 @@ def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
     # checks because the scan itself is shared — reporting only one as SKIP
     # would understate what was not looked at.
     scan_error: Exception | None = None
-    key_hits: set[int] = set()
-    path_hits: set[int] = set()
-    sig_hits: set[int] = set()
-    internal_seen = False
+    key_srcs: dict[int, set[str]] = {}
+    path_srcs: dict[int, set[str]] = {}
+    sig_srcs: dict[int, set[str]] = {}
     try:
-        key_hits, path_hits, sig_hits, internal_seen = _scan_corpus(
+        key_srcs, path_srcs, sig_srcs = _scan_corpus(
             all_facts, api_key_patterns, path_patterns,
             prompt_signatures, _INTERNAL_KNOWLEDGE_PREFIXES,
         )
     except Exception as e:                       # pragma: no cover - defensive
         scan_error = e
 
+    def _external(sources) -> list[str]:
+        """Sources that are NOT ARIA's own internal knowledge.
+
+        `_SPANS_FACTS` is never internal — an unattributable hit fails closed.
+        """
+        return sorted(
+            s for s in sources
+            if not _is_internal_source(s, _INTERNAL_KNOWLEDGE_PREFIXES)
+        )
+
+    def _named(sources: list[str], limit: int = 3) -> str:
+        shown = ", ".join(sources[:limit])
+        return shown + (f", +{len(sources) - limit} more" if len(sources) > limit else "")
+
     # --- CHECK 1: API key leakage in knowledge base ---
+    # NEVER exempted by source: a key is not legitimate anywhere. Sources are
+    # reported only so the operator can find it.
     if scan_error is not None:
         warning.append(f"CHECK 1 SKIP: Could not scan knowledge base: {scan_error}")
-    elif key_hits:
-        for i in sorted(key_hits):
+    elif key_srcs:
+        for i in sorted(key_srcs):
             critical.append(
                 f"CHECK 1 FAIL: API key pattern found in knowledge base "
-                f"(pattern: {api_key_patterns[i].pattern[:40]})"
+                f"(pattern: {api_key_patterns[i].pattern[:40]}) "
+                f"[sources: {_named(sorted(key_srcs[i]))}]"
             )
     else:
         clean_areas.append("CHECK 1 PASS: No API keys found in knowledge base")
 
     # --- CHECK 2: Internal path leakage ---
+    # R-F4035: a path inside ARIA's OWN internals-referencing knowledge (e.g.
+    # this module's audit checklist, which by definition contains the paths it
+    # hunts for) is expected and is not a leak. Anything else is, and the
+    # warning names the source so it is actionable rather than a standing noise
+    # floor that hides the next real one.
     if scan_error is not None:
         warning.append(f"CHECK 2 SKIP: Could not scan for paths: {scan_error}")
-    elif path_hits:
-        for i in sorted(path_hits):
+    else:
+        path_leaked = False
+        for i in sorted(path_srcs):
+            ext = _external(path_srcs[i])
+            if not ext:
+                continue
+            path_leaked = True
             warning.append(
                 f"CHECK 2 FAIL: Internal path pattern in knowledge base "
-                f"(pattern: {path_patterns[i].pattern[:40]})"
+                f"(pattern: {path_patterns[i].pattern[:40]}) "
+                f"[sources: {_named(ext)}]"
             )
-    else:
-        clean_areas.append("CHECK 2 PASS: No internal paths in knowledge base")
+        if not path_leaked:
+            clean_areas.append("CHECK 2 PASS: No internal paths in knowledge base")
 
     # --- CHECK 3: System prompt fragments ---
     # The internal-prefix test is the SAME false-positive heuristic as before:
@@ -1070,18 +1151,19 @@ def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
         warning.append(f"CHECK 3 SKIP: Could not scan for prompt fragments: {scan_error}")
     else:
         prompt_leaked = False
-        for i in sorted(sig_hits):
+        for i in sorted(sig_srcs):
             sig = prompt_signatures[i]
-            if internal_seen:
+            ext = _external(sig_srcs[i])
+            if not ext:
                 logger.debug(
-                    "CHECK 3 SKIP (internal source): signature '%s' found but "
-                    "internal knowledge prefix also present — likely false positive",
-                    sig,
+                    "CHECK 3 SKIP (internal source): signature '%s' occurs only in "
+                    "ARIA's own internal knowledge (sources: %s)",
+                    sig, ", ".join(sorted(sig_srcs[i]))[:200],
                 )
                 continue
             critical.append(
                 f"CHECK 3 FAIL: System prompt fragment in knowledge base "
-                f"(signature: '{sig}')"
+                f"(signature: '{sig}') [sources: {_named(ext)}]"
             )
             prompt_leaked = True
 

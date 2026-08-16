@@ -1131,6 +1131,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T11:36:03Z"
+    },
+    {
+      "c_number": "C-101",
+      "title": "security audit CHECK 3 suppressed by a corpus-wide heuristic — could not fail",
+      "claimed_at": "2026-08-16T11:58:47Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4035"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T12:06:54Z"
     }
   ]
 }
