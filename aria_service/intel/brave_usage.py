@@ -313,7 +313,24 @@ async def _record_spend(outcome: str, status: int | None) -> None:
         from . import cost_tracker as _ct
         await _ct.record_brave_call(
             operation="search",
-            success=(outcome == "ok"),
+            # R-F4083 (C-131) — `empty` is an ANSWER, not an error. Brave
+            # returned HTTP 200 and found nothing, which for an obscure DD
+            # subject is frequently the correct result.
+            #
+            # This read `success=(outcome == "ok")`, so every empty result
+            # incremented `errors` on /cost/external. Live 2026-08-16: 234 calls,
+            # 135 ok, 99 empty and ZERO rate_limited/auth_failed/http_error/
+            # timeout — yet the cost surface reported "71 errors", and R-F4064
+            # then rendered that as a red "Fail rate 42%". A search engine that
+            # answers "no results" was being reported as broken.
+            #
+            # Caught reviewing my own R-F4064: it is the same defect this whole
+            # batch is about — a state that is not a failure, rendered as one —
+            # committed while fixing it. The empty RATE is still a real signal
+            # about search quality and still measured, on
+            # /search/health.brave_usage.monthly, where it is named `empty`
+            # rather than dressed as an error.
+            success=(outcome in ("ok", "empty")),
             # status is None only when no response arrived (timeout/transport error).
             cost_per_call_usd=None if status is not None else 0.0,
         )

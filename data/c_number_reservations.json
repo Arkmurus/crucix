@@ -1481,6 +1481,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T21:00:49Z"
+    },
+    {
+      "c_number": "C-131",
+      "title": "empty search results were labelled a failure rate",
+      "claimed_at": "2026-08-16T21:11:37Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

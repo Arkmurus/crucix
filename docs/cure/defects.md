@@ -7750,3 +7750,62 @@ entry would be decoration with invented topics. It surfaces in C-104's
 10 tests, RED first. 40 pass across this plus C-104's and C-106's registry
 contracts. Compile gate green; lint clean. Locally (no chromium) it correctly
 returns `available: False` with null findings rather than a false clean.
+
+## C-131 · an empty search result was counted, and rendered, as a failure (R-F4083)
+
+**Caught reviewing my own C-118 fix.** That change surfaced Brave's error COUNT
+as a red "Fail rate 42%", correctly reasoning that a bare count reads as small
+beside a bigger one. It did not check what the count contained.
+
+Measured live 2026-08-16:
+
+```
+/search/health.brave_usage.monthly
+    {"total": 234, "ok": 135, "empty": 99}
+    rate_limited: 0   auth_failed: 0   http_error: 0   timeout: 0
+```
+
+Every non-`ok` outcome was **`empty`** — Brave returned HTTP 200 and found
+nothing. There were **no errors at all**. But `_record_spend` passed
+`success=(outcome == "ok")`, so all 99 landed in `errors` on `/cost/external`
+and the panel painted 42% red.
+
+**A search engine answering "no results" was reported as broken** — and for an
+obscure DD subject, no results is frequently the correct answer.
+
+This is the same defect class as the twelve this batch was opened to fix: a
+state that is not a failure, rendered as one. **Committed while fixing them.**
+That is the part worth remembering — the fix for a class of defect is exactly
+where the next instance of that class gets introduced, because you are moving
+fast in the one area you have already convinced yourself you understand.
+
+It also invalidates something the audit reported to the operator as a standing
+concern: *"42% of calls to the paid DD engine come back empty"* was presented
+alongside the implication that the engine was failing. The number is real; the
+framing was wrong. Brave is answering; it is finding nothing for those queries,
+which is a **search-quality** question (query shape, subject obscurity), not an
+availability one, and §27's IP-block reasoning does not apply to it.
+
+### The fix
+
+`success=(outcome in ("ok", "empty"))` — the call succeeded, and it is still
+billed, because it consumed quota and money. The four outcomes that mean the
+engine genuinely did not answer (`rate_limited`, `auth_failed`, `http_error`,
+`timeout`) remain errors, each pinned by a test so the guard can still fire. The
+panel column is now **"Error rate"** and means it.
+
+The empty RATE is still a real signal and is still measured — on
+`/search/health.brave_usage.monthly` under the name `empty`, where it says what
+it is instead of being dressed as an error. Nothing was hidden to make a number
+look better.
+
+Also pinned while here: a `timeout` produces no HTTP response, so no query was
+served — it is recorded as an attempt at cost `0.0`, never hidden and never
+charged.
+
+### Verified
+
+`test_rf4083_empty_is_not_an_error.py`: **8 passed** (including the four
+real-failure outcomes parametrised, and a label check so the fix cannot be
+half-done). `-k "brave or cost or external"`: **346 passed, 0 failed.** Node
+guards 168 passed. Compile gate green.

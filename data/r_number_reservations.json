@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4083,
+  "next_available": 4084,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34748,6 +34748,15 @@
       "r_number": "R-F4082",
       "title": "page inspection: security headers, console errors, third-party requests",
       "claimed_at": "2026-08-16T20:58:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4083",
+      "title": "an empty result set is an answer not an error",
+      "claimed_at": "2026-08-16T21:11:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

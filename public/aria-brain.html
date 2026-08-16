@@ -2477,7 +2477,14 @@ async function loadLlmCost() {
         // small next to "168" in a Calls column; 42% of every call to the paid,
         // DD-exclusive search engine coming back unusable does not. A service
         // with no calls has no rate, and 0% there would read as perfect health.
-        html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th><th style="text-align:right">Fail rate</th></tr>';
+        // R-F4083 (C-131) — "Error rate", and it now means errors. R-F4064
+        // shipped this as "Fail rate" while brave_usage counted an EMPTY result
+        // set as a failure, so a search that answered "no results" for an
+        // obscure DD subject was rendered as a broken engine (live: 99 of 234
+        // empty, zero actual errors, displayed as 42% red). The empty rate is a
+        // real signal and is still measured — as `empty`, on
+        // /search/health.brave_usage.monthly, not disguised as an error here.
+        html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th><th style="text-align:right">Error rate</th></tr>';
         for (const [name, row] of svcRows) {
           const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
           const rate = row.error_rate;
