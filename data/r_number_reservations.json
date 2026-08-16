@@ -34213,9 +34213,10 @@
       "title": "capture resolution through authenticated service",
       "claimed_at": "2026-08-16T08:49:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "100dfef4",
+      "notes": null,
+      "shipped_at": "2026-08-16T09:39:33Z"
     },
     {
       "r_number": "R-F4028",
@@ -34232,9 +34233,10 @@
       "title": "surface RunPod creation rejection cause",
       "claimed_at": "2026-08-16T09:33:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fd3ed424",
+      "notes": null,
+      "shipped_at": "2026-08-16T09:39:33Z"
     }
   ]
 }
