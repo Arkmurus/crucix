@@ -34524,9 +34524,10 @@
       "title": "measure current candidate on novel resolution evidence",
       "claimed_at": "2026-08-16T19:38:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d779473f",
+      "notes": null,
+      "shipped_at": "2026-08-16T19:57:03Z"
     },
     {
       "r_number": "R-F4060",
