@@ -34201,9 +34201,10 @@
       "title": "preflight protected-axis DPO recipe",
       "claimed_at": "2026-08-14T15:02:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a9cb267",
+      "notes": null,
+      "shipped_at": "2026-08-16T08:30:07Z"
     }
   ]
 }
