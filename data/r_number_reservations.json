@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4043,
+  "next_available": 4045,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34356,6 +34356,33 @@
       "commit_sha": "b8033129",
       "notes": null,
       "shipped_at": "2026-08-16T14:46:09Z"
+    },
+    {
+      "r_number": "R-F4042",
+      "title": "brain health surface cannot distinguish registered modules from phantoms",
+      "claimed_at": "2026-08-16T14:10:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4043",
+      "title": "resume DPO upload on existing stopped pod",
+      "claimed_at": "2026-08-16T14:49:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4044",
+      "title": "use curl.exe in DPO pod status probe",
+      "claimed_at": "2026-08-16T14:58:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

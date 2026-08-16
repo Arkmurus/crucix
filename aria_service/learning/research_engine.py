@@ -28,16 +28,6 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.research_engine")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.research_engine",
-        summary="Research Engine active",
-        source_id="learning:research_engine:R-F1319",
-    )
-except Exception:
-    pass
 
 
 _REDIS_ATTEMPT_KEY = "crucix:learning:research:attempts"

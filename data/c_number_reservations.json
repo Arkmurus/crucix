@@ -1167,6 +1167,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T13:49:59Z"
+    },
+    {
+      "c_number": "C-104",
+      "title": "health asserted at import under unregistered module names",
+      "claimed_at": "2026-08-16T14:10:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4042"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T15:02:59Z"
     }
   ]
 }

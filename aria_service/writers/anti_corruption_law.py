@@ -40,16 +40,6 @@ except ImportError:
 
 logger = logging.getLogger("ARIA.AntiCorruptionLaw")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="writers.anti_corruption_law",
-        summary="Anti Corruption Law active",
-        source_id="writers:anti_corruption_law:R-F1319",
-    )
-except Exception:
-    pass
 
 
 # =============================================================================

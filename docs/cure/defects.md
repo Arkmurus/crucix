@@ -5715,3 +5715,100 @@ C-99 left the surviving lead as "IO, writer not attributed". It is attributed:
 rewrite per compaction is the C-95 follow-on and is NOT yet fixed — it needs
 incremental snapshotting, which is real design work on the data-persistence
 path, not an end-of-session change.
+
+---
+
+## C-104 · brain stats could not tell a real module from a phantom (R-F4042)
+
+Two halves that combined into a gauge reading backwards.
+
+**1. The health surface accepted any name.** `get_stats()` derives `never_seen`
+as `_MODULE_TOPICS - reporting`. Nothing checked the other direction, so a
+module reporting under an undeclared name was silently added to `modules` — and
+because `never_seen` is derived FROM the registry, an unregistered reporter can
+**never** appear in it. A phantom name is structurally invisible to the one
+gauge that exists to spot missing modules.
+
+**2. Health was asserted at import.** R-F1319/R-F1320 added a module-level
+`wire_success(module="learning.x", summary="X active")` to 61 files. It fires
+when the file is IMPORTED, so it proves the module was imported, not that it
+works — under a name the registry does not use.
+
+### The evidence
+
+Static, whole tree, 2026-08-16:
+
+```
+files with an import-time wire : 61
+wire calls found              : 74
+names NOT in _MODULE_TOPICS   : 60
+```
+
+Live on aria-intel, the two halves together:
+
+```
+learning.knowledge_spider   IN STATS   total=2 success=2     (phantom)
+knowledge_spider            never_seen                        (registered, LOAD-BEARING)
+```
+
+R-F668 calls a never-seen load-bearing module "an install/wiring bug ...
+critical". So the spider raised a permanent critical alert no amount of health
+could clear, while its real signal landed under a name nothing reads — and had
+the spider actually died, **nothing would have changed**. A gauge that reads the
+same whether its subject is alive or dead carries no information: the §1
+"certified by an absence" class, inverted into permanently-alarmed.
+
+### The fix, and why it is not a coverage cut
+
+Measured before touching anything, the 60 split three ways:
+
+| group | count | treatment |
+|---|---:|---|
+| dotted, tail registered, **and already emits the registered name from a work path** | 11 | phantom removed — pure duplicate |
+| dotted, tail NOT registered | 28 | left alone; now visible via `unregistered_modules` |
+| plain name, not registered | 21 | left alone; now visible |
+
+Canonicalising the phantom onto the registered name was considered and
+**rejected**: those modules already emit the registered name from real work, so
+folding the import signal in would have made 11 gauges green *because the file
+was imported* — manufacturing exactly the false health this fix removes.
+
+Removal was applied by a script that refuses a file whose block is not the exact
+expected shape **and refuses if the registered-name emission would not survive**
+— so no module could be left dark by the edit. 11 matched, 0 refused.
+
+`get_stats()` now publishes `unregistered_modules` + `unregistered_count`. The
+signals are listed, never dropped: the telemetry is real, it is the NAME that is
+wrong.
+
+### Deliberately NOT touched
+
+Five learning modules (`bookmarks`, `fsrs_scheduler`, `learning_controller`,
+`output_harvester`, `reading_queue`) emit ONLY the phantom and their stem is not
+registered. Removing theirs would leave them genuinely dark, so they need real
+work-path wiring **and** a registry entry. They are now named in
+`IMPORT_ONLY_UNREGISTERED` in the R-F1319 test, marked SHRINK-ONLY, so the gap
+is tracked rather than invisible.
+
+### The old tests were a substring grep — strengthened, not deleted
+
+`test_rf1319_*` asserted only that the string `"wire_success"` appeared
+somewhere in the file, which the import-time wire satisfied by existing. They
+now assert R-F1319's real intent: **emit a signal, and where the registry knows
+the module, emit it under THAT name, not a namespaced twin.** That is the test
+that would have caught this.
+
+### Verified
+
+25 new tests (11 RED first — exactly the phantom assertions; the 14
+"registered name survives" guards green on both sides). 33 pass across all four
+wiring-contract files including the untouched R-F1320. 1476 passed across every
+test importing `brain_hook`; **7 of the 8 failures are recorded baseline
+entries**. Full-tree compile gate green; zero new lint findings; bandit
+unchanged at 0 medium/high.
+
+⚠️ **The 8th failure is NOT mine and is NOT in the baseline:**
+`test_rf1696_sanctions_source_unavailable::test_fuzzy_screen_source_unavailable_is_not_clean`.
+Proven pre-existing by stashing only my files and re-running — it fails
+identically without them. It sits in the C-39/R-F3945 sanctions-coverage area
+(the never-false-clean property) and needs an owner.

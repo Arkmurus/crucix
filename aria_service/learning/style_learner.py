@@ -39,16 +39,6 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.style_learner")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.style_learner",
-        summary="Style Learner active",
-        source_id="learning:style_learner:R-F1319",
-    )
-except Exception:
-    pass
 
 
 _REDIS_EXEMPLARS_KEY = "crucix:learning:style:exemplars"

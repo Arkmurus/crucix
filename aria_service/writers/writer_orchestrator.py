@@ -68,16 +68,6 @@ from .tech_spec_and_portuguese_writer import (
 
 logger = logging.getLogger("ARIA.WriterOrchestrator")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="writers.writer_orchestrator",
-        summary="Writer Orchestrator active",
-        source_id="writers:writer_orchestrator:R-F1319",
-    )
-except Exception:
-    pass
 
 
 # =============================================================================

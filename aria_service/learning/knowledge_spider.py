@@ -38,16 +38,6 @@ import httpx
 
 logger = logging.getLogger("aria.learning.knowledge_spider")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.knowledge_spider",
-        summary="Knowledge Spider active",
-        source_id="learning:knowledge_spider:R-F1319",
-    )
-except Exception:
-    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════

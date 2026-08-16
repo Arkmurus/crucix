@@ -79,16 +79,6 @@ STAMP_CONSISTENT = "🛡 [CROSS-MODEL CONSISTENT — 2 models, same evidence; no
 #: without breaking the dedupe.
 STAMP_CONSISTENT_MARKER = "[CROSS-MODEL CONSISTENT"
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.verification_gate",
-        summary="Verification Gate active",
-        source_id="learning:verification_gate:R-F1319",
-    )
-except Exception:
-    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════

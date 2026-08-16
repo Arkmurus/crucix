@@ -32,16 +32,6 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.metacognitive_journal")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.metacognitive_journal",
-        summary="Metacognitive Journal active",
-        source_id="learning:metacognitive_journal:R-F1319",
-    )
-except Exception:
-    pass
 
 _REDIS_JOURNAL_KEY = "crucix:learning:metacog:journal"
 _MAX_ENTRIES = 168          # ~1 week of hourly entries

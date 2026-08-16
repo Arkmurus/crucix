@@ -42,16 +42,6 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.training_export")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.training_export",
-        summary="Training Export active",
-        source_id="learning:training_export:R-F1319",
-    )
-except Exception:
-    pass
 
 # Destination — default to fly.io persistent volume, fall back to /tmp
 _EXPORT_DIR = Path(os.getenv("ARIA_TRAINING_EXPORT_DIR", "/data/aria_training"))

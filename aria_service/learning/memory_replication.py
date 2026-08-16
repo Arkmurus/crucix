@@ -35,16 +35,6 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.memory_replication")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.memory_replication",
-        summary="Memory Replication active",
-        source_id="learning:memory_replication:R-F1319",
-    )
-except Exception:
-    pass
 
 
 _BACKUP_DIR = Path(os.getenv("ARIA_BACKUP_DIR", "/data/aria_backups"))

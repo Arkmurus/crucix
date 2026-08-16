@@ -2114,6 +2114,15 @@ async def get_stats() -> dict:
     # Identify modules that are registered but have never sent a signal
     all_known = set(_MODULE_TOPICS.keys())
     never_seen = all_known - set(modules.keys())
+    # R-F4042 (C-104) — and the OTHER direction, which nothing checked: a module
+    # may report under ANY name and is silently added to the health surface.
+    # Because `never_seen` is derived from the registry, an unregistered
+    # reporter can never appear in it — so a phantom name is invisible to the
+    # very gauge that exists to spot missing modules. Measured 2026-08-16:
+    # 60 of 74 import-time wire calls emitted names outside `_MODULE_TOPICS`,
+    # including `learning.knowledge_spider` sitting healthy while the
+    # registered, LOAD-BEARING `knowledge_spider` sat in `never_seen`.
+    unregistered = sorted(m for m in modules if not _is_registered_module(m))
 
     g = stats.get("_global", {})
     breaker = get_breaker_state()
@@ -2170,6 +2179,11 @@ async def get_stats() -> dict:
         "stale_count": len(stale),
         "stale_modules": stale,
         "never_seen": sorted(never_seen),
+        # R-F4042 (C-104) — reporters outside the registry. These inflate
+        # `modules` and are structurally invisible to `never_seen`. Listed, not
+        # dropped: the signal is real telemetry, it is the NAME that is wrong.
+        "unregistered_modules": unregistered,
+        "unregistered_count": len(unregistered),
         "absorb_skipped_by_reason": absorb_skipped_by_reason,
         "absorption_quarantine": quarantine_stats,
         "verification_accumulator": accumulator_stats,
@@ -2239,6 +2253,18 @@ _LOAD_BEARING_MODULES = frozenset({
 def _stale_severity(module: str) -> str:
     """R-F668: critical for load-bearing modules; warning otherwise."""
     return "critical" if module in _LOAD_BEARING_MODULES else "warning"
+
+
+def _is_registered_module(module: str) -> bool:
+    """Is this reporting name declared in `_MODULE_TOPICS`?
+
+    R-F4042 (C-104) — the registry is the contract for what the health surface
+    tracks. `never_seen` is computed FROM it, so a module reporting under an
+    undeclared name (`learning.knowledge_spider`, `autonomous.tasks`, …) can
+    never show up as missing: it silently becomes a new "healthy" entry while
+    the declared name it shadows stays permanently never-seen.
+    """
+    return module in _MODULE_TOPICS
 
 
 def _never_seen_severity(module: str) -> str:
