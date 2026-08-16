@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4026,
+  "next_available": 4027,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34191,6 +34191,15 @@
       "r_number": "R-F4025",
       "title": "wire the knowledge journal/compaction failure branches to the brain",
       "claimed_at": "2026-08-14T14:48:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4026",
+      "title": "preflight protected-axis DPO recipe",
+      "claimed_at": "2026-08-14T15:02:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
