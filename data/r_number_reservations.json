@@ -34341,9 +34341,10 @@
       "title": "gate secure pod creation on live stock and price",
       "claimed_at": "2026-08-16T13:50:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a989e6d9",
+      "notes": null,
+      "shipped_at": "2026-08-16T13:57:17Z"
     }
   ]
 }
