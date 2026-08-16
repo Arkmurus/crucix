@@ -34484,9 +34484,10 @@
       "title": "collect fresh adverse contradiction evidence",
       "claimed_at": "2026-08-16T18:17:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d060dcc6",
+      "notes": null,
+      "shipped_at": "2026-08-16T18:51:52Z"
     },
     {
       "r_number": "R-F4056",
