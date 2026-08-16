@@ -2055,3 +2055,82 @@ predicts, not a regression.
 - Suite baseline not re-recorded: 4 commits to `aria_service/`, under §16's
   threshold of 5, and it needs a quiet tree (peer agent active).
 - 83.7 MB of now-frozen shards remain. §26 forbids deletion, so they stay.
+
+---
+
+## 2026-08-16 — ARIA Brain command-centre audit + remediation
+
+**Scope**: operator asked for a deep forensic review of `imaria.io/aria-brain`,
+then for every finding to be fixed with root surgery. Both halves done.
+
+**Shipped**: R-F4061..R-F4072 (12), R-F4076, R-F4079, R-F4080, R-F4081 — 16
+R-numbers across C-109..C-119, C-123, C-128, C-129 (15 defects).
+Live on `aria-intel` and `aria-web`, every fix smoke-tested on the deployed
+system, all ship-marked against verified `build_rev`.
+
+### What the audit found
+
+Twenty-four panels traced pixel → endpoint → backing store. The delivery layer
+was sound (24/24 panels, `omitted: {}`). Twelve readings were not what their
+labels claimed, all one class: **an absence rendered as a measurement.**
+
+Highest-consequence: `run_calibration_review()` had **no scheduled caller** —
+the dashboard GET was the clock, and R-F166 mutates every mastery topic by up to
+−3pp. Opening the command centre was marking ARIA's mastery down, driven by a
+"ground truth" score in which two of four signals were structural zeros (a
+2.39 mistake "rate" clamped to 0, an n=1 honesty sample both sibling consumers
+refuse). Estimate moved 0.284 → 0.467 once the artifacts were excluded.
+
+Also: Domain Freshness could not report a stale domain (999/1000 entries minted
+inside 24h against a 168h window, every curated domain evicted, starving the
+R-F90 refresh orchestrator); the "24h" chat counter was a lifetime tally reading
+758 against a real ~10; the audit chain certified 100 of 1210 entries while 714
+were missing.
+
+### Found while fixing, not in the original scope
+
+- **C-129 — a false clean on the DD path.** `dd_orchestrator` lost an inner
+  loop; every multilingual adverse-media hit was dropped by a swallowed
+  `NameError`. Latent 3 days. **The gate that reports it
+  (`test_rf1908_no_undefined_names`) was already RED in the standing 105-failure
+  set** — a P0 hiding in plain sight because a red test among 105 is invisible.
+  That gate is now green.
+- **C-123 — the pre-commit builtin-shadow guard** had made `redis_store.py`
+  permanently un-committable; 31 of its 32 hits were false positives by its own
+  docstring, it was defined twice, and CI never ran it. Fixing it revived
+  `resolve_operator_pending()`, dead since `redis_store.hdel` never existed.
+
+### Two residuals in my own work, both caught by live smoke
+
+R-F4079 (panel depth 200 vs a break at 411) and R-F4076 (panel read
+`q.core_composition`; `/health` publishes `core_mastery_composition`). Neither
+was reachable from the unit tests — one because the configured depth was below
+the damage, one because the safe-degradation design returns `''` for an absent
+payload, so a wrong key is byte-identical to an older backend. §23's "reproduce
+the operator's actual path" did real work here.
+
+### Cost: six number collisions with the peer agent
+
+R-F4054..R-F4060, C-120..C-122, C-127, and R-F4075 *after* I had pushed it.
+Two (`R-F4057`, `R-F4058`) were cited in pushed commits and **absent from the
+ledger**, so the allocator could not warn. The high-water mark has to come from
+a bounded git scan, and reserve-then-land has to be one scripted operation that
+refuses to clobber. Recorded in the register and in memory.
+
+### Still open, recorded rather than guessed
+
+- **What removed audit-log seq 276–813** is undetermined. Established: the loss
+  is one contiguous block, nothing lost since seq 814, and the collision
+  hypothesis is ruled out (wrong shape). Bounded and not growing.
+- **42% of Brave calls return empty** on the paid DD engine. Now visible as a
+  Fail-rate column; §27 says no code change fixes an IP block.
+- **`uncategorized` is 53% of LLM spend** ($45.80). Largest single bucket,
+  unattributed, and §17 records it as where the RULE ONE breach hid. Not
+  registered — flagged to the operator as a decision.
+- **`test_rf3878_c_number_allocator::test_widening_...`** is permanently red:
+  its premise ("every entry uses `###`") is false — the register is 83 `##` vs
+  42 `###`. Peer's file and they are mid-work on the allocator, so reported not
+  touched.
+- **Suite baseline not re-recorded.** 105 failed / 15,603 passed measured on the
+  landed tree, but the tree is shared and moving; §16 requires a `VALID=YES`
+  quiet-tree run and forbids recording while anything is unresolved.
