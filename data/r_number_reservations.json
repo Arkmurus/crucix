@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4034,
+  "next_available": 4035,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34271,6 +34271,15 @@
       "r_number": "R-F4033",
       "title": "preserve DPO pod creation diagnostics",
       "claimed_at": "2026-08-16T11:46:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4034",
+      "title": "make DPO allocation loop hook-safe",
+      "claimed_at": "2026-08-16T11:50:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
