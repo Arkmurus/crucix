@@ -42,6 +42,7 @@ UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"; CYCLE_DEADLINE="${CYCLE_DEADLINE:-72
 MIN_CYCLE_DEADLINE="${MIN_CYCLE_DEADLINE:-0}"
 UPLOAD_SLICE="${UPLOAD_SLICE:-720}"; UPLOAD_SLICES="${UPLOAD_SLICES:-7}"
 GRACE="${GRACE:-900}"; COLLECT_GRACE="${COLLECT_GRACE:-900}"
+MAX_CREATE_TRIES="${MAX_CREATE_TRIES:-15}"; CREATE_RETRY_SECS="${CREATE_RETRY_SECS:-90}"
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
 case "$CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
 case "$MIN_CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
@@ -219,9 +220,17 @@ trap release EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-for i in $(seq 1 15); do
-  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
-  [ -n "$POD_ID" ] || { log "create rejected $i/15"; sleep 90; continue; }
+for i in $(seq 1 "$MAX_CREATE_TRIES"); do
+  CREATE_ERR=$(mktemp)
+  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>"$CREATE_ERR" | head -1 | tr -d '[:space:]')
+  if [ -z "$POD_ID" ]; then
+    CREATE_DETAIL=$(tr '\r\n' '  ' <"$CREATE_ERR" | cut -c1-600)
+    rm -f "$CREATE_ERR"
+    log "create rejected $i/$MAX_CREATE_TRIES: ${CREATE_DETAIL:-no diagnostic}"
+    sleep "$CREATE_RETRY_SECS"
+    continue
+  fi
+  rm -f "$CREATE_ERR"
   for _ in $(seq 1 40); do
     PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY"); ST=$(printf '%s' "$PD" | jget desiredStatus)
     HOST=$(printf '%s' "$PD" | jget publicIp); PORT=$(printf '%s' "$PD" | pmget)
@@ -230,7 +239,7 @@ for i in $(seq 1 15); do
   if [ -n "$HOST" ]; then
     if [ -n "$PORT" ]; then break; fi
   fi
-  release; POD_ID=""; sleep 90
+  release; POD_ID=""; sleep "$CREATE_RETRY_SECS"
 done
 [ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ] || { log "BLOCKED no GPU capacity"; exit 2; }
 mkdir -p "$(dirname "$STATE_FILE")"
