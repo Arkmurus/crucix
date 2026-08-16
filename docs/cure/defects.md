@@ -6131,3 +6131,78 @@ interval — *a throttle that never re-opens is not a throttle*; per-module
 independence; never raises). 527 passed / 0 failed in the focused regression,
 1001 passed in the wider one. Full-tree compile gate green. Lint clean.
 **Bandit 0 issues at every severity** across all six changed files.
+
+---
+
+## C-120 · a deliberate DISABLE was wired as an engine failure (R-F4056)
+
+Found by adversarially auditing my own C-108 fix while checking whether the
+newly-wired modules were enabled live.
+
+`learning_controller.run_cycle` returns `ok=False` for a case that is not a
+failure — the controller being switched off:
+
+```python
+if not is_enabled():
+    out["ok"] = False
+    out["error"] = "controller disabled — set ARIA_LEARNING_CONTROLLER_ENABLED=1 ..."
+```
+
+C-108 wired `ok=False → wire_failure(...)`, so every tick with the flag off
+would have claimed the learning engine was broken.
+
+**This is the R-F3703 defect, reintroduced by my own fix.** That entry records
+the identical mistake against the coder scoreboard: 4,007 `coder_disabled`
+refusals — "we turned the lane off for a month" — were counted as failed
+attempts and permanently shut an evidence gate. Its conclusion is the rule:
+**administrative outcomes are not quality outcomes.**
+
+The consequence is worse than noise, because `wire_failure` writes to BOTH
+sinks: `capability_gaps.record_gap` (the coder's "something to fix" queue) and
+`brain_hook.record_signal(success=False)` (the health metric). A disabled module
+would report `success_rate: 0.0` **and invite the autonomous coder to "fix" a
+flag the operator set on purpose.**
+
+### The fix
+
+`out["admin_skip"] = True` marks the administrative path. `ok` deliberately
+stays `False`, so `run_cycle`'s contract and every existing caller are
+unchanged — only the brain wiring reads the flag. The skip is reported as a
+throttled success-side note rather than dropped: the module must still show it
+is alive and reachable, because saying nothing is how C-104's modules became
+indistinguishable from dead.
+
+A test pins that a **genuine** cycle failure is still wired as a failure — a
+guard that swallowed real breakage would be worse than the defect.
+
+### Two dark paths closed in the same pass
+
+Auditing the other four C-108 wirings for the same class found:
+
+* `reading_queue.mark_processed` — `_ensure_conn()` failure returned `False`
+  with **no log and no signal at all**. Now wired.
+* `bookmarks.record_bookmark` — the same failure was logged but reached no
+  brain sink, which §21a defines as DARK. Now wired.
+
+`output_harvester` was checked and is correct: disabled means `dry = not
+is_enabled()`, a dry RUN rather than an error return, so no false failure. Its
+`empty_response` early return is caller input validation and is deliberately not
+wired as a failure.
+
+### Live enablement, verified in the running process
+
+```
+ARIA_LEARNING_CONTROLLER_ENABLED  '1'   ARIA_OUTPUT_HARVEST_ENABLED  '1'
+ARIA_CODER_ENABLED                '1'   ARIA_AUTONOMOUS_ENABLED      '1'
+ARIA_AUTONOMY_LEVEL               '3'
+```
+
+So the disabled branch is not currently taken — this was a **latent** defect,
+fixed before it could fire.
+
+### Verified
+
+3 tests, 2 RED first. 20 green across C-108's and C-120's files plus
+`test_rf661`. 527 passed / 0 failed in the focused regression. Compile gate
+green; lint clean; **bandit reports no issues at all** across the six changed
+files.

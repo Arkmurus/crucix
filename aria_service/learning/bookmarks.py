@@ -167,6 +167,8 @@ async def record_bookmark(
         conn = await _ensure_conn()
     except Exception as e:
         logger.warning("R-F663 record_bookmark ensure_conn failed: %s", e)
+        # R-F4056 (C-120) — logged but DARK before: §21a needs a brain sink.
+        _wire_bookmarks(False, f"record_bookmark: no connection: {e}")
         return False
     now = time.time()
     try:

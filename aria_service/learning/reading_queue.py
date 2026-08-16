@@ -279,7 +279,9 @@ async def mark_processed(item_id: int, *, status: str = "done",
         return False
     try:
         conn = await _ensure_conn()
-    except Exception:
+    except Exception as e:
+        # R-F4056 (C-120) — a genuine failure that returned silently. §21a.
+        _wire_reading_queue(False, f"mark_processed: no connection: {e}")
         return False
     now = time.time()
     try:

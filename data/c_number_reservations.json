@@ -1326,6 +1326,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-120",
+      "title": "administrative disable reported as a quality failure (R-F3703 class)",
+      "claimed_at": "2026-08-16T18:32:17Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4056"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T18:41:44Z"
     }
   ]
 }

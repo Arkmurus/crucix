@@ -93,12 +93,32 @@ logger = logging.getLogger("aria.learning.controller")
 
 
 def _wire_cycle_outcome(out: dict) -> None:
-    """Report the cycle's real outcome to the brain. Never raises."""
+    """Report the cycle's real outcome to the brain. Never raises.
+
+    R-F4056 (C-120) — an ADMINISTRATIVE outcome is not a quality outcome. The
+    controller being switched off returns `ok=False`, and reporting that as
+    `wire_failure` would (a) claim a working engine is broken, (b) drive
+    `success_rate` to 0.0 on the health surface, and (c) hand the autonomous
+    coder a "fix" for a flag the operator set on purpose. That is exactly the
+    defect R-F3703 records against the coder scoreboard, where 4,007
+    `coder_disabled` refusals were counted as failed attempts and permanently
+    shut an evidence gate.
+
+    It is reported as a throttled success-side note rather than dropped: the
+    module must still show it is alive and reachable, because saying nothing is
+    how C-104's modules became indistinguishable from dead.
+    """
     try:
         from aria_service.intel.engine_wiring import (
             wire_failure, wire_success_throttled,
         )
-        if out.get("ok"):
+        if not out.get("ok") and out.get("admin_skip"):
+            wire_success_throttled(
+                "learning_controller",
+                f"learning cycle skipped: {out.get('error', 'disabled')}",
+                source_id="learning_controller:run_cycle",
+            )
+        elif out.get("ok"):
             wire_success_throttled(
                 "learning_controller",
                 f"learning cycle: {out.get('studied_n', 0)} studied of "
@@ -308,6 +328,10 @@ async def run_cycle(
 
     if not is_enabled():
         out["ok"] = False
+        # R-F4056 (C-120) — mark this as an ADMINISTRATIVE skip, not a failure.
+        # `ok` stays False so run_cycle's contract and every existing caller are
+        # unchanged; only the brain wiring reads this flag.
+        out["admin_skip"] = True
         out["error"] = (
             f"controller disabled — set {_ENABLE_ENV}=1 to activate"
         )
