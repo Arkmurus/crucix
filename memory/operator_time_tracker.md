@@ -1968,3 +1968,90 @@ It must be identical on aria-intel and aria-web, because the Node side reads the
 same variable name to stay in step; setting only the brain raises its ceiling while
 the Node clamp stays at its default and the advertised limit is still not
 delivered. Matching secret digests are the proof they agree.
+
+## 2026-08-14/16 — the knowledge graph was starving its own event loop
+
+**Ask:** "ensure aria is growing robustly… laser precision root surgery… all
+wired and enabled."
+
+**Shipped: R-F4022, R-F4024, R-F4025, R-F4028 (C-95, C-96, C-97, C-98).** All
+four live on aria-intel and verified by `build_rev` **plus** a behavioural probe,
+never by "it pushed".
+
+### The root cause, and why it was invisible
+
+`/health` reported `loop.status: starved` (p95 3264 ms, max 9726 ms) beside
+`status: operational`, `degraded_reasons: []` and a GREEN self-diagnostic — in
+the same payload. 729 wedge dumps sat on the volume.
+
+`knowledge.py:_write_to_disk_atomic` appeared in **18 of 18** stall dumps, 12 of
+them inside `os.fsync`, while the main thread sat idle in `selectors.select` —
+R-F3252's own signature for starvation rather than a blocking call. Sampling the
+file every 3 s settled it: **389 MB rewritten, fsynced and renamed every ~20 s to
+persist ~10 KB**, with a tmp file present in *every* sample. ~39,000x write
+amplification that never stopped.
+
+**It was self-worsening, which is the part worth carrying forward.** §7 forbids
+eviction, so the graph only grows and the cost of persisting one fact rises
+without bound — *the better ARIA's memory got, the more starved she became.* Any
+O(total-data) step under an infinite-memory policy is this same bug.
+
+### Measured, not asserted
+
+| | before | after |
+|---|---|---|
+| loop | `starved` p95 3264 ms | `healthy` p95 1.1-2.2 ms |
+| stall dumps | 21 in one process | 0 across two post-fix processes |
+| prod-shaped write mix | 408 MB / 3.99 s | 850 KB / 0.19 s (480x) |
+| facts | 533,034 | 533,103 — nothing lost |
+| redundant shard writes | 83.7 MB / 600 s | frozen: identical bytes across two intervals |
+
+### Four corrections to my own work
+
+1. **I wrote a cause into CLAUDE.md on one observation** ("the spike is the
+   compaction"). The next compaction cost 137 ms, disproving it. Corrected —
+   then corrected *again* when a clean 600-sample window weakened my replacement
+   hypothesis too. It is recorded as **unexplained**, which is the honest state.
+2. **I inferred a secret's value by matching Fly digests.** §18 says a digest is
+   a hash, not a value. The inference was wrong and it misled me for two probes.
+3. **My first `_wire_persistence` keyed its cooldown by source alone**, so a
+   compaction SUCCESS could silence the FAILURE that followed. The test caught
+   it; now keyed by outcome and pinned by name.
+4. **I claimed gating the snapshot "weakens no guarantee that currently holds"**
+   before verifying it. It happens to be true — `knowledge.py:901,912` shows the
+   sidecar is used when the canonical is absent — but I asserted it first and
+   checked afterwards.
+
+C-97 exists only because I audited my own change against §21a and found all four
+of R-F4022's new failure branches were bare `logger` calls — dark, in the exact
+branches where ARIA forgets.
+
+### Enablement, verified in-process
+
+- `ARIA_AUTONOMOUS_ENABLED` had **drifted to `0`**. R-F3640 caught the drift
+  months ago and nobody fixed the secret, so L3 autonomy was hanging on a single
+  state-store override key. Now `=1`. **`--stage` did NOT apply it** while
+  `flyctl secrets list` said `Deployed` throughout — only a plain `secrets set`
+  took. Confirm secrets from the RUNNING PROCESS, never from `secrets list`.
+- `ARIA_CODER_ENABLED=1` — CLAUDE.md said "DORMANT"; stale, corrected.
+
+### Gates
+
+3/7 → **4/7**. Gate #1 closed on its own (composite 0.717, confidence restored).
+I did not work on it and do **not** claim the starvation fix caused it. Gate #2's
+floor fell 0.045 → 0.013, which is the honest re-grading working as CLAUDE.md
+predicts, not a regression.
+
+### Still open, recorded rather than guessed
+
+- The residual ~5 s loop spike is **unexplained**. Compaction disproven by
+  measurement; the snapshot hypothesis weakened by a clean window. Not
+  reproducing.
+- **Two instruments disagree**: `loop_monitor` recorded 5133.9 ms while the
+  R-F704 wedge log stayed 0 bytes with no `[R-F703]` warning. One is wrong about
+  a >5 s stall and I did not establish which.
+- `ecosystem_red_nodes_1` / `degraded_nodes_22` on `/health/perf` — never
+  investigated.
+- Suite baseline not re-recorded: 4 commits to `aria_service/`, under §16's
+  threshold of 5, and it needs a quiet tree (peer agent active).
+- 83.7 MB of now-frozen shards remain. §26 forbids deletion, so they stay.
