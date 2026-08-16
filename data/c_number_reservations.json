@@ -1155,6 +1155,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T13:27:39Z"
+    },
+    {
+      "c_number": "C-103",
+      "title": "sidecar throttle is inoperative; every compaction writes 410MB twice",
+      "claimed_at": "2026-08-16T13:39:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4039"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T13:49:59Z"
     }
   ]
 }

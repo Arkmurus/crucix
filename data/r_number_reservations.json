@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4039,
+  "next_available": 4040,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34326,6 +34326,15 @@
       "commit_sha": "2b3b9451",
       "notes": null,
       "shipped_at": "2026-08-16T13:35:42Z"
+    },
+    {
+      "r_number": "R-F4039",
+      "title": "sidecar hedge interval shorter than compaction cadence — never throttled",
+      "claimed_at": "2026-08-16T13:39:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -139,7 +139,8 @@ BOOKKEEPING_MAX_AGE_S = 300.0
 # read and R-F2144's acceleration would be silently deleted while the cost
 # merely moved. The right question is "could a boot follow?" — see
 # `_should_write_sidecar`.
-SIDECAR_MIN_INTERVAL_S = 600.0
+# SIDECAR_MIN_INTERVAL_S is DERIVED from COMPACT_MAX_AGE_S and so is defined
+# below, next to it — see R-F4039 (C-103).
 #: None means NEVER WRITTEN in this process. Deliberately not 0.0:
 #: `time.monotonic()`'s origin is platform-defined (typically uptime), so
 #: 0.0 would mean 'written a long time ago' on one host and 'written just
@@ -204,6 +205,28 @@ SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence
 JOURNAL_MAX_BYTES = int(os.getenv("ARIA_KNOWLEDGE_JOURNAL_MAX_BYTES",
                                   str(32 * 1024 * 1024)))
 COMPACT_MAX_AGE_S = float(os.getenv("ARIA_KNOWLEDGE_COMPACT_MAX_AGE_S", "900"))
+
+# R-F4039 (C-103) — DERIVED from the compaction cadence, not a magic number.
+#
+# The sidecar is written ONLY from `_write_to_disk_atomic`, which C-95 made
+# COMPACTION-only, so the soonest a second call can arrive is COMPACT_MAX_AGE_S.
+# A hedge interval shorter than that can NEVER throttle: at 600 vs 900 the
+# "at most once per interval" rule in `_should_write_sidecar` was a no-op and
+# every compaction paid a second full-graph write.
+#
+# Measured live on aria-intel 2026-08-16, one compaction:
+#     aria_knowledge.json             410,841,606 B  13:35:49
+#     aria_knowledge.json.facts.jsonl 410,823,992 B  13:36:06   (+17s)
+# 821 MB per compaction, spanning 6,573 ms then 10,330 ms of FULL io pressure
+# (`full` = every runnable task in the VM blocked — the starved-event-loop
+# signature). At ~96 compactions/day that is ~39 GB/day written for a file that
+# is read ONCE PER BOOT.
+#
+# Expressed as a multiple so it cannot silently become a no-op again if either
+# constant moves; a regression test pins the relationship. Skipping a write is
+# SAFE BY CONSTRUCTION — a stale sidecar fails its marker check and the reader
+# falls back to the monolithic load, the route every fresh deploy already takes.
+SIDECAR_MIN_INTERVAL_S = max(3600.0, 4.0 * COMPACT_MAX_AGE_S)
 
 #: Records changed since the last flush, as (kind, record) — held in memory and
 #: written by the debounced flusher, so the hot path never does file I/O (the

@@ -5615,3 +5615,86 @@ be circular.
 consumer. Full-tree compile gate green. **bandit 0 issues at every severity** —
 the first draft's `except: pass` raised a B110 Low, fixed by logging rather than
 by suppressing the warning.
+
+---
+
+## C-103 · the sidecar hedge throttle could never throttle (R-F4039)
+
+`_should_write_sidecar` refreshes the boot sidecar on a `final` flush and
+otherwise "at most once per `SIDECAR_MIN_INTERVAL_S`", as a crash hedge. But the
+sidecar is written ONLY from `_write_to_disk_atomic`, which C-95 made
+**compaction-only**, so the soonest a second call can arrive is
+`COMPACT_MAX_AGE_S`:
+
+```
+SIDECAR_MIN_INTERVAL_S = 600     # the throttle
+COMPACT_MAX_AGE_S      = 900     # the soonest the next call can arrive
+```
+
+**A throttle shorter than its trigger's period never fires.** Every compaction
+paid a second full-graph write. R-F3985 (C-72) correctly stopped the sidecar
+being written on every *flush*; nothing then checked it against the *compaction*
+cadence it actually runs on.
+
+### The evidence
+
+Measured live on aria-intel 2026-08-16, one compaction:
+
+```
+aria_knowledge.json              410,841,606 B   13:35:49
+aria_knowledge.json.facts.jsonl  410,823,992 B   13:36:06    (+17s)
+```
+
+821 MB per compaction. A 30s-interval IO sampler caught the cost:
+
+```
+t= 30s  stall= 6573.5ms  write= 408.3MB
+t= 60s  stall=10329.8ms  write= 410.6MB  COMPACT
+t= 90s  stall=   63.8ms  write=  54.8MB
+```
+
+~17 s of **FULL** io pressure across the two windows spanning it — `full`
+meaning *every runnable task in the VM* was blocked, which is precisely the
+starved-event-loop signature the residual stall shows (idle uvloop main thread,
+stale heartbeat, no blocking Python frame). At ~96 compactions/day that is
+**~39 GB/day written for a file read ONCE PER BOOT**.
+
+### The fix
+
+```python
+SIDECAR_MIN_INTERVAL_S = max(3600.0, 4.0 * COMPACT_MAX_AGE_S)
+```
+
+Derived, not another magic number, so it cannot silently become a no-op again if
+either constant moves — and a regression test pins the relationship rather than
+the value. Halves compaction IO (821 MB → 411 MB) and cuts sidecar writes from
+~96/day to ~24/day plus every clean shutdown.
+
+Skipping a sidecar write is **safe by construction**, and the module already
+says so: a stale sidecar fails its `_canonical` marker check and the reader falls
+back to the monolithic load — the route every fresh deploy already takes.
+
+### Why this is not a cadence knob
+
+CLAUDE.md §28 forbids "fixing" the stall by lengthening `COMPACT_MAX_AGE_S`, and
+that still stands — compaction cadence is untouched. What changed is a throttle
+that was **inoperative by arithmetic**. Fixing a guard that cannot fire is a
+correctness fix, not a band-aid; the same class as C-101 and the §1 gates.
+
+### Verified
+
+5 tests, 2 RED first (the relationship guard and the behavioural
+back-to-back-compaction case), 3 green on both sides — `final` always writes,
+the first write in a process still happens, and the hedge still fires eventually
+(a throttle that NEVER fires would be the opposite defect: no crash hedge at
+all). R-F3985's original contract still passes. 690 passed across every test
+importing `knowledge`; the only 2 red are recorded `docs/suite_baseline.json`
+entries. Full-tree compile gate green.
+
+### The residual stall is now ATTRIBUTED
+
+C-99 left the surviving lead as "IO, writer not attributed". It is attributed:
+**knowledge compaction**. This halves it. The remaining ~411 MB canonical
+rewrite per compaction is the C-95 follow-on and is NOT yet fixed — it needs
+incremental snapshotting, which is real design work on the data-persistence
+path, not an end-of-session change.
