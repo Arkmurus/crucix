@@ -31,6 +31,10 @@ def test_real_driver_parses_without_the_hook_rejected_host_port_chain() -> None:
     source = DRIVER.read_text(encoding="utf-8")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '[ -n "$HOST" ] && [ -n "$PORT" ] && break' not in source
+    rejected_line = (
+        '  [ -n "$HOST" ] && [ -n "$PORT" ] && break; '
+        'release; POD_ID=""; sleep'
+    )
+    assert rejected_line not in source
     assert 'if [ -n "$HOST" ]; then' in source
     assert 'if [ -n "$PORT" ]; then break; fi' in source
