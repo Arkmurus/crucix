@@ -219,8 +219,14 @@ COMPACT_MAX_AGE_S = float(os.getenv("ARIA_KNOWLEDGE_COMPACT_MAX_AGE_S", "900"))
 #     aria_knowledge.json.facts.jsonl 410,823,992 B  13:36:06   (+17s)
 # 821 MB per compaction, spanning 6,573 ms then 10,330 ms of FULL io pressure
 # (`full` = every runnable task in the VM blocked — the starved-event-loop
-# signature). At ~96 compactions/day that is ~39 GB/day written for a file that
-# is read ONCE PER BOOT.
+# signature). This halves the per-event cost to ~411 MB.
+#
+# Do NOT restate this as a daily total. Compaction is BOUNDED by
+# COMPACT_MAX_AGE_S but only fires when there is something to compact: the same
+# sampler observed exactly ONE compaction (at boot, when `_needs_compaction`
+# starts True) and then none for the following 900 s, with steady-state writes
+# of only 23-37 MB per 30 s window. An earlier draft of this comment assumed
+# one compaction every 15 min and inflated the saving accordingly.
 #
 # Expressed as a multiple so it cannot silently become a no-op again if either
 # constant moves; a regression test pins the relationship. Skipping a write is

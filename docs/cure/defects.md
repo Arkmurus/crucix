@@ -5656,8 +5656,25 @@ t= 90s  stall=   63.8ms  write=  54.8MB
 ~17 s of **FULL** io pressure across the two windows spanning it — `full`
 meaning *every runnable task in the VM* was blocked, which is precisely the
 starved-event-loop signature the residual stall shows (idle uvloop main thread,
-stale heartbeat, no blocking Python frame). At ~96 compactions/day that is
-**~39 GB/day written for a file read ONCE PER BOOT**.
+stale heartbeat, no blocking Python frame).
+
+⚠️ **Corrected before publishing:** a first draft of this entry said "~96
+compactions/day ≈ 39 GB/day". The SAME sampler disproves it — it saw exactly ONE
+compaction (at boot, where `_needs_compaction` starts True) and then none for the
+next 900 s, with steady-state writes of just 23-37 MB per 30 s window:
+
+```
+t= 390s stall=  16.8ms write= 36.9MB
+t= 690s stall=  26.5ms write= 35.6MB
+t= 810s stall= 205.0ms write= 23.4MB
+t= 930s stall=   8.6ms write= 23.1MB
+```
+
+Compaction is BOUNDED by `COMPACT_MAX_AGE_S`, not scheduled by it — it fires only
+when there is something to compact. The honest claim is **per event**: 821 MB and
+~17 s of full-VM stall, halved to ~411 MB. Infrequent but catastrophic when it
+lands, which is exactly why the stall inter-arrival C-99 measured is irregular
+(median 33 min) rather than a clean 900 s period.
 
 ### The fix
 
