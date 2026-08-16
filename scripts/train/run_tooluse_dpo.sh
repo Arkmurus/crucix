@@ -227,7 +227,10 @@ for i in $(seq 1 15); do
     HOST=$(printf '%s' "$PD" | jget publicIp); PORT=$(printf '%s' "$PD" | pmget)
     [ "$ST" = RUNNING ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break; sleep 10
   done
-  [ -n "$HOST" ] && [ -n "$PORT" ] && break; release; POD_ID=""; sleep 90
+  if [ -n "$HOST" ]; then
+    if [ -n "$PORT" ]; then break; fi
+  fi
+  release; POD_ID=""; sleep 90
 done
 [ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ] || { log "BLOCKED no GPU capacity"; exit 2; }
 mkdir -p "$(dirname "$STATE_FILE")"
