@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4031,
+  "next_available": 4032,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34242,6 +34242,16 @@
       "r_number": "R-F4030",
       "title": "blocking torch import on event loop in memory_leak_detector",
       "claimed_at": "2026-08-16T10:29:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3908e573",
+      "notes": null,
+      "shipped_at": "2026-08-16T10:49:11Z"
+    },
+    {
+      "r_number": "R-F4031",
+      "title": "validate standalone entity resolution answers",
+      "claimed_at": "2026-08-16T10:41:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

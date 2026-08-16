@@ -71,9 +71,14 @@ def test_protected_axes_require_disjoint_preference_evidence() -> None:
              "chosen": "honest", "rejected": "observed failure",
              "why": "validator error"}
             for axis in sorted(ALL_AXES)]
-    assert set(validate_protected_axis_evidence(
-        rows, forbidden_subjects=set(), required_axes=RETENTION_AXES,
+    assert set(validate_dpo(
+        rows, forbidden_subjects=set(), allowed_axes=ALL_AXES,
+        required_axes=RETENTION_AXES,
     )) == ALL_AXES
+    with pytest.raises(ValueError, match="chosen answer fails current validator"):
+        validate_protected_axis_evidence(
+            rows, forbidden_subjects=set(), required_axes=RETENTION_AXES,
+        )
     with pytest.raises(ValueError, match="targeted axes lack genuine DPO signal"):
         validate_protected_axis_evidence(
             [row for row in rows if row["label"] != "tooluse_contradiction"],

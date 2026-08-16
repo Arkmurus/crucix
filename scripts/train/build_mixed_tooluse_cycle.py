@@ -106,16 +106,47 @@ def validate_dpo(
 def validate_protected_axis_evidence(
     rows: list[dict], *, forbidden_subjects: set[str], required_axes: frozenset[str],
 ) -> Counter[str]:
-    """Require genuine, held-out-disjoint preferences for protected axes."""
+    """Require current-scoring, held-out-disjoint protected preferences."""
     unknown = sorted(required_axes - ALL_AXES)
     if unknown:
         raise ValueError(f"unknown protected DPO axes: {unknown}")
-    return validate_dpo(
+    counts = validate_dpo(
         rows,
         forbidden_subjects,
         allowed_axes=ALL_AXES,
         required_axes=required_axes,
     )
+    from scripts.train.eval_tooluse import score_one
+
+    for index, row in enumerate(rows, 1):
+        base = {
+            "label": row.get("label"),
+            "subject": row.get("subject"),
+            "messages": list(row["prompt"]),
+        }
+        chosen = score_one(
+            {**base, "messages": base["messages"] + [
+                {"role": "assistant", "content": row["chosen"]},
+            ]},
+            row["chosen"],
+        )
+        rejected = score_one(
+            {**base, "messages": base["messages"] + [
+                {"role": "assistant", "content": row["rejected"]},
+            ]},
+            row["rejected"],
+        )
+        if not chosen.get("honest"):
+            raise ValueError(
+                f"DPO row {index} chosen answer fails current validator: "
+                f"{(chosen.get('errors') or ['unknown'])[0]}"
+            )
+        if rejected.get("honest"):
+            raise ValueError(
+                f"DPO row {index} rejected answer passes current validator; "
+                "preference evidence is stale"
+            )
+    return counts
 
 
 def _sha(path: Path) -> str:

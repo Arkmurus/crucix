@@ -675,6 +675,53 @@ def validate_trace(trace: Any) -> list[str]:
         if isinstance(m, dict) and m.get("role") == "assistant":
             final = m.get("content") or ""
             break
+
+    # R-F4031 — a standalone resolution trace has no second tool call for the
+    # selection guard above to inspect.  Recompute the expected decision from
+    # the real registry payload and require the terminal answer to actually
+    # resolve or ask.  Merely repeating five search hits is not entity
+    # resolution, and downstream DD claims cannot come from a search payload.
+    if trace.get("label") == "tooluse_resolution" and _search_results:
+        chosen, reason, ambiguous = resolve_company(_subject, _search_results)
+        lower_final = final.lower()
+        asks_clarification = (
+            "?" in final
+            or "which company" in lower_final
+            or "which one" in lower_final
+            or "which of these" in lower_final
+            or "clarif" in lower_final
+        )
+        if chosen is None or ambiguous:
+            if not asks_clarification:
+                errs.append(
+                    f"did not ask for clarification when {_subject!r} could not be "
+                    f"resolved safely ({reason})"
+                )
+        else:
+            number = str(chosen.get("company_number") or "")
+            selection_language = any(phrase in lower_final for phrase in (
+                "resolve", "most likely match", "first result", "active company",
+                "official registry", "will proceed", "registered company name",
+            ))
+            if number not in final or not selection_language:
+                errs.append(
+                    f"did not select the resolved company {chosen.get('title')} "
+                    f"({number}); listing registry candidates is not a resolution"
+                )
+
+        unsupported_scope = (
+            "turnover", "director", "disqualified", "judgment", "mortgage",
+            "insolvenc", "bankrupt", "winding up", "liquidation filing",
+            "administrative receiver", "voluntary arrangement",
+        )
+        payload_text = json.dumps(_search_results, ensure_ascii=False).lower()
+        invented = sorted({term for term in unsupported_scope
+                           if term in lower_final and term not in payload_text})
+        if invented:
+            errs.append(
+                "resolution answer asserted downstream facts absent from the registry "
+                f"search payload: {', '.join(invented)}"
+            )
     # R-F3427 — a REGISTER RECORD citation (`companies_house:07524813`) is
     # grounded by the identifier, not by the register's name: the company number
     # is what the payload actually contains. Without this the registry axes could
