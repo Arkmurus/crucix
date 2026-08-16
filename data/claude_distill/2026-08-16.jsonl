@@ -1,0 +1,4 @@
+{"ts": 1786911254.7098486, "source": "claude_teacher", "direction": "claude->aria", "kind": "note", "msg_id": "cb_1", "reply_to": "", "text": "fix the sanctions routing"}
+{"ts": 1786911254.7103193, "source": "claude_teacher", "direction": "claude->aria", "kind": "note", "msg_id": "cb_2", "reply_to": "", "text": "and the WA timeout"}
+{"ts": 1786911254.7118564, "source": "claude_teacher", "direction": "claude->aria", "kind": "note", "msg_id": "cb_3", "reply_to": "", "text": "third"}
+{"ts": 1786911254.867654, "source": "claude_teacher", "direction": "claude->aria", "kind": "test", "msg_id": "cb_1", "reply_to": "", "text": "R-F1410 capability test: this is a test note from Claude"}

@@ -183,3 +183,38 @@ async def test_a_healthy_spread_is_not_flagged(monkeypatch):
     assert comp["at_ceiling"] == []
     assert comp["at_floor"] == []
     assert len(comp["freely_measured"]) == len(student.CORE_MASTERY_TAGS)
+
+
+# ── the page must read the key the backend actually publishes ──────────────
+
+def test_panel_reads_the_published_field_name():
+    """R-F4076 — the row read `q.core_composition`; /health publishes
+    `core_mastery_composition`. The panel rendered nothing on the live page
+    while the backend served the data correctly.
+
+    `_coreCompositionRow` returns '' for an absent payload by design, so an
+    older backend degrades instead of rendering an empty claim — which is
+    precisely why a wrong key could not announce itself. The previous guard
+    asserted the CALL existed and was blind to the name.
+
+    This asserts the cross-file contract: whatever key the page reads must be a
+    key /health puts inside `quality`.
+    """
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    page = (repo / "public" / "aria-brain.html").read_text(encoding="utf-8")
+    routes = (repo / "aria_service" / "routes" / "aria.py").read_text(
+        encoding="utf-8")
+
+    m = re.search(r"_coreCompositionRow\(q\.([A-Za-z_]+)\)", page)
+    assert m, "the Quality panel no longer renders the composition row"
+    key = m.group(1)
+
+    assert f'"{key}": mastery.get(' in routes or f'"{key}":' in routes, (
+        f"the page reads q.{key} but /health does not publish that key inside "
+        "quality — the row will silently render nothing")
+
+    # And pin the actual name, so a rename has to be deliberate on both sides.
+    assert key == "core_mastery_composition", key

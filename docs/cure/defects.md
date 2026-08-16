@@ -7414,3 +7414,37 @@ showed something else.
 tests were green, the endpoint was correct, and the panel was still going to
 show the wrong verdict — because the only thing that exercised the real depth
 was hitting the deployed system.
+
+### R-F4076 — C-113 follow-up: the composition row read a field name the backend never published
+
+Second residual found by looking at the deployed page rather than at a test.
+
+The Quality panel called `_coreCompositionRow(q.core_composition)`. `/health`
+publishes it as **`core_mastery_composition`**. So on the live page the entire
+C-113 panel half was dark while the backend served the data correctly:
+
+```
+quality keys: [... core_mastery, core_mastery_breakdown,
+               core_mastery_composition, core_weak_topics ...]
+composition:  {"at_ceiling": ["lang:pt","lang:ar","lang:fr","lang:es","lang:zh"],
+               "at_floor": [{"topic":"nato_standards","score":0.5,"floor":0.5,
+                             "samples":68,"clamped":true}, ...]}
+```
+
+**The design that makes the panel safe is what hid the typo.**
+`_coreCompositionRow` returns `''` for an absent payload on purpose — an older
+backend must degrade rather than render an empty claim — so a wrong key produces
+exactly the same output as a backend that does not send the field. That is this
+whole batch's theme reappearing inside the fix for it: an absence that cannot
+distinguish itself from a legitimate state.
+
+The R-F4063 guard asserted the CALL existed and was blind to the name. It now
+asserts the **cross-file contract**: whatever key the page reads must be a key
+`/health` puts inside `quality`, and the current name is pinned so a rename has
+to be deliberate on both sides.
+
+**Both residuals in this batch (this and R-F4075) were found by live smoke, and
+neither was reachable from the unit tests** — one because the panel's configured
+depth was below the damage, one because the failure mode was a silent empty
+string. §23's "reproduce the operator's actual path" is doing real work here:
+the tests were green, the endpoints were correct, and the screen was wrong.

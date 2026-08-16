@@ -819,7 +819,15 @@ async function loadHealth() {
     // tag at its floor is clamped, not measured. The VALUE is deliberately
     // unchanged: dropping the language tags would RAISE it, and §1 forbids
     // closing a gate by measuring less.
-    _coreCompositionRow(q.core_composition) +
+    // R-F4076 — the key is `core_mastery_composition`. This read
+    // `q.core_composition`, which /health has never published, so the row
+    // rendered '' and the whole C-113 panel half was dark on the live page
+    // while the backend was serving the data correctly. `_coreCompositionRow`
+    // returns '' for an absent payload BY DESIGN (an older backend must degrade
+    // rather than render an empty claim) — which is exactly why a typo here
+    // could not announce itself. Caught by looking at the deployed page, not by
+    // a test: the guard asserted the CALL existed and could not see the name.
+    _coreCompositionRow(q.core_mastery_composition) +
     metricRow('Mastery Weighted (by samples)', pct(q.mastery_weighted), 'neutral') +
     // R-F4072 (C-114) — a rate with no sample size is not a verdict.
     // This rendered a flat red "0%" from n=1 EVAL-only data. The two consumers

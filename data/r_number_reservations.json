@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4076,
+  "next_available": 4077,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34688,6 +34688,15 @@
       "commit_sha": "c31302ad",
       "notes": null,
       "shipped_at": "2026-08-16T20:14:47Z"
+    },
+    {
+      "r_number": "R-F4076",
+      "title": "core-composition row read a field name the backend never published",
+      "claimed_at": "2026-08-16T20:18:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
