@@ -5224,6 +5224,19 @@ Two instruments also disagree and that is unresolved: `loop_monitor` recorded
 5133.9 ms while the R-F704 wedge log stayed 0 bytes with no `[R-F703]` warning.
 One of them is wrong about a >5 s stall.
 
+**Later evidence WEAKENS the snapshot hypothesis — do not carry it forward as
+probable.** A full 600-sample window measured ~35 min after the last restart
+read `p50 0.3 / p95 1.1 / **max 78.5 ms**` — completely clean, no multi-second
+outlier at all — and a 13-minute log watch filtered for `R-F334` /
+`sharded state snapshot` / `R-F703` captured **nothing**. If a 600 s
+whole-graph gzip reliably cost ~5 s, both windows should have caught it. The two
+~5 s outliers were observed in the hours immediately following a deploy, so
+boot-adjacent work (RAG init, semantic index build, backfill) is at least as
+plausible. **The spike is unexplained and currently not reproducing.**
+
+None of that changes the I/O finding above, which is measured and standing on
+its own: 83.7 MB rewritten every 600 s to the volume it backs up.
+
 ### Options for the operator (none taken)
 
 1. **Gate it on the backend being genuinely off-host** — skip when the state
