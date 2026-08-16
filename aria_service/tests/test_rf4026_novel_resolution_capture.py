@@ -6,6 +6,7 @@ import pytest
 
 from scripts.train.build_tooluse_corpus import _norm_subject
 from scripts.train.capture_resolution import select_capture_subjects
+from scripts.train.preflight_cycle import _golden_subjects, check_contamination
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,3 +61,37 @@ def test_cli_filters_subjects_before_live_capture() -> None:
     assert source.index("select_capture_subjects(") < source.index(
         "asyncio.run(capture(",
     )
+
+
+def test_generation_queue_passes_the_real_golden_contamination_gate() -> None:
+    queue = [
+        json.loads(line) for line in (
+            ROOT / "data/training/tooluse_novel_resolution_generation_queue.jsonl"
+        ).read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    result = check_contamination(
+        queue, _golden_subjects(ROOT / "data/eval_frozen/aria_eval_500q.jsonl"),
+    )
+    assert len(queue) == 15
+    assert result.status == "PASS", result.detail
+
+
+def test_live_capture_provenance_and_launcher_are_pinned() -> None:
+    raw_path = ROOT / "data/training/aria_tooluse_resolution_novel_v1.jsonl"
+    rows = [
+        json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 16
+    assert {row["label"] for row in rows} == {"tooluse_resolution"}
+    assert {row["source"] for row in rows} == {"replayed_real_tool_execution"}
+
+    import hashlib
+    launcher = (
+        ROOT / "scripts/train/run_tooluse_novel_resolution_generation.sh"
+    ).read_text(encoding="utf-8")
+    queue = ROOT / "data/training/tooluse_novel_resolution_generation_queue.jsonl"
+    assert hashlib.sha256(queue.read_bytes()).hexdigest() in launcher
+    assert "aria_tooluse_citation_phoenix_v3_failed_candidate.tgz" in launcher
+    assert "exec bash scripts/train/run_tooluse_generation.sh" in launcher
+    assert "run_tooluse_dpo.sh" not in launcher
