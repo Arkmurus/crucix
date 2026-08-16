@@ -7615,3 +7615,69 @@ proprioception, CURE MODE and RULE ONE all present.
 8 new tests across both C-numbers, RED first. **639 passed / 0 failed** across
 the entire CLI surface plus the secret gate. Full-tree compile gate green; lint
 clean; bandit unchanged at 0 medium/high.
+
+### Closeout addenda — two questions the audit left open
+
+Both were recorded as "not established". Neither should stay that way, so both
+were measured.
+
+#### C-111: the audit-log loss is HISTORICAL, BOUNDED and STOPPED
+
+Gap distribution across the whole sequence range:
+
+```
+seq    0-199 : missing   0/ 23
+seq  200-399 : missing 124/200
+seq  400-599 : missing 200/200
+seq  600-799 : missing 200/200
+seq  800-999 : missing  14/200
+seq 1000-1922: missing   0            <- no loss at all
+TTL-stamped rows: seq 814..1313, exactly 500
+```
+
+Three things follow, and they change the reading:
+
+1. **The loss is ONE contiguous block, seq 276–813.** Not scattered.
+2. **Nothing has been lost since seq 814.** Every sequence from 814 to 1922 is
+   present. The log has been intact for the whole recent period.
+3. **The 500 TTL-stamped rows are exactly seq 814–1313**, and
+   `_migrate_list_if_needed` is the ONLY code in the tree that writes
+   `expires_at` into `list_entries` (it copies the legacy blob's TTL onto every
+   migrated row). So a legacy-JSON-blob migration demonstrably occurred, and the
+   surviving TTL block is its footprint.
+
+That **rules out** the leading alternative. R-F2470 documents seq-collision
+`INSERT OR IGNORE` silently dropping `lpush` writes — a real mechanism, but it
+produces SCATTERED single-row gaps, not one 538-long contiguous run adjacent to
+the migration block.
+
+**Still not established**: what removed 276–813. A plain `ltrim` does not fit
+either (it trims the lowest seqs, and 177–275 survived *below* the deleted
+block). The surviving state cannot distinguish the remaining candidates, and
+inventing one would be worse than saying so.
+
+**What matters operationally is now settled**: the damage is old, it is bounded,
+it is not growing, and the panel reports it (`CHAIN BROKEN · 10 broken links`).
+The chain is still deliberately NOT repaired — forging continuity across entries
+that are gone destroys the only property it has.
+
+#### C-117: Layer 5c "Runs scanned 45" vs 31 DD reports — reconciled, no defect
+
+Three different populations, all legitimate:
+
+```
+58  entries in crucix:dd:report_index   (all unique, no duplicates)
+45  of those carry a commercial_coherence section  -> "Runs scanned"
+31  bodies still retrievable via /dd/reports        (7-day body TTL evicts the rest)
+```
+
+`layer_5c_stats` scans the INDEX and `continue`s past entries with no
+`commercial_coherence` section (13 reports predate it). `/dd/reports` reads
+BODIES, which expire on a 7-day TTL while index entries persist. So 45 and 31
+count different things and both are correct.
+
+The label is index-based and does not say so, but "Runs scanned" is accurate for
+what it scans, and C-117 already added the run AGE — which was the actionable
+half. Recorded here rather than opened as a defect: an accurate label that could
+be more specific is not the same as a wrong number, and this register should not
+carry a false "unreconciled" against it.
