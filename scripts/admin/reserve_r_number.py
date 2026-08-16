@@ -46,6 +46,16 @@ def main() -> int:
     # R-F3095 — §2 says "mark shipped at push"; nothing enforced it, and 372
     # in_progress entries with no SHA accumulated. Git cannot forget, so reconcile
     # against it. Dry-run by default.
+    # R-F4077 (C-127) — surface claims that exist only in this tree. Those are
+    # the ones a concurrent ledger merge can lose, which is how R-F4061/R-F4062
+    # were issued twice on 2026-08-16.
+    s_unp = sub.add_parser(
+        "unpublished",
+        help="list R-numbers reserved locally but absent from the published ledger",
+    )
+    s_unp.add_argument("--ref", default="origin/main",
+                       help="published ref to compare against")
+
     s_rec = sub.add_parser("reconcile", help="ship-mark R-numbers already present in git history")
     s_rec.add_argument("--ref", default="HEAD", help="only count commits reachable from this ref")
     s_rec.add_argument("--apply", action="store_true", help="write the changes (default: dry run)")
@@ -66,6 +76,29 @@ def main() -> int:
     elif args.cmd == "list":
         rs = reg.list_reservations(status_filter=args.status)
         print(json.dumps(rs, indent=2))
+    elif args.cmd == "unpublished":
+        res = reg.unpublished_claims(ref=args.ref)
+        if not res["readable"]:
+            print(f"UNKNOWN — could not read the published ledger at {args.ref}. "
+                  "That is not the same as 'nothing unpublished'.")
+            return 2
+        if res.get("displaced"):
+            print(f"{len(res['displaced'])} DISPLACED claim(s) — the published "
+                  f"ledger carries a DIFFERENT claim under these numbers. Your "
+                  f"work references numbers it does not own; renumber before "
+                  f"shipping:")
+            for n in res["displaced"]:
+                print(f"  {n}")
+            return 1
+        if not res["unpublished"]:
+            print(f"OK — all {res['local_total']} reservations are published.")
+            return 0
+        print(f"{len(res['unpublished'])} UNPUBLISHED claim(s) — a concurrent "
+              f"ledger merge can lose these. Commit+push the ledger before "
+              f"building on them:")
+        for n in res["unpublished"]:
+            print(f"  {n}")
+        return 1
     elif args.cmd == "reconcile":
         res = reg.reconcile_with_git(args.ref, apply=args.apply)
         for e in res["entries"]:

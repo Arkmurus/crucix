@@ -585,6 +585,105 @@ _GIT_SCAN_TTL_S = float(os.getenv("ARIA_RNUM_GIT_SCAN_TTL", "30"))
 _git_scan_cache: dict[tuple[str, str], tuple[float, set[int], bool]] = {}
 
 
+def _published_reservations(
+    *, ref: str = "origin/main", repo_root: Path | None = None,
+) -> tuple[dict[str, Any] | None, bool]:
+    """The ledger as PUBLISHED at `ref`. Returns (data, readable).
+
+    R-F4077 — read-only; never fetches. A stale `origin/main` only makes the
+    check more conservative (it reports more claims as unpublished), which is
+    the safe direction for a hazard warning.
+    """
+    root = Path(repo_root).resolve() if repo_root else _RESERVATIONS_PATH.resolve().parents[1]
+    rel = "data/r_number_reservations.json"
+    try:
+        # R-F4077 — BYTES, not `text=True`. `text=True` decodes with the
+        # platform default, which is cp1252 on Windows; this ledger is UTF-8 and
+        # contains an em-dash, so the decode raised and `stdout` came back None.
+        # Same trap that has bitten every ad-hoc read of these files.
+        out = subprocess.run(
+            ["git", "show", f"{ref}:{rel}"],
+            cwd=str(root), capture_output=True, timeout=20,
+            env=_env_without_git_overrides(),
+        )
+        if out.returncode != 0 or not out.stdout:
+            return None, False
+        return json.loads(out.stdout.decode("utf-8", errors="replace")), True
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None, False
+
+
+def unpublished_claims(
+    *, path: Path | None = None, ref: str = "origin/main",
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    """R-numbers reserved locally but ABSENT from the published ledger.
+
+    R-F4077 (C-127) — WHY THIS EXISTS. `reserve()` already unions the ledger with
+    every number git has seen (R-F3248), and `expand_r_numbers` handles ranges.
+    But git can only know a claim that has been COMMITTED, so two agents sharing
+    a tree can each allocate the same number inside the reserve-to-commit window
+    and the ledger merge then keeps only one. That happened on 2026-08-16:
+    R-F4061/R-F4062 were issued twice and the loser's code referenced numbers
+    whose ledger titles described someone else's work.
+
+    WHY NOT COMPARE TITLES. Measured on this repo, HUNDREDS of entries differ in
+    title between local and `origin/main` from ordinary edits and reconciliation.
+    A guard that fires hundreds of times is one nobody reads. Absence is the
+    quiet, precise signal — normally 0-2 entries, and it is exactly the set a
+    merge can lose.
+
+    `unpublished` is None when the published ledger cannot be read: "could not
+    measure" must never render as "measured and found nothing" (§1).
+    """
+    data = _load(path)
+    local = [
+        r.get("r_number") for r in data.get("reservations", [])
+        if r.get("r_number")
+    ]
+    published, readable = _published_reservations(ref=ref, repo_root=repo_root)
+    if not readable or not isinstance(published, dict):
+        return {"readable": False, "unpublished": None, "displaced": None,
+                "local_total": len(local)}
+
+    pub = {
+        r.get("r_number"): r for r in published.get("reservations", [])
+        if r.get("r_number")
+    }
+
+    # R-F4077 — DISPLACEMENT: the case absence cannot see.
+    #
+    # Proven live on 2026-08-16 by this fix itself: I committed R-F4076 for
+    # C-127 while a peer published R-F4076 for a C-113 follow-up. The number WAS
+    # present upstream, so an absence check reported "all published" while my
+    # code referenced a number it did not own. Once the number exists, absence
+    # is the wrong question — identity is the right one.
+    #
+    # Identity is (claimed_at, claimed_by, title): the fields that describe WHOSE
+    # claim it is. `status` and `commit_sha` are deliberately EXCLUDED — those
+    # change on my own claim when it ships, and flagging that would make the
+    # check fire on ordinary work, which is how a guard becomes noise nobody
+    # reads (C-96).
+    def _identity(rec: dict[str, Any]) -> tuple:
+        return (rec.get("claimed_at"), rec.get("claimed_by"), rec.get("title"))
+
+    local_by_num = {
+        r.get("r_number"): r for r in data.get("reservations", [])
+        if r.get("r_number")
+    }
+    displaced = [
+        n for n, rec in local_by_num.items()
+        if n in pub and _identity(pub[n]) != _identity(rec)
+    ]
+
+    return {
+        "readable": True,
+        "unpublished": [n for n in local if n not in pub],
+        "displaced": displaced,
+        "local_total": len(local),
+    }
+
+
 def r_numbers_known_to_git(
     ref: str = "HEAD", *, repo_root: Path | None = None,
 ) -> tuple[set[int], bool]:

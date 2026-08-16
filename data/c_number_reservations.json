@@ -1432,6 +1432,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T19:58:55Z"
+    },
+    {
+      "c_number": "C-127",
+      "title": "a reservation lost to a concurrent merge is invisible until after commit",
+      "claimed_at": "2026-08-16T20:14:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4077"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:25:25Z"
     }
   ]
 }

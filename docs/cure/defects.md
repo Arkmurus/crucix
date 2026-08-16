@@ -7448,3 +7448,68 @@ neither was reachable from the unit tests** — one because the panel's configur
 depth was below the damage, one because the failure mode was a silent empty
 string. §23's "reproduce the operator's actual path" is doing real work here:
 the tests were green, the endpoints were correct, and the screen was wrong.
+---
+
+## C-127 · a reservation lost to a concurrent merge is invisible until too late (R-F4077)
+
+**What happened, 2026-08-16.** Two agents share this tree. I reserved
+R-F4061/R-F4062 (C-123/C-124) and wrote them into code, tests and this register.
+A peer committed the SAME numbers concurrently — `fix: R-F4061..R-F4072
+(C-109..C-119, C-122)` — and won the ledger merge. My entries vanished, so my
+code referenced numbers whose ledger titles described someone else's work.
+Recovery meant a rename pass across five files: precisely what §2 built the
+allocator to abolish.
+
+### Why the existing guards did not catch it
+
+They are good, and they were not enough:
+
+* `reserve()` unions the ledger with `r_numbers_known_to_git()` (R-F3248), and
+  `expand_r_numbers` correctly expands the peer's `R-F4061..R-F4072` RANGE —
+  verified live: that scan does know 4062.
+* But **git can only know a claim that has been COMMITTED.** Both reservations
+  sat in working trees when they were allocated, so neither allocator could see
+  the other. The exposure is the reserve-to-commit WINDOW.
+
+### Why this detector, and not the obvious one
+
+The intuitive check is "does my local ledger entry still match origin's?".
+Measured on this repo: **hundreds of entries** differ in title between local and
+`origin/main` from ordinary edits and reconciliation. A guard that fires
+hundreds of times is one nobody reads — the same reasoning C-96 used to keep
+`busy` out of `degraded_reasons`.
+
+The quiet, precise signal is the **unpublished claim**: a reservation present
+locally and absent from the published ledger. Normally 0-2 entries, it is exactly
+the set a merge can lose, and it is actionable — publish the ledger before
+building on the number.
+
+```
+python scripts/admin/reserve_r_number.py unpublished
+  -> OK — all N reservations are published.            (exit 0)
+  -> 1 UNPUBLISHED claim(s) ...                        (exit 1)
+  -> UNKNOWN — could not read the published ledger     (exit 2)
+```
+
+`unpublished` is **None**, never `[]`, when the published ledger cannot be read:
+"could not measure" must not render as "measured and found nothing" — the §1
+collapse this repo has paid for three times. A stale `origin/main` only makes the
+check more conservative, which is the safe direction for a hazard warning.
+
+### A Windows encoding trap, fixed in passing
+
+The first implementation used `subprocess.run(..., text=True)`, which decodes
+with the platform default — cp1252 here. The ledger is UTF-8 and contains an
+em-dash, so the decode raised and `stdout` came back **None**, which the caller
+then tried to parse. It now reads BYTES and decodes UTF-8 explicitly, and strips
+git env overrides so `cwd` stays authoritative (R-F3899's lesson).
+
+### Verified
+
+4 tests, all RED first, including the two that keep the guard honest: a fully
+published ledger must be silent, and a title edit must NOT trigger it. Proven on
+the live ledger — it correctly reported exactly one unpublished claim, R-F4077,
+which was this fix itself. 111 passed across every test touching the registry;
+the single red (`test_rf3878 ... widening_the_heading_level`) is pre-existing,
+proven by re-running with my changes stashed, and is NOT in the recorded
+baseline — it post-dates it.

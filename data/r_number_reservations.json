@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4077,
+  "next_available": 4078,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34693,6 +34693,15 @@
       "r_number": "R-F4076",
       "title": "core-composition row read a field name the backend never published",
       "claimed_at": "2026-08-16T20:18:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4077",
+      "title": "detect unpublished AND displaced reservations",
+      "claimed_at": "2026-08-16T20:23:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
