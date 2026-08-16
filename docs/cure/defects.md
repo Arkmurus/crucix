@@ -7681,3 +7681,72 @@ what it scans, and C-117 already added the run AGE — which was the actionable
 half. Recorded here rather than opened as a defect: an accurate label that could
 be more specific is not the same as a wrong number, and this register should not
 carry a false "unreconciled" against it.
+---
+
+## C-130 · ARIA could render a page but not INSPECT it (R-F4082)
+
+Asked to give ARIA browser capabilities for security analysis, the first job was
+finding out what she already had. **Playwright 1.62.0 is already a declared
+dependency**, chromium binaries are installed on aria-intel
+(`/root/.cache/ms-playwright/chromium-1234`), `intel/headless.py` drives
+Lightpanda over CDP, `is_available()` returns True live, and trafilatura does
+extraction. So fetching, JS rendering and text extraction were all present and
+working — an initial hypothesis that the headless path was dark was **checked
+and disproved** before anything was changed.
+
+The genuine gap is that none of that answers what a security or DD reviewer
+asks, because the answers are not in the prose:
+
+* which security headers are set — CSP, HSTS, X-Frame-Options, …
+* which THIRD-PARTY domains the page contacts
+* what the console says (errors, stack traces, leaked values)
+* where it finally landed after redirects
+
+### The capability
+
+`intel/page_inspect.py` + `POST /api/aria/security/page-inspect`.
+
+**Absence is the finding.** `_build_header_report` emits every tracked header
+with an explicit `present` flag, so "no HSTS" can never be confused with "not
+checked". And when no browser is available every finding field is `None`, never
+`{}` or `[]` — on a security surface, rendering "could not measure" as "measured
+and found nothing" is a false all-clear, the §1 collapse this repo has paid for
+three times.
+
+**Bounded**, because this runs on the box this session spent considerable effort
+keeping responsive: `MAX_REQUESTS=300`, `MAX_CONSOLE=100`, 25s timeout, and
+`requests_truncated` is reported rather than silently capping.
+
+### The ethics boundary, pinned in source
+
+Read-only navigation and observation. **No stealth, no CAPTCHA handling, no form
+submission, no login.** §27 is explicit that evading anti-bot controls to take
+data a provider is refusing us is untenable for a due-diligence product — the
+same reasoning that stopped us scraping TrustOnline and using Find Case Law
+unlicensed. Tests assert the absence of evasion and interaction primitives, so a
+later "just add stealth for site X" cannot pass quietly.
+
+It **identifies itself** by default (§27b measured that
+`python-requests/2.0` → HTTP 403 and a descriptive UA → 200 from the Wikipedia
+API, same IP, same second).
+
+### A defect found in my own code
+
+`_browser_available()` first gated on `headless.is_available()` — the
+**Lightpanda** binary. But this module launches **chromium**; Lightpanda's CDP
+surface does not expose console/request/header capture the same way. That would
+have made the capability refuse on a box that had chromium: a feature coupled to
+an unrelated binary, the "gate on the wrong thing" shape §1 keeps recording. It
+now looks for the browser it actually launches, honouring
+`PLAYWRIGHT_BROWSERS_PATH`, and a test pins the decoupling.
+
+Deliberately NOT registered in `_MODULE_TOPICS`: per C-106 that table is a
+routing table read only by `absorb`, and this module emits via `wire_*`, so an
+entry would be decoration with invented topics. It surfaces in C-104's
+`unregistered_modules` instead.
+
+### Verified
+
+10 tests, RED first. 40 pass across this plus C-104's and C-106's registry
+contracts. Compile gate green; lint clean. Locally (no chromium) it correctly
+returns `available: False` with null findings rather than a false clean.

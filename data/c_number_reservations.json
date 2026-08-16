@@ -1469,6 +1469,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T20:49:42Z"
+    },
+    {
+      "c_number": "C-130",
+      "title": "ARIA can render a page but cannot inspect it for security analysis",
+      "claimed_at": "2026-08-16T20:52:33Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4082"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T21:00:49Z"
     }
   ]
 }

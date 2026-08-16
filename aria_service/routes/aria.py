@@ -22992,6 +22992,29 @@ async def security_audit_ep():
     return await security_protocol.run_security_audit()
 
 
+@router.post("/security/page-inspect")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def security_page_inspect_ep(request: Request):
+    """R-F4081 (C-130) — read-only page inspection for security / DD analysis.
+
+    Reports what text extraction cannot: security headers (present AND absent),
+    third-party domains contacted, console errors, and the post-redirect URL.
+
+    Read-only by construction — no interaction, no anti-bot evasion, and it
+    identifies itself (§27). `available: false` with null findings means the
+    observation could NOT be made; it never reads as "nothing found".
+    """
+    from ..intel import page_inspect
+
+    body = await request.json()
+    url = (body or {}).get("url") or ""
+    if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        return {"ok": False, "error": "an http(s) url is required"}
+    return await page_inspect.inspect_page(
+        url, timeout_s=(body or {}).get("timeout_s"),
+    )
+
+
 @router.post("/security/scan-input")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def security_scan_input_ep(req: Request):
