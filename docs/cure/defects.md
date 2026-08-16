@@ -5812,3 +5812,70 @@ unchanged at 0 medium/high.
 Proven pre-existing by stashing only my files and re-running — it fails
 identically without them. It sits in the C-39/R-F3945 sanctions-coverage area
 (the never-false-clean property) and needs an owner.
+
+---
+
+## C-105 · age-triggered compaction rewrote the whole graph to retire a trivial journal (R-F4045)
+
+C-95 made the HOT path O(change) — the flusher appends changed records to a
+journal and the ~410 MB snapshot is rewritten only on compaction. But the
+compaction decision also carried:
+
+```python
+_age_due = _last_compaction_at is None or elapsed >= COMPACT_MAX_AGE_S
+must_compact = final or _needs_compaction or _bk_undeclared or _journal_due or _age_due
+```
+
+so every 900 s **any** dirty state forced a whole-graph rewrite regardless of how
+little had changed. **This is C-95's own defect at a slower cadence**, and C-95's
+comment names the principle it violates: *"Raising FLUSH_DEBOUNCE_S … would
+leave the O(graph) term intact — the §1 band-aid. The complexity had to change,
+not the cadence."*
+
+### The evidence
+
+Measured live 2026-08-16: the journal grows ~120 KB / 150 s (~2.9 MB/hour), so a
+15-minute cycle rewrote **410 MB to retire ~1.4 MB — ~293x amplification**. One
+compaction cost 6,573 ms then 10,330 ms of **FULL** io pressure (every runnable
+task in the VM blocked — the starved-event-loop signature).
+
+### Why gating the age trigger loses nothing
+
+The stated requirement is *"boot replay stays small and the snapshot never
+drifts far from the cache"*. **Replay size is bounded by `JOURNAL_MAX_BYTES`
+(32 MB)** — the journal *is* the replay, and `_replay_journal` streams it as
+id-keyed upserts, so a larger journal costs boot time proportional to the
+journal, never correctness. Age bounds nothing that journal size does not.
+
+### The rule
+
+> Never spend an O(N) whole-graph rewrite to retire a journal smaller than a
+> fixed fraction of N.
+
+Expressed as a **ratio**, not a byte count, so the bound survives the graph
+growing — §7 forbids eviction, so a fixed threshold would silently decay into a
+no-op exactly as C-103's sidecar throttle did. Amplification is capped at
+**1/ratio by construction** (20x at 0.05).
+
+Not relaxed, and pinned by tests: `_journal_due` still bounds boot replay,
+`final` still compacts on shutdown, and `_needs_compaction` still forces a full
+write after a structural change — a deletion must never be expressed as an
+upsert journal, because replaying one would resurrect what was purged. **Only
+the age trigger is gated.** `_journal_worth_compacting()` fails SAFE: an
+unreadable snapshot size returns True and compacts, the same default as `_save`'s
+"no declared record => full rewrite".
+
+### Measured effect
+
+```
+compaction frequency : 96/day        ->  3.6/day      (27x fewer)
+write amplification  : 293x          ->  20x          (bounded by construction)
+daily compaction I/O : ~78.8 GB/day  ->  ~1.5 GB/day  (~53x, with C-103)
+```
+
+### Verified
+
+8 tests, 7 RED first. 698 passed across every test importing `knowledge`; the
+only 2 red are the recorded `docs/suite_baseline.json` entries verified
+unrelated. Full-tree compile gate green; lint clean; bandit unchanged at 0
+medium/high.

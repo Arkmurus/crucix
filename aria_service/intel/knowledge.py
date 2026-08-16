@@ -206,6 +206,59 @@ JOURNAL_MAX_BYTES = int(os.getenv("ARIA_KNOWLEDGE_JOURNAL_MAX_BYTES",
                                   str(32 * 1024 * 1024)))
 COMPACT_MAX_AGE_S = float(os.getenv("ARIA_KNOWLEDGE_COMPACT_MAX_AGE_S", "900"))
 
+# R-F4045 (C-105) — never spend an O(N) whole-graph rewrite to retire a journal
+# that is a rounding error next to N.
+#
+# C-95 made the HOT path O(change), but the age trigger below still forced a
+# full snapshot every COMPACT_MAX_AGE_S regardless of how little had changed.
+# Measured live 2026-08-16: the journal grows ~120 KB / 150 s (~2.9 MB/hour), so
+# a 15-minute cycle rewrote **410 MB to retire ~1.4 MB** — ~290x amplification,
+# costing ~6.6 s + ~10.3 s of FULL io pressure per compaction. That is C-95's
+# own defect on a timer, and C-95's comment names the principle: "The complexity
+# had to change, not the cadence."
+#
+# Expressed as a RATIO, not a byte count, so the bound survives the graph
+# growing — §7 forbids eviction, so a fixed threshold would silently decay into
+# a no-op exactly as C-103's sidecar throttle did. Amplification is now capped
+# at 1/RATIO by construction (20x at 0.05).
+#
+# What this does NOT relax: `_journal_due` (JOURNAL_MAX_BYTES) still bounds boot
+# replay, `final` still compacts on shutdown, and `_needs_compaction` still
+# forces a full write after a structural change (a deletion must never be
+# expressed as an upsert journal — replaying one would resurrect what was
+# purged). Only the *age* trigger is gated.
+COMPACT_MIN_JOURNAL_RATIO = float(
+    os.getenv("ARIA_KNOWLEDGE_COMPACT_MIN_JOURNAL_RATIO", "0.05"))
+COMPACT_MIN_JOURNAL_BYTES = int(
+    os.getenv("ARIA_KNOWLEDGE_COMPACT_MIN_JOURNAL_BYTES", str(1024 * 1024)))
+
+
+def _snapshot_size() -> int:
+    """Bytes of the canonical snapshot, or -1 when it cannot be measured."""
+    try:
+        return os.path.getsize(_DISK_PATH)
+    except Exception:
+        return -1
+
+
+def _journal_worth_compacting() -> bool:
+    """Is there enough journal to justify rewriting the whole graph?
+
+    Fails SAFE: if the snapshot size cannot be read we return True and compact.
+    Skipping a durable write on an unknown is how data quietly stops being
+    persisted — the same reasoning as `_save`'s "no declared record => full
+    rewrite" default.
+    """
+    journal = _journal_size()
+    if journal <= 0:
+        return False
+    snapshot = _snapshot_size()
+    if snapshot < 0:
+        return True          # cannot measure -> do the durable thing
+    floor = max(COMPACT_MIN_JOURNAL_BYTES,
+                int(COMPACT_MIN_JOURNAL_RATIO * snapshot))
+    return journal >= floor
+
 # R-F4039 (C-103) — DERIVED from the compaction cadence, not a magic number.
 #
 # The sidecar is written ONLY from `_write_to_disk_atomic`, which C-95 made
@@ -1137,10 +1190,14 @@ async def _flush_to_disk_locked(final: bool = False) -> None:
     _bk_entries = [("fact", r) for r in _pending_bookkeeping.values()]
     _bk_undeclared = _bk_due and not _bk_entries
     _journal_due = _journal_size() >= JOURNAL_MAX_BYTES
-    _age_due = (
+    # R-F4045 (C-105) — the age trigger only fires when there is enough journal
+    # to be worth an O(graph) rewrite. `_needs_compaction` starts True, so the
+    # first compaction of a process is unaffected by this gate.
+    _age_elapsed = (
         _last_compaction_at is None
         or (time.monotonic() - _last_compaction_at) >= COMPACT_MAX_AGE_S
     )
+    _age_due = _age_elapsed and _journal_worth_compacting()
     must_compact = (
         final or _needs_compaction or _bk_undeclared or _journal_due or _age_due
     )

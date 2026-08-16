@@ -1179,6 +1179,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T15:02:59Z"
+    },
+    {
+      "c_number": "C-105",
+      "title": "compaction age trigger reintroduces the C-95 O(graph) amplification",
+      "claimed_at": "2026-08-16T15:28:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4045"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T15:35:49Z"
     }
   ]
 }
