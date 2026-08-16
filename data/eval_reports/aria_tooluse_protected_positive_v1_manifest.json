@@ -1,0 +1,21 @@
+{
+  "complete": true,
+  "policy": "genuine_chosen_only_protected_correction",
+  "rows": 20,
+  "axis_counts": {
+    "tooluse_adverse": 4,
+    "tooluse_contradiction": 4,
+    "tooluse_news_impact": 3,
+    "tooluse_resolution": 9
+  },
+  "required_axes": [
+    "tooluse_adverse",
+    "tooluse_contradiction",
+    "tooluse_news_impact",
+    "tooluse_resolution"
+  ],
+  "dpo_sha256": "c48d9130528fe375e258d28d5dc8ef3f58e543c26271529e4917fb099325459a",
+  "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+  "golden_sha256": "4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c",
+  "output_sha256": "a0466f9a8c602196c64d7f21e78e807c14212b7db25c7b94c74be573da978d28"
+}
