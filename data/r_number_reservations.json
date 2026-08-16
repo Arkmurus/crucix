@@ -34362,9 +34362,10 @@
       "title": "brain health surface cannot distinguish registered modules from phantoms",
       "claimed_at": "2026-08-16T14:10:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8a90289e",
+      "notes": null,
+      "shipped_at": "2026-08-16T15:11:36Z"
     },
     {
       "r_number": "R-F4043",
