@@ -7332,3 +7332,85 @@ search-and-replace briefly rewrote the PEER's register entries; `defects.md` was
 restored from HEAD and only these two entries re-appended. §26a's allocator is
 not enough on a shared tree when two agents reserve between one another's
 commits — the ledger merge is the failure point.
+
+### R-F4075 — C-111 follow-up: the panel was told to look shallower than the break
+
+Found by **live-smoking the deployed fix**, not by inspection, and it is worth
+recording as its own lesson.
+
+R-F4070 made the verdict honest about coverage. Then I registered the panel's
+probe at `sample=200` to keep the dashboard cheap — and the live break sits at
+index **411**. First reading after deploy:
+
+```
+?sample=200   {"verified":true,  "verdict":"partial_ok","checked":200, "complete":false,"breaks":[]}
+?sample=500   {"verified":false, "verdict":"broken",    "checked":500, "complete":false,
+               "breaks":[{"index":411,...}]}
+?sample=1210  {"verified":false, "verdict":"broken",    "checked":1210,"complete":true,
+               "breaks":[{"index":411,...},{"index":530,"actual_prev":"000000…"}]}
+```
+
+So the panel would have reported `partial_ok` on a chain that a full check calls
+broken — **two** breaks, the second a restart to the genesis hash. The verdict
+was not lying; I had told it to examine less than the damage. That is the same
+defect R-F4070 fixed (a tamper-evidence check whose default depth sits above the
+break), displaced one layer out into the caller — and the fix's own commit
+message had quoted the 100-vs-500 asymmetry as the reason the original was
+wrong.
+
+Depth is now 5000: it covers the whole log today (1210), so `complete: true` and
+the verdict is real. If the log outgrows it the verdict degrades to
+`complete: false` and the panel renders "N of M checked" rather than going
+quietly shallow. It is one `lrange` behind the 45s aggregate cache, not a
+per-request cost.
+
+A test pins both halves — the registry depth must clear the log, and the page
+must request the SAME path, because a mismatch makes the panel fall back to a
+direct probe at a different depth and the guard would pass while the screen
+showed something else.
+
+**The general lesson**: §23 says reproduce the operator's actual path. The unit
+tests were green, the endpoint was correct, and the panel was still going to
+show the wrong verdict — because the only thing that exercised the real depth
+was hitting the deployed system.
+
+### R-F4075 — C-111 follow-up: the panel was told to look shallower than the break
+
+Found by **live-smoking the deployed fix**, not by inspection, and it is worth
+recording as its own lesson.
+
+R-F4070 made the verdict honest about coverage. Then I registered the panel's
+probe at `sample=200` to keep the dashboard cheap — and the live break sits at
+index **411**. First reading after deploy:
+
+```
+?sample=200   {"verified":true,  "verdict":"partial_ok","checked":200, "complete":false,"breaks":[]}
+?sample=500   {"verified":false, "verdict":"broken",    "checked":500, "complete":false,
+               "breaks":[{"index":411,...}]}
+?sample=1210  {"verified":false, "verdict":"broken",    "checked":1210,"complete":true,
+               "breaks":[{"index":411,...},{"index":530,"actual_prev":"000000…"}]}
+```
+
+So the panel would have reported `partial_ok` on a chain that a full check calls
+broken — **two** breaks, the second a restart to the genesis hash. The verdict
+was not lying; I had told it to examine less than the damage. That is the same
+defect R-F4070 fixed (a tamper-evidence check whose default depth sits above the
+break), displaced one layer out into the caller — and the fix's own commit
+message had quoted the 100-vs-500 asymmetry as the reason the original was
+wrong.
+
+Depth is now 5000: it covers the whole log today (1210), so `complete: true` and
+the verdict is real. If the log outgrows it the verdict degrades to
+`complete: false` and the panel renders "N of M checked" rather than going
+quietly shallow. It is one `lrange` behind the 45s aggregate cache, not a
+per-request cost.
+
+A test pins both halves — the registry depth must clear the log, and the page
+must request the SAME path, because a mismatch makes the panel fall back to a
+direct probe at a different depth and the guard would pass while the screen
+showed something else.
+
+**The general lesson**: §23 says reproduce the operator's actual path. The unit
+tests were green, the endpoint was correct, and the panel was still going to
+show the wrong verdict — because the only thing that exercised the real depth
+was hitting the deployed system.

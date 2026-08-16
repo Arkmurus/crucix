@@ -1480,7 +1480,7 @@ async function loadAudit() {
   // entries absent and `/chat-audit/verify?sample=500` returning
   // verified:false with a break at index 409 — while the panel checked
   // nothing. A retention SETTING is not evidence of retention.
-  const chain = await fetchJson('/chat-audit/verify?sample=200');
+  const chain = await fetchJson('/chat-audit/verify?sample=5000');
   let chainRow = '';
   if (chain && chain.verdict) {
     const label = {

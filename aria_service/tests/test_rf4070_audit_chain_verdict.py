@@ -174,3 +174,42 @@ async def test_deep_break_is_found_when_coverage_reaches_it(wires):
     deep = await _verify(_chain(500, break_at=409), sample=500, total=500)
     assert deep["verdict"] == "broken", deep
     assert deep["breaks"][0]["index"] == 409, deep["breaks"][:2]
+
+
+# ── 5. the panel must look deep enough to reach the break ──────────────────
+
+def test_panel_depth_reaches_the_known_break():
+    """R-F4075 — found by live-smoking the deployed R-F4070 fix, not by
+    inspection.
+
+    The verdict was honest about coverage and I had told it to cover less than
+    the damage: the aggregate requested sample=200 while the live break sits at
+    index 411, so the panel reported `partial_ok` on a chain a full check calls
+    `broken` (breaks at 411 and at 530, the latter a restart to the genesis
+    hash). A tamper-evidence check whose default depth sits above the break is
+    the same defect R-F4070 fixed, one layer out.
+
+    5000 covers the whole live log (1210 entries) so `complete` is true and the
+    verdict is real; if the log outgrows it the verdict degrades to
+    `complete: false` and the panel says "N of M checked" rather than going
+    quietly shallow.
+    """
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    routes = (repo / "aria_service" / "routes" / "aria.py").read_text(
+        encoding="utf-8")
+    page = (repo / "public" / "aria-brain.html").read_text(encoding="utf-8")
+
+    m = re.search(r'"/chat-audit/verify\?sample=(\d+)"', routes)
+    assert m, "the chain verdict is no longer served from the aggregate"
+    depth = int(m.group(1))
+    assert depth >= 1500, (
+        f"panel depth {depth} — the live log holds 1210 entries with a break at "
+        "411; a depth below the log lets the panel report partial_ok on a "
+        "broken chain")
+
+    assert f"/chat-audit/verify?sample={depth}" in page, (
+        "the page and the aggregate registry must request the SAME path or the "
+        "panel silently falls back to a direct probe at a different depth")

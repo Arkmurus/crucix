@@ -28539,7 +28539,22 @@ def _dashboard_panel_registry() -> dict:
         # panel previously printed Total Entries + Head Hash + Retention, three
         # rows that read as an intact permanent record, while the live chain was
         # verifiably broken and nothing checked.
-        "/chat-audit/verify?sample=200": lambda: chat_audit_verify_ep(sample=200),
+        #
+        # R-F4075 — the depth was 200 and the live break is at index 411, so the
+        # panel reported `partial_ok` on a chain that a full check calls
+        # `broken` (breaks at 411 and 530, the latter a chain restart to the
+        # genesis hash). Caught by live-smoking the deployed fix, not by
+        # inspection: the verdict was honest about what it had examined and I
+        # had told it to examine less than the damage. A tamper-evidence check
+        # whose default depth sits above the break is the same defect R-F4070
+        # fixed, one layer out.
+        #
+        # 5000 covers the whole log today (1210 entries) so `complete: true` and
+        # the verdict is real. If the log ever outgrows it the verdict degrades
+        # to `complete: false` and the panel says "N of M checked" — honest
+        # rather than silently shallow. It is one lrange behind the 45s
+        # aggregate cache, not a per-request cost.
+        "/chat-audit/verify?sample=5000": lambda: chat_audit_verify_ep(sample=5000),
         "/student/mastery/heatmap": mastery_heatmap_ep,
         "/autonomous/dlq": dlq_get_ep,
         "/student/mastery": student_mastery_ep,
