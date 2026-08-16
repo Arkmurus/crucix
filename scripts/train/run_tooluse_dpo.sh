@@ -33,6 +33,7 @@ GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 REPORT_LOCAL="${REPORT_LOCAL:-data/eval_reports/aria_tooluse_dpo_v3_eval.json}"
 OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v3.tgz}"
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_dpo_v3_pod_state}"
+EXISTING_POD_ID="${EXISTING_POD_ID:-}"
 REMOTE_DPO_OUT="${REMOTE_DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v3}"
 ADAPTER_SHA256="${ADAPTER_SHA256:-0fd0b88b16a47bc9276bc1dc96b90a488dad810b8bf296a00147b8fe989f1656}"
 DPO_SHA256="${DPO_SHA256:-ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa36923c05f5f991}"
@@ -46,6 +47,7 @@ MAX_CREATE_TRIES="${MAX_CREATE_TRIES:-15}"; CREATE_RETRY_SECS="${CREATE_RETRY_SE
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
 case "$CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
 case "$MIN_CYCLE_DEADLINE" in *[!0-9]*|"") log "FATAL cycle deadline contract must use integer seconds"; exit 3;; esac
+case "$EXISTING_POD_ID" in *[!a-z0-9]*) log "FATAL existing pod id is malformed"; exit 3;; esac
 [ "$CYCLE_DEADLINE" -ge "$MIN_CYCLE_DEADLINE" ] || {
   log "FATAL cycle deadline ${CYCLE_DEADLINE}s is below required workload envelope ${MIN_CYCLE_DEADLINE}s"
   exit 3
@@ -220,27 +222,43 @@ trap release EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-for i in $(seq 1 "$MAX_CREATE_TRIES"); do
-  CREATE_ERR=$(mktemp)
-  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>"$CREATE_ERR" | head -1 | tr -d '[:space:]')
-  if [ -z "$POD_ID" ]; then
-    CREATE_DETAIL=$(tr '\r\n' '  ' <"$CREATE_ERR" | cut -c1-600)
-    rm -f "$CREATE_ERR"
-    log "create rejected $i/$MAX_CREATE_TRIES: ${CREATE_DETAIL:-no diagnostic}"
-    sleep "$CREATE_RETRY_SECS"
-    continue
-  fi
-  rm -f "$CREATE_ERR"
+wait_for_pod(){
+  HOST=""; PORT=""
   for _ in $(seq 1 40); do
     PD=$(curl.exe -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY"); ST=$(printf '%s' "$PD" | jget desiredStatus)
     HOST=$(printf '%s' "$PD" | jget publicIp); PORT=$(printf '%s' "$PD" | pmget)
-    [ "$ST" = RUNNING ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break; sleep 10
+    if [ "$ST" = RUNNING ]; then
+      if [ -n "$HOST" ]; then
+        if [ -n "$PORT" ]; then return 0; fi
+      fi
+    fi
+    sleep 10
   done
-  if [ -n "$HOST" ]; then
-    if [ -n "$PORT" ]; then break; fi
-  fi
-  release; POD_ID=""; sleep "$CREATE_RETRY_SECS"
-done
+  return 1
+}
+if [ -n "$EXISTING_POD_ID" ]; then
+  POD_ID="$EXISTING_POD_ID"
+  log "starting existing pod $POD_ID for resumable recovery"
+  curl.exe -fsS -X POST "$API/pods/$POD_ID/start" \
+    -H "Authorization: Bearer $KEY" >/dev/null \
+    || { log "FATAL existing pod start rejected"; exit 2; }
+  wait_for_pod || { release; POD_ID=""; }
+else
+  for i in $(seq 1 "$MAX_CREATE_TRIES"); do
+    CREATE_ERR=$(mktemp)
+    POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>"$CREATE_ERR" | head -1 | tr -d '[:space:]')
+    if [ -z "$POD_ID" ]; then
+      CREATE_DETAIL=$(tr '\r\n' '  ' <"$CREATE_ERR" | cut -c1-600)
+      rm -f "$CREATE_ERR"
+      log "create rejected $i/$MAX_CREATE_TRIES: ${CREATE_DETAIL:-no diagnostic}"
+      sleep "$CREATE_RETRY_SECS"
+      continue
+    fi
+    rm -f "$CREATE_ERR"
+    if wait_for_pod; then break; fi
+    release; POD_ID=""; sleep "$CREATE_RETRY_SECS"
+  done
+fi
 [ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ] || { log "BLOCKED no GPU capacity"; exit 2; }
 mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"

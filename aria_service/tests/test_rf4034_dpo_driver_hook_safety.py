@@ -37,4 +37,4 @@ def test_real_driver_parses_without_the_hook_rejected_host_port_chain() -> None:
     )
     assert rejected_line not in source
     assert 'if [ -n "$HOST" ]; then' in source
-    assert 'if [ -n "$PORT" ]; then break; fi' in source
+    assert 'if [ -n "$PORT" ]; then return 0; fi' in source
