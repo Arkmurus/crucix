@@ -63,6 +63,15 @@ def query_secure_inventory(api_key: str) -> list[dict]:
         }
       }
     }"""
+    payload = graphql_request(api_key, query)
+    rows = (payload.get("data") or {}).get("gpuTypes")
+    if not isinstance(rows, list):
+        raise RuntimeError("inventory response omitted gpuTypes")
+    return rows
+
+
+def graphql_request(api_key: str, query: str) -> dict:
+    """Execute one authenticated GraphQL operation with RunPod's required client identity."""
     url = "https://api.runpod.io/graphql?" + urllib.parse.urlencode({"api_key": api_key})
     request = urllib.request.Request(
         url,
@@ -76,16 +85,41 @@ def query_secure_inventory(api_key: str) -> list[dict]:
         payload = json.load(urllib.request.urlopen(request, timeout=30))
     except urllib.error.HTTPError as exc:
         detail = " ".join(exc.read(500).decode("utf-8", errors="replace").split())
-        raise RuntimeError(f"inventory HTTP {exc.code}: {detail or exc.reason}") from exc
+        raise RuntimeError(f"GraphQL HTTP {exc.code}: {detail or exc.reason}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"inventory transport: {exc.reason}") from exc
+        raise RuntimeError(f"GraphQL transport: {exc.reason}") from exc
     errors = payload.get("errors") or []
     if errors:
-        raise RuntimeError(f"inventory GraphQL error: {str(errors)[:500]}")
-    rows = (payload.get("data") or {}).get("gpuTypes")
-    if not isinstance(rows, list):
-        raise RuntimeError("inventory response omitted gpuTypes")
-    return rows
+        raise RuntimeError(f"GraphQL error: {str(errors)[:500]}")
+    return payload
+
+
+def create_pod_graphql(
+    api_key: str, public_key: str, gpu_id: str, container_disk_gb: int,
+) -> str:
+    """Create one Secure Cloud pod through RunPod's stock-specific mutation."""
+    mutation = f"""mutation {{
+      podFindAndDeployOnDemand(input: {{
+        cloudType: SECURE
+        gpuCount: 1
+        volumeInGb: 0
+        containerDiskInGb: {container_disk_gb}
+        minVcpuCount: 2
+        minMemoryInGb: 15
+        gpuTypeId: {json.dumps(gpu_id)}
+        name: "aria-v04-train"
+        imageName: "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+        dockerArgs: ""
+        ports: "8888/http,22/tcp"
+        volumeMountPath: "/workspace"
+        env: [{{ key: "PUBLIC_KEY", value: {json.dumps(public_key)} }}]
+      }}) {{ id }}
+    }}"""
+    payload = graphql_request(api_key, mutation)
+    pod_id = str((payload.get("data") or {}).get("podFindAndDeployOnDemand", {}).get("id") or "").strip()
+    if not pod_id:
+        raise RuntimeError("GraphQL create response omitted pod id")
+    return pod_id
 
 def create_pod(api_key: str, public_key: str) -> str:
     """Create one pod or raise with the provider's bounded rejection detail."""
@@ -95,13 +129,19 @@ def create_pod(api_key: str, public_key: str) -> str:
         raise RuntimeError(
             f"inventory: no approved High/Medium secure GPU at or below ${max_hourly_price:.2f}/hour"
         )
+    container_disk_gb = int(os.getenv("ARIA_POD_DISK_GB", "120"))
+    create_api = os.getenv("ARIA_POD_CREATE_API", "rest").strip().lower()
+    if create_api == "graphql":
+        return create_pod_graphql(api_key, public_key, available_gpus[0], container_disk_gb)
+    if create_api != "rest":
+        raise RuntimeError(f"unsupported pod create API: {create_api}")
     body = {
         "name": "aria-v04-train",
         "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
         "gpuTypeIds": available_gpus, "gpuTypePriority": "availability",
         "dataCenterPriority": "availability", "gpuCount": 1, "cloudType": "SECURE",
         # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
-        "containerDiskInGb": int(os.getenv("ARIA_POD_DISK_GB", "120")),
+        "containerDiskInGb": container_disk_gb,
         "ports": ["8888/http", "22/tcp"], "env": {"PUBLIC_KEY": public_key},
     }
     req = urllib.request.Request(
