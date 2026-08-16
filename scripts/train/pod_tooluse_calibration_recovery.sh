@@ -27,6 +27,6 @@ for i in $(seq 1 60); do
   sleep 10
 done
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" --model aria-tooluse-sft-child --eval-file "$PROBE" --out "$AFTER" || fail "calibration eval"
-python "$SCRIPTS/learning_curve_gate.py" --before "$BEFORE" --after "$AFTER" --verdict-out "$VERDICT" --protected-axis tooluse_adverse --protected-axis tooluse_contradiction --protected-axis tooluse_news_impact --protected-axis tooluse_resolution || fail "calibration gate"
+python -m scripts.train.learning_curve_gate --before "$BEFORE" --after "$AFTER" --verdict-out "$VERDICT" --protected-axis tooluse_adverse --protected-axis tooluse_contradiction --protected-axis tooluse_news_impact --protected-axis tooluse_resolution || fail "calibration gate"
 collect
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" --model aria-tooluse-sft-child --eval-file "$EVAL" --out "$REPORT" || fail "held-out eval"

@@ -95,7 +95,7 @@ require_watchdog
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \
   --model aria-tooluse-sft-child --eval-file "$PROBE_FILE" --out "$AFTER_PROBE" \
   2>&1 | tee "$LOGS/tooluse_sft_child_probe.log" || fail "calibration eval"
-python "$SCRIPTS/learning_curve_gate.py" --before "$BEFORE_PROBE" --after "$AFTER_PROBE" \
+python -m scripts.train.learning_curve_gate --before "$BEFORE_PROBE" --after "$AFTER_PROBE" \
   --verdict-out "$VERDICT" --protected-axis tooluse_adverse \
   --protected-axis tooluse_contradiction --protected-axis tooluse_news_impact \
   --protected-axis tooluse_resolution || fail "positive SFT calibration gate"
