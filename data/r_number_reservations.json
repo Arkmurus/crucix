@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4055,
+  "next_available": 4056,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34452,6 +34452,15 @@
       "notes": null
     },
     {
+      "r_number": "R-F4052",
+      "title": "wire the five import-only learning modules to the brain",
+      "claimed_at": "2026-08-16T17:19:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
       "r_number": "R-F4053",
       "title": "invoke learning curve gate as package module",
       "claimed_at": "2026-08-16T17:37:18Z",
@@ -34464,6 +34473,15 @@
       "r_number": "R-F4054",
       "title": "evaluate recovered positive adapter without retraining",
       "claimed_at": "2026-08-16T17:42:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4055",
+      "title": "collect fresh adverse contradiction evidence",
+      "claimed_at": "2026-08-16T18:17:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

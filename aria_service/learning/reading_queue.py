@@ -64,16 +64,37 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.learning.reading_queue")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.reading_queue",
-        summary="Reading Queue active",
-        source_id="learning:reading_queue:R-F1319",
-    )
-except Exception:
-    pass
+# R-F4052 (C-108) — §21a wiring for this module's WORK, not its import.
+#
+# The old R-F1319 block fired wire_success at IMPORT time under
+# "learning.reading_queue" — a name brain_hook._MODULE_TOPICS does not contain, so it
+# was invisible to `never_seen` (C-104) and proved only that the file had been
+# imported. Outcomes are now reported under the REGISTERED name, on BOTH
+# branches. Success is throttled because this module's work runs per item.
+
+
+def _wire_reading_queue(ok: bool, summary: str) -> None:
+    """Report a real outcome to the brain. Never raises."""
+    try:
+        from aria_service.intel.engine_wiring import (
+            wire_failure, wire_success_throttled,
+        )
+        if ok:
+            wire_success_throttled(
+                "reading_queue", summary, source_id="reading_queue:work",
+            )
+        else:
+            wire_failure(
+                module="reading_queue", detail=summary,
+                gap_type="engine_failure", source="reading_queue:work",
+            )
+    except Exception as _exc:   # pragma: no cover - telemetry never blocks
+        # Swallowed deliberately: brain wiring must never break this
+        # module's work. Logged rather than `pass`ed so the wiring
+        # failure is not itself dark (bandit B110) — wiring the wiring
+        # failure would be circular.
+        logger.debug("[R-F4052] reading_queue outcome wiring failed: %s", _exc)
+
 
 _DB_PATH_ENV = "ARIA_READING_QUEUE_DB_PATH"
 _DEFAULT_DB_PATH = "/data/aria_reading_queue.db"
@@ -131,8 +152,10 @@ async def _close_conn() -> None:
     if _conn is not None:
         try:
             await _conn.close()
-        except Exception:
-            pass
+        except Exception as _exc:
+            # R-F4052 (C-108) — a teardown failure was silent (bandit B110).
+            # Still swallowed (close must not raise on shutdown), but visible.
+            logger.debug("[R-F4052] %s conn close failed: %s", "reading_queue", _exc)
     _conn = None
 
 
@@ -269,9 +292,11 @@ async def mark_processed(item_id: int, *, status: str = "done",
         await conn.commit()
         ok = cur.rowcount > 0
         await cur.close()
+        _wire_reading_queue(True, f"reading item {item_id} marked {status}")
         return ok
     except Exception as e:
         logger.warning("R-F661 mark_processed: update failed: %s", e)
+        _wire_reading_queue(False, f"mark_processed failed: {type(e).__name__}: {e}")
         return False
 
 

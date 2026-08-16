@@ -185,7 +185,14 @@ def test_rf661_self_quiz_failure_enrolls_to_queue(isolated_db, monkeypatch):
             }
         return None
 
-    async def _fake_try_local(question):
+    async def _fake_try_local(question, *, silent: bool = False,
+                              exclude_topic: str | None = None):
+        # R-F4052 (C-108) — the stub must accept the REAL signature. It was
+        # written before `try_local_reasoning` grew `exclude_topic` (student.py
+        # passes it), so every call raised TypeError and this test had been
+        # permanently red — carrying no information about the behaviour it
+        # names. Keyword-only, mirroring the real function, so the next
+        # parameter added there fails loudly here rather than silently.
         # Return a divergent answer → similarity will be ~0 → passed_quiz=False
         return {"answered": True, "response": "Totally unrelated answer",
                 "source": "local"}

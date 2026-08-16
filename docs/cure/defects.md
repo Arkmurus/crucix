@@ -6057,3 +6057,77 @@ win32/ARM64 missing-wheel case per §16, handled gracefully).
 that carried all 8. 153 pass across the eight originals' files. Full-tree
 compile gate green. Bandit on `main.py`: High 1 → 0, Low 42 → 23 (the 19
 promoted guards were B110 findings).
+
+---
+
+## C-108 · five learning modules ran, but their work was dark (R-F4052)
+
+C-104 removed the import-time `wire_success(module="learning.x", summary="X
+active")` phantoms — health asserted from an `import`, under a name the brain
+registry does not contain, so it was invisible to `never_seen`. For eleven
+modules that was safe: each already emitted its registered name from a real work
+path.
+
+**Five did not**, and were deliberately left alone at the time because deleting
+their only signal would have made them genuinely dark:
+
+```
+bookmarks · fsrs_scheduler · learning_controller · output_harvester · reading_queue
+```
+
+They are **not dormant** — each is driven (`learning_controller` from
+`autonomous/tasks.py`, `output_harvester` from `coder_entrypoint`/routes,
+`reading_queue` and `bookmarks` from routes, `fsrs_scheduler` from
+`intel/student.py`). So §21a applied squarely and was unmet: a path is wired only
+if BOTH branches reach the brain, and theirs reached nothing.
+
+### One primitive, not five copies
+
+These are per-ITEM functions (`record_bookmark`, `mark_processed`,
+`review_topic`). An unthrottled success signal per call is the ledger flood this
+repo has paid for repeatedly — `cost_tracker` and `grounding_reward` are §21a
+exempt for exactly that reason, `loop_monitor` (R-F3557) rate-limits both its
+breach and healthy signals, and C-102 had to report on CHANGE for the same cause.
+
+So the cooldown went into `engine_wiring.wire_success_throttled()` — beside the
+primitive it throttles, where the next per-item module gets it free instead of
+copying the pattern and getting the reset condition subtly wrong. **Failures are
+deliberately NOT throttled**: they are rare, `wire_failure` already dedupes 1h
+through `record_gap` (R-F66), and throttling them would hide a newly-broken
+module.
+
+Wired at each module's real work boundary: `run_cycle` (all four exits),
+`harvest`, `mark_processed`, `record_bookmark`, `review_topic`.
+`review_topic` reports its failure and then **re-raises** — §21a asks for
+visibility, never for swallowing; the caller decides what a missing card means.
+
+### Also closed while here
+
+* **`test_rf661_self_quiz_failure_enrolls_to_queue`** — a recorded baseline
+  failure. Its `_fake_try_local` stub predated `try_local_reasoning` growing
+  `exclude_topic`, which `student.py` passes, so every call raised `TypeError`
+  and the test could never carry information. The stub now mirrors the real
+  signature **keyword-only**, so the next parameter added there fails loudly
+  here rather than silently.
+* **Two pre-existing `except: pass` teardown swallows** (`_close_conn` in
+  `bookmarks` and `reading_queue`, bandit B110). Still swallowed — close must not
+  raise on shutdown — but now logged.
+* My own helper template shipped the same B110; fixed the same way. A wiring
+  failure is logged rather than `pass`ed, because wiring the wiring failure
+  would be circular.
+
+### Left unregistered, on purpose
+
+These five stay out of `_MODULE_TOPICS`. Per C-106 that table is a ROUTING table
+read only by `absorb`, and these emit through `record_signal`; adding them would
+be decoration with invented topics. They are visible instead via C-104's
+`unregistered_modules`.
+
+### Verified
+
+19 tests green across the new file plus the C-104/R-F1319 contracts; 4 of the 6
+new tests pin the throttle primitive (emits, then suppresses; re-opens after the
+interval — *a throttle that never re-opens is not a throttle*; per-module
+independence; never raises). 527 passed / 0 failed in the focused regression,
+1001 passed in the wider one. Full-tree compile gate green. Lint clean.
+**Bandit 0 issues at every severity** across all six changed files.

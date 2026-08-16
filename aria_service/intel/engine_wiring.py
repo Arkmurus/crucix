@@ -135,6 +135,53 @@ def _dispatch_fire_and_forget(coro_factory) -> None:
         logger.debug("[engine_wiring] thread dispatch failed", exc_info=True)
 
 
+# R-F4052 (C-108) — last emission per module, for `wire_success_throttled`.
+# Process-local and unbounded only in the number of MODULES, which is finite.
+_SUCCESS_LAST: dict[str, float] = {}
+_SUCCESS_MIN_INTERVAL_S = 300.0
+
+
+def wire_success_throttled(
+    module: str,
+    summary: str,
+    *,
+    min_interval_s: float = _SUCCESS_MIN_INTERVAL_S,
+    **kwargs: Any,
+) -> bool:
+    """Rate-limited success signal. Returns True if a signal was emitted.
+
+    R-F4052 — WHY THIS EXISTS. §21a requires a success branch, but a module
+    whose work function runs per ITEM (`record_bookmark`, `mark_processed`,
+    `review_topic`) would emit thousands of identical "it worked" signals into
+    a 500-slot ledger. That flood is not hypothetical: `cost_tracker` and
+    `grounding_reward` are exempt from §21a for exactly this reason,
+    `loop_monitor` (R-F3557) rate-limits both its breach and healthy signals,
+    and C-102's audit wiring had to report on CHANGE for the same cause.
+
+    Putting the cooldown HERE — next to the primitive it throttles — means the
+    next per-item module gets it for free instead of copying the pattern and
+    getting the reset condition subtly wrong.
+
+    Failures are deliberately NOT throttled: they are rare, and `wire_failure`
+    already routes through `capability_gaps.record_gap`, which dedupes 1h
+    (R-F66). Throttling them too would hide a newly-broken module.
+
+    Never raises — telemetry must not break the caller's work.
+    """
+    try:
+        now = time.monotonic()
+        last = _SUCCESS_LAST.get(module)
+        if last is not None and (now - last) < min_interval_s:
+            return False
+        _SUCCESS_LAST[module] = now
+        wire_success(module=module, summary=summary, **kwargs)
+        return True
+    except Exception as exc:      # pragma: no cover - telemetry never blocks
+        logger.debug("[R-F4052] throttled success wiring failed (%s): %s",
+                     module, exc)
+        return False
+
+
 def wire_success(
     module: str,
     summary: str,

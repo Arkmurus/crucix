@@ -52,16 +52,36 @@ from fsrs import Card, Rating, Scheduler
 
 logger = logging.getLogger("aria.learning.fsrs")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.fsrs_scheduler",
-        summary="Fsrs Scheduler active",
-        source_id="learning:fsrs_scheduler:R-F1319",
-    )
-except Exception:
-    pass
+# R-F4052 (C-108) — §21a wiring for this module's WORK, not its import.
+#
+# The old R-F1319 block fired wire_success at IMPORT time under
+# "learning.fsrs_scheduler" — a name brain_hook._MODULE_TOPICS does not contain, so it
+# was invisible to `never_seen` (C-104) and proved only that the file had been
+# imported. Outcomes are now reported under the REGISTERED name, on BOTH
+# branches. Success is throttled because this module's work runs per item.
+
+
+def _wire_fsrs_scheduler(ok: bool, summary: str) -> None:
+    """Report a real outcome to the brain. Never raises."""
+    try:
+        from aria_service.intel.engine_wiring import (
+            wire_failure, wire_success_throttled,
+        )
+        if ok:
+            wire_success_throttled(
+                "fsrs_scheduler", summary, source_id="fsrs_scheduler:work",
+            )
+        else:
+            wire_failure(
+                module="fsrs_scheduler", detail=summary,
+                gap_type="engine_failure", source="fsrs_scheduler:work",
+            )
+    except Exception as _exc:   # pragma: no cover - telemetry never blocks
+        # Swallowed deliberately: brain wiring must never break this
+        # module's work. Logged rather than `pass`ed so the wiring
+        # failure is not itself dark (bandit B110) — wiring the wiring
+        # failure would be circular.
+        logger.debug("[R-F4052] fsrs_scheduler outcome wiring failed: %s", _exc)
 
 
 # Singleton scheduler — parameters are FSRS v6 defaults. The operator can
@@ -118,7 +138,17 @@ def review_topic(
     scheduler = get_scheduler()
     card = parse_card(prior_card) or Card()
     rating = Rating.Good if correct else Rating.Again
-    new_card, _log = scheduler.review_card(card, rating, review_datetime=now)
+    try:
+        new_card, _log = scheduler.review_card(card, rating, review_datetime=now)
+    except Exception as e:
+        # R-F4052 (C-108) — report, then RE-RAISE. §21a asks for visibility,
+        # never for swallowing: a scheduling failure must still reach the
+        # caller, which decides what a missing card means.
+        _wire_fsrs_scheduler(
+            False, f"review_card failed for {topic!r}: {type(e).__name__}: {e}"
+        )
+        raise
+    _wire_fsrs_scheduler(True, f"scheduled review for topic {topic!r}")
     return new_card.to_dict()
 
 

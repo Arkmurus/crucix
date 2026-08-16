@@ -73,16 +73,37 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.output_harvester")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.output_harvester",
-        summary="Output Harvester active",
-        source_id="learning:output_harvester:R-F1319",
-    )
-except Exception:
-    pass
+# R-F4052 (C-108) — §21a wiring for this module's WORK, not its import.
+#
+# The old R-F1319 block fired wire_success at IMPORT time under
+# "learning.output_harvester" — a name brain_hook._MODULE_TOPICS does not contain, so it
+# was invisible to `never_seen` (C-104) and proved only that the file had been
+# imported. Outcomes are now reported under the REGISTERED name, on BOTH
+# branches. Success is throttled because this module's work runs per item.
+
+
+def _wire_output_harvester(ok: bool, summary: str) -> None:
+    """Report a real outcome to the brain. Never raises."""
+    try:
+        from aria_service.intel.engine_wiring import (
+            wire_failure, wire_success_throttled,
+        )
+        if ok:
+            wire_success_throttled(
+                "output_harvester", summary, source_id="output_harvester:work",
+            )
+        else:
+            wire_failure(
+                module="output_harvester", detail=summary,
+                gap_type="engine_failure", source="output_harvester:work",
+            )
+    except Exception as _exc:   # pragma: no cover - telemetry never blocks
+        # Swallowed deliberately: brain wiring must never break this
+        # module's work. Logged rather than `pass`ed so the wiring
+        # failure is not itself dark (bandit B110) — wiring the wiring
+        # failure would be circular.
+        logger.debug("[R-F4052] output_harvester outcome wiring failed: %s", _exc)
+
 
 _DATA_DIR = Path(os.getenv("ARIA_HARVEST_DIR", "/data/aria_training"))
 _MIN_LEN = 400
@@ -325,9 +346,14 @@ async def harvest(
             out["reason"] = reason
 
         await _incr_stats(passed=passed, dry_run=dry)
+        _wire_output_harvester(
+            True,
+            f"harvested chat turn (passed={passed}, written={out.get('written')})",
+        )
         return out
     except Exception as e:
         logger.debug("harvest exception (non-fatal): %s", e)
+        _wire_output_harvester(False, f"harvest failed: {type(e).__name__}: {e}")
         return {"ok": False, "reason": f"exception:{type(e).__name__}"}
 
 

@@ -83,16 +83,46 @@ from typing import Any
 
 logger = logging.getLogger("aria.learning.controller")
 
-# R-F1319: wire module health to the brain
-try:
-    from aria_service.intel.engine_wiring import wire_success as _ws1319
-    _ws1319(
-        module="learning.learning_controller",
-        summary="Learning Controller active",
-        source_id="learning:learning_controller:R-F1319",
-    )
-except Exception:
-    pass
+# R-F4052 (C-108) — §21a wiring for this module's WORK, not its import.
+#
+# The old R-F1319 block fired `wire_success(module="learning.learning_controller")`
+# at import time: it proved the file was imported, under a name
+# brain_hook._MODULE_TOPICS does not contain, so it was invisible to
+# `never_seen` (C-104). Real outcomes are reported by `_wire_cycle_outcome`
+# below, under the REGISTERED name, on both branches.
+
+
+def _wire_cycle_outcome(out: dict) -> None:
+    """Report the cycle's real outcome to the brain. Never raises."""
+    try:
+        from aria_service.intel.engine_wiring import (
+            wire_failure, wire_success_throttled,
+        )
+        if out.get("ok"):
+            wire_success_throttled(
+                "learning_controller",
+                f"learning cycle: {out.get('studied_n', 0)} studied of "
+                f"{out.get('candidates_n', 0)} candidates "
+                f"({out.get('duration_ms', 0)}ms)",
+                source_id="learning_controller:run_cycle",
+            )
+        else:
+            wire_failure(
+                module="learning_controller",
+                detail=(
+                    f"learning cycle failed: "
+                    f"{'; '.join(str(e) for e in (out.get('errors') or []))[:300]}"
+                    or str(out.get("error", "unknown"))
+                ),
+                gap_type="engine_failure",
+                source="learning_controller:run_cycle",
+            )
+    except Exception as _exc:   # pragma: no cover - telemetry never blocks
+        # Swallowed deliberately: brain wiring must never break this
+        # module's work. Logged rather than `pass`ed so the wiring
+        # failure is not itself dark (bandit B110) — wiring the wiring
+        # failure would be circular.
+        logger.debug("[R-F4052] learning_controller outcome wiring failed: %s", _exc)
 
 
 # Operator-facing kill switch. Cron handler reads this and no-ops when
@@ -282,6 +312,7 @@ async def run_cycle(
             f"controller disabled — set {_ENABLE_ENV}=1 to activate"
         )
         out["duration_ms"] = int((time.time() - started_at) * 1000)
+        _wire_cycle_outcome(out)
         return out
 
     try:
@@ -290,11 +321,13 @@ async def run_cycle(
         out["ok"] = False
         out["errors"].append(f"collect failed: {e}")
         out["duration_ms"] = int((time.time() - started_at) * 1000)
+        _wire_cycle_outcome(out)
         return out
 
     out["candidates_n"] = len(candidates)
     if not candidates:
         out["duration_ms"] = int((time.time() - started_at) * 1000)
+        _wire_cycle_outcome(out)
         return out
 
     # Study loop — bail on time budget
@@ -329,4 +362,5 @@ async def run_cycle(
                 )
 
     out["duration_ms"] = int((time.time() - started_at) * 1000)
+    _wire_cycle_outcome(out)
     return out

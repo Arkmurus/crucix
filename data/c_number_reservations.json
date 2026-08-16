@@ -1215,6 +1215,117 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T17:04:54Z"
+    },
+    {
+      "c_number": "C-108",
+      "title": "five learning modules run but their work is dark to the brain",
+      "claimed_at": "2026-08-16T17:19:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4052"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T18:19:58Z"
+    },
+    {
+      "c_number": "C-109",
+      "title": "the Auto-allowed (24h) column reports two numbers that are not 24h",
+      "claimed_at": "2026-08-16T17:43:49Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-110",
+      "title": "Domain Freshness cannot report a stale domain and every curated domain has been evicted",
+      "claimed_at": "2026-08-16T17:43:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-111",
+      "title": "the chat audit trail lost 37% of its entries and the chain check cannot see the break",
+      "claimed_at": "2026-08-16T17:43:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-112",
+      "title": "calibration ground truth is two structural zeros and it writes them into mastery hourly",
+      "claimed_at": "2026-08-16T17:43:51Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-113",
+      "title": "the mastery headline is ceiling-saturated and floor-clamped and says neither",
+      "claimed_at": "2026-08-16T17:43:51Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-114",
+      "title": "the brain page renders three unmeasured states as measured health",
+      "claimed_at": "2026-08-16T17:43:52Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-115",
+      "title": "the resilience verdict counts providers that cannot serve general traffic",
+      "claimed_at": "2026-08-16T17:44:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-116",
+      "title": "System Health paints DEFERRED as failure and drops it from the tally",
+      "claimed_at": "2026-08-16T17:44:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-117",
+      "title": "brain-page readings with no age no window or a decommissioned backend's name",
+      "claimed_at": "2026-08-16T17:44:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-118",
+      "title": "Brave has two disagreeing meters and no failure rate",
+      "claimed_at": "2026-08-16T17:44:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-119",
+      "title": "a failed brain panel can read Loading forever",
+      "claimed_at": "2026-08-16T17:44:13Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
