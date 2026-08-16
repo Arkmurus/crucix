@@ -251,7 +251,7 @@ def _reset_persistence_wire_state() -> None:
 
 
 def _wire_persistence(*, source: str, detail: str = "", summary: str = "",
-                      ok: bool = False) -> None:
+                      ok: bool = False, once: bool = False) -> None:
     """Emit one brain signal per source per cooldown. NEVER raises.
 
     Observability must not become the outage: if the brain is unreachable, the
@@ -265,8 +265,15 @@ def _wire_persistence(*, source: str, detail: str = "", summary: str = "",
         # compaction path emits both, so that is not hypothetical: it is what
         # this function did when first written, and the test caught it.
         key = f"{source}:{'ok' if ok else 'fail'}"
-        if now - _persistence_wired_at.get(key, float("-inf")) \
-                < PERSISTENCE_WIRE_COOLDOWN_S:
+        prev = _persistence_wired_at.get(key)
+        # `once` is for a STEADY STATE rather than an event. The same precedent
+        # CLAUDE.md records for sanctions_coverage_degraded: while the condition
+        # holds every occurrence is degraded, so a per-occurrence signal is a
+        # ledger-filling flood. A 600 s condition also defeats a 300 s cooldown
+        # entirely — it would emit forever, ~144/day.
+        if once and prev is not None:
+            return
+        if prev is not None and now - prev < PERSISTENCE_WIRE_COOLDOWN_S:
             return
         _persistence_wired_at[key] = now
         if ok:
@@ -276,6 +283,74 @@ def _wire_persistence(*, source: str, detail: str = "", summary: str = "",
                          gap_type="engine_failure", source=source)
     except Exception:
         pass
+
+
+def _device_of(path) -> int | None:
+    """`st_dev` of the nearest existing directory for `path`, else None.
+
+    Separate and patchable so the off-host decision can be tested
+    deterministically — device ids are platform-specific and a temp dir is
+    always on the caller's own volume.
+    """
+    try:
+        p = os.path.dirname(str(path)) or "."
+        for _ in range(4):                 # walk up to a directory that exists
+            if os.path.isdir(p):
+                return os.stat(p).st_dev
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+    except OSError:
+        pass
+    return None
+
+
+def _snapshot_target_is_offhost() -> bool | None:
+    """Is the R-F334 snapshot target a DIFFERENT failure domain to the graph?
+
+    R-F4028 (C-98). R-F334 called this the "Redis off-host backup tier" and it
+    was one. R-F745 then flipped the default backend to sqlite and Upstash was
+    cancelled (§6/§18), and nothing revisited it — so on production it wrote
+    83.7 MB of gzipped shards every 600 s into `/data/aria_state.db`, the SAME
+    volume as the `/data/aria_knowledge.json` it backs up. A copy that shares a
+    failure domain with its original protects nothing that volume loss would
+    not already take, so it was pure cost: ~500 MB/hour plus a whole-graph gzip.
+
+    Returns True (genuinely elsewhere), False (same volume), or **None =
+    COULD NOT MEASURE**.
+
+    The tri-state is load-bearing and its safety default is the OPPOSITE of
+    `_save`'s. There, an undeclared change must write EVERYTHING. Here, an
+    unmeasurable target must keep BACKING UP — "I don't know" is a reason to
+    keep a copy, never to silently stop making one.
+    """
+    try:
+        from . import redis_store as _rs
+        backend = str(getattr(_rs, "_BACKEND", "") or "").strip().lower()
+        if backend and backend != "sqlite":
+            # A remote store (upstash/redis) is a real second failure domain.
+            return True
+        from . import state_store as _ss
+        db = getattr(_ss, "_DB_PATH", None)
+        if not db:
+            db = os.getenv("ARIA_STATE_DB_PATH", "/data/aria_state.db")
+        dev_state = _device_of(db)
+        dev_graph = _device_of(_DISK_PATH)
+        if dev_state is None or dev_graph is None:
+            return None
+        return dev_state != dev_graph
+    except Exception:
+        return None
+
+
+def _should_snapshot(offhost: bool | None) -> bool:
+    """Run the snapshot unless we KNOW it is not a backup.
+
+    Only a measured False skips. None (unknown) runs — see
+    `_snapshot_target_is_offhost`.
+    """
+    return offhost is not False
 
 
 def _journal_path() -> str:
@@ -1146,6 +1221,26 @@ async def _flush_loop() -> None:
                 and _cache
             ):
                 try:
+                    # R-F4028 (C-98) — only if it is genuinely a BACKUP. On
+                    # sqlite this wrote 83.7 MB of the graph every 600 s onto
+                    # the same volume as the graph. Unknown still runs: an
+                    # unmeasurable target is a reason to keep a copy.
+                    _offhost = _snapshot_target_is_offhost()
+                    if not _should_snapshot(_offhost):
+                        # Reset the timer so this is a cheap no-op per interval
+                        # rather than a re-check every 2 s.
+                        last_snapshot = now
+                        _wire_persistence(
+                            source="knowledge:snapshot_skipped_same_volume",
+                            ok=True,
+                            once=True,   # steady state, not an event
+                            summary=(
+                                "R-F334 sharded snapshot SKIPPED — the state "
+                                "store shares a volume with the knowledge "
+                                "graph, so it is not an off-host backup"
+                            ),
+                        )
+                        continue
                     # R-F334: write as sharded snapshot (N keys ~500KB each)
                     # instead of one 4MB+ blob. Backward-compat read path
                     # in _load() falls through to legacy KEY if no shards.

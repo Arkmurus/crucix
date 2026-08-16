@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4027,
+  "next_available": 4029,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34205,6 +34205,24 @@
       "commit_sha": "4a9cb267",
       "notes": null,
       "shipped_at": "2026-08-16T08:30:07Z"
+    },
+    {
+      "r_number": "R-F4027",
+      "title": "capture resolution through authenticated service",
+      "claimed_at": "2026-08-16T08:49:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4028",
+      "title": "gate the R-F334 snapshot on the state store being genuinely off-host",
+      "claimed_at": "2026-08-16T08:54:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

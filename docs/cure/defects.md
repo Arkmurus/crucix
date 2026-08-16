@@ -5169,8 +5169,9 @@ only the 2 recorded `docs/suite_baseline.json` entries still red.
 
 ## C-98 · the "off-host backup" writes 83.7 MB to the volume it backs up, every 600 s — OPEN
 
-**Status: OPEN — measured and registered, NOT fixed. It is a backup path, so
-changing it needs an operator decision (and §26 forbids deletion outright).**
+**Status: CLOSED by R-F4028 — operator chose "gate on genuinely off-host"
+(2026-08-16), option 1 below.** Registered OPEN first because it is a backup
+path and the change was an operator decision, not an engineering one.
 
 Found while chasing the residual loop spike left after C-95. `_flush_loop` has a
 second job: every `SNAPSHOT_INTERVAL_S = 600` it calls
@@ -5252,3 +5253,45 @@ its own: 83.7 MB rewritten every 600 s to the volume it backs up.
 Option 1 is the recommendation. It is not a deletion and it does not weaken any
 guarantee that currently holds, because a same-volume copy already provides no
 off-host guarantee.
+
+### R-F4028 — the fix
+
+`_snapshot_target_is_offhost()` decides whether the snapshot target is a
+DIFFERENT failure domain, and `_flush_loop` runs the snapshot only when it is.
+
+**Tri-state, and its safety default is deliberately the OPPOSITE of C-95's.**
+There, an undeclared change must write EVERYTHING. Here, an unmeasurable target
+must keep BACKING UP:
+
+| reading | meaning | snapshot |
+|---|---|---|
+| `True` | remote backend, or sqlite on another volume | **runs** |
+| `False` | sqlite sharing the graph's volume | **skipped** |
+| `None` | could not measure | **runs** |
+
+"I don't know" is a reason to keep a copy, never to silently stop making one —
+and `_should_snapshot` skips only on a measured `False`.
+
+Two properties stop this from quietly deleting a working backup:
+- **A remote backend still snapshots.** Pinned for `upstash` and `redis`. If
+  anyone re-points the state store off-host, the backup resumes on its own with
+  no code change.
+- **Device identity is compared, not path strings.** `_device_of` walks up to
+  the nearest existing directory and reads `st_dev`, so a symlinked or
+  bind-mounted path cannot masquerade as a second failure domain. It is a
+  separate, patchable function purely so the decision is testable — device ids
+  are platform-specific and a temp dir is always on the caller's own volume.
+
+The skip announces **once per process**, not per interval. The condition is a
+steady state, and a 600 s condition defeats the 300 s cooldown entirely — it
+would emit ~144 signals/day, the ledger-filling flood CLAUDE.md already records
+for `sanctions_coverage_degraded`. `_wire_persistence` grew a `once=` flag for
+exactly this.
+
+`_dirty_since_snapshot` is deliberately NOT cleared on a skip, so a later move
+to a real off-host store snapshots immediately rather than waiting for the next
+write.
+
+**Verified:** 10 tests, RED before. 699 passed across every test importing
+`knowledge` plus the semantic-index file; only the 2 recorded
+`docs/suite_baseline.json` entries still red. Full-tree compile gate green.
