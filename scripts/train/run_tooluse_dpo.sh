@@ -7,6 +7,7 @@ API=https://rest.runpod.io/v1
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
 FRESH_BASE="${FRESH_BASE:-0}"
 POD_RUNNER="${POD_RUNNER:-scripts/train/pod_tooluse_dpo.sh}"
+TRAINING_RECIPE_KIND="${TRAINING_RECIPE_KIND:-tooluse_dpo_continuation}"
 SFT_LOCAL="${SFT_LOCAL:-}"
 SFT_SHA256="${SFT_SHA256:-}"
 INTERMEDIATE_LOCAL="${INTERMEDIATE_LOCAL:-}"
@@ -188,7 +189,15 @@ fi
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
 PARENT_MODE=accepted_adapter
 [ "$FRESH_BASE" != 1 ] || PARENT_MODE=fresh_base
-RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
+case "$TRAINING_RECIPE_KIND" in
+  tooluse_dpo_continuation)
+    RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
+    ;;
+  tooluse_positive_sft_continuation)
+    RECIPE_JSON=$(printf '{"kind":"tooluse_positive_sft_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"learning_rate":1e-5,"batch_size":2,"max_sequence_length":4096,"lora_rank":32,"lora_alpha":64,"load_in_4bit":true,"completion_only_loss":true,"parent_mode":"%s"}' "$POD_RUNNER" "$PARENT_MODE")
+    ;;
+  *) log "FATAL unsupported training recipe kind: $TRAINING_RECIPE_KIND"; exit 3;;
+esac
 "$PYBIN" -m scripts.train.preflight_training_recipe --recipe-json "$RECIPE_JSON" || exit 3
 "$PYBIN" - "$DPO_LOCAL" "$EXPECTED_DPO_PAIRS" <<'PY' || exit 3
 import json, sys

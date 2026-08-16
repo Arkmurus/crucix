@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4051,
+  "next_available": 4052,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34437,6 +34437,15 @@
       "r_number": "R-F4050",
       "title": "preserve repo root through positive immutable wrapper",
       "claimed_at": "2026-08-16T17:11:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4051",
+      "title": "approve explicit positive SFT paid recipe",
+      "claimed_at": "2026-08-16T17:15:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

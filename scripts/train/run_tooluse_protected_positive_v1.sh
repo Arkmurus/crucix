@@ -23,6 +23,7 @@ test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907
 
 REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   FRESH_BASE=0 EXPECTED_DPO_PAIRS=20 \
+  TRAINING_RECIPE_KIND=tooluse_positive_sft_continuation \
   PROTECTED_DPO_AXES=tooluse_adverse,tooluse_contradiction,tooluse_resolution,tooluse_news_impact \
   POD_RUNNER=scripts/train/pod_tooluse_sft_continue.sh \
   ADAPTER_LOCAL="$PARENT" ADAPTER_SHA256="$(hash "$PARENT")" \
