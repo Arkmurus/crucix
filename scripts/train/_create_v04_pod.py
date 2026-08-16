@@ -132,7 +132,18 @@ def create_pod(api_key: str, public_key: str) -> str:
     container_disk_gb = int(os.getenv("ARIA_POD_DISK_GB", "120"))
     create_api = os.getenv("ARIA_POD_CREATE_API", "rest").strip().lower()
     if create_api == "graphql":
-        return create_pod_graphql(api_key, public_key, available_gpus[0], container_disk_gb)
+        rejections: list[str] = []
+        for gpu_id in available_gpus:
+            try:
+                return create_pod_graphql(
+                    api_key, public_key, gpu_id, container_disk_gb,
+                )
+            except RuntimeError as exc:
+                rejections.append(f"{gpu_id}: {exc}")
+        raise RuntimeError(
+            "all approved GraphQL GPU placements rejected: "
+            + " | ".join(rejections)
+        )
     if create_api != "rest":
         raise RuntimeError(f"unsupported pod create API: {create_api}")
     body = {
