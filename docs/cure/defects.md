@@ -5386,3 +5386,76 @@ iteration (`main.py:1928` feeds `record_lag` from the value the stall check
 reads) and share the same 5.0 s threshold, so they cannot disagree by
 construction. The earlier reading was of a freshly-created log, which is 0 bytes
 until its first dump — `open(..., "a")` creates it at boot.
+
+---
+
+## C-100 · the security audit joined the whole corpus and held the GIL (R-F4032)
+
+`run_security_audit` joined **every fact** into one string, then ran ~9 regexes
+over it and re-lowered the entire corpus once per prompt signature (and again
+for the internal-prefix check). At ~533k facts / ~410 MB that is a ~400 MB join
+plus several GB of transient `.lower()` copies, per audit.
+
+R-F749 had already moved this body to `asyncio.to_thread` after capturing a
+7.20 s stall. **That fixed the wrong half.** A worker thread is not isolation:
+Python's `re` and `str.lower` hold the GIL, so the event-loop thread still could
+not be scheduled. This is R-F3252's "thread/GIL starvation with an idle loop" —
+and it is precisely what the live dumps show.
+
+### The evidence
+
+Across the 51 **starved** wedge dumps in the prior process (main thread parked in
+uvloop's C loop, nothing blocking it), `_run_security_audit_sync` was live on a
+worker in **16 — 31%**. It is the largest single application-code contributor.
+
+Measured directly on a 120k-fact corpus (production holds ~4.4x more):
+
+```
+unbatched   worst event-loop gap  13.390 s
+batch=2000  worst event-loop gap   0.308 s
+batch=500   worst event-loop gap   0.137 s     <- shipped
+```
+
+Self-worsening, like C-95: §7 forbids eviction, so the corpus only grows. Every
+O(whole-corpus) step under an infinite-memory policy is this same bug.
+
+### The fix
+
+One bounded pass (`_scan_corpus` over `_iter_audit_batches`) answering all three
+checks at once, with `time.sleep(0)` between batches to release the GIL. The
+batch size **is** the worst-case stall, so it is documented as such with its
+measurements rather than left as a magic number.
+
+Three properties are load-bearing:
+
+- **The yield, not the batching.** A batched scan that never yields starves the
+  loop exactly as the unbatched one did. `test_scan_yields_between_batches`
+  pins the mechanism, because the other tests would pass without it.
+- **`_AUDIT_OVERLAP_CHARS = 256` carries the tail between batches**, so a
+  pattern spanning two adjacent facts still matches as it did when the corpus
+  was one string. Without it, batching would quietly make a SECURITY check less
+  sensitive — the worst possible way for this fix to "succeed". Its limit is
+  stated in the code, not hidden.
+- **`.lower()` once per batch**, not once per signature.
+
+Wall time is unchanged (~13 s on that corpus) — deliberately. The defect was the
+freeze, not the work; reducing sensitivity to go faster was never on the table.
+
+### Verified
+
+4 tests, 3 RED first (the 4th is a pre-existing-sensitivity guard that must pass
+both before and after). RED reason was the real one: `assert 13.3904 < 0.3`.
+87 tests pass across every file importing `security_protocol`, including
+R-F749's own contract. Full-tree compile gate green. flake8 clean of new
+findings; **bandit 0 issues at every severity**.
+
+Differential fuzz, 300 randomised trials: a secret planted at a random index and
+a secret split across a random batch seam were detected in **every** trial —
+0 missed. Batching cost no sensitivity.
+
+### Known, not fixed
+
+The audit is still O(corpus) and will keep growing with the fact store. It no
+longer freezes the loop, but a ~13 s CPU pass on a growing corpus is a cost to
+revisit — sampling or incremental scanning would need a deliberate decision
+about reduced coverage, which is an operator call, not a silent optimisation.

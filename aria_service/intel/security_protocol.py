@@ -26,6 +26,7 @@ from .engine_wiring import wire_success, wire_failure
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -885,13 +886,105 @@ async def run_security_audit() -> dict:
     return await asyncio.to_thread(_run_security_audit_sync, all_facts, timestamp)
 
 
+# R-F4032 (C-100) — bounded work unit for the corpus scan. This number IS the
+# worst-case loop stall: the loop cannot run until a batch finishes, so max gap
+# ≈ cost(batch). Measured on this corpus shape: 2000 facts ≈ 217ms of GIL per
+# batch (measured worst gap 0.308s); 500 facts → measured worst gap 0.137s.
+# Unbatched, for comparison, the same corpus starved the loop for 13.390s.
+# Python's `re`
+# scans at only tens of MB/s, so keep this small — per-batch overhead is a join
+# and a sleep(0), which is noise by comparison.
+_AUDIT_BATCH_FACTS = 500
+# Carried between batches so a pattern spanning two adjacent facts still matches,
+# exactly as it did when the whole corpus was one joined string. Without this the
+# fix would quietly make a SECURITY check less sensitive.
+# LIMIT, stated rather than hidden: a match is preserved only while the part
+# falling in the PREVIOUS batch is <= this many chars. Every pattern here is far
+# shorter, except the JWT `{20,}` runs, which are unbounded in principle. Raise
+# this if a longer pattern is ever added — do not remove it.
+_AUDIT_OVERLAP_CHARS = 256
+
+
+def _iter_audit_batches(all_facts):
+    """Yield bounded text chunks of the corpus, releasing the GIL between them.
+
+    R-F4032 — WHY. The audit used to join EVERY fact into a single string and run
+    ~9 regexes plus up to four full `.lower()` copies over it. R-F749 moved that
+    body to `asyncio.to_thread` after a captured 7.20s stall, but a worker thread
+    is not isolation: `re` and `str.lower` hold the GIL, so the event-loop thread
+    still cannot be scheduled. Measured 2026-08-16 on a 120k-fact corpus (production
+    holds ~533k): **13.39s of continuous loop starvation**. It is also self-worsening
+    — §7 forbids eviction, so the corpus only grows.
+
+    `time.sleep(0)` is the yield: it drops the GIL and lets the loop thread run.
+    Batching WITHOUT it would starve the loop just as effectively.
+    """
+    if not isinstance(all_facts, list):
+        # Not a fact list (already a blob) — small by construction; scan as one.
+        yield str(all_facts)
+        return
+
+    carry = ""
+    for start in range(0, len(all_facts), _AUDIT_BATCH_FACTS):
+        chunk = " ".join(
+            str(f.get("content", "")) if isinstance(f, dict) else str(f)
+            for f in all_facts[start:start + _AUDIT_BATCH_FACTS]
+        )
+        yield carry + chunk
+        carry = chunk[-_AUDIT_OVERLAP_CHARS:]
+        time.sleep(0)          # release the GIL — the whole point of batching
+
+
+def _scan_corpus(all_facts, key_pats, path_pats, prompt_sigs, internal_prefixes):
+    """One bounded pass answering every check at once.
+
+    Returns (key_hits, path_hits, sig_hits, internal_seen) as index sets.
+
+    A pattern already matched is not re-tested on later batches — same verdict,
+    less work. `.lower()` is computed ONCE PER BATCH rather than once per
+    signature: the old code re-lowered the entire corpus inside the signature
+    loop (and again at the internal-prefix check), so a 410MB corpus cost several
+    GB of transient allocation per audit.
+    """
+    key_hits: set[int] = set()
+    path_hits: set[int] = set()
+    sig_hits: set[int] = set()
+    internal_seen = False
+
+    sigs_lower = [s.lower() for s in prompt_sigs]
+    prefixes_lower = [p.lower() for p in internal_prefixes]
+
+    for text in _iter_audit_batches(all_facts):
+        lowered = text.lower()
+
+        for i, pat in enumerate(key_pats):
+            if i not in key_hits and pat.search(text):
+                key_hits.add(i)
+        for i, pat in enumerate(path_pats):
+            if i not in path_hits and pat.search(text):
+                path_hits.add(i)
+        for i, sig in enumerate(sigs_lower):
+            if i not in sig_hits and sig in lowered:
+                sig_hits.add(i)
+        if not internal_seen and any(p in lowered for p in prefixes_lower):
+            internal_seen = True
+
+    return key_hits, path_hits, sig_hits, internal_seen
+
+
 def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
-    """R-F749: sync body of the security audit — runs in a worker thread."""
+    """R-F749: sync body of the security audit — runs in a worker thread.
+
+    R-F4032: the scan is bounded and yields the GIL between batches; see
+    `_iter_audit_batches`. Do not reintroduce a whole-corpus join.
+    """
     critical: list[str] = []
     warning: list[str] = []
     clean_areas: list[str] = []
 
-    # --- CHECK 1: API key leakage in knowledge base ---
+    # --- Patterns for CHECKS 1-3 ---
+    # R-F4032: declared together because ONE bounded pass answers all three. The
+    # old code walked the whole corpus once per check.
     api_key_patterns = [
         re.compile(r"sk-[a-zA-Z0-9]{20,}"),
         re.compile(r"Bearer\s+[a-zA-Z0-9._\-]{20,}"),
@@ -900,27 +993,6 @@ def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
         re.compile(r"eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}"),  # JWT
     ]
 
-    try:
-        facts_text = " ".join(
-            str(f.get("content", "")) for f in all_facts
-        ) if isinstance(all_facts, list) else str(all_facts)
-
-        key_leaked = False
-        for pat in api_key_patterns:
-            if pat.search(facts_text):
-                critical.append(
-                    f"CHECK 1 FAIL: API key pattern found in knowledge base "
-                    f"(pattern: {pat.pattern[:40]})"
-                )
-                key_leaked = True
-
-        if not key_leaked:
-            clean_areas.append("CHECK 1 PASS: No API keys found in knowledge base")
-
-    except Exception as e:
-        warning.append(f"CHECK 1 SKIP: Could not scan knowledge base: {e}")
-
-    # --- CHECK 2: Internal path leakage ---
     path_patterns = [
         re.compile(r"/app/aria_service/"),
         re.compile(r"crucix:aria:[a-zA-Z0-9:_-]+"),
@@ -928,25 +1000,8 @@ def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
         re.compile(r"[a-z0-9-]+\.internal(?::\d+)?"),
     ]
 
-    try:
-        path_leaked = False
-        for pat in path_patterns:
-            if pat.search(facts_text):
-                warning.append(
-                    f"CHECK 2 FAIL: Internal path pattern in knowledge base "
-                    f"(pattern: {pat.pattern[:40]})"
-                )
-                path_leaked = True
-
-        if not path_leaked:
-            clean_areas.append("CHECK 2 PASS: No internal paths in knowledge base")
-
-    except Exception as e:
-        warning.append(f"CHECK 2 SKIP: Could not scan for paths: {e}")
-
-    # --- CHECK 3: System prompt fragments ---
-    # Only signatures that would indicate ACTUAL system prompt text leaking.
-    # "constitutional clause" and "v3_prompts" removed — they appear
+    # --- CHECK 3 signatures: only text that would indicate ACTUAL system prompt
+    # leakage. "constitutional clause" and "v3_prompts" removed — they appear
     # legitimately in the DD case library and knowledge module references.
     prompt_signatures = [
         "you are aria",
@@ -966,39 +1021,72 @@ def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
         "serban_case:",
     )
 
+    # One bounded, GIL-yielding pass. A scan failure is shared by all three
+    # checks because the scan itself is shared — reporting only one as SKIP
+    # would understate what was not looked at.
+    scan_error: Exception | None = None
+    key_hits: set[int] = set()
+    path_hits: set[int] = set()
+    sig_hits: set[int] = set()
+    internal_seen = False
     try:
+        key_hits, path_hits, sig_hits, internal_seen = _scan_corpus(
+            all_facts, api_key_patterns, path_patterns,
+            prompt_signatures, _INTERNAL_KNOWLEDGE_PREFIXES,
+        )
+    except Exception as e:                       # pragma: no cover - defensive
+        scan_error = e
+
+    # --- CHECK 1: API key leakage in knowledge base ---
+    if scan_error is not None:
+        warning.append(f"CHECK 1 SKIP: Could not scan knowledge base: {scan_error}")
+    elif key_hits:
+        for i in sorted(key_hits):
+            critical.append(
+                f"CHECK 1 FAIL: API key pattern found in knowledge base "
+                f"(pattern: {api_key_patterns[i].pattern[:40]})"
+            )
+    else:
+        clean_areas.append("CHECK 1 PASS: No API keys found in knowledge base")
+
+    # --- CHECK 2: Internal path leakage ---
+    if scan_error is not None:
+        warning.append(f"CHECK 2 SKIP: Could not scan for paths: {scan_error}")
+    elif path_hits:
+        for i in sorted(path_hits):
+            warning.append(
+                f"CHECK 2 FAIL: Internal path pattern in knowledge base "
+                f"(pattern: {path_patterns[i].pattern[:40]})"
+            )
+    else:
+        clean_areas.append("CHECK 2 PASS: No internal paths in knowledge base")
+
+    # --- CHECK 3: System prompt fragments ---
+    # The internal-prefix test is the SAME false-positive heuristic as before:
+    # if the KB legitimately references ARIA internals anywhere, a signature hit
+    # is not treated as a leak. It is computed once by the shared scan rather
+    # than re-lowering the whole corpus inside this loop.
+    if scan_error is not None:
+        warning.append(f"CHECK 3 SKIP: Could not scan for prompt fragments: {scan_error}")
+    else:
         prompt_leaked = False
-        for sig in prompt_signatures:
-            if sig.lower() in facts_text.lower():
-                # Check if ALL occurrences come from internal knowledge sources.
-                # If so, skip — it's a false positive.
-                sig_lower = sig.lower()
-                facts_lower = facts_text.lower()
-                # Quick heuristic: scan surrounding context for known prefixes.
-                # If facts_text is a blob we cannot attribute per-fact, so we
-                # check whether any internal-knowledge prefix also appears,
-                # which indicates the KB legitimately references ARIA internals.
-                from_internal = any(
-                    pfx.lower() in facts_lower for pfx in _INTERNAL_KNOWLEDGE_PREFIXES
+        for i in sorted(sig_hits):
+            sig = prompt_signatures[i]
+            if internal_seen:
+                logger.debug(
+                    "CHECK 3 SKIP (internal source): signature '%s' found but "
+                    "internal knowledge prefix also present — likely false positive",
+                    sig,
                 )
-                if from_internal:
-                    logger.debug(
-                        "CHECK 3 SKIP (internal source): signature '%s' found but "
-                        "internal knowledge prefix also present — likely false positive",
-                        sig,
-                    )
-                    continue
-                critical.append(
-                    f"CHECK 3 FAIL: System prompt fragment in knowledge base "
-                    f"(signature: '{sig}')"
-                )
-                prompt_leaked = True
+                continue
+            critical.append(
+                f"CHECK 3 FAIL: System prompt fragment in knowledge base "
+                f"(signature: '{sig}')"
+            )
+            prompt_leaked = True
 
         if not prompt_leaked:
             clean_areas.append("CHECK 3 PASS: No system prompt fragments in knowledge base")
-
-    except Exception as e:
-        warning.append(f"CHECK 3 SKIP: Could not scan for prompt fragments: {e}")
 
     # --- CHECK 4-8: Structural checks (logged as advisory, not warnings) ---
     # These are TODO placeholders for checks that require deeper integration

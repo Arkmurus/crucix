@@ -1119,6 +1119,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T10:34:06Z"
+    },
+    {
+      "c_number": "C-100",
+      "title": "security audit joins the whole corpus and holds the GIL for seconds",
+      "claimed_at": "2026-08-16T11:21:21Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4032"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T11:36:03Z"
     }
   ]
 }
