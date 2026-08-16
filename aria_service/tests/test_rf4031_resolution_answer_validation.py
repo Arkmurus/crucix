@@ -110,6 +110,7 @@ def test_complete_protected_recipe_is_current_scoring_and_generation_gated() -> 
         for path in (
             ROOT / "data/training/split_v1/eval.jsonl",
             ROOT / "data/eval_frozen/aria_eval_500q.jsonl",
+            ROOT / "data/training/aria_tooluse_curve_v5_probe.jsonl",
         )
         for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     } - {""}
