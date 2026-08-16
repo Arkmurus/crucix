@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4059,
+  "next_available": 4061,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34513,6 +34513,25 @@
       "r_number": "R-F4058",
       "title": "route fresh contradiction evaluation across secure GPU stock",
       "claimed_at": "2026-08-16T19:19:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ceef69cd",
+      "notes": null,
+      "shipped_at": "2026-08-16T19:38:22Z"
+    },
+    {
+      "r_number": "R-F4059",
+      "title": "measure current candidate on novel resolution evidence",
+      "claimed_at": "2026-08-16T19:38:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4060",
+      "title": "enable the read-only cost-free learning preview; keep writes gated",
+      "claimed_at": "2026-08-16T19:39:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
