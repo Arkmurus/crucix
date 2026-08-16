@@ -20,6 +20,7 @@ import os
 import pathlib
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
@@ -32,12 +33,73 @@ GPUS = (
         "NVIDIA A100-SXM4-80GB"]
 )
 
+_STOCK_RANK = {"High": 0, "Medium": 1}
+
+
+def select_secure_gpus(inventory: list[dict], max_hourly_price: float) -> list[str]:
+    """Return approved High/Medium secure GPUs within the hourly price ceiling."""
+    selected = []
+    for row in inventory:
+        gpu_id = str(row.get("id") or "")
+        price = row.get("lowestPrice") or {}
+        stock = price.get("stockStatus")
+        hourly = price.get("uninterruptablePrice")
+        if gpu_id not in GPUS or stock not in _STOCK_RANK or hourly is None:
+            continue
+        if float(hourly) <= max_hourly_price:
+            selected.append((_STOCK_RANK[stock], float(hourly), gpu_id))
+    return [gpu_id for _, _, gpu_id in sorted(selected)]
+
+
+def query_secure_inventory(api_key: str) -> list[dict]:
+    """Read current secure stock and prices from RunPod's inventory API."""
+    query = """query {
+      gpuTypes {
+        id
+        lowestPrice(input: { gpuCount: 1, secureCloud: true }) {
+          stockStatus
+          uninterruptablePrice
+          availableGpuCounts
+        }
+      }
+    }"""
+    url = "https://api.runpod.io/graphql?" + urllib.parse.urlencode({"api_key": api_key})
+    request = urllib.request.Request(
+        url,
+        data=json.dumps({"query": query}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "aria-capacity-gate/1.0",
+        },
+    )
+    try:
+        payload = json.load(urllib.request.urlopen(request, timeout=30))
+    except urllib.error.HTTPError as exc:
+        detail = " ".join(exc.read(500).decode("utf-8", errors="replace").split())
+        raise RuntimeError(f"inventory HTTP {exc.code}: {detail or exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"inventory transport: {exc.reason}") from exc
+    errors = payload.get("errors") or []
+    if errors:
+        raise RuntimeError(f"inventory GraphQL error: {str(errors)[:500]}")
+    rows = (payload.get("data") or {}).get("gpuTypes")
+    if not isinstance(rows, list):
+        raise RuntimeError("inventory response omitted gpuTypes")
+    return rows
+
 def create_pod(api_key: str, public_key: str) -> str:
     """Create one pod or raise with the provider's bounded rejection detail."""
+    max_hourly_price = float(os.getenv("ARIA_MAX_GPU_HOURLY_USD", "1.60"))
+    available_gpus = select_secure_gpus(query_secure_inventory(api_key), max_hourly_price)
+    if not available_gpus:
+        raise RuntimeError(
+            f"inventory: no approved High/Medium secure GPU at or below ${max_hourly_price:.2f}/hour"
+        )
     body = {
         "name": "aria-v04-train",
         "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
-        "gpuTypeIds": GPUS, "gpuCount": 1, "cloudType": "SECURE",
+        "gpuTypeIds": available_gpus, "gpuTypePriority": "availability",
+        "dataCenterPriority": "availability", "gpuCount": 1, "cloudType": "SECURE",
         # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
         "containerDiskInGb": int(os.getenv("ARIA_POD_DISK_GB", "120")),
         "ports": ["8888/http", "22/tcp"], "env": {"PUBLIC_KEY": public_key},

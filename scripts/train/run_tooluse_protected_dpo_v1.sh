@@ -19,7 +19,7 @@ test "$(hash "$HELDOUT_BASELINE")" = 0c132d6a19f587960072bd8e423c9c9170595ce999c
 test "$(hash "$DPO")" = c48d9130528fe375e258d28d5dc8ef3f58e543c26271529e4917fb099325459a
 test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
 
-REPO="$ROOT" FRESH_BASE=0 EXPECTED_DPO_PAIRS=20 \
+REPO="$ROOT" ARIA_MAX_GPU_HOURLY_USD=1.60 FRESH_BASE=0 EXPECTED_DPO_PAIRS=20 \
   PROTECTED_DPO_AXES=tooluse_adverse,tooluse_contradiction,tooluse_resolution,tooluse_news_impact \
   POD_RUNNER=scripts/train/pod_tooluse_dpo.sh \
   ADAPTER_LOCAL="$ADAPTER" ADAPTER_SHA256="$(hash "$ADAPTER")" \
