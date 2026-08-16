@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4078,
+  "next_available": 4080,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34702,6 +34702,24 @@
       "r_number": "R-F4077",
       "title": "detect unpublished AND displaced reservations",
       "claimed_at": "2026-08-16T20:23:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4078",
+      "title": "build balanced resolution positive replay curriculum",
+      "claimed_at": "2026-08-16T20:30:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4079",
+      "title": "aria CLI terminal runs degraded; one optional dep aborts 67 test files",
+      "claimed_at": "2026-08-16T20:31:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

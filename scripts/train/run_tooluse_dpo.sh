@@ -196,6 +196,9 @@ case "$TRAINING_RECIPE_KIND" in
   tooluse_positive_sft_continuation)
     RECIPE_JSON=$(printf '{"kind":"tooluse_positive_sft_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"learning_rate":1e-5,"batch_size":2,"max_sequence_length":4096,"lora_rank":32,"lora_alpha":64,"load_in_4bit":true,"completion_only_loss":true,"parent_mode":"%s"}' "$POD_RUNNER" "$PARENT_MODE")
     ;;
+  tooluse_positive_sft_diagnostic_continuation)
+    RECIPE_JSON=$(printf '{"kind":"tooluse_positive_sft_diagnostic_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"learning_rate":1e-5,"batch_size":2,"max_sequence_length":4096,"lora_rank":32,"lora_alpha":64,"load_in_4bit":true,"completion_only_loss":true,"parent_mode":"diagnostic_candidate"}' "$POD_RUNNER")
+    ;;
   tooluse_adapter_evaluation_recovery)
     RECIPE_JSON=$(printf '{"kind":"tooluse_adapter_evaluation_recovery","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","load_in_4bit":true,"calibration_gate":true,"heldout_rows":168,"parent_mode":"%s"}' "$POD_RUNNER" "$PARENT_MODE")
     ;;

@@ -1,0 +1,39 @@
+{
+  "complete": true,
+  "strategy": "accepted_parent_full_replay_plus_positive_delta",
+  "parent_rows": 230,
+  "delta_rows": 15,
+  "total_rows": 254,
+  "parent_axis_counts": {
+    "tooluse_adverse": 6,
+    "tooluse_challenge": 16,
+    "tooluse_challenge_unavailable": 44,
+    "tooluse_contradiction": 6,
+    "tooluse_multihop": 32,
+    "tooluse_news_impact": 6,
+    "tooluse_person": 64,
+    "tooluse_resolution": 6,
+    "tooluse_trace": 6,
+    "tooluse_trace_unavailable": 44
+  },
+  "total_axis_counts": {
+    "tooluse_adverse": 6,
+    "tooluse_challenge": 16,
+    "tooluse_challenge_unavailable": 44,
+    "tooluse_contradiction": 6,
+    "tooluse_multihop": 32,
+    "tooluse_news_impact": 6,
+    "tooluse_person": 64,
+    "tooluse_resolution": 30,
+    "tooluse_trace": 6,
+    "tooluse_trace_unavailable": 44
+  },
+  "all_axes_retained": true,
+  "dpo_rows": 0,
+  "citation_source_contract": "explicit_allowlist_v1",
+  "contradiction_contract": "no_match_is_not_clean_v1",
+  "reinforced_axes": [
+    "tooluse_resolution"
+  ],
+  "reinforcement_floor": 30
+}
