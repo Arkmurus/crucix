@@ -34504,9 +34504,10 @@
       "title": "reading-queue backlog starved by FSRS candidates; reserve a slot",
       "claimed_at": "2026-08-16T19:15:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6362ee34",
+      "notes": null,
+      "shipped_at": "2026-08-16T19:29:24Z"
     },
     {
       "r_number": "R-F4058",
