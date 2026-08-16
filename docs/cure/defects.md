@@ -6206,3 +6206,80 @@ fixed before it could fire.
 `test_rf661`. 527 passed / 0 failed in the focused regression. Compile gate
 green; lint clean; **bandit reports no issues at all** across the six changed
 files.
+
+---
+
+## C-121 · the reading queue could never drain — 94 pending, 0 processed (R-F4057)
+
+Found by observing the C-108 signals: `reading_queue` was the one module of five
+that never emitted. The silence turned out to be **honest** — it was reporting a
+starved capability, not a broken wire.
+
+### The evidence
+
+Read straight from the live volume, 2026-08-16:
+
+```sql
+SELECT status, COUNT(*) FROM reading_queue GROUP BY status;
+  -> [('pending', 94)]
+```
+
+**94 pending, and not one row in `done`, `processing` or `skipped`.** The queue
+had never drained a single item since it was created, so `mark_processed` had
+genuinely never succeeded.
+
+### The mechanism
+
+`_collect_candidate_topics` filled its `max_topics` slots FSRS-first, then
+offered the remainder to the queue:
+
+```python
+for entry in await student.get_due_topics(limit=max_topics):   # fills all 5
+    ...
+for item in await reading_queue.pop_pending(limit=max_topics):
+    ...
+    if len(candidates) >= max_topics:
+        break                                                  # fires immediately
+```
+
+Once FSRS has `max_topics` due topics — the steady state for a mature deck — the
+queue contributes nothing, **forever**. A queue with no drain.
+
+### The fix, and where the slot is taken from
+
+The rule: *no candidate source may be starved indefinitely by another.* One slot
+of five is reserved for the queue when it has items, which is enough to
+guarantee progress without letting it win.
+
+The reservation is held at the **TAIL, not the head**. The first attempt put the
+queued item first and broke `test_rf662_collect_merges_fsrs_and_queue`, which
+pins FSRS-FIRST ordering — a real contract, not an accident. Starvation is about
+**inclusion**, not priority, so taking the slot from the end fixes it without
+demoting the proven scheduler. It also costs nothing when there is nothing to
+drain: the held-back slot goes straight back to FSRS.
+
+Deliberately NOT done: reordering the queue ahead of FSRS. Its due topics are
+time-sensitive, and promoting a backlog would simply trade one starvation for
+the other.
+
+### Verified
+
+6 tests, 1 RED first for the right reason (`assert 'reading_queue' in
+['fsrs_due', 'fsrs_due', 'fsrs_due', 'fsrs_due', 'fsrs_due']`). The suite pins
+both directions — a saturated FSRS deck must not starve the queue, **and** the
+reservation must stay bounded, must not waste a slot when the queue is empty,
+must leave the FSRS-empty path unchanged, and must not reintroduce duplicates.
+R-F662's original ordering contract still passes. 527 passed / 0 failed in the
+focused regression; compile gate green; lint clean; bandit no issues.
+
+### Live observation that closed R-F4052
+
+The hourly cycle (`cron 5 * * * *`, enabled) was watched firing on production:
+
+```
+19:05:13  fsrs_scheduler:7  output_harvester:1
+19:07:18  fsrs_scheduler:8  output_harvester:1  learning_controller:1  bookmarks:1
+```
+
+Four of C-108's five modules confirmed emitting, caused by an observed cron run.
+The fifth was `reading_queue` — which is this defect.

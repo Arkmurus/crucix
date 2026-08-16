@@ -259,7 +259,13 @@ async def _collect_candidate_topics(max_topics: int) -> list[dict]:
     name. Returns oldest-first list capped at `max_topics`.
 
     Each entry: {topic, source, queue_id?, fsrs_due_at?}."""
-    candidates: list[dict] = []
+    # R-F4057 (C-121) — collect the two sources SEPARATELY, then merge with a
+    # reservation. Previously FSRS filled every slot first and the queue loop's
+    # `if len(candidates) >= max_topics: break` fired immediately, so a mature
+    # FSRS deck starved the reading queue forever. Measured live 2026-08-16:
+    # 94 pending, 0 processed — a queue that had never drained one item.
+    fsrs_list: list[dict] = []
+    queue_list: list[dict] = []
     seen: set[str] = set()
 
     # FSRS-due first (these are scheduled by the proven SOTA model)
@@ -270,7 +276,7 @@ async def _collect_candidate_topics(max_topics: int) -> list[dict]:
             if not t or t in seen:
                 continue
             seen.add(t)
-            candidates.append({
+            fsrs_list.append({
                 "topic": t,
                 "source": "fsrs_due",
                 "fsrs_due_at": entry.get("due_at"),
@@ -287,16 +293,42 @@ async def _collect_candidate_topics(max_topics: int) -> list[dict]:
             if not t or t in seen:
                 continue
             seen.add(t)
-            candidates.append({
+            queue_list.append({
                 "topic": t,
                 "source": "reading_queue",
                 "queue_id": item.get("id"),
                 "reason": item.get("reason"),
             })
-            if len(candidates) >= max_topics:
-                break
     except Exception as e:
         logger.debug("R-F662: reading_queue.pop_pending failed: %s", e)
+
+    # R-F4057 (C-121) — merge with a BOUNDED reservation for the queue.
+    #
+    # The rule: no candidate source may be starved indefinitely by another. The
+    # queue only needs to make progress, not to win — FSRS stays the majority
+    # because it is the proven scheduler and its due topics are time-sensitive.
+    # Reordering the queue ahead of FSRS would just trade one starvation for
+    # the other.
+    #
+    # The reservation costs nothing when there is nothing to drain: unused
+    # slots fall straight back to FSRS below.
+    # The reservation is held at the TAIL, not the head: R-F662's contract is
+    # FSRS-FIRST ordering (pinned by test_rf662_collect_merges_fsrs_and_queue),
+    # and starvation is about INCLUSION, not priority. Taking the slot from the
+    # end fixes the starvation without demoting the proven scheduler.
+    reserved = 1 if (max_topics >= 3 and queue_list) else 0
+    fsrs_take = max(0, max_topics - reserved)
+
+    candidates: list[dict] = fsrs_list[:fsrs_take]
+    for c in queue_list:
+        if len(candidates) >= max_topics:
+            break
+        candidates.append(c)
+    # Give the held-back slot straight back to FSRS if the queue did not use it.
+    for c in fsrs_list[fsrs_take:]:
+        if len(candidates) >= max_topics:
+            break
+        candidates.append(c)
 
     return candidates[:max_topics]
 

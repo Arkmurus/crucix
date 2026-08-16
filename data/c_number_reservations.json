@@ -1338,6 +1338,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T18:41:44Z"
+    },
+    {
+      "c_number": "C-121",
+      "title": "reading queue never drains — 94 pending, 0 processed",
+      "claimed_at": "2026-08-16T19:15:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4057"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:22:14Z"
     }
   ]
 }
