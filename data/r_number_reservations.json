@@ -34534,9 +34534,10 @@
       "title": "enable the read-only cost-free learning preview; keep writes gated",
       "claimed_at": "2026-08-16T19:39:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ae03f75e",
+      "notes": null,
+      "shipped_at": "2026-08-16T20:06:47Z"
     },
     {
       "r_number": "R-F4061",
@@ -34651,18 +34652,20 @@
       "title": "compact the journal by record id; 82.7% of entries are repeat upserts",
       "claimed_at": "2026-08-16T19:57:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "16f25afd",
+      "notes": null,
+      "shipped_at": "2026-08-16T20:06:47Z"
     },
     {
       "r_number": "R-F4074",
       "title": "sanctions_designation_watch handler unreachable from dispatch",
       "claimed_at": "2026-08-16T19:57:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "16f25afd",
+      "notes": null,
+      "shipped_at": "2026-08-16T20:06:47Z"
     },
     {
       "r_number": "R-F4075",
