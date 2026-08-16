@@ -100,3 +100,13 @@ def test_generation_launcher_pins_inputs_and_cannot_train() -> None:
     assert "exec bash scripts/train/run_tooluse_generation.sh" in launcher
     assert "run_tooluse_dpo.sh" not in launcher
     assert "run_tooluse_sft" not in launcher
+
+
+def test_generation_launcher_rotates_secure_capacity_under_price_cap() -> None:
+    launcher = (
+        ROOT / "scripts/train/run_tooluse_fresh_contradiction_v3_generation.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "REPO=\"$ROOT\"" in launcher
+    assert "ARIA_POD_CREATE_API=graphql" in launcher
+    assert "ARIA_MAX_GPU_HOURLY_USD=1.60" in launcher
