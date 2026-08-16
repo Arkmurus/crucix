@@ -33,6 +33,14 @@ APPROVED_RECIPES: dict[str, dict[str, Any]] = {
         "completion_only_loss": True,
         "parent_mode": "accepted_adapter",
     },
+    "tooluse_adapter_evaluation_recovery": {
+        "runner": "scripts/train/pod_tooluse_calibration_recovery.sh",
+        "base_model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "load_in_4bit": True,
+        "calibration_gate": True,
+        "heldout_rows": 168,
+        "parent_mode": "accepted_adapter",
+    },
 }
 
 

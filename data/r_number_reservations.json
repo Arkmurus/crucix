@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4054,
+  "next_available": 4055,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34455,6 +34455,15 @@
       "r_number": "R-F4053",
       "title": "invoke learning curve gate as package module",
       "claimed_at": "2026-08-16T17:37:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4054",
+      "title": "evaluate recovered positive adapter without retraining",
+      "claimed_at": "2026-08-16T17:42:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

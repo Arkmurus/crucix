@@ -14,9 +14,15 @@ PORT=8888
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace/crucix || exit 1
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
+require_watchdog(){
+  [ -s /workspace/eval/_watchdog_pid ] || fail "self-stop watchdog unavailable"
+  kill -0 "$(cat /workspace/eval/_watchdog_pid)" 2>/dev/null \
+    || fail "self-stop watchdog unavailable"
+}
 collect(){ tar -czf "$DIAGNOSTICS" -C /workspace/eval aria_tooluse_sft_child_probe.json aria_tooluse_sft_child_verdict.json 2>/dev/null || true; }
 on_exit(){ rc=$?; collect; echo "$rc" > /workspace/eval/_cycle_status; }
 trap on_exit EXIT
+require_watchdog
 [ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "preserved adapter missing"
 tar -czf "$ARCHIVE" -C "$(dirname "$SFT_ADAPTER")" "$(basename "$SFT_ADAPTER")" || fail "archive"
 pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf fastapi uvicorn httpx || fail "dependencies"
@@ -29,4 +35,5 @@ done
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" --model aria-tooluse-sft-child --eval-file "$PROBE" --out "$AFTER" || fail "calibration eval"
 python -m scripts.train.learning_curve_gate --before "$BEFORE" --after "$AFTER" --verdict-out "$VERDICT" --protected-axis tooluse_adverse --protected-axis tooluse_contradiction --protected-axis tooluse_news_impact --protected-axis tooluse_resolution || fail "calibration gate"
 collect
+require_watchdog
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" --model aria-tooluse-sft-child --eval-file "$EVAL" --out "$REPORT" || fail "held-out eval"
