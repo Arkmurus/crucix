@@ -114,3 +114,67 @@ async def test_a_fresh_install_needs_no_legacy_key():
         await oh._incr_stats(passed=False, dry_run=True)
 
     assert json.loads(store[oh._REDIS_STATS_KEY])["total_scored"] == 1
+
+
+# ── the READ path must not go blind between deploy and the next write ──────
+
+@pytest.mark.asyncio
+async def test_read_falls_back_to_the_legacy_key_before_the_first_write():
+    """R-F4082 — the carry-over in R-F4080 fires on the next `_incr_stats`,
+    i.e. the next harvest event. Between deploy and that event the dashboard
+    read `{}` and 21 accumulated scores looked like none.
+
+    Measured live after the R-F4080 deploy:
+        output_harvester.counters_rolling = {}
+        crucix:learning:harvest:stats_24h = {"total_scored": 21, ...} (281h TTL)
+
+    The R-F4080 fixture drove the WRITE path, which is where the migration
+    lives, so it could not see this. The read now falls back — and does so
+    WITHOUT writing or deleting anything: C-112's finding was a GET that mutated
+    state, and repeating that here to save a branch would be perverse.
+    """
+    from aria_service.learning import output_harvester as oh
+
+    legacy = {"total_scored": 21, "total_passed": 0, "total_written": 0}
+    store = {oh._LEGACY_STATS_KEY: json.dumps(legacy)}
+    writes: list = []
+
+    async def _get_json(key):
+        raw = store.get(key)
+        return json.loads(raw) if raw else None
+
+    async def _set_json(key, obj, ex=None, keepttl=False):
+        writes.append(key)
+
+    async def _delete(key):
+        writes.append(f"DELETE {key}")
+        return True
+
+    with patch("aria_service.intel.redis_store.get_json", _get_json), \
+         patch("aria_service.intel.redis_store.set_json", _set_json), \
+         patch("aria_service.intel.redis_store.delete", _delete):
+        out = await oh.stats()
+
+    assert out["counters_rolling"] == legacy, (
+        f"the read went blind before the first post-deploy write: {out}")
+    assert writes == [], (
+        f"the read path must not write or delete anything: {writes}")
+
+
+@pytest.mark.asyncio
+async def test_read_prefers_the_new_key_once_it_exists():
+    from aria_service.learning import output_harvester as oh
+
+    store = {
+        oh._LEGACY_STATS_KEY: json.dumps({"total_scored": 21}),
+        oh._REDIS_STATS_KEY: json.dumps({"total_scored": 99}),
+    }
+
+    async def _get_json(key):
+        raw = store.get(key)
+        return json.loads(raw) if raw else None
+
+    with patch("aria_service.intel.redis_store.get_json", _get_json):
+        out = await oh.stats()
+
+    assert out["counters_rolling"]["total_scored"] == 99, out

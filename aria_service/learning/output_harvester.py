@@ -406,6 +406,19 @@ async def stats() -> dict[str, Any]:
     try:
         from ..intel import redis_store as rs
         counters = await rs.get_json(_REDIS_STATS_KEY) or {}
+        # R-F4082 — the READ must fall back to the legacy key too. R-F4080's
+        # carry-over fires on the next _incr_stats, i.e. the next harvest event,
+        # so between deploy and that event the dashboard read `{}` and 21
+        # accumulated scores looked like none. Caught on the live box, not in a
+        # test: the fixture drove the write path, which is exactly where the
+        # migration was.
+        #
+        # Read-only on purpose. It does NOT delete the legacy key and does NOT
+        # write the new one — C-112's whole finding was a GET that mutated
+        # state, and repeating that here to save one branch would be perverse.
+        # The write path still owns the one-time migration.
+        if not counters:
+            counters = await rs.get_json(_LEGACY_STATS_KEY) or {}
     except Exception:
         counters = {}
     return {
