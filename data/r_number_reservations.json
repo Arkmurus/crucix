@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4029,
+  "next_available": 4030,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34226,6 +34226,15 @@
       "commit_sha": "7e110da8",
       "notes": null,
       "shipped_at": "2026-08-16T09:13:15Z"
+    },
+    {
+      "r_number": "R-F4029",
+      "title": "surface RunPod creation rejection cause",
+      "claimed_at": "2026-08-16T09:33:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

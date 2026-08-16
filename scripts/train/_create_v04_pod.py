@@ -15,7 +15,12 @@ Why a helper: API-created pods (unlike console ones) don't get the account SSH
 key automatically, and the create body needs JSON-safe quoting for the key.
 Only VALID gpuTypeIds (the enum the REST API accepts) — one bad string rejects
 the whole request (R-F1514 learned this the hard way)."""
-import json, os, urllib.request, urllib.error, pathlib
+import json
+import os
+import pathlib
+import sys
+import urllib.error
+import urllib.request
 
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
 # R-F2037: ARIA_POD_GPUS env overrides the list (e.g. force A100-80 for vLLM
@@ -27,30 +32,49 @@ GPUS = (
         "NVIDIA A100-SXM4-80GB"]
 )
 
-key = ""
-for ln in pathlib.Path(".env").read_text().splitlines():
-    if ln.startswith("RUNPOD_API_KEY="):
-        key = ln.split("=", 1)[1].strip().strip('"').strip("'")
-        break
-pub = pathlib.Path.home().joinpath(".ssh", "runpod_aria.pub").read_text().strip()
-body = {
-    "name": "aria-v04-train",
-    "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
-    "gpuTypeIds": GPUS, "gpuCount": 1, "cloudType": "SECURE",
-    # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
-    # Container disk holds the fresh base download + checkpoints. R-F1671: a 7B
-    # fits in 120GB, but a 14B (~30GB) + HF xet tmp-doubling overflowed it
-    # ("No space left on device"). Env-overridable — the v0.8 14B run sets 250.
-    "containerDiskInGb": int(os.getenv("ARIA_POD_DISK_GB", "120")), "ports": ["8888/http", "22/tcp"],
-    "env": {"PUBLIC_KEY": pub},
-}
-req = urllib.request.Request(
-    "https://rest.runpod.io/v1/pods", data=json.dumps(body).encode(),
-    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    method="POST")
-try:
-    d = json.load(urllib.request.urlopen(req, timeout=60))
-    if d.get("id"):
-        print(d["id"])
-except Exception:
-    pass  # capacity / schema -> print nothing
+def create_pod(api_key: str, public_key: str) -> str:
+    """Create one pod or raise with the provider's bounded rejection detail."""
+    body = {
+        "name": "aria-v04-train",
+        "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+        "gpuTypeIds": GPUS, "gpuCount": 1, "cloudType": "SECURE",
+        # NO networkVolumeId — volume-free so the pod can land in any DC (R-F1516).
+        "containerDiskInGb": int(os.getenv("ARIA_POD_DISK_GB", "120")),
+        "ports": ["8888/http", "22/tcp"], "env": {"PUBLIC_KEY": public_key},
+    }
+    req = urllib.request.Request(
+        "https://rest.runpod.io/v1/pods", data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST")
+    try:
+        response = json.load(urllib.request.urlopen(req, timeout=60))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(500).decode("utf-8", errors="replace")
+        detail = " ".join(detail.split())
+        raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"transport: {exc.reason}") from exc
+    pod_id = str(response.get("id") or "").strip()
+    if not pod_id:
+        raise RuntimeError("HTTP 2xx response omitted pod id")
+    return pod_id
+
+
+def main() -> int:
+    """Load local credentials, create one pod, and report honest failure detail."""
+    key = ""
+    for line in pathlib.Path(".env").read_text().splitlines():
+        if line.startswith("RUNPOD_API_KEY="):
+            key = line.split("=", 1)[1].strip().strip('"').strip("'")
+            break
+    public_key = pathlib.Path.home().joinpath(".ssh", "runpod_aria.pub").read_text().strip()
+    try:
+        print(create_pod(key, public_key))
+        return 0
+    except Exception as exc:  # noqa: BLE001 — CLI boundary must preserve category
+        print(f"[pod-create] {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

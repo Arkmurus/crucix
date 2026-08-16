@@ -93,8 +93,16 @@ release(){
 trap release EXIT
 
 for i in $(seq 1 "$MAX_TRIES"); do
-  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
-  [ -n "$POD_ID" ] || { log "create rejected $i/$MAX_TRIES"; sleep "$RETRY_SECS"; continue; }
+  CREATE_ERR=$(mktemp)
+  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>"$CREATE_ERR" | head -1 | tr -d '[:space:]')
+  if [ -z "$POD_ID" ]; then
+    CREATE_DETAIL=$(tr '\r\n' '  ' <"$CREATE_ERR" | cut -c1-600)
+    rm -f "$CREATE_ERR"
+    log "create rejected $i/$MAX_TRIES: ${CREATE_DETAIL:-no diagnostic}"
+    sleep "$RETRY_SECS"
+    continue
+  fi
+  rm -f "$CREATE_ERR"
   log "created $POD_ID; waiting for RUNNING"
   for _ in $(seq 1 40); do
     PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY")
