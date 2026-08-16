@@ -78,4 +78,5 @@ def test_launch_uses_accepted_parent_and_positive_sft_gate() -> None:
     assert "SFT_LOCAL=\"$SFT\"" in launcher
     assert "HELDOUT_BASELINE_LOCAL=\"$HELDOUT_BASELINE\"" in launcher
     assert "ARIA_MAX_GPU_HOURLY_USD=1.60" in launcher
+    assert 'REPO="$ROOT"' in launcher
     assert "run_immutable_shell.sh scripts/train/run_tooluse_dpo.sh" in launcher
