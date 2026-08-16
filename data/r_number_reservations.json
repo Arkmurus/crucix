@@ -34493,9 +34493,10 @@
       "title": "disabled learning cycle must not be wired as an engine failure",
       "claimed_at": "2026-08-16T18:32:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9e3f843c",
+      "notes": null,
+      "shipped_at": "2026-08-16T18:48:54Z"
     }
   ]
 }
