@@ -5539,3 +5539,18 @@ invalidation, and correct handling of head-insertion and in-place edits (the
 C-95 lesson) — real complexity and risk added to a security check to reclaim
 0.18% of a core. **Revisit only if the CADENCE tightens**; linear corpus growth
 is not the trigger (5M facts would still be ~1.4%).
+
+### Residual stall after C-99/C-100/C-101 — what the next dump showed
+
+First stall in the post-R-F4035 process (2026-08-16 12:31:04, stale 9.75s):
+main thread bare `asyncio/runners.py:119` (starved, nothing blocking), 25
+threads, 9 aiosqlite workers. `_run_security_audit_sync` is **absent** — the
+C-100/C-101 contributor is gone from this one. The only active application
+frame off the main thread was `knowledge.py:1050 _write_to_disk_atomic`, at
+~19 min post-boot, i.e. inside a compaction window (`COMPACT_MAX_AGE_S=900`).
+
+That is ONE dump and therefore a lead, not a cause — the C-99 entry records
+that compaction cadence was already disproven as *the* driver (stall
+inter-arrival median 33.2 min vs a 900s period). Knowledge persistence remains
+the standing suspect for the starved class; establish it from a distribution
+over dumps, as C-99 did, before acting.
