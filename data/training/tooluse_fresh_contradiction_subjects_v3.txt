@@ -1,0 +1,23 @@
+# R-F4055 — public financial institutions with documented adverse coverage.
+# The live capture still requires a clean screen plus relevant search results;
+# membership here never asserts either outcome.
+Citigroup Inc.
+Bank of America Corporation
+Morgan Stanley
+Credit Suisse Group AG
+Royal Bank of Canada
+Toronto-Dominion Bank
+Scotiabank
+Bank of Montreal
+ANZ Group Holdings Limited
+National Australia Bank Limited
+Deutsche Boerse AG
+Natixis SA
+Credit Agricole SA
+La Banque Postale
+CaixaBank SA
+Erste Group Bank AG
+KBC Group NV
+Bank Hapoalim BM
+Bank Leumi le-Israel BM
+United Overseas Bank Limited
