@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4075,
+  "next_available": 4076,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34659,6 +34659,15 @@
       "r_number": "R-F4074",
       "title": "sanctions_designation_watch handler unreachable from dispatch",
       "claimed_at": "2026-08-16T19:57:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4075",
+      "title": "probe resolution DPO without promotion",
+      "claimed_at": "2026-08-16T19:59:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
