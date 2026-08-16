@@ -1350,6 +1350,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T19:22:14Z"
+    },
+    {
+      "c_number": "C-122",
+      "title": "cost-free learning preview off, so its own approval gate can never open",
+      "claimed_at": "2026-08-16T19:39:23Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4060"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:42:45Z"
     }
   ]
 }

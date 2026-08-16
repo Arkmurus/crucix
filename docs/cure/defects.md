@@ -6283,3 +6283,62 @@ The hourly cycle (`cron 5 * * * *`, enabled) was watched firing on production:
 
 Four of C-108's five modules confirmed emitting, caused by an observed cron run.
 The fifth was `reading_queue` — which is this defect.
+
+---
+
+## C-122 · the cost-free preview was off, so its own approval gate could never open (R-F4060)
+
+`HOURLY-COST-FREE-LEARN` shipped `enabled: false` under the R-F567 doctrine that
+new tasks ship off and the operator flips them on explicitly. The flip never
+happened — and the task's own description states what it is for:
+
+> "Surfaces what would change if writes were enabled — feed to mem0 + dashboard
+> so the operator can sanity-check before flipping the write env."
+
+With the task off, the preview never runs, so **there is nothing to
+sanity-check**. The approval gate cannot open because the evidence it requires is
+never produced: the same structural shape as the Phase A gates §1 records as
+"certified by an absence", and as R-F2689's evidence gate that C-107 had to feed.
+
+### Why enabling the PREVIEW is the right call for this product
+
+The four loops are precisely the moat CLAUDE.md describes — golden data plus
+ARIA's own verification, at no vendor cost (§6 mirrors-Claude, §15
+pay-once-remember-forever, §20 Rule Zero "not passive"):
+
+| loop | what it produces |
+|---|---|
+| `mastery_decay` | stale-high topics — feeds the gate-#2 honesty axis |
+| `mistake_replay` | ledger re-checked against the live constitution |
+| `cross_source_corroborate` | claims asserted by 2+ independent Tier-1a sources |
+| `distill_qa` | verified, ≥2-citation chats → eval-set candidates |
+
+All four are deterministic, zero-LLM and zero paid API (`cost_cap_usd: 0.00`,
+`timeout_seconds: 30`), so an hourly read-only pass costs nothing and generates
+exactly the evidence the operator was waiting for.
+
+### Why writes stay gated — a concrete reason, not caution theatre
+
+`distill_qa` seeds the 500-Q eval set. **Phase A gate #6 passes only while the
+live set still matches the pinned content hash** (`a07b6af760ad7f44`, count
+500). A commit would drift that pin and **RE-OPEN a closed Phase A gate**.
+
+So `ARIA_COST_FREE_LEARN_WRITE` stays UNSET, and flipping it requires a
+deliberate re-pin — an operator decision, never a side effect of enabling a
+preview. A test pins that the gate is an **exact `"1"`** match, so `"true"`,
+`"yes"` and `"0"` cannot enable writes.
+
+### On the doctrine
+
+R-F567's `test_task_defaults_off` asserted `enabled is False` citing "every new
+task ships off; operator flips on explicitly". That doctrine applies at SHIP
+time. It is now updated to pin the current, deliberate state — and to pin the
+thing that actually protects state, which is the separate write env, not this
+flag.
+
+### Verified
+
+4 new tests, 1 RED first (the flip); the other 3 hold on BOTH sides because they
+pin the write gate, which must not move. 565 passed across every test touching
+`tasks.yaml` or `cost_free`; the only 2 red are recorded baseline entries,
+proven unrelated by stashing. YAML re-parsed (98 tasks). Lint clean.

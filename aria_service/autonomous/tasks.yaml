@@ -2184,7 +2184,18 @@ tasks:
       would change if writes were enabled — feed to mem0 + dashboard
       so the operator can sanity-check before flipping the write env.
     cron: "37 * * * *"
-    enabled: false
+    # R-F4060 (C-122) — ENABLED. This task is the READ-ONLY preview, and its own
+    # description says it exists "so the operator can sanity-check before
+    # flipping the write env". While it was off it produced no evidence, so that
+    # approval gate could never open — the same shape as the Phase A gates §1
+    # records as "certified by an absence".
+    # Safe to run: all four loops are deterministic, zero-LLM, zero paid API
+    # (cost_cap_usd 0.00, timeout 30s), and writes remain gated separately by
+    # ARIA_COST_FREE_LEARN_WRITE, which stays UNSET.
+    # Do NOT flip that env casually: distill_qa seeds the 500-Q eval set, and a
+    # commit would drift the frozen gate-#6 pin (a07b6af760ad7f44 / count 500)
+    # and RE-OPEN a closed Phase A gate. That needs a deliberate re-pin.
+    enabled: true
     priority: LOW
     timeout_seconds: 30
     cost_cap_usd: 0.00

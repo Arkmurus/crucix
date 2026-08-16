@@ -33,12 +33,22 @@ def test_task_entry_present(yaml_data):
     assert "HOURLY-COST-FREE-LEARN" in ids
 
 
-def test_task_defaults_off(yaml_data):
-    """Capability: per autonomy doctrine, every new task ships with
-    enabled=false. Operator flips on explicitly."""
+def test_task_is_enabled_with_writes_still_gated(yaml_data):
+    """R-F4060 (C-122) — the ship-time doctrine was "new tasks ship off, the
+    operator flips them on explicitly". That flip has now happened.
+
+    The doctrine applies at SHIP time; leaving it off permanently meant the
+    read-only preview never ran, so the write-approval gate it exists to inform
+    could never open. What protects state is the SEPARATE write env, not this
+    flag — so that is what this test now pins.
+    """
+    from aria_service.intel import cost_free_learning as cfl
+
     task = next(t for t in yaml_data["tasks"]
                 if t["id"] == "HOURLY-COST-FREE-LEARN")
-    assert task["enabled"] is False
+    assert task["enabled"] is True
+    # The real guard: enabling the preview must never imply enabling commits.
+    assert cfl._write_enabled() is False
 
 
 def test_task_zero_cost(yaml_data):
