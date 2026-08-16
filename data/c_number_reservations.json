@@ -1371,6 +1371,30 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-125",
+      "title": "journal is O(writes) but only needs to be O(distinct records)",
+      "claimed_at": "2026-08-16T19:57:30Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4073"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:58:55Z"
+    },
+    {
+      "c_number": "C-126",
+      "title": "hourly sanctions designation watch fails as unsupported tool kind",
+      "claimed_at": "2026-08-16T19:57:30Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4074"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:58:55Z"
     }
   ]
 }

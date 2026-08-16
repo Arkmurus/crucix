@@ -7233,3 +7233,102 @@ Two things would each have prevented most of this:
 The three shared append-only files (`docs/cure/defects.md` and both ledgers)
 conflict on every concurrent rebase and must never be textually merged: take
 origin's copy, re-apply your own additions, recompute `next_available`.
+
+---
+
+## C-125 · the journal was O(writes) when it only needs O(records) (R-F4073)
+
+The last open item from C-95's line of work. C-95 made persistence cost
+O(change) by journalling; C-105 stopped a timer forcing whole-graph rewrites on
+a trivial journal. What remained: **the journal grows with every WRITE, not with
+every distinct RECORD**, and compaction fires on journal SIZE.
+
+### The measurement that chose the design
+
+```
+journal bytes : 1,362,425
+entries       : 369
+distinct ids  : 64
+redundant     : 305   (82.7% of entries are repeat upserts)
+most-rewritten: [('09a8389b', 163), ('40ec7510', 90), ('d6ba5e8d', 15)]
+```
+
+One record rewritten **163 times**. That redundancy pulls every 411 MB snapshot
+rewrite forward by ~5.8x.
+
+This measurement is why the fix is NOT a sharded snapshot. Sharding would change
+the on-disk format and the boot load path — the highest-risk code in the repo,
+holding 561,840 facts under a §7 never-delete policy — to solve a problem that
+turned out to be redundancy, not volume.
+
+### Why it is safe
+
+`_replay_journal` is already an id-keyed UPSERT, so the final state depends only
+on the LAST write per id. Superseded entries cannot affect it. No format change,
+no load-path change.
+
+**The subtle part, and why naive dedupe would be WRONG.** Replay inserts an
+unseen record at the HEAD, preserving the newest-first order `store_fact`'s
+`insert(0, ...)` establishes. So head-insert order follows FIRST appearance while
+content follows LAST write. Keeping the last occurrence would silently reorder
+newly inserted facts. Compaction preserves **first-appearance ORDER with
+last-write CONTENT**, and a test pins exactly that.
+
+Unkeyed entries and corrupt lines are preserved verbatim — the journal holds
+every fact written since the last snapshot, so guessing is not worth losing
+memory over. The rewrite is atomic (tmp + fsync + rename) for the same reason,
+and it no-ops when nothing is superseded rather than paying for a rewrite.
+
+### Verified
+
+9 tests, 7 RED first. The load-bearing one asserts the replayed state is
+**identical** before and after compaction — a pure size reduction. Two more pin
+the wiring: compaction must run BEFORE the size checks it exists to influence
+(otherwise the fix is inert), and its threshold must sit below
+`JOURNAL_MAX_BYTES` (otherwise the snapshot rewrite happens first). 705 passed /
+0 failed across the knowledge + tasks surface. Compile gate green; bandit
+unchanged at 0 medium/high.
+
+---
+
+## C-126 · an enabled hourly SANCTIONS task was dark in production (R-F4074)
+
+Found by chasing a recorded baseline failure rather than accepting it.
+`test_autonomous_dispatch_parity` reported:
+
+> Handlers exist in `_execute_direct_tool` but missing from dispatch tuple:
+> `['sanctions_designation_watch']`
+
+That is not cosmetic. `HOURLY-SANCTIONS-DESIGNATIONS` is **enabled, cron
+`7 * * * *`**, and routes `tool: sanctions_designation_watch` — whose handler
+exists at `tasks.py:510` but was never routable. **Every hour it failed with
+"unsupported tool kind"**: a sanctions capability, the highest-stakes part of the
+product, silently dark. The tuple's own comments record this same bug class
+twice before (R-F470, R-F930).
+
+### The second baseline red was a FALSE failure
+
+`test_rf470_run_eval_in_direct_tool_dispatch_tuple` asserted
+`'"run_eval"' in text[idx:idx + 600]` — a **600-character window**. The tuple has
+54 entries and keeps growing, so `run_eval` drifted out of the window and the
+test went red **while the code was correct**.
+
+Verified by AST before touching anything: the tuple holds 54 kinds and contains
+`run_eval`, `cost_free_learn`, `source_uptime_ping` and now
+`sanctions_designation_watch`. The test now parses the tuple instead of grepping
+a window, and carries a guard-the-guard assertion so a tiny/empty universe
+cannot certify anything (§1). Same defect class as R-F3858, which §16 already
+records twice.
+
+**Both baseline entries are now genuinely green** — one because a real dark
+capability was wired, one because a blind test was given eyes.
+
+### Number collision, recorded honestly
+
+This work was first written as C-123/C-124 (R-F4061/R-F4062). A peer agent
+committed those same numbers concurrently and won the merge, so it was renumbered
+to C-125/C-126 (R-F4073/R-F4074). During the renumber a blanket
+search-and-replace briefly rewrote the PEER's register entries; `defects.md` was
+restored from HEAD and only these two entries re-appended. §26a's allocator is
+not enough on a shared tree when two agents reserve between one another's
+commits — the ledger merge is the failure point.

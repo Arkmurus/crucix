@@ -52,19 +52,35 @@ def test_rf470_run_eval_in_direct_tool_dispatch_tuple():
     """The tool-kind tuple in _execute_direct_tool determines which kinds
     are routed through the direct-call path. Forgetting to add a new
     kind here silently regresses the task to "unsupported tool kind"."""
+    import ast
     from pathlib import Path
+
     src = Path(__file__).resolve().parents[2] / "aria_service" / "autonomous" / "tasks.py"
     text = src.read_text(encoding="utf-8")
-    # Grep the dispatch tuple block (multi-line tuple after the
-    # `elif tool_kind in (...)` form). Anchor on the comma-suffixed
-    # string `"source_uptime_ping",` to skip the earlier `elif tool_kind
-    # == "source_uptime_ping":` match in the same file.
-    idx = text.find('"source_uptime_ping",')
-    assert idx > -1, "anchor 'source_uptime_ping',' missing — dispatch tuple shape changed"
-    block = text[idx:idx + 600]
-    assert '"run_eval"' in block, (
-        "R-F470: 'run_eval' must be added to the direct-tool dispatch tuple "
-        "(near source_uptime_ping). Without it the task errors 'unsupported tool kind'."
+
+    # R-F4074 (C-126) — AST, not a fixed text window.
+    #
+    # This asserted `'"run_eval"' in text[idx:idx + 600]`, a 600-CHARACTER
+    # window anchored on `"source_uptime_ping",`. The tuple has 54 entries and
+    # keeps growing, so `run_eval` drifted out of the window and the test went
+    # RED while the code was correct — a FALSE FAILURE that then sat in the
+    # recorded baseline, where a permanently-red test can carry no information.
+    # Same defect class as R-F3858, which §16 records twice.
+    tuples = [
+        [e.value for e in node.comparators[0].elts if isinstance(e, ast.Constant)]
+        for node in ast.walk(ast.parse(text))
+        if isinstance(node, ast.Compare)
+        and node.ops and isinstance(node.ops[0], ast.In)
+        and isinstance(node.comparators[0], ast.Tuple)
+        and len(node.comparators[0].elts) > 10
+    ]
+    assert tuples, "direct-tool dispatch tuple not found — its shape changed"
+    kinds = max(tuples, key=len)
+    # Guard the guard: an empty/tiny universe would certify anything (§1).
+    assert len(kinds) > 20, f"dispatch tuple looks wrong: {len(kinds)} entries"
+    assert "run_eval" in kinds, (
+        "R-F470: 'run_eval' must be in the direct-tool dispatch tuple. Without "
+        f"it the task errors 'unsupported tool kind'. Found: {sorted(kinds)}"
     )
 
 

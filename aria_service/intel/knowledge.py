@@ -451,6 +451,104 @@ def _journal_size() -> int:
         return 0
 
 
+# R-F4073 (C-125) — only compact the journal once it is worth the read+rewrite.
+# Well below JOURNAL_MAX_BYTES and C-105's ratio floor, so redundancy is removed
+# BEFORE it can pull a 411 MB snapshot rewrite forward.
+JOURNAL_COMPACT_MIN_BYTES = int(
+    os.getenv("ARIA_KNOWLEDGE_JOURNAL_COMPACT_MIN_BYTES", str(2 * 1024 * 1024)))
+
+
+def _compact_journal() -> int:
+    """Drop superseded journal entries. Returns bytes reclaimed.
+
+    R-F4073 — WHY. The journal grows with every WRITE, but only needs to grow
+    with every distinct RECORD. Measured live 2026-08-16: 369 entries, **64
+    distinct ids — 82.7% repeat upserts**, one record rewritten 163 times.
+    Because compaction fires on journal SIZE, that redundancy pulls forward
+    every whole-graph rewrite by ~5.8x.
+
+    WHY IT IS SAFE. `_replay_journal` is an id-keyed UPSERT, so the final state
+    depends only on the last write per id; superseded entries cannot affect it.
+
+    THE SUBTLE PART. Replay inserts an unseen record at the HEAD, preserving the
+    newest-first order `store_fact`'s `insert(0, ...)` establishes. Head-insert
+    order therefore follows FIRST appearance while content follows LAST write —
+    so this keeps **first-appearance order with last-write content**. Keeping the
+    last occurrence instead would silently reorder newly inserted facts.
+
+    Entries with no id cannot be deduped and are preserved verbatim; a corrupt
+    line is preserved too, because the journal holds every fact written since
+    the last snapshot and guessing is not worth losing memory over (§7).
+
+    Atomic (tmp + fsync + rename) for the same reason.
+    """
+    path = _journal_path()
+    try:
+        if not os.path.exists(path):
+            return 0
+        before = os.path.getsize(path)
+    except OSError:
+        return 0
+
+    order: list[str] = []           # first-appearance order of keyed records
+    latest: dict[str, str] = {}     # id -> most recent raw line
+    passthrough: list[str] = []     # unkeyed/corrupt lines, preserved verbatim
+    total = 0
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                total += 1
+                rid = None
+                try:
+                    entry = json.loads(line)
+                    rec = entry.get("rec")
+                    if isinstance(rec, dict):
+                        rid = rec.get("id")
+                except Exception:
+                    rid = None      # corrupt — preserve verbatim
+                if rid:
+                    if rid not in latest:
+                        order.append(rid)
+                    latest[rid] = line
+                else:
+                    passthrough.append(line)
+    except OSError:
+        return 0
+
+    kept = len(order) + len(passthrough)
+    if kept == 0 or kept == total:
+        return 0                    # nothing superseded — don't pay for a rewrite
+
+    lines = [latest[r] for r in order] + passthrough
+
+    target_dir = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".aria_journal.", suffix=".jsonl.tmp",
+                               dir=target_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for ln in lines:
+                fh.write(ln + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        _fsync_dir(target_dir)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+    try:
+        return max(0, before - os.path.getsize(path))
+    except OSError:
+        return 0
+
+
 def _append_journal(entries: list[tuple[str, dict]]) -> None:
     """Append changed records durably. Sync — always called via to_thread.
 
@@ -1189,6 +1287,23 @@ async def _flush_to_disk_locked(final: bool = False) -> None:
     # full write is the only thing that persists them.
     _bk_entries = [("fact", r) for r in _pending_bookkeeping.values()]
     _bk_undeclared = _bk_due and not _bk_entries
+
+    # R-F4073 (C-125) — drop superseded journal entries BEFORE the size checks
+    # below read it. Compaction fires on journal SIZE, and 82.7% of live entries
+    # were repeat upserts of the same records, so the redundancy was pulling
+    # every 411 MB snapshot rewrite forward by ~5.8x. Off the loop: it reads and
+    # rewrites a file. Never fatal — a failure just leaves the journal as it was,
+    # which is exactly the pre-R-F4073 behaviour.
+    if _journal_size() >= JOURNAL_COMPACT_MIN_BYTES:
+        try:
+            _reclaimed = await asyncio.to_thread(_compact_journal)
+            if _reclaimed:
+                logger.debug("[R-F4073] journal compaction reclaimed %d bytes",
+                             _reclaimed)
+        except Exception as _jc_exc:
+            logger.warning("[R-F4073] journal compaction failed (non-fatal): %s",
+                           _jc_exc)
+
     _journal_due = _journal_size() >= JOURNAL_MAX_BYTES
     # R-F4045 (C-105) — the age trigger only fires when there is enough journal
     # to be worth an O(graph) rewrite. `_needs_compaction` starts True, so the

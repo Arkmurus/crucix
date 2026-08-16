@@ -1791,6 +1791,15 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            # test_autonomous_dispatch_parity.
                            "cost_free_learn",
                            "cost_guard",
+                           # R-F4074 (C-126) [2026-08-16]: the handler existed at
+                           # `elif tool_kind == "sanctions_designation_watch"` but
+                           # was never routable here, so HOURLY-SANCTIONS-DESIGNATIONS
+                           # (enabled, cron "7 * * * *") failed every hour with
+                           # "unsupported tool kind" — a SANCTIONS capability dark in
+                           # production. Same bug class this tuple already records
+                           # twice; caught again by test_autonomous_dispatch_parity,
+                           # which had been red in the recorded baseline.
+                           "sanctions_designation_watch",
                            # R-F935 -- Compliance Watch private digest task.
                            "compliance_watch",
                            # R-F953 -- daily contract-review self-check canary.
