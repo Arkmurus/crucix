@@ -174,18 +174,50 @@ def test_scripts_fail_closed_without_the_env_var():
 
 def test_live_token_is_gone_from_all_source(gate):
     """The leaked value must not survive anywhere in tracked source."""
+    # R-F4080 (C-129) — enumerate TRACKED source, which is what this test's own
+    # docstring promises. `rglob` walked the whole working tree, so it found
+    # THIS FILE's copies inside `.claude/worktrees/<peer>/...` — a second agent's
+    # git worktrees — and went red on its own fixture. A security gate that
+    # fires on its own test file is one that gets ignored (the cry-wolf failure
+    # C-96 records), and excluding one more directory name would only defer it
+    # to the next copy. `git ls-files` answers the real question.
+    import subprocess
+
     root = Path(__file__).resolve().parents[2]
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z", "*.py", "*.mjs", "*.js", "*.cjs"],
+            cwd=str(root), capture_output=True, timeout=60,
+        )
+        git_ok = proc.returncode == 0
+    except Exception:
+        git_ok = False
+
+    # FAIL CLOSED. A credential gate that cannot enumerate its universe must not
+    # report "clean" — that is the §1 collapse of "could not measure" into
+    # "measured and found nothing", on the one check where it matters most.
+    assert git_ok, (
+        "could not enumerate tracked files via git — refusing to report this "
+        "credential gate as clean on an unknown universe"
+    )
+
+    tracked = [
+        f for f in proc.stdout.decode("utf-8", errors="replace").split(chr(0)) if f
+    ]
+    assert len(tracked) > 100, (
+        f"only {len(tracked)} tracked source files found — the enumeration is "
+        f"wrong, and a gate with an empty universe always certifies (§1)"
+    )
+
+    self_rel = str(Path(__file__).resolve().relative_to(root)).replace("\\", "/")
     hits = []
-    for suffix in ("*.py", "*.mjs", "*.js", "*.cjs"):
-        for path in root.rglob(suffix):
-            parts = set(path.parts)
-            if {"node_modules", ".git", ".venv", "__pycache__"} & parts:
-                continue
-            if path.resolve() == Path(__file__).resolve():
-                continue  # this file names it deliberately, to refuse it
-            try:
-                if _LEAKED in path.read_text(encoding="utf-8", errors="ignore"):
-                    hits.append(str(path.relative_to(root)))
-            except Exception:
-                continue
+    for rel in tracked:
+        if rel.replace("\\", "/") == self_rel:
+            continue  # this file names it deliberately, to refuse it
+        path = root / rel
+        try:
+            if _LEAKED in path.read_text(encoding="utf-8", errors="ignore"):
+                hits.append(rel)
+        except Exception:
+            continue
     assert hits == [], f"leaked credential still present in: {hits}"

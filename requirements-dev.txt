@@ -30,3 +30,19 @@ pyflakes>=3.0
 # spend, before any GPU exists.
 transformers>=4.40
 jinja2>=3.1
+# R-F4079 (C-128) — the ARIA CLI terminal's interactive layer.
+#
+# `aria_cli/cli.py` imports these inside a try/except and degrades silently when
+# they are absent. They were declared in NO manifest, so the CLI ran in its
+# fallback path for anyone who had not installed them by accident. What
+# disappears without prompt_toolkit is the entire interactive experience: tab
+# completion, persistent history (incl. R-F1308's surrogate-safe FileHistory),
+# auto-suggest, and R-F1383's patch_stdout — the mechanism that lets the agent
+# print ABOVE an always-active bottom input box instead of corrupting it.
+#
+# DEV, not prod: `aria_cli` is a local operator tool and is verified ABSENT from
+# the production image (/app/aria_cli does not exist on aria-intel), so §6 keeps
+# it out of aria_service/requirements.txt. Both are pure Python — no wheel
+# problem on win32/ARM64 (§16).
+prompt_toolkit>=3.0
+rich>=13.0

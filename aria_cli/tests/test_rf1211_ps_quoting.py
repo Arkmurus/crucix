@@ -56,6 +56,16 @@ def test_run_with_pytest_k_pattern() -> None:
     """pytest -k with a pattern containing double-quotes must work."""
     tb = Toolbox(root=Path.cwd(), guard=WriteGuard(Path.cwd()))
     # This is the exact pattern that broke: -k "pattern" inside -Command
-    result = tb.run('python -m pytest aria_cli/tests/test_rf1143_coder_tools.py -k "test_toolresult_shape" --no-header -q', timeout=30)
+    # R-F4080 (C-129) — sys.executable, not the bare name. `python` resolves via
+    # PATH to the SYSTEM interpreter here, which has no pytest, so this failed
+    # with "No module named pytest" — a PATH accident reported as a quoting bug,
+    # which is the defect this file exists to catch. It was invisible until the
+    # prompt_toolkit collection abort (C-128) was fixed and these tests ran.
+    _py = sys.executable.replace("\\", "/")
+    result = tb.run(
+        f'"{_py}" -m pytest aria_cli/tests/test_rf1143_coder_tools.py '
+        f'-k "test_toolresult_shape" --no-header -q',
+        timeout=60,
+    )
     assert not result.is_error, f"Command failed: {result.output}"
     assert "1 passed" in result.output, f"Expected test pass: {result.output}"

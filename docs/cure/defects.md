@@ -7513,3 +7513,105 @@ which was this fix itself. 111 passed across every test touching the registry;
 the single red (`test_rf3878 ... widening_the_heading_level`) is pre-existing,
 proven by re-running with my changes stashed, and is NOT in the recorded
 baseline — it post-dates it.
+
+---
+
+## C-128 · the ARIA CLI terminal ran degraded, and its tests could not run (R-F4079)
+
+Found by running the CLI rather than reading it. Two defects, one dependency.
+
+**1. The interactive terminal was silently degraded everywhere.**
+`aria_cli/cli.py` imports `prompt_toolkit` inside a try/except and sets
+`PROMPT_TOOLKIT_AVAILABLE`. That guard is correct — but the package was declared
+in **no manifest**, so it was absent and the CLI fell back for every operator who
+had not installed it by accident. What silently disappears with it:
+
+* tab completion (`WordCompleter`)
+* persistent history (`FileHistory`, incl. R-F1308's surrogate-safe subclass)
+* auto-suggest from history
+* R-F1383's `patch_stdout` — what lets the agent print ABOVE an always-active
+  bottom input box instead of corrupting it
+
+Measured: installing it flips `PROMPT_TOOLKIT_AVAILABLE` False → True. Nothing
+else changed.
+
+**2. One missing optional dep aborted 67 test files.** The terminal capability
+test did a module-level `import prompt_toolkit.output.defaults`, so pytest
+raised a COLLECTION error and **stopped**:
+
+```
+ERROR collecting aria_cli/tests/test_rf2053_terminal_capability.py
+ModuleNotFoundError: No module named 'prompt_toolkit'
+!!!! Interrupted: 1 error during collection !!!!
+```
+
+A collection error is worse than a failing test: **45 CLI test files and 22
+service test files never ran at all.** A suite that cannot be collected certifies
+nothing — the §1 shape at suite scale. `pytest.importorskip` skips ONE module
+instead of silencing the suite.
+
+Declared in `requirements-dev.txt`, not the prod manifest: `aria_cli` is a local
+operator tool, verified ABSENT from the production image (`/app/aria_cli` does
+not exist on aria-intel), so §6 keeps the runtime lean. Both deps are pure
+Python — no win32/ARM64 wheel problem (§16).
+
+**Result: 639 tests now pass on a surface where zero could be collected.**
+
+---
+
+## C-129 · the CLI agent was working from a third of the constitution (R-F4080)
+
+Four failures surfaced the moment collection worked. **None were in the recorded
+baseline — because the baseline was recorded while collection aborted**, so they
+had never been measured. The abort hid them completely.
+
+### The serious one: 67% of CLAUDE.md never reached the agent
+
+`prompt.py` caps injected guidance at `_GUIDANCE_MAX_CHARS`. R-F2160 raised it
+16000 → 40000 because the old value "silently dropped ~58% of each file — and
+the dropped half is exactly where the load-bearing coding rules live", sizing it
+to fit both files "WHOLE (~38KB each today)".
+
+```
+CLAUDE.md   120,871 chars   vs cap 40,000  ->  80,871 elided (67%)
+AGENTS.md    37,308 chars   vs cap 40,000  ->  fits
+```
+
+CLAUDE.md **tripled**. The cap sized to fit whole now drops *more than the
+defect R-F2160 fixed*. Probing the injected text showed §25 proprioception AND
+§26 CURE MODE — the rules governing what may be changed at all — never reached
+the agent. Two comments in `prompt.py` still claimed "the coder still gets the
+full CLAUDE.md"; true when written, false since.
+
+**Raising the number is not the fix** — it has now rotted twice, and §7 forbids
+eviction so the file only accretes. The cap is raised to 200000 **and** a guard
+fails the moment a guidance file outgrows it, so the next overflow is a decision
+someone makes rather than a silent two-thirds loss. Affordable because
+`load_repo_guidance` runs in `build_system_prompt` — once per session, not per
+turn. Verified after: **158,225 chars injected**, with R-number discipline,
+proprioception, CURE MODE and RULE ONE all present.
+
+### The other three
+
+* **`test_rf3683_committed_secret_gate`** — a credential gate walking the tree
+  with `rglob` found THIS FILE's copies inside `.claude/worktrees/<peer>/…`, a
+  second agent's git worktrees, and went red on its own fixture. It now
+  enumerates `git ls-files` — what its own docstring already promised — and
+  **fails closed** if git cannot be read, because a gate that cannot enumerate
+  its universe must never report "clean" (§1). Guard-the-guard: <100 tracked
+  files is itself a failure.
+* **`test_rf1211_ps_quoting`** — shelled out to `python -m pytest`, which
+  resolved via PATH to the SYSTEM interpreter with no pytest. A PATH accident
+  reported as a quoting bug, in the file that exists to catch quoting bugs. Now
+  uses `sys.executable`.
+* **`test_rf1308_surrogate_safe_input`** — asserted that UPSTREAM `FileHistory`
+  crashes on lone surrogates. prompt_toolkit 3.0.53 sanitizes internally, so it
+  no longer raises and the witness EXPIRED. `PTSafeFileHistory` stays: the bug
+  was real (live incident 2026-06-03) and older versions still carry it. The
+  test now records which behaviour it observed instead of failing.
+
+### Verified
+
+8 new tests across both C-numbers, RED first. **639 passed / 0 failed** across
+the entire CLI surface plus the secret gate. Full-tree compile gate green; lint
+clean; bandit unchanged at 0 medium/high.

@@ -14,9 +14,16 @@ from __future__ import annotations
 
 import io
 
-import prompt_toolkit.output.defaults as ptd
+import pytest
 
-import aria_cli.cli as cli
+# R-F4079 (C-128) — importorskip, NOT a bare import. A module-level hard import
+# of an OPTIONAL dependency makes pytest raise a COLLECTION error and stop: when
+# prompt_toolkit was absent this single line prevented 45 CLI test files and 22
+# service test files from running at all. An absent optional dep must skip ONE
+# module, never silence the suite.
+ptd = pytest.importorskip("prompt_toolkit.output.defaults")
+
+import aria_cli.cli as cli  # noqa: E402  (must follow the importorskip guard)
 
 
 class _TTY(io.StringIO):

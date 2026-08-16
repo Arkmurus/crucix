@@ -24,7 +24,24 @@ from pathlib import Path
 # sequence). When a file genuinely exceeds the cap we keep the HEAD and the TAIL
 # (so the top floor AND the bottom operational rules both survive, eliding only
 # the middle) and mark the elision — never a silent head-only truncation.
-_GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "40000"))
+# R-F4080 (C-129) — 40000 ROTTED, exactly as 16000 did before it.
+#
+# Measured 2026-08-16: CLAUDE.md is 120,871 chars against a 40,000 cap, so 67%
+# was elided — MORE than the ~58% loss R-F2160 raised the cap to fix. The
+# elided middle is the operating core (§22 verification discipline, §23
+# cross-check, §25 proprioception, §21e which mandates this injection), and
+# probing showed even §26 CURE MODE — the rules governing what may be changed
+# at all — never reached the agent.
+#
+# A fixed cap against a monotonically growing file rots BY CONSTRUCTION, and §7
+# forbids eviction so this file only accretes. The number alone cannot be the
+# fix: `test_rf4080_cli_guidance_not_elided` now FAILS the moment a guidance
+# file outgrows the cap, so the next overflow is a decision someone makes rather
+# than a silent two-thirds loss.
+#
+# Affordable because `load_repo_guidance` is called from `build_system_prompt` —
+# ONCE per session, not per turn.
+_GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "200000"))
 
 
 def _clip_guidance(text: str, cap: int) -> str:

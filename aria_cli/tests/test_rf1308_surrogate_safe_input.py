@@ -58,5 +58,20 @@ def test_raw_file_history_does_crash_proving_the_bug() -> None:
 
     tmp = Path(tempfile.mkdtemp()) / "hist_raw.txt"
     h = FileHistory(str(tmp))
-    with pytest.raises(UnicodeEncodeError):
+    # R-F4080 (C-129) — the WITNESS EXPIRED, and that is not a licence to delete
+    # the subclass. prompt_toolkit 3.0.53 sanitizes internally, so upstream no
+    # longer raises and `pytest.raises` failed with "DID NOT RAISE". The bug was
+    # real (live incident 2026-06-03) and older versions still carry it, so
+    # PTSafeFileHistory stays — the test above proves OUR behaviour and is the
+    # one that must never be weakened. This one only records whether the
+    # upstream defect is still present, and says which it observed.
+    try:
         h.store_string(SURROGATE_LINE)
+    except UnicodeEncodeError:
+        return  # upstream still crashes — the subclass is load-bearing here
+    import prompt_toolkit as _pt
+    pytest.skip(
+        f"upstream FileHistory no longer raises on lone surrogates "
+        f"(prompt_toolkit {_pt.__version__}); PTSafeFileHistory is retained "
+        f"because older versions still crash"
+    )
