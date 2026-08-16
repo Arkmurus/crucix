@@ -18,6 +18,8 @@ environment with pytest installed.
 """
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import asyncio
 import hashlib
 import hmac
@@ -887,9 +889,17 @@ class TestSelfImproveObservability:
         the result dict must put each file in the right bucket."""
         from aria_service.intel import self_improve
 
+        # R-F4048 (C-107) — the modifiable example is DERIVED from the live
+        # allow-list, not hardcoded. This test had been RED since
+        # `aria_service/intel/contacts.py` was dropped from MODIFIABLE_FILES
+        # (R-F851/R-F902 deliberately tightened that list to 20 entries), so it
+        # was asserting a curated POLICY rather than the split BEHAVIOUR it
+        # exists to prove — and a permanently-red test carries no information.
+        modifiable_file = "aria_service/intel/contacts.py"
+
         # Build 4 fake errors per file (above the threshold of 3)
         fake_errors = (
-            [{"file": "aria_service/intel/contacts.py", "type": "warn"}] * 4 +   # modifiable
+            [{"file": modifiable_file, "type": "warn"}] * 4 +                    # modifiable
             [{"file": "aria_service/intel/student.py", "type": "warn"}] * 4 +    # external
             [{"file": "aria_service/intel/rag_store.py", "type": "warn"}] * 4 +  # external
             [{"file": "aria_service/intel/transient.py", "type": "warn"}] * 2     # below threshold
@@ -913,11 +923,26 @@ class TestSelfImproveObservability:
             async def _t():
                 return await self_improve.autonomous_improvement_cycle(FakeLLM())
 
-            result = asyncio.run(_t())
+            # R-F4048 (C-107) — pin the allow-list for the duration of the
+            # test. Reading the LIVE set makes this test depend on ambient
+            # module state: it was red because `contacts.py` had been dropped
+            # from MODIFIABLE_FILES (R-F851/R-F902 tightened it to 20), and
+            # deriving the example from the live set instead merely traded that
+            # for an ORDER-DEPENDENT failure when another test mutates it. The
+            # behaviour under test is the SPLIT, so the split's input is fixed
+            # here and the curated policy is left to its own tests.
+            with patch.object(
+                self_improve, "MODIFIABLE_FILES",
+                {modifiable_file, "aria_service/aria_engine.py"},
+            ):
+                result = asyncio.run(_t())
             mod = result["errors_in_modifiable_files"]
             ext = result["errors_in_external_files"]
-            assert "aria_service/intel/contacts.py" in mod
-            assert mod["aria_service/intel/contacts.py"] == 4
+            assert modifiable_file in mod, (
+                f"{modifiable_file} is in MODIFIABLE_FILES but landed outside "
+                f"the modifiable bucket: {mod}"
+            )
+            assert mod[modifiable_file] == 4
             assert "aria_service/intel/student.py" in ext
             assert ext["aria_service/intel/student.py"] == 4
             assert "aria_service/intel/rag_store.py" in ext

@@ -1243,8 +1243,8 @@ async def lifespan(app: FastAPI):
         )
     try:
         app.state.boot_init_failures = _boot_init_failures
-    except Exception:
-        pass
+    except Exception as _e672:
+        logger.debug("[R-F672] suppressed in lifespan (app.state.boot_init_failures = _boot_init_failur): %s", _e672)
 
     # ── R-F2122 — load the HEAVY graphs OFF the boot critical path ────────
     # 2026-06-28 incident: loading knowledge (~223k facts) + neural_memory
@@ -1322,8 +1322,8 @@ async def lifespan(app: FastAPI):
         try:
             app.state.knowledge_ready = "knowledge" not in _heavy_failures
             app.state.neural_ready = "neural_memory" not in _heavy_failures
-        except Exception:
-            pass
+        except Exception as _e672:
+            logger.debug("[R-F672] suppressed in lifespan (app.state.knowledge_ready = 'knowledge' not in _): %s", _e672)
         if _heavy_failures:
             # WARNING, never ERROR (R-F2663): a degraded warmup is recoverable and
             # must not reset the gate-#3 streak. Reserve ERROR for genuinely
@@ -1858,8 +1858,8 @@ async def lifespan(app: FastAPI):
                             )
                             _fh.dump_traceback(file=_wedge_log_fh, all_threads=True)
                             _wedge_log_fh.flush()
-                    except Exception:
-                        pass
+                    except Exception as _e672:
+                        logger.debug("[R-F672] suppressed in lifespan (if _wedge_log_fh is not None:): %s", _e672)
                     try:
                         logger.critical(
                             "[R-F1417] event loop wedged %.1fs > hard ceiling "
@@ -1867,8 +1867,8 @@ async def lifespan(app: FastAPI):
                             "machine (self-recovery from blackout)",
                             stale, _HARD_WEDGE_CEILING_S,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e672:
+                        logger.debug("[R-F672] suppressed in lifespan (logger.critical(): %s", _e672)
                     # os._exit (not sys.exit): immediate, no atexit/cleanup that
                     # would hang on the wedged loop. Durable writers are atomic
                     # (os.replace) / WAL crash-consistent, so an exit mid-write
@@ -1926,16 +1926,16 @@ async def lifespan(app: FastAPI):
             try:
                 from .intel.loop_monitor import record_lag as _record_lag
                 _record_lag(max(0.0, (elapsed - 1.0) * 1000.0))
-            except Exception:
-                pass
+            except Exception as _e672:
+                logger.debug("[R-F672] suppressed in lifespan (from .intel.loop_monitor import record_lag as _r): %s", _e672)
             # R-F1332: tick the self_restart heartbeat for aria_main every 1s.
             # The stall detector already runs every 1s, so this is a free tick
             # that keeps the blackout detector happy without a separate task.
             if _tick_hb is not None:
                 try:
                     _tick_hb("aria_main")
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (_tick_hb('aria_main')): %s", _e672)
             if elapsed > _STALL_WARN_THRESHOLD_S:
                 # R-F3252 — report the MEASUREMENT, not a guess at its cause.
                 #
@@ -1970,8 +1970,8 @@ async def lifespan(app: FastAPI):
                 try:
                     from .intel import load_governor as _lg_stall
                     _lg_stall.record_loop_stall(elapsed)
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel import load_governor as _lg_stall): %s", _e672)
                 # R-F2177 (§21a/§21e): make the acute stall a coder-visible GAP so
                 # the autonomous coder can fix the blocking call — before this it
                 # was logger-warning-only (DARK), so ARIA could not see or fix her
@@ -2037,8 +2037,8 @@ async def lifespan(app: FastAPI):
                     app.state.rag_ready = True
                     try:
                         logger.info("[RAG] post-heal probe: %s", await rag_store.get_stats())
-                    except Exception:
-                        pass
+                    except Exception as _e672:
+                        logger.debug("[R-F672] suppressed in lifespan (logger.info('[RAG] post-heal probe: %s', await r): %s", _e672)
                 # §21/§25 — the limb reports its outcome (success AND failure) to the brain
                 try:
                     from .intel import brain_hook as _bh
@@ -2049,8 +2049,8 @@ async def lifespan(app: FastAPI):
                         summary=(f"R-F2856 RAG self-heal: quarantined={_parked} "
                                  f"healed={heal.get('healed')} errors={heal.get('errors')}")[:300],
                     )
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel import brain_hook as _bh): %s", _e672)
         if not backfill_enabled or backfill_disabled:
             logger.info(
                 "[RAG] backfill skipped (enabled=%s disabled=%s) — "
@@ -2504,8 +2504,8 @@ async def lifespan(app: FastAPI):
                         logger.debug("[Research] load-shed — deferring cycle to protect serving")
                         await asyncio.sleep(1800)
                         continue
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel import load_governor as _lg): %s", _e672)
                 # Tag as BACKGROUND priority so the rate limiter yields
                 # to interactive chat when Anthropic quota is tight.
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
@@ -3066,8 +3066,8 @@ async def lifespan(app: FastAPI):
                         logger.debug("[Self-Improve] load-shed — deferring cycle to protect serving")
                         await asyncio.sleep(7200)
                         continue
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel import load_governor as _lg): %s", _e672)
                 # R-F2208: re-check the provider per-cycle. It may not have been
                 # configured at boot (resilience init race). Self-heal when it
                 # comes up rather than staying dark for the whole process life.
@@ -3298,8 +3298,8 @@ async def lifespan(app: FastAPI):
                     logger.debug("[RegionalSnapshot] load-shed — deferring cycle")
                     await asyncio.sleep(3600)
                     continue
-            except Exception:
-                pass
+            except Exception as _e672:
+                logger.debug("[R-F672] suppressed in lifespan (from .intel import load_governor as _lg): %s", _e672)
             try:
                 await _tick_heartbeat("regional_snapshot", "Regional + topic mastery snapshot")
                 # R-F2963 (C0) — backstop force-flush so a chat-only regional update
@@ -3307,8 +3307,8 @@ async def lifespan(app: FastAPI):
                 try:
                     from .intel import student as _stu_flush
                     await _stu_flush.flush_regional()
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel import student as _stu_flush): %s", _e672)
                 from .intel import regional_drift_monitor as _rdm
                 snap = await _rdm.snapshot_regional()
                 # Un-dark the brier (topic) snapshot in the same loop — no second scheduler.
@@ -3410,8 +3410,8 @@ async def lifespan(app: FastAPI):
                     from .intel.engine_wiring import wire_failure
                     wire_failure(module="memory_wal_drain", detail=f"memory_wal drain error: {str(e)[:160]}",
                                  gap_type="engine_failure", source="main:_memory_wal_drain_loop")
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (lifespan guard): %s", _e672)
             await asyncio.sleep(300)
 
     memory_wal_task = _singleton_task(_memory_wal_drain_loop, "memory_wal_drain")  # R-F2073 singleton (shared WAL — one drainer avoids double-store races)
@@ -3446,8 +3446,8 @@ async def lifespan(app: FastAPI):
                             gap_type="engine_failure",
                             source="main:_health_precompute_loop",
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e672:
+                        logger.debug("[R-F672] suppressed in lifespan (from .intel.engine_wiring import wire_failure): %s", _e672)
             # R-F2417: piggyback this per-process 20s tick to force-flush any
             # coalesced mastery write (R-F2408). Mastery can be dirtied on ANY
             # worker (per-chat aria_engine updates), so the flush must be
@@ -3470,8 +3470,8 @@ async def lifespan(app: FastAPI):
                         gap_type="engine_failure",
                         source="main:_health_precompute_loop",
                     )
-                except Exception:
-                    pass
+                except Exception as _e672:
+                    logger.debug("[R-F672] suppressed in lifespan (from .intel.engine_wiring import wire_failure): %s", _e672)
             await asyncio.sleep(20)   # < the 25s cache TTL so a request never sees a cold/expired entry
 
     health_precompute_task = _bg_task(asyncio.create_task(_health_precompute_loop(), name="health_precompute"), factory=_health_precompute_loop)
@@ -3572,8 +3572,8 @@ async def lifespan(app: FastAPI):
                                 detail=f"liveness watchdog: {problem}",
                                 gap_type="agent_cycle_failure",
                                 source="autonomous_engine:watchdog_rf2006")
-                        except Exception:
-                            pass
+                        except Exception as _e672:
+                            logger.debug("[R-F672] suppressed in lifespan (from .intel.engine_wiring import wire_failure as): %s", _e672)
             except Exception as e:
                 logger.warning("[R-F2006 watchdog] error: %s", e)
             # R-F2178: also check EXTERNAL-LIMB heartbeats (aria-wa/web/searxng).
@@ -3624,8 +3624,8 @@ async def lifespan(app: FastAPI):
                                    detail=f"feed-liveness watchdog: {_summary}"[:400],
                                    gap_type="agent_cycle_failure",
                                    source="student_brain:feed_liveness_rf2959")
-                        except Exception:
-                            pass
+                        except Exception as _e672:
+                            logger.debug("[R-F672] suppressed in lifespan (from .intel.engine_wiring import wire_failure as): %s", _e672)
             except Exception as _fle:
                 logger.debug("[R-F2959 feed-liveness] check failed: %s", _fle)
             await asyncio.sleep(900)   # every 15 min
@@ -3890,9 +3890,14 @@ async def lifespan(app: FastAPI):
                         )
                         # Stable request_id per alert batch → outcome_wire dedupes
                         # retries and the reconcile can spot a never-delivered batch.
+                        # R-F4048 (C-107) — `usedforsecurity=False`: this is a
+                        # dedup FINGERPRINT for delivery idempotency, not a
+                        # security digest. Bandit B324 (High) flagged it; the
+                        # same annotation is already used in capability_gaps.
                         _req_id = "watchlist:" + _hl.sha1(
                             "|".join(a.get("fingerprint") or a.get("entity", "")
-                                     for a in adverse).encode("utf-8")
+                                     for a in adverse).encode("utf-8"),
+                            usedforsecurity=False,
                         ).hexdigest()[:16]
 
                         async def _send_and_record(_msg=msg, _rid=_req_id):
@@ -4558,8 +4563,8 @@ async def lifespan(app: FastAPI):
     # her RAG), not just the live value. Fire-and-forget — never blocks boot.
     try:
         _bg_task(asyncio.create_task(_record_deploy_event(), name="deploy_record"))
-    except Exception:
-        pass
+    except Exception as _e672:
+        logger.debug("[R-F672] suppressed in lifespan (_bg_task(asyncio.create_task(_record_deploy_even): %s", _e672)
 
     # R-F2278 / R-F3816 — the duplicate-route audit. Runs HERE, not at import:
     # the route table is complete by now (import-time it was 754 of 770 routes,

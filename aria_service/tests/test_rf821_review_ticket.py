@@ -346,10 +346,50 @@ class TestStageOrDeployForceDeploy:
             }
             mock_deploy.return_value = {"ok": True}
 
+            # R-F4048 (C-107) — this test asserted `auto_deployed` from
+            # force_deploy alone and had been RED ever since R-F2689, which
+            # deliberately made force_deploy *eligibility only*: "the R-F462
+            # flag and ticket-mode force_deploy only make a change eligible.
+            # Direct deploy still requires a live scoreboard maturity gate."
+            # A permanently-red test carries no information, and greening this
+            # one by weakening the evidence gate would ship autonomous code on
+            # zero evidence. Both halves of the CURRENT contract are asserted.
+            from aria_service.autonomous.self_coder import (
+                autonomous_gold_lane_decision,
+            )
+
+            # (a) force_deploy does NOT bypass the R-F2689 evidence gate.
+            async def unearned():
+                return await coder._stage_or_deploy(
+                    plan=plan, change_type="bug_fix",
+                    force_stage=False, force_deploy=True,
+                )
+
+            ok, status, ids = _run(unearned())
+            assert ok
+            assert status == "staged_for_operator", (
+                "force_deploy must not override the R-F2689 maturity gate — "
+                "that would auto-deploy autonomous code with no proven record"
+            )
+            mock_deploy.assert_not_called()
+
+            # (b) with the gate genuinely EARNED, force_deploy still overrides
+            #     the closed R-F462 change-type gate, which is R-F821's intent.
+            #     The real decision function is exercised on real evidence
+            #     rather than stubbed, so the gate itself stays under test.
+            earned = autonomous_gold_lane_decision({
+                "counts": {"fixed": 25, "gold": 12, "blocked": 0, "claimed": 25},
+                "recent": [{"outcome": "fixed"} for _ in range(20)],
+            })
+            assert earned.get("allowed"), (
+                f"20 fixed + 10 gold should open the lane; got {earned}"
+            )
+
             async def body():
                 return await coder._stage_or_deploy(
                     plan=plan, change_type="bug_fix",
                     force_stage=False, force_deploy=True,
+                    gold_lane=earned,
                 )
 
             ok, status, ids = _run(body())

@@ -203,7 +203,25 @@ async def _run_fix(coder, gap, si_module, deploy_mock):
 
 
 async def _run_with_patches(coder, gap, si_module, deploy_mock):
-    with patch("aria_service.autonomous.safety.can_task_run",
+    # R-F4048 (C-107) — open the two gates that are NOT under test here, so the
+    # truncation guard is what the assertions actually measure:
+    #   * ARIA_CODER_ENABLED is unset in a test env, so fix_gap returned
+    #     `coder_disabled` before reaching the guard at all;
+    #   * R-F2689's evidence gate (20 fixed + 10 gold) can never be satisfied by
+    #     a test scoreboard, so the "complete fix autodeploys" case could never
+    #     go green.
+    # The evidence is supplied through the real gate's INPUTS, never by
+    # disabling it — a truncating fixer must still be blocked below.
+    import os as _os
+
+    _MATURE_SCOREBOARD = {
+        "counts": {"fixed": 25, "gold": 12, "blocked": 0, "claimed": 25},
+        "recent": [{"outcome": "fixed"} for _ in range(20)],
+    }
+    with patch.dict(_os.environ, {"ARIA_CODER_ENABLED": "1"}), \
+         patch.object(coder, "get_scoreboard",
+                      AsyncMock(return_value=_MATURE_SCOREBOARD)), \
+         patch("aria_service.autonomous.safety.can_task_run",
                AsyncMock(return_value=(True, "ok"))), \
          patch("aria_service.intel.self_improve.deploy_improvement", deploy_mock), \
          patch.dict(si_module.CHANGE_TYPES,

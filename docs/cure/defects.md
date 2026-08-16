@@ -5950,3 +5950,110 @@ invariant. 1481 passed across every test importing `brain_hook`, back to the
 pre-existing 8 failures (7 recorded baseline entries + the pre-existing
 `test_rf1696` sanctions failure proven unrelated by stashing). Compile gate
 green; bandit unchanged at 0 medium/high.
+
+---
+
+## C-107 · eight standing red tests, none of which could ever go green (R-F4048)
+
+The suite carried 8 permanent failures. §16 already records why that matters:
+*"a permanently-red test can never go green, so it can never carry information
+either."* They were not one defect — they were four, and two of the tests were
+passing/failing for reasons unrelated to what they claim to prove.
+
+### 1. Five coder-gate tests fought preconditions, not the gate under test
+
+`test_rf2395` ×2, `test_rf2432` ×2 and `test_rf821` drive the autonomous coder's
+deploy path. Two things stopped them:
+
+* **`ARIA_CODER_ENABLED` is unset in a test environment**, so `fix_gap` returned
+  `coder_disabled` before reaching any gate. The "tests disabled → never
+  autodeploy" case therefore **passed for the wrong reason** — the coder refused
+  outright, so the capability-test gate it exists to prove was never exercised.
+* **R-F2689 later added an evidence gate** (20 fixed + 10 gold, low blocked
+  ratio) that a test scoreboard can never satisfy, so every "…allows autodeploy"
+  assertion became unreachable.
+
+Fixed by establishing both preconditions in the shared harnesses, feeding the
+evidence through the **real** decision function's inputs
+(`autonomous_gold_lane_decision`) rather than stubbing it — the gate stays under
+test. `test_rf821` now asserts **both halves** of the current contract, which is
+strictly stronger than what it asserted before:
+
+* force_deploy does **NOT** bypass the R-F2689 maturity gate (it stages), and
+* with the lane genuinely earned, force_deploy still overrides the closed R-F462
+  change-type gate, which was R-F821's original intent.
+
+Greening these by weakening the evidence gate would have shipped autonomous code
+on zero proven record. That was never on the table.
+
+### 2. A sanctions test pinned a contract that a safety fix superseded
+
+`test_rf1696` asserted `source_unavailable is True` / `screened is False` when
+OpenSanctions is down. Correct when written. **R-F3529 then added the local
+canonical floor**, so a down aggregator no longer means unscreened, and
+**R-F3945 (C-39)** made the narrowed coverage explicit rather than letting it
+masquerade as full coverage.
+
+Measured directly rather than assumed — with the source down the screen returns:
+
+```
+screened: true   blocked: false   wire_failure called: 1
+coverage: {"mode": "local_canonical_floor",
+           "sources_consulted": ["ofac_sdn", "eu_consolidated"]}
+```
+
+That is not a false clean: the mode is declared, the consulted sources are
+named, and the degradation reached the brain. The test now asserts that
+**intent** — "a source being down must never read as a full-coverage pass" —
+through the mechanism that currently carries it. Restoring `source_unavailable`
+would mean deleting the floor, i.e. taking screening dark whenever OpenSanctions
+is unavailable.
+
+### 3. An observability test asserted a curated policy, then an ambient one
+
+`test_splits_modifiable_vs_external` hardcoded `intel/contacts.py` as its
+"modifiable" example. R-F851/R-F902 deliberately tightened `MODIFIABLE_FILES` to
+20 entries and dropped it, so the test asserted a **policy** rather than the
+split **behaviour** it exists to prove.
+
+First attempt derived the example from the live set — which merely traded a
+permanent failure for an **order-dependent** one (it passed alone, failed in the
+1489-test run, because ambient module state can be mutated by any other test).
+The test now **pins its own input** with `patch.object(..., MODIFIABLE_FILES,
+{...})`. A test must control its inputs; the curated policy has its own tests.
+
+### 4. Nineteen silent `except: pass` in the lifespan (§21a)
+
+R-F672's intent — no silent swallow in the boot path — was never completed: 19
+remained. Each is now a `logger.debug` carrying a label derived from its own
+`try:` block, so the failure is locatable. Behaviour is unchanged (these are
+deliberate defensive guards); it is no longer **invisible**. Applied by a script
+that verifies each site's exact shape and re-checks the guard's own regex,
+reporting `residual: 0`.
+
+**§9 lifespan smoke test run and passed** — `LIFESPAN ENTERED OK` /
+`LIFESPAN EXITED OK` (the `sentence_transformers` error is the expected
+win32/ARM64 missing-wheel case per §16, handled gracefully).
+
+### Two defects found while fixing these
+
+* **My own R-F4038 gap type was unregistered.** `security_audit_finding` logged
+  `Unknown gap type` on every emit — which R-F3428 records is *not* cosmetic, as
+  `error_log_handler` mirrors it into the error ledger as noise. The R-F2644
+  drift test caught it on the next run. Registered, with a note that it is
+  deliberately absent from `AUTONOMY_LEVEL` so a security finding is never
+  auto-fixable.
+* **`sanctions_coverage_degraded` was never registered either** — R-F3945 landed
+  2026-08-13, *after* the 2026-08-09 suite baseline, so `test_rf2644` went red
+  without appearing in the known-failure set. Registered.
+* **Bandit High on `main.py`** (B324, SHA1) — pre-existing, proven by stashing
+  only my files. It is a delivery-idempotency fingerprint, not a security
+  digest; annotated `usedforsecurity=False`, the convention already used in
+  `capability_gaps`. **High 1 → 0.**
+
+### Verified
+
+**1489 passed, 0 failed** across every test importing `brain_hook` — the set
+that carried all 8. 153 pass across the eight originals' files. Full-tree
+compile gate green. Bandit on `main.py`: High 1 → 0, Low 42 → 23 (the 19
+promoted guards were B110 findings).

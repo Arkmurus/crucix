@@ -444,6 +444,25 @@ VALID_GAP_TYPES = frozenset({
     # adapter's `empty` and `unavailable`. Registered WITH the code that emits it,
     # rather than after a drift test goes red (the R-F3096 lesson).
     "llm_invalid_output",                # llm/structured.py
+    # R-F4048 (C-107) — emitted by R-F4038's security-audit wiring
+    # (security_protocol._wire_audit_outcome). Registered here because
+    # R-F3428 records that an unregistered type is NOT cosmetic: `record_gap`
+    # logs "Unknown gap type", which error_log_handler then mirrors into the
+    # error ledger as noise. Caught by the R-F2644 drift test on the very next
+    # run — registered WITH the emitter, per the R-F3096 lesson.
+    #
+    # Deliberately absent from gap_detector.AUTONOMY_LEVEL, whose
+    # `.get(gap_type, (False, False, False))` default means an unrecognised
+    # type is NEVER auto-fixable. A security finding must not be handed to the
+    # coder to fix unattended.
+    "security_audit_finding",            # intel/security_protocol.py
+    # R-F4048 (C-107) — emitted by R-F3945 (C-39) when OpenSanctions cannot
+    # answer and screens fall back to the local canonical floor, so the DD
+    # marks un-consulted lists UNAVAILABLE rather than CLEAN. Landed
+    # 2026-08-13, AFTER the 2026-08-09 suite baseline was recorded, so the
+    # R-F2644 drift test went red without appearing in the known-failure set —
+    # found while registering the type above.
+    "sanctions_coverage_degraded",       # intel/sanctions.py
 })
 
 

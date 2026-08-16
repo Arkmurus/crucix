@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4048,
+  "next_available": 4050,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34407,6 +34407,24 @@
       "r_number": "R-F4047",
       "title": "rotate GraphQL creation across approved GPU stock",
       "claimed_at": "2026-08-16T15:48:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4048",
+      "title": "permanently-red coder autodeploy tests pin a pre-R-F2689 contract",
+      "claimed_at": "2026-08-16T16:10:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4049",
+      "title": "build positive protected-axis correction from genuine choices",
+      "claimed_at": "2026-08-16T17:00:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

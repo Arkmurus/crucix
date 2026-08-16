@@ -1203,6 +1203,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T16:07:35Z"
+    },
+    {
+      "c_number": "C-107",
+      "title": "8 standing red tests carry no information; several pin superseded contracts",
+      "claimed_at": "2026-08-16T16:10:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4048"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T17:04:54Z"
     }
   ]
 }

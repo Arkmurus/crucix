@@ -192,8 +192,34 @@ def _make_gap():
 
 
 async def _run_fix(coder, gap, fake_stage, deploy_mock):
+    """Drive fix_gap with EVERY unrelated gate deliberately open.
+
+    R-F4048 (C-107) — these tests were RED for two reasons that had nothing to
+    do with the capability-test gate they exist to prove:
+
+      * `ARIA_CODER_ENABLED` is unset in a test environment, so `fix_gap`
+        returned `coder_disabled` before reaching any gate. The "never
+        autodeploy" case then passed for the WRONG REASON — the coder refused
+        outright, so the capability-test gate was never exercised at all.
+      * R-F2689 later added an evidence gate (20 fixed + 10 gold) that a test
+        scoreboard can never satisfy, so the "allows autodeploy" case could
+        never go green.
+
+    Both preconditions are established HERE so each test isolates the one gate
+    it names. The evidence is fed through the real decision function's inputs,
+    never by disabling it.
+    """
+    import os as _os
     from aria_service.intel import self_improve as si
-    with patch("aria_service.autonomous.safety.can_task_run",
+
+    _MATURE_SCOREBOARD = {
+        "counts": {"fixed": 25, "gold": 12, "blocked": 0, "claimed": 25},
+        "recent": [{"outcome": "fixed"} for _ in range(20)],
+    }
+    with patch.dict(_os.environ, {"ARIA_CODER_ENABLED": "1"}), \
+         patch.object(coder, "get_scoreboard",
+                      AsyncMock(return_value=_MATURE_SCOREBOARD)), \
+         patch("aria_service.autonomous.safety.can_task_run",
                AsyncMock(return_value=(True, "ok"))), \
          patch("aria_service.intel.self_improve.stage_improvement", fake_stage), \
          patch("aria_service.intel.self_improve.deploy_improvement", deploy_mock), \
