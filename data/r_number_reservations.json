@@ -34183,18 +34183,20 @@
       "title": "wire event-loop health into the health verdict",
       "claimed_at": "2026-08-14T14:25:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "15ac4c20",
+      "notes": null,
+      "shipped_at": "2026-08-16T09:13:15Z"
     },
     {
       "r_number": "R-F4025",
       "title": "wire the knowledge journal/compaction failure branches to the brain",
       "claimed_at": "2026-08-14T14:48:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "beb1cdf0",
+      "notes": null,
+      "shipped_at": "2026-08-16T09:13:15Z"
     },
     {
       "r_number": "R-F4026",
@@ -34220,9 +34222,10 @@
       "title": "gate the R-F334 snapshot on the state store being genuinely off-host",
       "claimed_at": "2026-08-16T08:54:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7e110da8",
+      "notes": null,
+      "shipped_at": "2026-08-16T09:13:15Z"
     }
   ]
 }
