@@ -716,6 +716,77 @@ _TASK_HEARTBEAT_INTERVAL_S = 60.0
 _TASK_HEARTBEAT_MAX_BUSY_S = 900.0     # 3x the blackout threshold
 
 
+def _wire_task_result(task_id: str, task, record) -> None:
+    """R-F4106 (C-151) — report what the task ACTUALLY did.
+
+    THE DEFECT: the tick loop discarded `execute_task`'s return value and then
+    wired `wire_success("Task fired: …")` unconditionally. `execute_task`
+    returns a record whose `status` is one of
+    `ok | error | timeout | blocked_by_predictor | started`, and it contains
+    ZERO `wire_failure` calls of its own — so a task that RAISED or TIMED OUT
+    produced a brain SUCCESS signal and no failure signal at all.
+
+    That is §21a inverted: the failure branch did not merely fail to reach the
+    brain, it reached it wearing a success. §25a requires ARIA to know whether
+    the intended result was produced; every task reported that it was.
+
+    (R-F2706 fixed the neighbouring half — per-channel DELIVERY outcomes — which
+    is why this looked covered. `_wire_task_delivery_outcomes` runs only on the
+    success path and reports delivery, never execution status.)
+
+    Three outcomes, three readings, and the distinctions are load-bearing:
+
+      * `ok`                    → success.
+      * `blocked_by_predictor`  → a DELIBERATE skip. §14: cooling/skipping is
+                                  not broken, so it is not a failure — but it
+                                  must not read as a plain success either, or
+                                  "we skipped it" and "it worked" collapse.
+      * anything else, INCLUDING an unreadable/missing record → failure.
+        "I could not tell" must never be certified as success; that is the
+        absence-reads-as-health shape §1 records three times.
+
+    Never raises: observability must not be able to kill the tick loop.
+    """
+    try:
+        status = (record or {}).get("status") or "unknown"
+    except Exception:
+        status = "unknown"
+    _cron = getattr(task, "cron", "?")
+    try:
+        if status == "ok":
+            from ..intel.engine_wiring import wire_success as _ws
+            _ws(
+                module="autonomous_engine",
+                summary=f"Task completed: {task_id}",
+                detail=f"cron={_cron} dry_run={is_dry_run()} status=ok",
+                source_id=f"autonomous_engine:task:{task_id}",
+            )
+        elif status == "blocked_by_predictor":
+            from ..intel.engine_wiring import wire_success as _ws
+            _ws(
+                module="autonomous_engine",
+                summary=f"Task skipped by predictor: {task_id}",
+                detail=f"cron={_cron} status={status} (deliberate skip, not a fault)",
+                source_id=f"autonomous_engine:task_skipped:{task_id}",
+            )
+        else:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _err = ""
+            try:
+                _err = str((record or {}).get("error") or "")[:200]
+            except Exception:
+                _err = ""
+            _wf(
+                module="autonomous_engine",
+                detail=(f"Task {task_id} did not succeed: status={status} "
+                        f"cron={_cron} error={_err or 'none reported'}"),
+                gap_type="engine_failure",
+                source="autonomous_engine:R-F4106",
+            )
+    except Exception:      # pragma: no cover — never break the tick loop
+        pass
+
+
 async def _heartbeat_during_task(
     task_id: str, tick, *, interval: float = _TASK_HEARTBEAT_INTERVAL_S,
     max_busy_s: float = _TASK_HEARTBEAT_MAX_BUSY_S,
@@ -1081,7 +1152,10 @@ async def _engine_loop(llm) -> None:
                     except Exception:      # NameError if the R-F1146 import failed
                         _hb_task = None
                     try:
-                        await tasks_mod.execute_task(
+                        # R-F4106 (C-151) — BIND the result. This call used to
+                        # discard it, so the wiring below could only ever say
+                        # "fired", never "worked".
+                        _task_record = await tasks_mod.execute_task(
                             task=task,
                             llm=llm,
                             dry_run=is_dry_run(),
@@ -1089,17 +1163,8 @@ async def _engine_loop(llm) -> None:
                     finally:
                         if _hb_task is not None:
                             _hb_task.cancel()
-                    # R-F1059 — wire task success to brain
-                    try:
-                        from ..intel.engine_wiring import wire_success as _ws
-                        _ws(
-                            module="autonomous_engine",
-                            summary=f"Task fired: {task_id}",
-                            detail=f"cron={task.cron} dry_run={is_dry_run()}",
-                            source_id=f"autonomous_engine:task:{task_id}",
-                        )
-                    except Exception:
-                        pass
+                    # R-F1059 / R-F4106 — wire the task's ACTUAL outcome.
+                    _wire_task_result(task_id, task, _task_record)
                     # R-F1146 — save checkpoint after successful task
                     try:
                         await save_checkpoint(

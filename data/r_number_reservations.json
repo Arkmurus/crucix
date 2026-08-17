@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4106,
+  "next_available": 4107,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34968,6 +34968,15 @@
       "r_number": "R-F4105",
       "title": "C-149 blocked autonomous task escalates to the operator",
       "claimed_at": "2026-08-17T07:07:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4106",
+      "title": "C-151 engine honours execute_task reported status when wiring",
+      "claimed_at": "2026-08-17T07:45:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
