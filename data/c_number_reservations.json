@@ -1520,9 +1520,12 @@
       "title": "53% of LLM spend is bucketed 'uncategorized' and the ledger keeps no caller identity",
       "claimed_at": "2026-08-17T03:51:39Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4087"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T04:10:24Z"
     }
   ]
 }

@@ -2210,3 +2210,91 @@ transiently lost to a concurrent write and restored.
   gate-#6 pin — an operator decision requiring a deliberate re-pin.
 - **Peer has one unpushed commit** (`943e3c69`, R-F4084 replay budget), not
   mine to push or deploy.
+
+## 2026-08-17 — command-centre audit, continued to the end of the list
+
+**Scope**: the same operator brief carried through — "do not leave anything
+undone", laser-precision root surgery, everything wired and enabled. Four more
+defects, all found by pulling on instruments the earlier fixes had just
+installed.
+
+**Shipped**: R-F4083 (C-131), R-F4085 (C-132), R-F4086 (C-133), R-F4087 (C-134).
+Cumulative for this brief: 20 R-numbers across 19 defects.
+Live on `aria-intel` @ `f0f51303` and `aria-web`, each ship-marked only after a
+verified `build_rev` plus a behavioural probe.
+
+### The pattern held: my own new gauges produced the next findings
+
+- **C-131** — my C-118 "external failure rate" counted 99 `empty` Brave results
+  as errors and rendered "Fail rate 42%" with zero real errors. An empty result
+  set is an answer, not a failure.
+- **C-132** — R-F4065's new "Last evaluated" stamp read 3.4h old and looked like
+  a missed hourly run. The stamp was right; the task is 6-hourly and `tasks.yaml`
+  contradicted itself in a single block (comment "every hour on the hour", name
+  "(hourly)", cron `0 */6 * * *`). I had *twice* built on the false name — C-112
+  relocated the mastery correction onto it, and R-F4065's own 3h warn threshold
+  would have shown WARN for most of every cycle. Corrected the prose, not the
+  cron: quietly making it hourly to match a label would be changing behaviour to
+  protect a name.
+- **C-133** — `test_widening_the_heading_level_did_not_change_the_live_reading`
+  had been red since the day it was written. It asserted the wide register
+  reading equals the `###`-only reading; the register moved to `##` at C-39 and
+  never moved back (42 vs 88 entries). It could never go green, so it carried no
+  information — and the tempting way to green it was to narrow the parser back
+  and hide 88 live claims from the allocator. Rewritten as three falsifiable
+  invariants plus a test proving the control can still FAIL.
+- **C-134** — 53% of month-to-date LLM spend ($46.26 of $87.57) sat in
+  `uncategorized`, and the ledger record holds no caller identity at all, so it
+  could not be attributed retroactively. §17 records the cost of that blindness:
+  the RULE ONE breach hid in `self_improve` + `uncategorized`.
+
+### What I got wrong, and how it was caught
+
+- **C-131 and C-132 were my own defects from the previous day.** Both were found
+  by auditing my own new surfaces rather than by anything failing.
+- **I attributed ~30 worktree test failures to a missing `.env`. Wrong** — it was
+  the missing `.venv` junction; tests shelling out to `.venv/Scripts/python.exe`
+  died on a path, not on config. Copying `.env` changed nothing; the junction
+  fixed 11/11 immediately. That is the R-F3791 environment-vs-code trap and I
+  fell into the diagnosis half of it.
+- **I launched the §16 baseline before finishing code changes**, which moved the
+  tree it had already hashed. Killed it rather than burn 40 minutes on a run that
+  could not record. Order is: fix → commit → deploy → verify → ship-mark → then
+  measure.
+- **C-134's obvious single decision point was wrong.** `record_call` looks like
+  the one place to capture the caller, but it runs inside an
+  `asyncio.create_task` — the contextvar survives, the stack does not. A stack
+  walk there returns asyncio internals and *looks* like it works.
+- **A seventh number collision with the peer** (R-F4084). Mine was 110s earlier,
+  but theirs was already pushed with a test file and a commit citing it, so I
+  moved. Timestamp seniority is the wrong tiebreak once one side is published;
+  cheaper-to-move is the operative question.
+
+### Verified live, not asserted
+
+`/health`: operational, `degraded_reasons []`, autonomy enabled/running L3 with
+98 tasks, `state_backend` sqlite reachable, diagnostic GREEN 76/0/0/2,
+`rule_one.breached false` with `brave_non_dd_grants 0` and anthropic absent from
+`active_providers`. Brain dashboard: 25 panels, `omitted: {}`. Every field added
+across this brief present and reading honestly — audit `entries_24h` separate
+from lifetime 1211, chain `verdict broken / complete true / 1211-of-1211`,
+calibration `excluded_signals` populated with `correction_applied
+{applied:false, reason:read_only_call}` on a GET, freshness `protected 91 /
+ambient 909`, core-mastery composition, resilience roles, and the 6-hourly
+`last_evaluated_at`. Phase A gates unchanged at 3 pass / 4 open (#7 is
+operator-only).
+
+**C-134's behavioural proof**: the first LLM call after the deploy logged as
+`unscoped:intel.wire` instead of `uncategorized` — and immediately named a real
+unscoped caller the panel could never have shown before.
+
+### Still open, recorded rather than guessed
+
+- **`unscoped:*` rows will now appear on the cost panel.** That is the fix
+  working; each names a call site that needs a real `feature()` scope. Do not
+  silence them by mapping them back to `uncategorized`.
+- **Four standing failures in the `llm/stream` selection are PRE-EXISTING** —
+  proven by reverting my diff and reproducing the identical four
+  (`test_rf450_stream_footer_integration` x2, `test_rf2709_*` x2). Not diagnosed.
+- **§16 baseline** re-measured at the end of this session on a quiet tree with
+  the `.venv` junction in place; see the run recorded alongside.
