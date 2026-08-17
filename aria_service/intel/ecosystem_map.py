@@ -630,6 +630,21 @@ def _build_structure_sync() -> dict[str, Any]:
             orphans.append(mid)
 
     # ── Build nodes ──
+    # R-F4127 — union each organ's member-module R-numbers before building nodes.
+    # Iterate EVERY module exactly as the node builder does — `organ_of.get(mid,
+    # "unassigned")` — not just the assigned ones. A first pass walked
+    # `organ_of.items()` and so skipped the orphan bucket, leaving the ⚠ Unassigned
+    # organ reporting a total of 0 while its 11 modules carried 23 R-numbers. That
+    # is the same hardcoded-empty defect this fix exists to remove, reproduced one
+    # branch over; the union test caught it.
+    _organ_rnums: dict[str, set] = {}
+    for _mid in id_to_path:
+        _organ_rnums.setdefault(organ_of.get(_mid, "unassigned"), set()).update(
+            rnums_by_mod.get(_mid, []))
+    for _svc, _rel in node_mods:
+        _nid = _node_module_id(_svc, _rel)
+        _organ_rnums.setdefault(node_organ_of.get(_nid) or "unassigned", set()).update(
+            node_rnums.get(_nid, []))
     nodes: list[dict[str, Any]] = []
     for sid, meta in _SERVICES.items():
         nodes.append({"id": sid, "label": meta["label"], "type": "service",
@@ -641,9 +656,11 @@ def _build_structure_sync() -> dict[str, Any]:
         mods_per_organ[org] = mods_per_organ.get(org, 0) + 1
     for oid, label, svc, _keys in _ORGANS:
         cnt = mods_per_organ.get(oid, 0)
+        _tr, _tot = _trail(_organ_rnums.get(oid, set()))
         nodes.append({"id": f"organ:{oid}", "label": label, "type": "organ",
                       "tier": 1, "category": oid, "parent": svc,
-                      "size": min(24, 8 + cnt // 4), "module_count": cnt, "r_numbers": []})
+                      "size": min(24, 8 + cnt // 4), "module_count": cnt,
+                      "r_numbers": _tr, "r_numbers_total": _tot})
     # orphan bucket organ (only if any) — RED completeness alert node
     # R-F3358: the bucket now covers BOTH tiers — a Node path nobody declared must
     # raise the same completeness alert a Python module does, or the new tier would
@@ -653,7 +670,9 @@ def _build_structure_sync() -> dict[str, Any]:
         nodes.append({"id": "organ:unassigned", "label": f"⚠ Unassigned ({_all_orphans})",
                       "type": "organ", "tier": 1, "category": "unassigned",
                       "parent": "aria-intel", "size": min(24, 8 + _all_orphans // 4),
-                      "module_count": _all_orphans, "orphan_alert": True, "r_numbers": []})
+                      "module_count": _all_orphans, "orphan_alert": True,
+                      **dict(zip(("r_numbers", "r_numbers_total"),
+                                 _trail(_organ_rnums.get("unassigned", set()))))})
     for mid, path in id_to_path.items():
         org = organ_of.get(mid, "unassigned")
         nodes.append({"id": f"mod:{mid}", "label": mid.split(".")[-1], "type": "module",
@@ -664,9 +683,11 @@ def _build_structure_sync() -> dict[str, Any]:
     # namespace so this cannot perturb the Python assignment above.
     for oid, label, svc, _prefixes in _NODE_ORGANS:
         cnt = sum(1 for (s, r) in node_mods if _assign_node_organ(s, r) == oid)
+        _tr, _tot = _trail(_organ_rnums.get(oid, set()))
         nodes.append({"id": f"organ:{oid}", "label": label, "type": "organ",
                       "tier": 1, "category": oid, "parent": svc,
-                      "size": min(24, 8 + cnt // 4), "module_count": cnt, "r_numbers": []})
+                      "size": min(24, 8 + cnt // 4), "module_count": cnt,
+                      "r_numbers": _tr, "r_numbers_total": _tot})
     for svc, rel in node_mods:
         nid = _node_module_id(svc, rel)
         org = node_organ_of.get(nid) or "unassigned"
@@ -1411,6 +1432,40 @@ def _load_rnum_index() -> dict[str, dict]:
         logger.debug("[ecosystem_map] rnum index load failed: %s", e)
     _RNUM_INDEX.update(data=idx, at=now)
     return idx
+
+
+# ── R-F4127 (C-162) — an organ's audit trail ────────────────────────────────
+# Organ and service nodes shipped `"r_numbers": []` as a literal, so hovering the
+# ecosystem map at the level an operator actually looks at could never show which
+# R-numbers built that organ. Module nodes always had it; the frontend was never
+# at fault — `_card()` renders `· audit R-…` whenever the list is non-empty, and
+# was faithfully rendering nothing.
+#
+# DERIVED from the module assignment already computed above, never a fourth
+# hand-maintained table: one that would drift the moment a module changed organ,
+# which is the rot CLAUDE.md records for every curated list in this repo.
+_ORGAN_RNUM_CAP = 12
+
+
+def _rnum_key(r: str) -> int:
+    """Numeric order, so "the last N" really are the NEWEST.
+
+    The stored lists are string-sorted, where 'R-F1055' < 'R-F107'. The tooltip
+    shows `rn.slice(-4)`, so string order would surface an arbitrary four rather
+    than the four most recent.
+    """
+    digits = "".join(ch for ch in str(r) if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _trail(rnums: set) -> tuple[list, int]:
+    """(capped newest-last list, TRUE total).
+
+    §27d — the cap is disclosed, never silent: a truncated list that does not say
+    so reads as complete coverage.
+    """
+    ordered = sorted(rnums, key=_rnum_key)
+    return ordered[-_ORGAN_RNUM_CAP:], len(ordered)
 
 
 def _audit_refs(r_numbers: list[str]) -> list[dict]:

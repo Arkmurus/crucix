@@ -9275,3 +9275,58 @@ path. Four suites together: **50 passed**. Wiring gates **0/0/0,
 passed, 1 failed** — `rf2172`, proven pre-existing: it is in the recorded
 baseline's failure set AND passes in isolation. Compile gate green; §9 lifespan
 smoke `LIFESPAN OK`.
+
+## C-162 · organ nodes hardcoded an empty audit trail (R-F4127)
+
+Operator, 2026-08-17: *"some of the items on the living organs do not have
+sensors and neither able to hoover on top and see what r numbers are related to
+it."*
+
+Measured on the overview graph:
+
+```
+nodes: 36  {service: 3, organ: 33}
+  organ    n=33  sensor=33  r_numbers=0
+  service  n= 3  sensor= 3  r_numbers=0
+```
+
+It is not *some* — it is **every node at the level an operator actually looks
+at**. And the sensor half of the complaint is NOT a defect: all 36 overview
+nodes carry a sensor. The grey ones are tier-2 module nodes reached by drilling
+in, where no breaker/agent/limb sensor exists to read; grey there is honest.
+
+The cause was three literals. `ecosystem_map` populated `r_numbers` for MODULE
+nodes and passed `"r_numbers": []` for every service, organ and Node-tier organ.
+**The frontend was never at fault** — `_card()` renders `· audit R-…` whenever
+the list is non-empty, so it was faithfully rendering nothing. Worth stating,
+because the instinct on "hover shows nothing" is to go and fix the page.
+
+An organ is an aggregate of its modules, so its trail is the union of theirs,
+DERIVED from the assignment already computed — never a fourth hand-maintained
+table that would drift the moment a module changed organ.
+
+### The cap is disclosed, and the ordering is deliberate
+
+`r_numbers_total` reports the TRUE count beside the capped 12 (§27d: a silent
+truncation reads as complete coverage). Ordering is NUMERIC, not the stored
+string order where `R-F1055 < R-F107` — the tooltip shows `rn.slice(-4)`, so
+string order would surface an arbitrary four rather than the four most recent.
+
+### The test caught me reproducing the very defect
+
+A first pass built the union from `organ_of.items()`, which contains only
+ASSIGNED modules. The orphan bucket therefore reported `total: 0` while its 11
+unmapped modules carried 23 R-numbers — the same hardcoded-empty defect, one
+branch over. It now iterates every module exactly as the node builder does,
+`organ_of.get(mid, "unassigned")`.
+
+### Verified
+
+Fixture-first: **4 failed → 5 passed**. Live output: **33/33 organs carry a
+trail**, e.g. `organ:infra total=403 shown=[… R-F4126, R-F4127]` and
+`organ:routes total=710`. Wiring gates 0/0/0. Ecosystem regression: 142 passed,
+1 failed — `rf3358`, proven pre-existing **twice**: it is in the recorded
+baseline AND fails with this diff stashed. (It asserts a hardcoded
+`len(orphans) == 3` and the tree now has 7, because four modules the peers added
+match no organ — the orphan bucket alerting correctly while the magic number
+rots.) Compile gate green; §9 lifespan smoke `LIFESPAN OK`.
