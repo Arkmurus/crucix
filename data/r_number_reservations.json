@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4122,
+  "next_available": 4123,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35124,6 +35124,15 @@
       "r_number": "R-F4121",
       "title": "C-158 isolate the brain_hook stats coalescing cross-suite polluter",
       "claimed_at": "2026-08-17T10:28:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4122",
+      "title": "build measured resolution failure correction gate",
+      "claimed_at": "2026-08-17T10:39:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
