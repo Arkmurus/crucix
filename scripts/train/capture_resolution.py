@@ -16,14 +16,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 import json
 import os
 import sys
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import (
-    _norm_subject, build_resolution_trace, write_multihop_corpus, validate_trace,
-    resolve_company,
+    _norm_for_derivation, _norm_subject, build_resolution_trace,
+    write_multihop_corpus, validate_trace, resolve_company,
 )
 
 from scripts.train._subjects import AMBIGUOUS_SHORT, UK_REGISTRY_SUBJECTS
@@ -53,6 +54,83 @@ def check_preconditions() -> None:
 # reach this axis. Take the full registry roster: disambiguation is exactly
 # the skill that needs breadth, not a sample of it.
 SUBJECTS = AMBIGUOUS_SHORT + UK_REGISTRY_SUBJECTS
+
+
+RESOLUTION_CASES = (
+    "confident_exact",
+    "confident_core",
+    "multiple_live",
+    "dissolved_only",
+    "unresolved",
+)
+
+
+def classify_resolution_case(subject: str, results: list[dict]) -> str:
+    """Classify the decision branch established by a real registry response."""
+    chosen, reason, ambiguous = resolve_company(subject, results)
+    if ambiguous:
+        return "multiple_live"
+    if chosen is not None:
+        title = str(chosen.get("title") or "")
+        return (
+            "confident_exact"
+            if _norm_for_derivation(title) == _norm_for_derivation(subject)
+            else "confident_core"
+        )
+    if "only name match" in reason and "dissolved" in reason:
+        return "dissolved_only"
+    return "unresolved"
+
+
+def enforce_resolution_coverage(
+    traces: list[dict], *, required_cases: dict[str, int],
+) -> dict[str, int]:
+    """Reject a capture whose measured registry branches are under-covered."""
+    unknown = sorted(set(required_cases) - set(RESOLUTION_CASES))
+    if unknown:
+        raise ValueError(f"unknown resolution cases: {', '.join(unknown)}")
+    counts: Counter[str] = Counter()
+    for trace in traces:
+        messages = trace.get("messages") or []
+        tool_messages = [m for m in messages if m.get("role") == "tool"]
+        if not tool_messages:
+            raise ValueError(f"resolution trace has no registry payload: {trace.get('subject')!r}")
+        try:
+            payload = json.loads(tool_messages[-1].get("content") or "{}")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"resolution trace has invalid registry payload: {trace.get('subject')!r}"
+            ) from exc
+        results = payload.get("results") or []
+        counts[classify_resolution_case(str(trace.get("subject") or ""), results)] += 1
+    missing = {
+        case: minimum - counts[case]
+        for case, minimum in required_cases.items()
+        if counts[case] < minimum
+    }
+    if missing:
+        detail = ", ".join(
+            f"{case}={counts[case]}/{required_cases[case]}" for case in sorted(missing)
+        )
+        raise ValueError(f"resolution branch coverage is insufficient: {detail}")
+    return dict(counts)
+
+
+def parse_required_case(values: list[str]) -> dict[str, int]:
+    """Parse repeatable CASE=MINIMUM coverage requirements."""
+    required: dict[str, int] = {}
+    for value in values:
+        case, separator, raw_minimum = value.partition("=")
+        if not separator or case not in RESOLUTION_CASES:
+            raise ValueError(f"invalid --require-case {value!r}")
+        try:
+            minimum = int(raw_minimum)
+        except ValueError as exc:
+            raise ValueError(f"invalid --require-case {value!r}") from exc
+        if minimum < 1 or case in required:
+            raise ValueError(f"invalid --require-case {value!r}")
+        required[case] = minimum
+    return required
 
 
 def select_capture_subjects(
@@ -111,6 +189,10 @@ def main() -> int:
                     help="Repeat JSONL files whose subjects must not be queried")
     ap.add_argument("--allow-unchecked-contamination", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument(
+        "--require-case", action="append", default=[], metavar="CASE=MINIMUM",
+        help="Require measured registry branch coverage before writing any rows",
+    )
     a = ap.parse_args()
     check_preconditions()
 
@@ -136,6 +218,10 @@ def main() -> int:
         source_subjects, forbidden_subjects=forbidden, limit=a.limit,
     )
     traces = asyncio.run(capture(subjects))
+    required_cases = parse_required_case(a.require_case)
+    if required_cases:
+        counts = enforce_resolution_coverage(traces, required_cases=required_cases)
+        print(f"measured resolution cases: {json.dumps(counts, sort_keys=True)}")
     n = write_multihop_corpus(traces, a.out, eval_subjects=blocklist,
                               allow_unchecked=a.allow_unchecked_contamination)
     print(f"wrote {n} validated resolution traces -> {a.out} (from {len(traces)} built)")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4088,
+  "next_available": 4089,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34805,6 +34805,15 @@
       "commit_sha": "f0f51303",
       "notes": null,
       "shipped_at": "2026-08-17T04:10:24Z"
+    },
+    {
+      "r_number": "R-F4088",
+      "title": "gate resolution evidence branch coverage",
+      "claimed_at": "2026-08-17T04:21:29Z",
+      "claimed_by": "codex",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
