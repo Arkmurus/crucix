@@ -1655,9 +1655,12 @@
       "title": "self_coder drops 145 of 146 gaps with no counter",
       "claimed_at": "2026-08-17T07:01:50Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4104"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:39:40Z"
     },
     {
       "c_number": "C-149",

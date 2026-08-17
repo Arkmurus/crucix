@@ -567,8 +567,24 @@ class ARIACoder:
         protected_file_gaps = []
         pending_skip = []
         actionable = []
+        # R-F4104 (C-148) — COUNT WHAT THIS BAR DROPS. Live 2026-08-17, seconds
+        # apart: gap_detector said "146 actionable gaps", this loop said "1
+        # actionable gaps", and nothing reconciled them because this filter —
+        # unlike the two below it — logged nothing. The two reasons are kept
+        # APART on purpose: "too minor" is a triage decision, but "this type is
+        # not auto-fixable" is derived from AUTONOMY_LEVEL.get(type, (False,…)),
+        # so an unknown/renamed gap_type silently returns False. A CRITICAL gap
+        # dropped that way means a rotted registry, and pooling it with
+        # low-severity noise is how the loop would go quiet while looking
+        # healthy (the R-F3791 goes-blind-rather-than-fails shape).
+        below_severity: list = []
+        not_auto_fixable: list = []
         for g in gaps:
-            if g.severity < GapSeverity.MEDIUM or not g.auto_fixable:
+            if g.severity < GapSeverity.MEDIUM:
+                below_severity.append(g)
+                continue
+            if not g.auto_fixable:
+                not_auto_fixable.append(g)
                 continue
             # Map module name to file path and check against PROTECTED_FILES
             _module_path = f'aria_service/intel/{g.module}.py'
@@ -587,6 +603,29 @@ class ARIACoder:
             except Exception:  # noqa: BLE001 — the check must never break the cycle
                 pass
             actionable.append(g)
+
+        # R-F4104 (C-148) — reconcile with the gap_detector's own count.
+        if below_severity or not_auto_fixable:
+            logger.info(
+                "[aria_coder] R-F4104: %d of %d gap(s) dropped below the bar — "
+                "%d under MEDIUM severity, %d not auto_fixable (types: %s)",
+                len(below_severity) + len(not_auto_fixable), len(gaps),
+                len(below_severity), len(not_auto_fixable),
+                sorted({g.gap_type for g in not_auto_fixable})[:8] or "-",
+            )
+        # A CRITICAL/HIGH gap that is not auto_fixable is not triage — it is a
+        # gap_type the AUTONOMY_LEVEL registry does not know about. Say so
+        # loudly; silence here is how a renamed type blinds the whole loop.
+        _severe_unfixable = [g for g in not_auto_fixable
+                             if g.severity >= GapSeverity.HIGH]
+        if _severe_unfixable:
+            logger.warning(
+                "[aria_coder] R-F4104: %d SEVERE gap(s) are not auto_fixable — "
+                "gap_type(s) %s are absent from AUTONOMY_LEVEL. This is a "
+                "registry gap, not a triage decision.",
+                len(_severe_unfixable),
+                sorted({g.gap_type for g in _severe_unfixable})[:8],
+            )
 
         if pending_skip:
             logger.info(

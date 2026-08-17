@@ -8542,7 +8542,7 @@ a dark path — but nothing reaches the one value the gate accepts, so
 `STYLE-LEARN-HOURLY` fires every hour and can never learn. The function's own
 comment records a previous field-rename incident of exactly this shape.
 
-## C-148 · self_coder drops 145 of 146 gaps with no counter
+## C-148 · self_coder drops 145 of 146 gaps with no counter (R-F4104)
 
 ```
 [gap_detector] scan complete: 146 actionable gaps (from 216 raw signals)
@@ -8560,6 +8560,27 @@ regressed the loop would go quiet and look exactly like this. The one gap it did
 claim failed at the reproduce gate with an **empty reason string**
 (`"LLM failed to write reproduce test:"`), plausibly C-145 surfacing downstream.
 R-F3919's rate-slot refund worked correctly.
+
+### Fixed (R-F4104)
+
+The bar now counts what it drops, reconciled against the detector's own total:
+`"N of M gap(s) dropped below the bar — X under MEDIUM severity, Y not
+auto_fixable (types: …)"`.
+
+**The two reasons are kept APART on purpose.** "Too minor" is a triage
+decision. "Not auto_fixable" is derived from
+`AUTONOMY_LEVEL.get(gap_type, (False, False, False))`, so an unknown or
+**renamed** gap_type silently returns False — and a CRITICAL gap dropped that
+way is a rotted registry, not triage. Pooling the two is exactly how the loop
+would go quiet while looking as healthy as it does today (the R-F3791
+goes-blind-rather-than-fails shape), so a severe-but-unfixable gap now raises a
+WARNING naming the offending gap_type.
+
+**This is an observability fix only.** A test asserts the coder still attempts
+exactly the one gap it attempted before — a loop that started picking up LOW or
+non-auto-fixable gaps would be a behaviour change nobody asked for.
+
+RED 2 failed / 1 passed; GREEN 3 passed, plus 43 green across the coder suites.
 
 ## C-149 · a known-blocked task burns four research runs a day, silently
 
