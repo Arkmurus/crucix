@@ -35134,9 +35134,10 @@
       "title": "build measured resolution failure correction gate",
       "claimed_at": "2026-08-17T10:39:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b533fe9cf949b1195bd48c88a5c1173a7d028bb5",
+      "notes": null,
+      "shipped_at": "2026-08-17T10:47:19Z"
     }
   ]
 }
