@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4105,
+  "next_available": 4107,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34972,6 +34972,24 @@
       "commit_sha": "d48ce8c6",
       "notes": null,
       "shipped_at": "2026-08-17T09:06:31Z"
+    },
+    {
+      "r_number": "R-F4105",
+      "title": "abstain on ambiguous international registry name searches",
+      "claimed_at": "2026-08-17T09:15:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4106",
+      "title": "close registry adapter transport precommit gaps",
+      "claimed_at": "2026-08-17T09:18:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

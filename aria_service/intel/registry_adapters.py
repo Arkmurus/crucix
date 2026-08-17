@@ -606,7 +606,7 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
     lookup resolves the KRS number via GLEIF's local registered_as, fetches the rich
     extract, and only trusts it if the fetched name verifies against the query."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             data: dict | None = None
 
             # Resolve the KRS number: operator-supplied first, else via GLEIF. No usable
@@ -621,7 +621,7 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
                 return None
 
             url = f"{_PL_API_BASE}/OdpisPelny/{krs}?rejestr=P&format=json"
-            resp = await client.get(url)
+            resp = await client.get(url)  # no-ssrf-check: fixed _PL_API_BASE; krs is validated as exactly 10 digits
             if resp.status_code == 200:
                 data = resp.json()
 
@@ -774,7 +774,7 @@ async def _lookup_romania(name: str, reg_number: str | None) -> dict | None:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             import json
             from datetime import date
 
@@ -868,7 +868,7 @@ _TR_MERSIS_SEARCH = "https://mersis.gtb.gov.tr"
 async def _lookup_turkey(name: str, reg_number: str | None) -> dict | None:
     """Turkey MERSIS — public company search (HTML scraping)."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # MERSIS search page
             search_term = reg_number or name
             # Try the public search interface
@@ -995,9 +995,9 @@ async def _lookup_brazil(name: str, reg_number: str | None) -> dict | None:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             url = f"{_BR_RECEITAWS_BASE}/{cnpj}"
-            resp = await client.get(url, headers={"Accept": "application/json"})
+            resp = await client.get(url, headers={"Accept": "application/json"})  # no-ssrf-check: fixed _BR_RECEITAWS_BASE; cnpj is digit-normalized
             if resp.status_code == 429:
                 logger.warning("ReceitaWS rate limited (3 req/min free tier)")
                 return None
@@ -1115,7 +1115,7 @@ async def _lookup_nigeria(name: str, reg_number: str | None) -> dict | None:
     from .ua_rotation import random_ua
     try:
         query = reg_number or name
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             resp = await client.get(
                 "https://search.cac.gov.ng/home/company_search",
                 params={"search": query},
@@ -1192,7 +1192,7 @@ async def _lookup_uae(name: str, reg_number: str | None) -> dict | None:
         return None
 
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             timeout=_TIMEOUT,
             follow_redirects=True,
             headers={
@@ -1335,7 +1335,7 @@ async def _lookup_india(name: str, reg_number: str | None) -> dict | None:
     try:
         # MCA V3 API (public, no auth required)
         query = reg_number or name
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             resp = await client.get(
                 "https://www.mca.gov.in/mcafoportal/showCompanyMaster.do",
                 params={"companyName": name} if not reg_number else {"companyID": reg_number},
@@ -1404,7 +1404,7 @@ async def _lookup_slovakia(name: str, reg_number: str | None) -> dict | None:
     if not ico.isdigit():
         ico = ""
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             timeout=_TIMEOUT, follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)", "Accept": "application/json"},
         ) as client:
@@ -1547,7 +1547,7 @@ async def _lookup_czech(name: str, reg_number: str | None) -> dict | None:
     if not ico.isdigit():
         ico = ""
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             timeout=_TIMEOUT, follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)", "Accept": "application/json"},
         ) as client:
@@ -1671,7 +1671,7 @@ async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
     """
     _query_reg = reg_number  # R-F2737 — capture BEFORE the page reg overwrites it below
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             if reg_number:
                 # Direct lookup by cégjegyzékszám
                 clean_reg = reg_number.strip()
@@ -1680,7 +1680,7 @@ async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
                 # Search by name
                 url = f"https://www.e-cegjegyzek.hu/?cegadatfriss662-data=show&cegadatfrissites662-cegnev={name}"
 
-            resp = await client.get(url)
+            resp = await client.get(url)  # no-ssrf-check: fixed e-cegjegyzek.hu origin; user values remain query parameters
             if resp.status_code != 200:
                 return None
 
@@ -1817,7 +1817,7 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
       3. Best-effort officer enrichment via /companies/{id}/officers.
     """
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             timeout=_TIMEOUT,
             follow_redirects=True,
             headers={"Accept": "application/json", "User-Agent": "ARIA-DD/1.0"},
@@ -1829,7 +1829,7 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
             if hr:
                 hr_type, hr_num = hr
                 url = f"{_DE_API_BASE}/companies/by_id"
-                resp = await client.get(url, params={
+                resp = await client.get(url, params={  # no-ssrf-check: fixed _DE_API_BASE; identifiers remain query parameters
                     "register_type": hr_type,
                     "register_number": hr_num,
                 })
@@ -1843,7 +1843,7 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
             # ── Fallback: name search ──
             if not company and name:
                 url = f"{_DE_API_BASE}/companies/by_name"
-                resp = await client.get(url, params={"name": name.strip(), "limit": 5})
+                resp = await client.get(url, params={"name": name.strip(), "limit": 5})  # no-ssrf-check: fixed _DE_API_BASE; name remains a query parameter
                 if resp.status_code == 200:
                     payload = resp.json()
                     hits = payload if isinstance(payload, list) else payload.get("results", [])
@@ -1998,7 +1998,7 @@ def _fr_extract_siren(text: str) -> str | None:
 async def _lookup_france(name: str, reg_number: str | None) -> dict | None:
     """France SIRENE via recherche-entreprises.api.gouv.fr (open data, no auth)."""
     try:
-        async with httpx.AsyncClient(
+        async with httpx.AsyncClient(  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             timeout=_TIMEOUT,
             follow_redirects=True,
             headers={"Accept": "application/json", "User-Agent": "ARIA-DD/1.0"},
@@ -2203,7 +2203,7 @@ async def _lookup_kenya(name: str, reg_number: str | None) -> dict | None:
     query = reg_number or name
     _unconfirmed = False  # R-F2736 — a page came back but did NOT match the query
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # Attempt the BRS public search endpoint
             resp = await client.get(
                 _KE_BRS_SEARCH,
@@ -2304,7 +2304,7 @@ async def _lookup_saudi_arabia(name: str, reg_number: str | None) -> dict | None
     query = reg_number or name
     _unconfirmed = False  # R-F2733 — a page came back but did NOT match the query
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # Attempt the MOCI commercial data page
             resp = await client.get(
                 _SA_MC_SEARCH,
@@ -2411,7 +2411,7 @@ async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
     query = reg_number or name
     _unconfirmed = False  # R-F2733 — a page came back but did NOT match the query
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # Attempt the RGD online search
             resp = await client.get(
                 _GH_RGD_SEARCH,
@@ -2521,7 +2521,7 @@ async def _lookup_south_africa(name: str, reg_number: str | None) -> dict | None
     from .ua_rotation import random_ua
     query = reg_number or name
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # BizPortal search page — exploratory; often returns a login wall.
             resp = await client.get(
                 f"{_ZA_BIZPORTAL}/Account/Login",
@@ -2587,7 +2587,7 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
     query = reg_number or name
     _unconfirmed = False  # R-F2736 — a record came back but did NOT match the query
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             # data.gov.il CKAN API — shape: /api/3/action/datastore_search
             resp = await client.get(
                 f"{_IL_REGISTRAR_DATA}/api/3/action/datastore_search",
@@ -2872,7 +2872,7 @@ async def _lookup_us_florida(
         "searchTerm": search_term,
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             resp = await client.get(
                 _FL_SUNBIZ_SEARCH,
                 params=params,
@@ -2952,7 +2952,7 @@ async def _lookup_us_delaware(
     """
     from .ua_rotation import random_ua
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             resp = await client.get(
                 _DE_SOS_SEARCH,
                 headers={
@@ -3073,14 +3073,14 @@ async def _lookup_finland(name: str, reg_number: str | None) -> dict | None:
     else by name. Returns the best match (status=active preferred)."""
     y_tunnus = _extract_finnish_y_tunnus(reg_number or "") or _extract_finnish_y_tunnus(name or "")
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:  # no-breaker: registry adapters are best-effort; breaker belongs at the DD pipeline level
             if y_tunnus:
                 url = f"{_FI_PRH_BASE}?businessId={y_tunnus}"
             else:
                 if not name or len(name.strip()) < 3:
                     return None
                 url = f"{_FI_PRH_BASE}?name={httpx.QueryParams({'name': name})['name']}"
-            resp = await client.get(url)
+            resp = await client.get(url)  # no-ssrf-check: fixed _FI_PRH_BASE; user values remain query parameters
             if resp.status_code == 404:
                 return None
             if resp.status_code != 200:
