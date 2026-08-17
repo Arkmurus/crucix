@@ -445,6 +445,20 @@ def _pick_best_company(query: str, results: list[dict],
     return winner
 
 
+def resolve_company_search(query: str, results: list[dict]) -> tuple[dict | None, dict]:
+    """Resolve a registry search only when its identity decision is safe.
+
+    Returns ``(company, decision)``. ``company`` is ``None`` for empty, dead,
+    partial, or genuinely ambiguous matches so callers cannot accidentally feed
+    an inferred registration number into identity-dependent downstream work.
+    """
+    decision: dict = {}
+    selected = _pick_best_company(query, results, decision) or None
+    if selected is None or decision.get("ambiguous"):
+        return None, decision
+    return selected, decision
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 def _accounts_block(accounts: dict | None) -> dict:
     """Normalise the Companies House `accounts` object (R-F2782).
@@ -1704,8 +1718,8 @@ async def investigate_uk_entity(
         # company; fall back to overseas only when it is genuinely the best hit.
         # R-F3123 — capture WHY this company was chosen, so the DD can disclose an
         # ambiguous name instead of asserting an identity it merely inferred.
-        selected = _pick_best_company(company_name, results, _resolution) or {}
-        company_number = selected.get("company_number")
+        selected, _resolution = resolve_company_search(company_name, results)
+        company_number = (selected or {}).get("company_number")
         # R-F4099 — disclosure after the fact is not a resolution control. Before
         # this gate, an ambiguous name still drove profile, officer, PSC and filing
         # requests for the inferred winner; every downstream fact inherited the
