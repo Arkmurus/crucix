@@ -121,6 +121,74 @@ def test_the_attribution_helper_reaches_the_real_implementation():
     assert not label.startswith("unscoped:llm."), label
 
 
+def _as_if_defined_in(module_name: str, fn):
+    """Rebind `fn` so its frame reports `__name__ == module_name`.
+
+    The walk reads `frame.f_globals["__name__"]`, so this reproduces the exact
+    production frame shape without importing anything into a real module. A
+    first attempt at the C-136 guard just decorated a function in THIS module
+    and passed with the fix removed — useless, because the test module's own
+    frame wins before the wrapper is ever reached. The defect needs the
+    decorated function to live in a SKIPPED module, which is what production
+    has and what this builds.
+    """
+    import types
+
+    g = dict(fn.__globals__)
+    g["__name__"] = module_name
+    return types.FunctionType(fn.__code__, g, fn.__name__, fn.__defaults__,
+                              fn.__closure__)
+
+
+def test_a_wiring_decorator_never_wins_the_walk():
+    """R-F4090 (C-136). Live 9 minutes after R-F4087 deployed: **30 of 33** LLM
+    calls attributed to `unscoped:intel.wire`. `wire.py` makes no LLM calls —
+    it is a `functools.wraps` decorator module — and `MeteredProvider.complete`
+    carries `@fail_wire` (`metered.py:247`). So the production stack is
+
+        attribute_unscoped_caller   (cost_tracker      — skipped)
+        _cost_attribution           (llm.metered       — skipped)
+        complete                    (llm.metered       — skipped)
+        fail_wire wrapper           (intel.wire        — WON every time)
+        the real caller             (never reached)
+
+    That is the original defect one level up, and worse in one specific way:
+    30 distinct callers collapsed into a single label that LOOKS like an
+    answer, where `uncategorized` at least looked like a gap. A decorator is
+    never the spender.
+    """
+    from aria_service.intel.wire import fail_wire
+
+    def _inner():
+        return ct.attribute_unscoped_caller()
+
+    # Sits in a skipped module, exactly like `MeteredProvider.complete`.
+    inner = _as_if_defined_in("aria_service.llm.metered", _inner)
+    wrapped = fail_wire(module="test_rf4090", gap_type="engine_failure")(inner)
+
+    label = wrapped()
+    assert label.startswith("unscoped:"), label
+    assert "intel.wire" not in label, (
+        "the @fail_wire wrapper frame won the walk — a decorator is plumbing, "
+        f"never the spender: {label}")
+    # The walk must continue past the wrapper to the real caller: this test.
+    assert "rf4087" in label.lower(), label
+
+
+def test_the_decorator_is_invisible_to_attribution():
+    """R-F4090 (C-136): wrapping a function cannot change who is billed."""
+    from aria_service.intel.wire import fail_wire
+
+    def _inner():
+        return ct.attribute_unscoped_caller()
+
+    plain = _as_if_defined_in("aria_service.llm.metered", _inner)
+    wrapped = fail_wire(module="test_rf4090", gap_type="engine_failure")(
+        _as_if_defined_in("aria_service.llm.metered", _inner))
+
+    assert plain() == wrapped()
+
+
 def test_record_call_honours_an_explicitly_passed_feature():
     """The captured label reaches the ledger via `feature_name=`, which must
     take precedence over the contextvar exactly as it did before."""

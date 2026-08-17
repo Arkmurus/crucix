@@ -1526,6 +1526,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T04:10:24Z"
+    },
+    {
+      "c_number": "C-136",
+      "title": "the attribution fix named the decorator, masking 30 real callers",
+      "claimed_at": "2026-08-17T04:37:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

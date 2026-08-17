@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4090,
+  "next_available": 4092,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34821,6 +34821,24 @@
       "title": "measure resolution branch expansion",
       "claimed_at": "2026-08-17T04:34:31Z",
       "claimed_by": "codex",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4090",
+      "title": "walk past wiring decorators so attribution names the decorated caller",
+      "claimed_at": "2026-08-17T04:37:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4091",
+      "title": "CLAUDE.md 18: OpenSanctions quota recovered, heading said exhausted",
+      "claimed_at": "2026-08-17T04:37:10Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null

@@ -663,11 +663,24 @@ def feature(name: str):
 # deliberately ugly prefix — it should read as a TODO on the cost panel, not as
 # a legitimate feature name. Scoping the caller properly with `feature()`
 # remains the right fix; this only makes the omission visible.
+# R-F4090 (C-136): this list is "frames that are STRUCTURALLY plumbing and can
+# never be the answer" — not a curated list of callers. The first version
+# omitted the wiring decorators and the live result was immediate and stark:
+# 30 of the 33 LLM calls in the first 9 minutes after deploy attributed to
+# `unscoped:intel.wire`. `wire.py` makes NO LLM calls; it is a `functools.wraps`
+# decorator module (`fail_wire`), so its wrapper frame sits between every
+# decorated function and the call, and it won the walk every time. That is the
+# original defect one level up — 30 distinct callers collapsed into one
+# meaningless label — and it is worse than `uncategorized` in one specific way:
+# it LOOKS like an answer. A decorator is never the spender.
 _ATTRIBUTION_SKIP_PREFIXES = (
     "aria_service.llm.",          # metered / factory / fallback / providers
     "aria_service.intel.cost_tracker",
+    "aria_service.intel.wire",           # @fail_wire — a decorator, not a caller
+    "aria_service.intel.engine_wiring",  # wire_success / wire_failure — likewise
     "asyncio.",
     "contextlib",
+    "functools",
 )
 _ATTRIBUTION_MAX_FRAMES = 30
 

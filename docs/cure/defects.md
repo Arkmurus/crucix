@@ -8021,3 +8021,54 @@ green; §9 lifespan smoke `LIFESPAN OK`.
 deploys. That is the fix working.** Each one names a call site that should be
 given a real `feature()` scope; do not silence them by mapping them back to
 `uncategorized`.
+
+## C-136 · the attribution fix named the decorator, masking 30 real callers (R-F4088)
+
+R-F4087 shipped and the live evidence came back within nine minutes: **30 of the
+33 LLM calls made after boot attributed to `unscoped:intel.wire`.**
+
+`wire.py` makes **no LLM calls**. It is a `functools.wraps` decorator module,
+and `MeteredProvider.complete` carries `@fail_wire` (`metered.py:247`), so the
+production stack is:
+
+```
+attribute_unscoped_caller   (intel.cost_tracker  - skipped)
+_cost_attribution           (llm.metered         - skipped)
+complete                    (llm.metered         - skipped)
+fail_wire wrapper           (intel.wire          - WON, every time)
+the real caller             (never reached)
+```
+
+The decorator wrapping `complete` sits **directly above** the three skipped
+frames, so it won the walk unconditionally.
+
+This is the original defect one level up — and worse in one specific way. 30
+distinct callers collapsed into a single label that **looks like an answer**,
+where `uncategorized` at least looked like a gap. A wrong name is more dangerous
+than a blank, which is the same reason `attribute_unscoped_caller` returns `""`
+rather than guessing when it cannot resolve a caller.
+
+### The fix
+
+`_ATTRIBUTION_SKIP_PREFIXES` is documented as *frames that are STRUCTURALLY
+plumbing and can never be the answer* — not a curated list of callers. The two
+wiring decorators (`intel.wire`, `intel.engine_wiring`) and `functools` belong
+in it on that definition. **A decorator is never the spender.**
+
+### The test was wrong first, and passing proved nothing
+
+The first C-136 guard decorated a function in the test module and asserted the
+label. It **passed with the fix removed** — useless, because the test module's
+own frame wins before the wrapper is ever reached. The defect requires the
+decorated function to live in a *skipped* module, which is what production has.
+`_as_if_defined_in()` rebinds a function so its frame reports a skipped
+`__name__`, reproducing the exact shape.
+
+Proven both ways, which is the only reason to trust it: **fix removed → 2 failed
+/ 10 passed; fix restored → 12 passed.**
+
+### Verified
+
+12 passed. Compile gate green. Found by auditing my own fix against live data
+rather than by anything failing — R-F4087's own deploy verification is what
+surfaced it.
