@@ -1,4 +1,4 @@
-"""R-F4096 (C-140) — CAPABILITY: the health surface must remember store timeouts.
+"""R-F4107 (C-140) — CAPABILITY: the health surface must remember store timeouts.
 
 Measured live on aria-intel 2026-08-17, in a two-minute burst
 (06:46:47–06:48:45Z), `state_store` logged **26 read timeouts across 25 distinct

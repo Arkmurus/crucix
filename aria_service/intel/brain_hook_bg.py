@@ -177,7 +177,7 @@ async def absorb_tiers_bg(
         logger.warning("brain_hook(%s): %d errors — %s",
                         module, len(result["errors"]), "; ".join(result["errors"]))
     else:
-        # R-F4102 (C-146) — `neural=` USED TO BE REPORTED HERE AND WAS A LIE.
+        # R-F4113 (C-146) — `neural=` USED TO BE REPORTED HERE AND WAS A LIE.
         # This line runs BEFORE the neural lane (R-F1665 moved that lane last,
         # see below), and the caller seeds the dict with "neural_ok": False
         # (brain_hook.py:832) — so this printed the seed, not an outcome. Live
@@ -272,7 +272,7 @@ async def absorb_tiers_bg(
                     result["neural_ok"] = ok
                     if err:
                         result["errors"].append(err)
-                    # R-F4102 (C-146) — the neural tier's ONE observable
+                    # R-F4113 (C-146) — the neural tier's ONE observable
                     # signal, emitted where the outcome is actually known.
                     # `result["neural_ok"]` keeps its exact True/False domain
                     # (several suites pin it); this is reporting only.

@@ -1099,9 +1099,10 @@ async def _uk_registry_accounts(name: str, registration_number: str = "") -> dic
 
         number = (registration_number or "").strip()
         if not number:
-            hits = await ch.search_companies(name, limit=1)
-            if hits:
-                number = str(hits[0].get("company_number") or "").strip()
+            hits = await ch.search_companies(name, limit=3)
+            selected, _resolution = ch.resolve_company_search(name, hits)
+            if selected:
+                number = str(selected.get("company_number") or "").strip()
         if not number:
             return None
 
@@ -1374,9 +1375,10 @@ async def _enrich_with_registry_figures(
             return False
         number = (registration_number or "").strip()
         if not number:
-            hits = await ch.search_companies(name, limit=1)
-            if hits:
-                number = str(hits[0].get("company_number") or "").strip()
+            hits = await ch.search_companies(name, limit=3)
+            selected, _resolution = ch.resolve_company_search(name, hits)
+            if selected:
+                number = str(selected.get("company_number") or "").strip()
         if not number:
             return False
         fig = await ch.fetch_accounts_figures(number)

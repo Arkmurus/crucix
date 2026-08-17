@@ -1,4 +1,4 @@
-"""R-F4097 (C-141) — CAPABILITY: persisting one signal must not rewrite 35 MB.
+"""R-F4108 (C-141) — CAPABILITY: persisting one signal must not rewrite 35 MB.
 
 `_flush_loop` runs on `FLUSH_DEBOUNCE_S = 2.0` and calls `_write_to_disk_atomic`,
 which `json.dump`s the ENTIRE ledger — 81,971 signals, 35.5 MB on disk — plus

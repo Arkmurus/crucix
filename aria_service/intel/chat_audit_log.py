@@ -66,7 +66,7 @@ _GENESIS_HASH = "0" * 64
 
 
 class ChatAuditChainUnreadable(RuntimeError):
-    """R-F4100 (C-144) — the chat chain head could not be READ.
+    """R-F4111 (C-144) — the chat chain head could not be READ.
 
     Distinct from "the log is empty". Only one of those means genesis.
     """
@@ -75,7 +75,7 @@ class ChatAuditChainUnreadable(RuntimeError):
 async def _read_head_hash(*, strict: bool = False) -> str:
     """Read the current chain head, or genesis if the log is empty.
 
-    R-F4100 (C-144) — A TRANSIENT READ FAILURE IS NOT GENESIS.
+    R-F4111 (C-144) — A TRANSIENT READ FAILURE IS NOT GENESIS.
 
     THE DEFECT: `record_chat` read its head as
 
@@ -164,7 +164,7 @@ async def record_chat(
     aria_chat() or aria_chat_stream() response."""
     from . import redis_store as rs
 
-    # R-F4100 (C-144) — the WRITE path reads strictly. Chaining to genesis
+    # R-F4111 (C-144) — the WRITE path reads strictly. Chaining to genesis
     # because the store blipped would fork the evidentiary chain and orphan
     # every prior entry; refusing the write loses ONE record and keeps the
     # chain provable. Losing a chat-audit entry is bad. Silently invalidating
@@ -173,7 +173,7 @@ async def record_chat(
         prev_hash = await _read_head_hash(strict=True)
     except ChatAuditChainUnreadable as _cce:
         logger.error(
-            "[R-F4100] chat audit head hash UNREADABLE (%s) — refusing to "
+            "[R-F4111] chat audit head hash UNREADABLE (%s) — refusing to "
             "write session=%r rather than chain it to genesis and fork the "
             "chain", _cce, session_id,
         )
@@ -183,7 +183,7 @@ async def record_chat(
                 detail=(f"chat audit write refused: head hash unreadable "
                         f"({str(_cce)[:120]}) session={session_id}"),
                 gap_type="data_integrity",
-                source="chat_audit_log:record_chat:R-F4100",
+                source="chat_audit_log:record_chat:R-F4111",
             )
         except Exception:
             pass

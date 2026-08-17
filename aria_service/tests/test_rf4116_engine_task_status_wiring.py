@@ -1,4 +1,4 @@
-"""R-F4106 (C-151) — CAPABILITY: a task that FAILED must not wire success.
+"""R-F4116 (C-157) — CAPABILITY: a task that FAILED must not wire success.
 
 Found while working C-149. `engine.py` calls
 

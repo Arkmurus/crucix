@@ -8269,6 +8269,232 @@ Proven both ways: reverting to `startswith(_ATTRIBUTION_SKIP_PREFIXES)` turns
 `test_skip_prefixes_match_on_a_module_boundary` red on
 `aria_service.intel.wire_utils`; restored, **14 passed**.
 
+## C-152 · a store read failure wiped the whole freshness tracker (R-F4097)
+
+Found by diffing a panel reading against itself across a deploy.
+
+The freshness panel read `protected_total 91 / ambient_total 909` — 1,000
+tracked domains, at the cap — before a deploy, and **`8 / 128` after it.**
+Protected domains are never pruned (`_is_expired_ambient` returns False for
+them by construction), so expiry cannot explain the loss. A clobber can.
+
+`record_refresh` did a read-modify-write of the entire domain dict:
+
+```python
+existing = await rs.get_json(_REDIS_KEY)      # non-strict
+if not isinstance(existing, dict):
+    existing = {}
+...
+await rs.set_json(_REDIS_KEY, existing, ex=_TTL_SECONDS)
+```
+
+`get_json` honours the R-F1 None-on-error contract (`redis_store.py:299-303`):
+`None` for a genuinely absent key **and** for a store failure, indistinguishable.
+So one failed read collapsed `existing` to `{}` and the very next line replaced
+the durable key with a **single domain**.
+
+**This is the R-F2664 shape exactly, in a second module.** §1 records it for
+`_load_regional_mastery`: *"a slow-boot StoreReadError poisoned
+`_regional_cache` to `{}` → the next `update_regional_mastery` CLOBBERED the
+durable key"*. aria-intel boots for ~10 minutes (§11c), so the not-ready window
+is large and is entered **on every deploy**.
+
+§7 is explicit: infinite memory, no eviction. Losing ~860 tracked domains to a
+boot-time race is what that rule forbids, and it was silent — no error, no gap,
+just a smaller number on a panel nobody was diffing.
+
+### The fix
+
+`_read_domains_strict()` reads with `get_strict` and returns `None` when the
+contents **cannot be established**; `record_refresh` then SKIPS the write. One
+lost timestamp beats a wiped tracker.
+
+* **`get_strict`, not `get_json_strict`** — deliberately. The json helper
+  swallows a parse failure into `None`, which puts us straight back into
+  "unreadable looks like absent" for a corrupt value. A test covers the corrupt
+  case separately from the wedged one.
+* **A genuinely absent key still returns `{}`**, so first use works. The guard
+  must not break the empty case it is protecting.
+* **A store with no `get_strict` skips and WARNS.** A blanket
+  `except Exception: return None` froze every write with no signal, which is a
+  worse failure than the clobber — the tracker would simply stop, silently.
+  Caught because it broke six of R-F4067's own tests, whose fake store predated
+  the strict contract.
+
+### And the reader was lying too
+
+`get_all_domains` returned `[]` on failure, so `stats()` rendered a confident
+`tracked 0 / 0% stale` for a store it could not read — the absence-as-health
+shape, again. It now returns `None`, and `stats()` reports
+`store_readable: false` with `None` counts. `stale_domains()` maps that to `[]`
+but only after the distinction is made: returning "nothing is stale" to R-F90's
+orchestrator is the quietest possible way for the refresh loop to stop working.
+
+### Verified
+
+Fixture-first: **5 failed → 6 passed**, including a test that fails on the
+clobber itself (1,000 domains in the store, wedged read, assert nothing was
+written). `-k "learning_progress or freshness or coverage or heatmap or rf4067
+or rf4097 or stale"`: **469 passed, 5 failed** — all five proven PRE-EXISTING by
+re-running the identical selection with the diff stashed, which reproduces the
+same five (`rf1696`, `rf3976`, `rf4088`, `rf684`, `rf728`); the +6 delta is this
+fix's own tests. Compile gate green; §9 lifespan smoke `LIFESPAN OK`.
+
+## C-153 · the freshness tracker skipped writes and told nobody (R-F4101)
+
+R-F4097 stopped `record_refresh` clobbering the tracker when the store cannot be
+read: it now SKIPS the write. Right for the data — and as shipped, **dark**. The
+skip reached a `logger.warning` at most, and §21a is explicit that a log line is
+not wiring.
+
+The failure mode that creates is worse than the one it replaced. A clobber is
+loud in the numbers: 1,000 tracked domains drop to 8 and someone eventually
+notices. **A permanent skip is silent by construction** — the tracker simply
+stops updating, `stale_domains()` keeps returning what it last held, R-F90's
+refresh orchestrator keeps believing everything is fresh, and the panel can
+still read `store_readable: true`, because reads recover while writes are still
+being skipped. §25 calls that a limb ARIA cannot feel.
+
+**Once per episode, not per call.** `record_refresh` fires on every ingested
+fact, so a per-skip gap is the self-sustaining flood that already filled the
+500-slot capability ledger (C-98, `sanctions_coverage_degraded`). A successful
+write **re-arms** the latch, so a second outage after a good period announces
+again instead of being swallowed by a latch that already fired — a latch that
+can only fire once degrades into "we told you in March".
+
+---
+
+## C-154 · the stolen-decorator gate watched ONE file, so the same theft shipped (R-F4102)
+
+**R-F4097 stole a decorator, and it shipped, deployed, and live-verified clean.**
+
+R-F3928 built a guard for exactly this class after R-F3919 did exactly this
+thing. Its docstring states the rule in capitals — *"WHEN INSERTING A FUNCTION
+ABOVE ANOTHER, ANCHOR ON THE DECORATOR, NOT THE `def`"* — and warns the gate
+"must never be muted or baselined away". And it is scoped to one target:
+
+```python
+_TARGET = "aria_service/autonomous/safety.py"
+```
+
+So when R-F4097 inserted `_read_domains_strict` above `get_all_domains` in
+`learning_progress.py`, anchoring on the `async def`, the pre-existing
+`@fail_wire` landed on the new **private helper** and `get_all_domains` was
+silently un-wired. Nothing failed, because **the thing it broke is the reporting
+of failure.**
+
+It surfaced only by accident. The NEXT insertion (R-F4101) put a comment between
+the orphaned decorator and the following `def` — a SyntaxError. *A compile error
+found a wiring defect that six test selections and a live smoke had all passed
+over.*
+
+**A guard that enumerates one file certifies the other 104.** Same shape as
+R-F3791 (a check whose universe went empty always passes) and the three Phase A
+gates §1 records as "certified by an absence" — here the absence is the rest of
+the tree.
+
+### Widened to the definition, not to a syntax
+
+The first version required the `@fail_wire` **decorator** and immediately
+flagged `chat_ep` and `chat_stream_ep` — the two most important user-facing
+paths in the product, both wired perfectly well through in-body `absorb` calls.
+That false positive mattered more than it looks: **a gate that shouts about
+correct code is a gate someone mutes**, and this is the gate that must never be
+muted.
+
+So the rule encodes §21a's actual definition — a public async function is dark
+only when it reaches **no brain sink at all**, by decorator or in body. Under
+that rule the honest baseline is **9 dark functions across 4 modules** (the
+decorator-only rule claimed 16 across 9, three of them false).
+
+`_KNOWN_DARK` is **SHRINK-ONLY** — same contract as `KNOWN_DEAD_CALLS` and
+`LEGACY_COLLISIONS`. Wire the function and delete the line; a new entry means
+the gate was bypassed. A test asserts every baselined entry still exists and is
+still dark, so the set cannot rot into a permanent exemption list.
+
+### Verified
+
+C-153 fixture-first: **4 errors → 4 passed**, including a test that drives 50
+consecutive skips and asserts exactly ONE signal, and one that proves recovery
+re-arms. C-154: **5 passed**, with a case proving the gate still detects the
+exact theft shape and another proving in-body wiring is accepted. Combined with
+the R-F4097 and R-F4067 suites: **25 passed.** Compile gate green; §9 lifespan
+smoke `LIFESPAN OK`.
+
+**Standing red, found while verifying and NOT fixed here:** three wiring gates —
+`test_rf1783_wiring_gates_ast::test_all_gates_clean_no_infra_false_positives`,
+`test_rf3560_gap_type_overrides::test_no_blocking_wiring_violations_remain`, and
+`test_rf1158_compliance_watch_failure` — are red before and after this change
+(proven by the identical selection with the diff stashed). **That is very likely
+why the R-F4097 theft was not caught**: the repo's wiring gates carry no
+information while they are red. Diagnosing them is the obvious next task.
+
+## C-155 · three wiring gates stood red, so the gate that catches a stolen decorator carried no information (R-F4103)
+
+C-154 asked why R-F4097's decorator theft was not caught. This is the answer.
+
+`wiring_harness.run_all_gates()` is the repo's primary §21a enforcement, and it
+was **red on two blocking gates** — plus a third wiring test red for an unrelated
+reason. A red gate carries no information in either direction: it cannot
+distinguish a healthy tree from a broken one, and nobody investigates a board
+that is already red. The theft shipped into that silence.
+
+### Only TWO real violations were holding it red
+
+```
+gate_scope 0 | gate_a 2 | gate_b 0
+  - cost_tracker.py:728  attribute_unscoped_caller()  no @fail_wire
+  - dd_schema.py:2699    sanctions_coverage()         no @fail_wire
+```
+
+One of them was **mine, shipped earlier the same day** (R-F4087's attribution
+helper). The other, `sanctions_coverage` — the single classification of a
+sanctions screen's per-list coverage, on the DD report path — had been dark
+since R-F4007.
+
+Both are now wired, and neither is a gate-appeasing decoration: if
+`sanctions_coverage` throws, a DD report silently loses its coverage
+classification, which is the C-39 failure class this codebase has already paid
+for once. `run_all_gates()` now reports **0 / 0 / 0, `has_blocking_violations:
+False`.**
+
+### The third gate was a stale test, not a defect
+
+`test_rf1158_compliance_watch_failure::test_source_contains_failure_wiring`
+asserted:
+
+```python
+src = function_source(a, "brain_signal_ep")
+assert '_cw_result.get("captured")' in src or 'not _cw_result' in src
+```
+
+The wiring was **never removed**. It was extracted into `_route_one_signal` and
+the variable renamed `_cw`. So the test pinned two implementation details — a
+function name and a local variable name — and reported a defect that did not
+exist. Its own three behavioural siblings passed the entire time, which is the
+decisive evidence: the behaviour was always correct.
+
+Rewritten to ask the question that can be answered wrong. Not *"is this string
+in that function"* but *"is the capture result checked and reported where it is
+captured"* — located by AST over the whole module, so renaming the function or
+the variable cannot break it, and **deleting the check still can.** Proven: with
+`if not _cw.get("captured")` temporarily replaced by `if False`, the test fails;
+restored, it passes.
+
+### Why this is the highest-leverage fix in the batch
+
+Every other defect this session was one instrument lying. This one is the
+instrument that watches the instruments. With it green, the next stolen
+decorator fails CI instead of being found — as R-F4097's was — by a
+coincidental SyntaxError two commits later.
+
+### Verified
+
+**19 passed** across the three formerly-red gates; the wider
+`-k "wiring or rf1158 or rf1783 or rf3560 or rf3928 or rf4102 or dd_schema or
+cost_tracker"` selection: **364 passed, 0 failed.** `routes/aria.py` restored
+byte-identical after the fail-proof (`git diff` empty). Compile gate green; §9
+lifespan smoke `LIFESPAN OK`.
 ---
 
 # Live-log review 2026-08-17 — C-140..C-149
@@ -8288,7 +8514,7 @@ loop went p95 1.3 ms to 63.5 ms (max 4,734 ms). `/health` at 06:53 reported
 C-95 and C-98 fixed `knowledge.py` but not `intel_ledger.py`; R-F3711 fixed
 `audit_log.py` but not `chat_audit_log.py`.
 
-## C-140 · the health surface has no memory of store read timeouts (R-F4096)
+## C-140 · the health surface has no memory of store read timeouts (R-F4107)
 
 `state_store` logged 26 read timeouts across 25 distinct keys in a two-minute
 burst, each *"timed out after 5s — DB may be bloated or under WAL recovery.
@@ -8305,7 +8531,7 @@ with no memory cannot distinguish a quiet store from one that just failed 26
 reads, which is why C-95 ran unnoticed for a day and why this burst would have
 too. Same class as C-96 (`/health` not reading the gauge it publishes).
 
-### Fixed (R-F4096)
+### Fixed (R-F4107)
 
 `state_store.note_read_timeout()` records each timeout and
 `read_timeout_report()` answers "how blind has this process been, recently?" —
@@ -8330,7 +8556,7 @@ handler and assert the burst reaches `degraded_reasons` — not a source probe.
 Plus 20 green across the health/state_store suites, `main.py` import smoke (§9)
 clean.
 
-## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce (R-F4097)
+## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce (R-F4108)
 
 `_flush_loop` (`intel_ledger.py:257-291`) runs on `FLUSH_DEBOUNCE_S = 2.0` and
 calls `_write_to_disk_atomic`, which `json.dump`s the **entire** ledger —
@@ -8349,7 +8575,7 @@ now 81,971 and 8.18 MB. §7 forbids eviction, so **the cost rises without bound 
 the better ARIA's memory gets, the more starved she becomes.** That is C-95's
 transferable lesson: any O(total-data) step under an infinite-memory policy.
 
-### Fixed (R-F4097) — the C-95 journal, ported
+### Fixed (R-F4108) — the C-95 journal, ported
 
 `_save(record=…)` declares what changed; `_flush_to_disk` **appends** it to
 `<ledger>.journal.jsonl` instead of rewriting 35 MB, and `_load` replays the
@@ -8389,7 +8615,7 @@ intel` selection. The two remaining failures there (`test_rf925…`, `test_rf183
 A/B'd against base `intel_ledger.py` and fail identically without this change;
 `rf1839` is named explicitly in §16's KNOWN-FLAKY set.
 
-## C-142 · the ledger's "off-host backup" writes to the volume it backs up (R-F4098)
+## C-142 · the ledger's "off-host backup" writes to the volume it backs up (R-F4109)
 
 `SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence`
 (`intel_ledger.py:137`). Redis was decommissioned (§6/§18): `REDIS_URL` is unset,
@@ -8410,7 +8636,7 @@ fix did not cover. **Second, separate loose end:** C-98 correctly gated *new*
 knowledge-shard writes, but the 83.2 MB already written was never reclaimed —
 13% of a 630 MB state DB that is now timing out reads (C-140).
 
-### Fixed (R-F4098) — the write half
+### Fixed (R-F4109) — the write half
 
 Ported C-98: `_snapshot_target_is_offhost()` + `_should_snapshot()`, consulted
 by `_flush_loop` before it spends the 600 s cadence. Device identity is compared
@@ -8434,7 +8660,7 @@ new writes; nothing reclaimed the existing 225 keys. That is a *reclaim*, which
 §26 forbids without the deletion ladder, and it belongs with C-143's
 archive-with-manifest rather than being smuggled in here.
 
-## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim (R-F4099)
+## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim (R-F4110)
 
 `_write_to_disk_atomic` (`intel_ledger.py:204-226`) unlinks its `mkstemp` file
 only on the `except` branch. A process killed mid-write — every deploy, every
@@ -8453,7 +8679,7 @@ unlink outside the exception handler. The only reference to the prefix is the
 `mkstemp` call that creates them. §26 forbids deletion: the reclaim must be
 archive-with-manifest or a guarded age-bounded sweep, never `rm`.
 
-### Fixed (R-F4099) — measured and wired; the reclaim stays the operator's call
+### Fixed (R-F4110) — measured and wired; the reclaim stays the operator's call
 
 `tmp_orphan_report()` / `sweep_tmp_orphans()`, run once per process from the
 flusher (off the request path, in a thread) and **wired to the brain** (§21a)
@@ -8479,7 +8705,7 @@ beside the ledger. Fixing C-141 shrinks the window that creates new ones.
 
 RED 7 failed; GREEN 7 passed, plus 109 green across the ledger suites.
 
-## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain (R-F4100)
+## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain (R-F4111)
 
 Recorded live during the window:
 
@@ -8505,7 +8731,7 @@ turns race and fork the chain the same way. 16 breaks over 1,233 entries = 1.3%.
 *Cause not established* — both mechanisms are present and both fit the signature;
 neither was reproduced.
 
-### Fixed (R-F4100) — the strict-read half
+### Fixed (R-F4111) — the strict-read half
 
 Ported R-F3711: `ChatAuditChainUnreadable` + `_read_head_hash(strict=…)`. The
 WRITE path reads strictly and **refuses**, logging + `wire_failure` (§21a) and
@@ -8530,13 +8756,13 @@ Proven both ways: before the fix `record_chat` wrote an entry carrying
 `"prev_hash": "0000…0000"` with the head unreadable (RED, 2 failed / 3 passed);
 after, **5 passed**, plus 86 green across the audit- and chat-adjacent suites.
 
-**The race is NOT fixed here — it is [C-150].** The head is read at `:120` and
+**The race is NOT fixed here — it is [C-156].** The head is read at `:120` and
 written at `:280` with no lock. Wrapping that span costs several awaited store
 ops under a lock, and this machine is already timing out store reads (C-140);
 bundling a latency-risky change into a data-integrity fix is how a fix becomes
 an outage. It gets its own number and its own measurement.
 
-## C-145 · the cost meter records 0 tokens when a stream skips on_done (R-F4101)
+## C-145 · the cost meter records 0 tokens when a stream skips on_done (R-F4112)
 
 The 24 h cost summary reports a model literally named `fallback`:
 **142 of 1,000 calls, 0 tokens, $0.00** — 14.2% of all LLM traffic. It is not a
@@ -8562,7 +8788,7 @@ rollups that enforce the cap, so **the meter reads low**.
 implementation (`provider.py:149-155`) fires it **after** `yield`, so an abandoned
 generator skips it; the resilience wrappers all pass it through cleanly.
 
-### Fixed (R-F4101) — root cause, then honesty
+### Fixed (R-F4112) — root cause, then honesty
 
 **Root cause.** `provider.py.stream()` fired `on_done` *after* its `yield`. An
 async generator whose consumer stops early never runs the code after the yield,
@@ -8589,7 +8815,7 @@ stream/cost/metered selection. The two `test_rf450_stream_footer_integration`
 failures in that selection are **recorded baseline entries** and were confirmed
 to fail identically with `provider.py` reverted to base.
 
-## C-146 · brain_hook's neural indicator is a constant, not a measurement (R-F4102)
+## C-146 · brain_hook's neural indicator is a constant, not a measurement (R-F4113)
 
 All **131** absorb lines in the window read `neural=False`. Not one was a
 measurement. The log sits at `brain_hook_bg.py:180`; `result["neural_ok"]` is
@@ -8601,7 +8827,7 @@ So the one operator-visible signal for the neural tier **cannot report success**
 and the tier's real state — including its documented cap-skip and
 interactive-deferral paths — is unobservable. A guard that cannot fire.
 
-### Fixed (R-F4102)
+### Fixed (R-F4113)
 
 `neural=` is REMOVED from the durable-core line — nothing at that point in the
 function can know it — and the neural lane now logs its own outcome where the
@@ -8619,7 +8845,7 @@ successful encode and a deliberately exploding encoder produced **byte-identical
 operator output**. RED 2 failed / 1 passed; GREEN 3 passed, plus 25 green across
 the brain_hook suites.
 
-## C-147 · style_learner's grounded-only gate has a 0% live pass rate (R-F4103)
+## C-147 · style_learner's grounded-only gate has a 0% live pass rate (R-F4114)
 
 ```
 [style_learner] 200 entries scanned but 0 kept — filtered:
@@ -8635,7 +8861,7 @@ a dark path — but nothing reaches the one value the gate accepts, so
 `STYLE-LEARN-HOURLY` fires every hour and can never learn. The function's own
 comment records a previous field-rename incident of exactly this shape.
 
-### Fixed (R-F4103) — wired, not widened
+### Fixed (R-F4114) — wired, not widened
 
 The module had **no brain wiring at all** — no `wire_success`, no
 `wire_failure`, no `record_gap` (§21a: a path that only logs is DARK). So a
@@ -8659,7 +8885,7 @@ it cannot learn.
 
 RED 3 failed / 3 passed; GREEN 6 passed, plus 17 green across the selection.
 
-## C-148 · self_coder drops 145 of 146 gaps with no counter (R-F4104)
+## C-148 · self_coder drops 145 of 146 gaps with no counter (R-F4115)
 
 ```
 [gap_detector] scan complete: 146 actionable gaps (from 216 raw signals)
@@ -8678,7 +8904,7 @@ claim failed at the reproduce gate with an **empty reason string**
 (`"LLM failed to write reproduce test:"`), plausibly C-145 surfacing downstream.
 R-F3919's rate-slot refund worked correctly.
 
-### Fixed (R-F4104)
+### Fixed (R-F4115)
 
 The bar now counts what it drops, reconciled against the detector's own total:
 `"N of M gap(s) dropped below the bar — X under MEDIUM severity, Y not
@@ -8718,7 +8944,7 @@ research runs over 11 days.
 
 Working this defect surfaced a larger one — the engine discarded
 `execute_task`'s result entirely and wired success unconditionally — which is
-now **[C-151] / R-F4106**. That does not close C-149: the Polymarket task
+now **[C-157] / R-F4116**. That does not close C-149: the Polymarket task
 returns `status=ok`. It genuinely runs, genuinely finds nothing, and is
 honestly reporting that.
 
@@ -8732,7 +8958,7 @@ The underlying blocker is also an **operator action** (§21e exception): the
 Gamma/Polymarket feed is unavailable in this chat mode. No code change makes
 that data appear.
 
-## C-151 · the engine wired success for every task, including failed ones (R-F4106)
+## C-157 · the engine wired success for every task, including failed ones (R-F4116)
 
 Found while working C-149. `engine.py` called
 
@@ -8755,7 +8981,7 @@ R-F2706 fixed the neighbouring half (per-channel DELIVERY outcomes), which is
 why this looked covered. It was not: `_wire_task_delivery_outcomes` runs only
 on the success path and reports delivery, never execution status.
 
-### Fixed (R-F4106)
+### Fixed (R-F4116)
 
 `_wire_task_result()` binds the record and branches on the reported status.
 Three outcomes, three readings, all load-bearing:
@@ -8774,7 +9000,7 @@ Never raises: observability must not be able to kill the tick loop.
 
 RED 7 failed; GREEN 7 passed, plus 29 green across the engine suites.
 
-## C-150 · chat_audit_log's head read-modify-write is unsynchronised (OPEN)
+## C-156 · chat_audit_log's head read-modify-write is unsynchronised (OPEN)
 
 The second mechanism of [C-144], split out deliberately rather than bundled.
 
@@ -8786,7 +9012,7 @@ entry whose `prev_hash` is not its list-neighbour's `chain_hash`. A fork, by
 exactly the classic read-modify-write race. 16 breaks over 1,233 entries (1.3%)
 is consistent with it.
 
-### Why it is NOT fixed in R-F4100
+### Why it is NOT fixed in R-F4111
 
 The critical section spans `lpush` + `ltrim` + `set` + `expire` plus the session
 index — several awaited store ops. Putting that under a lock serialises every
@@ -8804,7 +9030,7 @@ cheaper alternative worth costing first is making the head update atomic
 (compare-and-set on the store) rather than holding a lock across the whole
 entry build.
 
-## C-152 · a DETERMINISTIC reproducer for the brain-hook cross-suite flake (OPEN)
+## C-158 · a DETERMINISTIC reproducer for the brain-hook cross-suite flake (OPEN)
 
 §16 records the brain-hook family as the dominant known-flaky set and says the
 next step is *"bisection over the collection order preceding a failing file —
@@ -8830,7 +9056,7 @@ is the [[standing-red-tests-hide-p0s]] shape.
 
 ### What is already ruled out — do not repeat these
 
-* **It is not a regression from C-140/C-142/C-144/C-146/C-147/C-148/C-151.**
+* **It is not a regression from C-140/C-142/C-144/C-146/C-147/C-148/C-157.**
   Proven by a clean A/B: the same selection, with the seven new test files
   excluded from BOTH sides so the source change was the only variable, gives
   **`5 failed, 1464 passed` identically** with the fixes applied and with all

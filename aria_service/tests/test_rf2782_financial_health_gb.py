@@ -57,7 +57,8 @@ def _stub_ch(monkeypatch, *, accounts=None, enabled=True, profile=True):
     monkeypatch.setattr(ch, "is_enabled", lambda: enabled)
 
     async def _search(query, limit=5):
-        return [{"company_number": "01470151"}]
+        return [{"company_number": "01470151", "title": query.upper(),
+                 "company_status": "active"}]
 
     async def _profile(number):
         if not profile:

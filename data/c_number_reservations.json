@@ -1571,108 +1571,81 @@
       "title": "state_backend health surface has no memory of store read timeouts",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4096"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:21:47Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-141",
       "title": "intel_ledger rewrites the whole 35MB ledger every 2s debounce (C-95 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4097"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:24:36Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-142",
       "title": "intel_ledger off-host snapshot writes 8MB to the volume it backs up (C-98 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4098"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:24:24Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-143",
       "title": "intel_ledger orphans mkstemp tmp files on kill — 382MB, no reclaim",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4099"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:13:09Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-144",
       "title": "chat_audit_log non-strict head read forks the chain (R-F3711 port)",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4100"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:11:34Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-145",
       "title": "metered stream records 0 tokens when inner stream skips on_done",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4101"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:09:00Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-146",
       "title": "brain_hook neural= log reads neural_ok before the neural lane runs",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4102"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:14:57Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-147",
       "title": "style_learner grounded-only gate has a 0 percent live pass rate",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4103"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:42:42Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-148",
       "title": "self_coder drops 145 of 146 gaps with no counter",
       "claimed_at": "2026-08-17T07:01:50Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4104"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:39:40Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-149",
@@ -1684,30 +1657,75 @@
       "notes": null
     },
     {
-      "c_number": "C-150",
+      "c_number": "C-152",
+      "title": "a store read failure wipes the whole freshness tracker on the next write",
+      "claimed_at": "2026-08-17T07:10:10Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4097"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:20:32Z"
+    },
+    {
+      "c_number": "C-153",
+      "title": "the freshness tracker skips writes on an unreadable store and tells nobody",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4101"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:23Z"
+    },
+    {
+      "c_number": "C-154",
+      "title": "the stolen-decorator gate watches one file, so the same theft shipped elsewhere",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4102"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:24Z"
+    },
+    {
+      "c_number": "C-155",
+      "title": "three wiring gates stood red, so the gate that should catch a stolen decorator carried no information",
+      "claimed_at": "2026-08-17T08:04:46Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4103"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:24Z"
+    },
+    {
+      "c_number": "C-156",
       "title": "chat_audit_log head read-modify-write is unsynchronised (C-144 second mechanism)",
-      "claimed_at": "2026-08-17T07:08:32Z",
+      "claimed_at": "2026-08-17T09:40:33Z",
       "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
     },
     {
-      "c_number": "C-151",
+      "c_number": "C-157",
       "title": "engine wires task success unconditionally, discarding execute_task status",
-      "claimed_at": "2026-08-17T07:45:26Z",
+      "claimed_at": "2026-08-17T09:40:33Z",
       "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4106"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:47:12Z"
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
-      "c_number": "C-152",
+      "c_number": "C-158",
       "title": "rf2157 brain_hook stats coalescing: deterministic cross-suite flake reproducer",
-      "claimed_at": "2026-08-17T08:57:23Z",
+      "claimed_at": "2026-08-17T09:40:33Z",
       "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],

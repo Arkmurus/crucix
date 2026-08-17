@@ -5403,7 +5403,7 @@ async def health():
     }
     state_backend_ind["status"] = "green" if state_backend_ind["reachable"] else "red"
 
-    # R-F4096 (C-140) — reachability is point-in-time and has no memory. On
+    # R-F4107 (C-140) — reachability is point-in-time and has no memory. On
     # 2026-08-17 the store timed out on 25 distinct keys in two minutes and this
     # block still read green five minutes later, because nothing here could
     # remember. `read_timeouts` is that memory; an amber status distinguishes
@@ -5454,7 +5454,7 @@ async def health():
         _degraded_reasons.append("autonomous_loop_stalled")
     if not state_backend_ind["reachable"]:
         _degraded_reasons.append("state_backend_unreachable")
-    # R-F4096 (C-140) — a burst that blinded 25 keys must reach the verdict, not
+    # R-F4107 (C-140) — a burst that blinded 25 keys must reach the verdict, not
     # sit in a sub-field nobody opens. That is the C-96 lesson: publishing a
     # number no verdict consumes is why the degradation went unnoticed.
     if (state_backend_ind.get("read_timeouts") or {}).get("degraded"):

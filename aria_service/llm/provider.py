@@ -150,7 +150,7 @@ class LLMProvider(ABC):
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, model=model,
         )
-        # R-F4101 (C-145) — `on_done` USED TO SIT AFTER THE YIELD, so a consumer
+        # R-F4112 (C-145) — `on_done` USED TO SIT AFTER THE YIELD, so a consumer
         # that stopped reading early never ran it and the usage of a call that
         # had ALREADY happened was silently discarded. `complete()` above has
         # spent the tokens by this point; a consumer walking away does not

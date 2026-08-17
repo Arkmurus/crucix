@@ -10766,7 +10766,7 @@ async def _execute_tool(
                     ch_result = await _ch.investigate_uk_entity(company_number=ch_number)
                 elif intent.get("entity"):
                     ch_result = await _ch.investigate_uk_entity(company_name=intent["entity"])
-                if ch_result and ch_result.get("found"):
+                if ch_result:
                     ch_block = _ch.format_for_prompt(ch_result)
                     if ch_block:
                         base += ch_block
@@ -10832,8 +10832,10 @@ async def _execute_tool(
                 entity = intent.get("entity", "")
                 if entity:
                     ch_r = await _ch.investigate_uk_entity(company_name=entity)
-                    if ch_r and ch_r.get("found"):
-                        base += _ch.format_for_prompt(ch_r)
+                    if ch_r:
+                        ch_block = _ch.format_for_prompt(ch_r)
+                        if ch_block:
+                            base += ch_block
             except Exception as e:
                 _log.debug("Auto CH lookup on profile failed: %s", e)
 

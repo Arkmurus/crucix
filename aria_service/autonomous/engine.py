@@ -717,7 +717,7 @@ _TASK_HEARTBEAT_MAX_BUSY_S = 900.0     # 3x the blackout threshold
 
 
 def _wire_task_result(task_id: str, task, record) -> None:
-    """R-F4106 (C-151) — report what the task ACTUALLY did.
+    """R-F4116 (C-157) — report what the task ACTUALLY did.
 
     THE DEFECT: the tick loop discarded `execute_task`'s return value and then
     wired `wire_success("Task fired: …")` unconditionally. `execute_task`
@@ -781,7 +781,7 @@ def _wire_task_result(task_id: str, task, record) -> None:
                 detail=(f"Task {task_id} did not succeed: status={status} "
                         f"cron={_cron} error={_err or 'none reported'}"),
                 gap_type="engine_failure",
-                source="autonomous_engine:R-F4106",
+                source="autonomous_engine:R-F4116",
             )
     except Exception:      # pragma: no cover — never break the tick loop
         pass
@@ -1152,7 +1152,7 @@ async def _engine_loop(llm) -> None:
                     except Exception:      # NameError if the R-F1146 import failed
                         _hb_task = None
                     try:
-                        # R-F4106 (C-151) — BIND the result. This call used to
+                        # R-F4116 (C-157) — BIND the result. This call used to
                         # discard it, so the wiring below could only ever say
                         # "fired", never "worked".
                         _task_record = await tasks_mod.execute_task(
@@ -1163,7 +1163,7 @@ async def _engine_loop(llm) -> None:
                     finally:
                         if _hb_task is not None:
                             _hb_task.cancel()
-                    # R-F1059 / R-F4106 — wire the task's ACTUAL outcome.
+                    # R-F1059 / R-F4116 — wire the task's ACTUAL outcome.
                     _wire_task_result(task_id, task, _task_record)
                     # R-F1146 — save checkpoint after successful task
                     try:

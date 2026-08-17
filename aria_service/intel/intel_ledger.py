@@ -134,7 +134,7 @@ _flusher_started: bool = False
 _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
 _flusher_stop = False
 FLUSH_DEBOUNCE_S = 2.0
-# ── R-F4097 (C-141): journalled writes ───────────────────────────────────────
+# ── R-F4108 (C-141): journalled writes ───────────────────────────────────────
 # `_write_to_disk_atomic` rewrote the WHOLE ledger every debounced flush —
 # 81,971 signals / 35.5 MB, plus fsync + rename + dir-fsync, to persist however
 # few signals changed. Live 2026-08-17 that was 52.0% and 59.3% of two
@@ -194,7 +194,7 @@ def _drop_journal() -> None:
         os.unlink(_journal_path())
     except OSError:
         pass
-# R-F4098 (C-142) — this cadence is only spent when the target is a GENUINE
+# R-F4109 (C-142) — this cadence is only spent when the target is a GENUINE
 # second failure domain; see `_snapshot_target_is_offhost`. With the sqlite
 # backend on the same volume it was 8.18 MB of gzip every 600 s into the file's
 # own neighbour, which is not a backup.
@@ -291,7 +291,7 @@ def _write_to_disk_atomic(data: dict) -> None:
         raise
 
 
-# ── R-F4099 (C-143): the ledger's own orphaned temp files ────────────────────
+# ── R-F4110 (C-143): the ledger's own orphaned temp files ────────────────────
 #
 # `_write_to_disk_atomic` unlinks its mkstemp file ONLY on the `except` branch.
 # A process killed mid-write — every deploy, every restart — orphans it, and
@@ -383,7 +383,7 @@ def sweep_tmp_orphans() -> dict:
         return result
     if not enabled:
         logger.info(
-            "[R-F4099] %d orphaned ledger temp file(s), %.1f MB stranded on %s "
+            "[R-F4110] %d orphaned ledger temp file(s), %.1f MB stranded on %s "
             "— sweep is REPORT-ONLY (set ARIA_LEDGER_TMP_SWEEP=1 to reclaim)",
             len(stale), result["would_free_bytes"] / 1048576.0,
             os.path.dirname(_DISK_PATH) or ".",
@@ -392,7 +392,7 @@ def sweep_tmp_orphans() -> dict:
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "reason": "R-F4099 (C-143) orphaned mkstemp files from _write_to_disk_atomic",
+        "reason": "R-F4110 (C-143) orphaned mkstemp files from _write_to_disk_atomic",
         "min_age_s": _TMP_MIN_AGE_S,
         "removed": [
             {"name": os.path.basename(p), "bytes": b,
@@ -410,7 +410,7 @@ def sweep_tmp_orphans() -> dict:
             json.dump(manifest, f, indent=1)
         result["manifest"] = mpath
     except OSError as e:
-        logger.warning("[R-F4099] manifest write failed (%s) — refusing to sweep", e)
+        logger.warning("[R-F4110] manifest write failed (%s) — refusing to sweep", e)
         return result
 
     for p, b, _m in stale:
@@ -421,7 +421,7 @@ def sweep_tmp_orphans() -> dict:
         except OSError:
             continue
     logger.info(
-        "[R-F4099] reclaimed %d orphaned ledger temp file(s), %.1f MB (manifest: %s)",
+        "[R-F4110] reclaimed %d orphaned ledger temp file(s), %.1f MB (manifest: %s)",
         result["removed"], result["freed_bytes"] / 1048576.0, mpath,
     )
     return result
@@ -452,7 +452,7 @@ def _device_of(path) -> int | None:
 def _snapshot_target_is_offhost() -> bool | None:
     """Is the R-F334 snapshot target a DIFFERENT failure domain to the ledger?
 
-    R-F4098 (C-142) — the port of C-98 into the module C-98 did not cover.
+    R-F4109 (C-142) — the port of C-98 into the module C-98 did not cover.
 
     `SNAPSHOT_INTERVAL_S` still calls this "the Redis off-host backup cadence",
     and when R-F334 wrote it that was true. R-F745 flipped the default backend
@@ -507,7 +507,7 @@ async def _flush_to_disk() -> None:
     if not _cache or not _dirty:
         return
     snapshot = _cache  # write-by-reference is safe — we don't mutate
-    # ── R-F4097 (C-141) — append the declared records instead of rewriting
+    # ── R-F4108 (C-141) — append the declared records instead of rewriting
     # 35 MB. Compaction (a full snapshot) happens when the change could NOT be
     # described as appends, or when replaying the journal would cost more than
     # a snapshot. Both paths clear the journal so a stale one can never replay
@@ -549,7 +549,7 @@ async def _flush_to_disk() -> None:
         await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
         _dirty = False
         _dirty_since_snapshot = True
-        # R-F4097 (C-141) — the snapshot now CONTAINS everything the journal
+        # R-F4108 (C-141) — the snapshot now CONTAINS everything the journal
         # described, so the journal must go. A stale journal replayed over a
         # compacted file resurrects rows a purge just removed.
         _journal_pending.clear()
@@ -573,7 +573,7 @@ async def _flush_loop() -> None:
     disk; every SNAPSHOT_INTERVAL_S, also push a Redis snapshot."""
     global _dirty_since_snapshot
     last_snapshot = time.monotonic()
-    # R-F4099 (C-143) §21a — ONCE per process, say how much disk is stranded in
+    # R-F4110 (C-143) §21a — ONCE per process, say how much disk is stranded in
     # our own orphaned temp files. 382.6 MB had accumulated over ~2.5 months
     # with no cleanup routine anywhere in the tree and nothing reporting it.
     # Report-only unless ARIA_LEDGER_TMP_SWEEP=1 (§26: the reclaim is the
@@ -590,7 +590,7 @@ async def _flush_loop() -> None:
                         f"process is killed mid-write; nothing reclaims them. Set "
                         f"ARIA_LEDGER_TMP_SWEEP=1 to reclaim (manifest is written first)."),
                 gap_type="infra_degraded",
-                source="intel_ledger:sweep_tmp_orphans:R-F4099",
+                source="intel_ledger:sweep_tmp_orphans:R-F4110",
             )
     except Exception:      # pragma: no cover — housekeeping never breaks the loop
         pass
@@ -604,7 +604,7 @@ async def _flush_loop() -> None:
                 and (now - last_snapshot) >= SNAPSHOT_INTERVAL_S
                 and _cache
             ):
-                # R-F4098 (C-142) — only skip on a MEASURED same-volume target.
+                # R-F4109 (C-142) — only skip on a MEASURED same-volume target.
                 _offhost = _snapshot_target_is_offhost()
                 if not _should_snapshot(_offhost):
                     global _snapshot_skip_announced
@@ -614,7 +614,7 @@ async def _flush_loop() -> None:
                         # per-cycle notice would emit ~144/day — the
                         # sanctions_coverage_degraded flood shape.
                         logger.info(
-                            "[R-F4098] intel_ledger snapshot SKIPPED — the "
+                            "[R-F4109] intel_ledger snapshot SKIPPED — the "
                             "state store shares a volume with %s, so the "
                             "'off-host backup' is a same-domain copy. Point "
                             "the state store off-host to resume it.",
@@ -781,7 +781,7 @@ async def _load() -> dict:
     data = _read_from_disk()
     if data:
         _cache = data
-        # R-F4097 (C-141) — replay the journal over the snapshot. Entries are
+        # R-F4108 (C-141) — replay the journal over the snapshot. Entries are
         # prepended (newest first) because signals are head-inserted, so a tail
         # watermark would be wrong. Compaction drops the journal, so anything
         # still here post-dates the snapshot.
@@ -818,7 +818,7 @@ async def _load() -> dict:
         return _cache
 
     # 3. Cold start with no prior state.
-    # R-F4097 (C-141) — belt and braces: `_flush_to_disk` refuses to journal
+    # R-F4108 (C-141) — belt and braces: `_flush_to_disk` refuses to journal
     # without a snapshot, so reaching here with a journal present should be
     # impossible. If it happens anyway (a snapshot deleted underneath us), the
     # journalled signals are still real and §7 says we do not lose facts.
@@ -827,7 +827,7 @@ async def _load() -> dict:
     if _orphaned:
         logger.warning(
             "intel_ledger: no snapshot on disk but the journal held %d signal(s) "
-            "— recovered them rather than starting empty (R-F4097)",
+            "— recovered them rather than starting empty (R-F4108)",
             len(_orphaned),
         )
     _prune()
@@ -851,7 +851,7 @@ def _prune() -> None:
     _cache["signals"] = [s for s in _cache["signals"] if s.get("ts", "") >= cutoff]
     sig_count = len(_cache["signals"])
     if sig_count != _before:
-        # R-F4097 (C-141) — a REMOVAL cannot be expressed as a journal append,
+        # R-F4108 (C-141) — a REMOVAL cannot be expressed as a journal append,
         # and replaying appends over it would resurrect what was dropped. Force
         # the next flush to compact. `add_signal` calls `_prune()` immediately
         # before `_save(record=...)`, so this is what keeps that path honest.
@@ -873,7 +873,7 @@ async def _save(record: "dict | list[dict] | None" = None) -> None:
     _flush_loop so sweep bursts (50+ signals/cycle) coalesce into a single
     write. Pre-F110 this did rs.set_json on every call — see module docstring.
 
-    R-F4097 (C-141) — `record` DECLARES the one signal that changed, so the
+    R-F4108 (C-141) — `record` DECLARES the one signal that changed, so the
     flush can APPEND it to the journal instead of rewriting the whole ledger.
 
     **Calling `_save()` with no `record` forces a FULL REWRITE.** That is the
@@ -991,7 +991,7 @@ async def add_signal(payload: dict) -> str:
         "source_tier_score": source_score,
     }
     db["signals"].insert(0, _new_signal)
-    # R-F4097 (C-141) — `_prune()` runs FIRST and forces a compaction if it
+    # R-F4108 (C-141) — `_prune()` runs FIRST and forces a compaction if it
     # actually removed anything, so declaring the record here is safe: the
     # journal is only used when this insert is the whole of the change.
     _prune()
@@ -1184,7 +1184,7 @@ async def ingest_sweep_signals(current_data: dict) -> int:
     added = 0
     skipped_propaganda = 0
     now = datetime.now(timezone.utc).isoformat()
-    _new_records: list[dict] = []      # R-F4097 (C-141)
+    _new_records: list[dict] = []      # R-F4108 (C-141)
 
     def _add(text: str, source: str, sig_type: str, url: str = "", severity: str = "medium"):
         nonlocal added, skipped_propaganda
@@ -1202,7 +1202,7 @@ async def ingest_sweep_signals(current_data: dict) -> int:
             "severity": severity, "ts": now,
         }
         db["signals"].insert(0, _rec)
-        _new_records.append(_rec)     # R-F4097 (C-141) — declare the batch
+        _new_records.append(_rec)     # R-F4108 (C-141) — declare the batch
         existing.add(text[:150].lower())
         added += 1
 
@@ -1235,7 +1235,7 @@ async def ingest_sweep_signals(current_data: dict) -> int:
     for l in (brain.get("salesLeads") or []):
         _add(f"{l.get('market','')}: {l.get('lead','')}", "brain", "brain_lead")
 
-    # R-F4097 (C-141) — declare the batch so a 50-signal sweep appends ~50
+    # R-F4108 (C-141) — declare the batch so a 50-signal sweep appends ~50
     # small records instead of rewriting the whole 35 MB ledger. `_prune()`
     # runs first and forces a compaction if it removed anything.
     _prune()

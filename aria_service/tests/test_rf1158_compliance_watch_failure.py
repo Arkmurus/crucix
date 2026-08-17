@@ -36,14 +36,56 @@ class TestComplianceWatchFailureWiring:
     """Capability test: brain_signal_ep must wire compliance_watch failures to brain."""
 
     def test_source_contains_failure_wiring(self) -> None:
-        """The brain_signal_ep source must check capture result and record gap on failure."""
-        from aria_service.routes import aria as a
-        src = function_source(a, "brain_signal_ep")
-        # Must check the capture result
-        assert '_cw_result.get("captured")' in src or 'not _cw_result' in src
-        # Must record a gap on failure
-        assert "record_gap(" in src
-        assert "compliance_watch" in src
+        """The capture-result check and the gap must live in the SAME function
+        as the `capture_message` call — wherever that function now is.
+
+        R-F4103 (C-155): this asserted `'_cw_result.get("captured")' in
+        function_source(a, "brain_signal_ep")` and had been red for a long
+        time. The wiring was never removed — it was EXTRACTED into
+        `_route_one_signal` and the variable renamed `_cw`. So the test pinned
+        two implementation details (a function name and a local variable name)
+        and reported a defect that did not exist, while its own three
+        behavioural siblings passed the whole time.
+
+        That mattered beyond the noise: this file is one of three wiring gates
+        standing red, and a red gate carries no information in either
+        direction. R-F4097 stole a `@fail_wire` off `learning_progress.
+        get_all_domains` the same day and shipped, because nobody trusts a
+        board that is already red.
+
+        The honest question is not "is this string in that function" but "is
+        the capture result checked and reported where it is captured". Located
+        by AST, so renaming the function or the variable cannot break it, and
+        deleting the check still can.
+        """
+        import ast
+
+        from aria_service.tests._source_probe import repo_path
+
+        src = repo_path("aria_service/routes/aria.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+
+        owners = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                continue
+            body = ast.get_source_segment(src, node) or ""
+            if "compliance_watch" in body and "capture_message" in body:
+                owners.append((node.name, body))
+
+        assert owners, (
+            "no function calls compliance_watch.capture_message any more — the "
+            "WhatsApp compliance capture path is gone, not just moved")
+
+        wired = [
+            name for name, body in owners
+            if '"captured"' in body and "record_gap(" in body
+        ]
+        assert wired, (
+            "compliance_watch.capture_message is called in "
+            f"{[n for n, _ in owners]} but no caller checks the `captured` "
+            "result and records a gap — a failed compliance capture would be "
+            "silent (§21a)")
 
     def test_capture_failure_records_gap(self, monkeypatch) -> None:
         """When capture_message returns captured=False, a capability_gap must be recorded.

@@ -1,4 +1,4 @@
-"""R-F4098 (C-142) — CAPABILITY: the ledger's "off-host backup" was neither.
+"""R-F4109 (C-142) — CAPABILITY: the ledger's "off-host backup" was neither.
 
 `intel_ledger._flush_loop` carries:
 

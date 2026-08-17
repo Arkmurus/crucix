@@ -1,4 +1,4 @@
-"""R-F4099 (C-143) — CAPABILITY: orphaned ledger temp files must be seen.
+"""R-F4110 (C-143) — CAPABILITY: orphaned ledger temp files must be seen.
 
 `intel_ledger._write_to_disk_atomic` creates its temp via `mkstemp` and unlinks
 it ONLY on the `except` branch. A process killed mid-write — every deploy,

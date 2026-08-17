@@ -725,6 +725,7 @@ def _is_plumbing(module: str) -> bool:
     return False
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def attribute_unscoped_caller() -> str:
     """Return `unscoped:<module>` for a caller that declared no feature, or
     `""` when a real `feature()` scope is active or the caller cannot be named.
@@ -1037,7 +1038,7 @@ async def record_call(
         "latency_ms": int(latency_ms or 0),
         "success": success,
         "error": (error or "")[:300],
-        # R-F4101 (C-145) — True when the provider gave us no usage to read.
+        # R-F4112 (C-145) — True when the provider gave us no usage to read.
         # cost_usd is then 0.0 because we could not price it, NOT because the
         # call was free. Downstream must be able to tell those apart.
         "usage_unknown": bool(usage_unknown),
@@ -2049,7 +2050,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
         total_calls = 0
         total_tokens = 0
         total_cost = 0.0
-        # R-F4101 (C-145) — how blind is this meter? These calls happened and
+        # R-F4112 (C-145) — how blind is this meter? These calls happened and
         # spent tokens; we simply could not read the usage, so they contribute
         # 0.0 to the cost the cap enforces. Counting them is the difference
         # between "a quiet month" and "a meter with a hole in it" (§17).
@@ -2089,7 +2090,7 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
             "projected_monthly_usd": projected_monthly,
             "by_feature": by_feature,
             "by_model": by_model,
-            # R-F4101 (C-145) — calls whose usage could not be read. Their cost
+            # R-F4112 (C-145) — calls whose usage could not be read. Their cost
             # is 0.0 because it is UNKNOWN, not because it was free, so
             # total_cost_usd (and the cap it feeds) is a LOWER BOUND while this
             # is non-zero. Live 2026-08-17 this was 142 of 1,000.

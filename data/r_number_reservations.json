@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4107,
+  "next_available": 4117,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34885,89 +34885,98 @@
     },
     {
       "r_number": "R-F4096",
-      "title": "C-140 state_backend reports store timeout history not just reachability",
-      "claimed_at": "2026-08-17T07:06:54Z",
-      "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "title": "balance resolution DPO update budget",
+      "claimed_at": "2026-08-17T07:03:43Z",
+      "claimed_by": "codex",
+      "status": "shipped",
+      "commit_sha": "18804d2d",
+      "notes": null,
+      "shipped_at": "2026-08-17T07:42:52Z"
     },
     {
       "r_number": "R-F4097",
-      "title": "C-141 intel_ledger journalled writes replace whole-file rewrite",
-      "claimed_at": "2026-08-17T07:06:55Z",
+      "title": "strict-read the freshness tracker so a not-ready store cannot clobber it",
+      "claimed_at": "2026-08-17T07:10:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fbbc63b4",
+      "notes": null,
+      "shipped_at": "2026-08-17T07:20:32Z"
     },
     {
       "r_number": "R-F4098",
-      "title": "C-142 intel_ledger snapshot gated on a genuine off-host target",
-      "claimed_at": "2026-08-17T07:06:56Z",
-      "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "title": "block truncated gradient accumulation epochs",
+      "claimed_at": "2026-08-17T07:23:37Z",
+      "claimed_by": "codex",
+      "status": "shipped",
+      "commit_sha": "b5b7a98a",
+      "notes": "Renumbered from displaced local R-F4097 during rebase",
+      "shipped_at": "2026-08-17T07:42:52Z"
     },
     {
       "r_number": "R-F4099",
-      "title": "C-143 intel_ledger reclaims orphaned mkstemp files",
-      "claimed_at": "2026-08-17T07:06:57Z",
+      "title": "halt ambiguous company investigation before downstream hops",
+      "claimed_at": "2026-08-17T07:48:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dce54186",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:21:48Z"
     },
     {
       "r_number": "R-F4100",
-      "title": "C-144 chat_audit_log strict head read refuses rather than forking chain",
-      "claimed_at": "2026-08-17T07:06:57Z",
+      "title": "document fixed-origin Companies House fetch SSRF safety",
+      "claimed_at": "2026-08-17T07:52:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dce54186",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:21:48Z"
     },
     {
       "r_number": "R-F4101",
-      "title": "C-145 metered stream records token usage when on_done is skipped",
-      "claimed_at": "2026-08-17T07:06:58Z",
+      "title": "wire the freshness skip to the brain, once per episode",
+      "claimed_at": "2026-08-17T07:56:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "462188f1",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:22Z"
     },
     {
       "r_number": "R-F4102",
-      "title": "C-146 brain_hook logs neural outcome after the neural lane runs",
-      "claimed_at": "2026-08-17T07:06:59Z",
+      "title": "widen the stolen-decorator gate to every module that opts into fail_wire",
+      "claimed_at": "2026-08-17T07:56:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "462188f1",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:22Z"
     },
     {
       "r_number": "R-F4103",
-      "title": "C-147 style_learner reports an unreachable grounding gate",
-      "claimed_at": "2026-08-17T07:07:00Z",
+      "title": "green the blocking wiring gates and make the compliance-watch check follow the code",
+      "claimed_at": "2026-08-17T08:04:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d51daf8e",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:23Z"
     },
     {
       "r_number": "R-F4104",
-      "title": "C-148 self_coder counts the gaps it drops",
-      "claimed_at": "2026-08-17T07:07:01Z",
+      "title": "block ambiguous Companies House financial enrichment",
+      "claimed_at": "2026-08-17T08:29:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d48ce8c6",
+      "notes": null,
+      "shipped_at": "2026-08-17T09:06:31Z"
     },
     {
       "r_number": "R-F4105",
-      "title": "C-149 blocked autonomous task escalates to the operator",
-      "claimed_at": "2026-08-17T07:07:02Z",
+      "title": "abstain on ambiguous international registry name searches",
+      "claimed_at": "2026-08-17T09:15:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
@@ -34975,8 +34984,98 @@
     },
     {
       "r_number": "R-F4106",
+      "title": "close registry adapter transport precommit gaps",
+      "claimed_at": "2026-08-17T09:18:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4107",
+      "title": "C-140 state_backend reports store timeout history not just reachability",
+      "claimed_at": "2026-08-17T09:40:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4108",
+      "title": "C-141 intel_ledger journalled writes replace whole-file rewrite",
+      "claimed_at": "2026-08-17T09:40:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4109",
+      "title": "C-142 intel_ledger snapshot gated on a genuine off-host target",
+      "claimed_at": "2026-08-17T09:40:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4110",
+      "title": "C-143 intel_ledger reclaims orphaned mkstemp files",
+      "claimed_at": "2026-08-17T09:40:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4111",
+      "title": "C-144 chat_audit_log strict head read refuses rather than forking chain",
+      "claimed_at": "2026-08-17T09:40:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4112",
+      "title": "C-145 metered stream records token usage when on_done is skipped",
+      "claimed_at": "2026-08-17T09:40:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4113",
+      "title": "C-146 brain_hook logs neural outcome after the neural lane runs",
+      "claimed_at": "2026-08-17T09:40:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4114",
+      "title": "C-147 style_learner reports an unreachable grounding gate",
+      "claimed_at": "2026-08-17T09:40:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4115",
+      "title": "C-148 self_coder counts the gaps it drops",
+      "claimed_at": "2026-08-17T09:40:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4116",
       "title": "C-151 engine honours execute_task reported status when wiring",
-      "claimed_at": "2026-08-17T07:45:33Z",
+      "claimed_at": "2026-08-17T09:40:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

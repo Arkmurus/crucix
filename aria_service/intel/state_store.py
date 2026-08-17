@@ -2370,7 +2370,7 @@ _ERROR_LOG_COOLDOWN_S = 5.0
 _error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attempt, cached_result)
 
 
-# ── R-F4096 (C-140): the store must REMEMBER that it went blind ──────────────
+# ── R-F4107 (C-140): the store must REMEMBER that it went blind ──────────────
 #
 # On 2026-08-17, 06:46:47-06:48:45Z, `get()` timed out on 25 distinct keys (26
 # reads) and returned None for every one. Under the R-F1 None-on-error contract
@@ -2502,7 +2502,7 @@ async def get(key: str) -> str | None:
             "bloated or under WAL recovery. Returning None.",
             key[:80],
         )
-        # R-F4096 (C-140) — leave a trace /health can read. Without this the
+        # R-F4107 (C-140) — leave a trace /health can read. Without this the
         # None below is indistinguishable from a genuine absence and the whole
         # burst is invisible five minutes later.
         note_read_timeout(key)

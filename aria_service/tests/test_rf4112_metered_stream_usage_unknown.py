@@ -1,4 +1,4 @@
-"""R-F4101 (C-145) — CAPABILITY: unknown usage must not read as zero cost.
+"""R-F4112 (C-145) — CAPABILITY: unknown usage must not read as zero cost.
 
 Live on aria-intel 2026-08-17, `/api/aria/cost/summary` over 24 h reported a
 model literally named `fallback`:

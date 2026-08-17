@@ -1,4 +1,4 @@
-"""R-F4103 (C-147) — CAPABILITY: an unreachable input gate must reach the brain.
+"""R-F4114 (C-147) — CAPABILITY: an unreachable input gate must reach the brain.
 
 Live on aria-intel 2026-08-17, the only WARNING in the first half of the window:
 

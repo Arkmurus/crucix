@@ -567,7 +567,7 @@ class ARIACoder:
         protected_file_gaps = []
         pending_skip = []
         actionable = []
-        # R-F4104 (C-148) — COUNT WHAT THIS BAR DROPS. Live 2026-08-17, seconds
+        # R-F4115 (C-148) — COUNT WHAT THIS BAR DROPS. Live 2026-08-17, seconds
         # apart: gap_detector said "146 actionable gaps", this loop said "1
         # actionable gaps", and nothing reconciled them because this filter —
         # unlike the two below it — logged nothing. The two reasons are kept
@@ -604,10 +604,10 @@ class ARIACoder:
                 pass
             actionable.append(g)
 
-        # R-F4104 (C-148) — reconcile with the gap_detector's own count.
+        # R-F4115 (C-148) — reconcile with the gap_detector's own count.
         if below_severity or not_auto_fixable:
             logger.info(
-                "[aria_coder] R-F4104: %d of %d gap(s) dropped below the bar — "
+                "[aria_coder] R-F4115: %d of %d gap(s) dropped below the bar — "
                 "%d under MEDIUM severity, %d not auto_fixable (types: %s)",
                 len(below_severity) + len(not_auto_fixable), len(gaps),
                 len(below_severity), len(not_auto_fixable),
@@ -620,7 +620,7 @@ class ARIACoder:
                              if g.severity >= GapSeverity.HIGH]
         if _severe_unfixable:
             logger.warning(
-                "[aria_coder] R-F4104: %d SEVERE gap(s) are not auto_fixable — "
+                "[aria_coder] R-F4115: %d SEVERE gap(s) are not auto_fixable — "
                 "gap_type(s) %s are absent from AUTONOMY_LEVEL. This is a "
                 "registry gap, not a triage decision.",
                 len(_severe_unfixable),

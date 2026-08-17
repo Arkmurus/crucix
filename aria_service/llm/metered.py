@@ -114,7 +114,7 @@ class MeteredProvider(LLMProvider):
             in_tk = 0
             out_tk = 0
             routed_via = ""
-            # R-F4101 (C-145) — UNKNOWN USAGE IS NOT ZERO COST.
+            # R-F4112 (C-145) — UNKNOWN USAGE IS NOT ZERO COST.
             #
             # The `else` below used to fall back to the provider's NAME as the
             # model. FallbackProvider.name is the literal string "fallback", so
@@ -161,7 +161,7 @@ class MeteredProvider(LLMProvider):
                 success=success,
                 error=error,
                 feature_name=feature_name,
-                usage_unknown=usage_unknown,   # R-F4101 (C-145)
+                usage_unknown=usage_unknown,   # R-F4112 (C-145)
             ))
             # R-F104: surface silent failures
             def _on_done(t):

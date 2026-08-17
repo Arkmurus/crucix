@@ -205,9 +205,26 @@ async def record_refresh(
         return
     try:
         rs = await _redis()
-        existing = await rs.get_json(_REDIS_KEY)
-        if not isinstance(existing, dict):
-            existing = {}
+        # R-F4097 (C-152) — STRICT read, and SKIP the write when the current
+        # contents cannot be established.
+        #
+        # This read `get_json`, which honours the R-F1 None-on-error contract:
+        # None for a genuinely absent key AND for a store failure, with no way
+        # to tell them apart. One failed read collapsed `existing` to {} and the
+        # `set_json` below then CLOBBERED the durable key with a single domain.
+        # aria-intel boots for ~10 minutes (§11c), so the not-ready window is
+        # large and is entered on every deploy. Live: the tracker read
+        # 91 protected / 909 ambient before a deploy and 8 / 128 after, and
+        # protected domains are never pruned, so expiry cannot explain it.
+        # §7 forbids eviction; this was silently evicting 800+ domains.
+        # Same shape as R-F2664 (`_load_regional_mastery`), second module.
+        #
+        # `get_strict` rather than `get_json_strict`: the json helper swallows a
+        # parse failure into None, which puts us straight back into
+        # "unreadable looks like absent" for a corrupt value.
+        existing = await _read_domains_strict(rs)
+        if existing is None:
+            return          # skip: one lost timestamp beats a wiped tracker
         record = existing.get(domain) or {
             "domain":            domain,
             "first_seen_at":     datetime.now(timezone.utc).isoformat(),
@@ -262,6 +279,9 @@ async def record_refresh(
             )
             existing = dict(sorted_items[:_MAX_TRACKED_DOMAINS])
         await rs.set_json(_REDIS_KEY, existing, ex=_TTL_SECONDS)
+        # R-F4101: the tracker is writing again - re-arm, so the NEXT
+        # outage is announced rather than swallowed by a spent latch.
+        _reset_skip_announcement()
     except Exception as e:
         logger.debug("learning_progress record_refresh failed (non-fatal): %s", e)
 
@@ -331,16 +351,111 @@ def _compute_staleness(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# R-F4101 (C-153) — announce a skipped write ONCE per degraded episode.
+#
+# R-F4097 made `record_refresh` skip rather than clobber when the store cannot
+# be read. Right for the data, but as shipped the skip was DARK: a
+# `logger.warning` is explicitly not wiring under §21a. And a permanent skip is
+# a WORSE failure mode than the clobber it replaced, because it is silent by
+# construction — the tracker just stops updating, `stale_domains()` keeps
+# returning stale content, R-F90's orchestrator keeps believing everything is
+# fresh, and the panel can still read `store_readable: true` because reads
+# recover while writes are still being skipped.
+#
+# Once per EPISODE, not per call: record_refresh fires on every ingested fact,
+# so a per-skip gap is the self-sustaining flood that filled the 500-slot
+# capability ledger (C-98, `sanctions_coverage_degraded`). Recovery re-arms it,
+# so a second outage after a good period announces again instead of being
+# swallowed by a latch that already fired.
+_skip_announced = False
+
+
+def _reset_skip_announcement() -> None:
+    """Re-arm the announcement. Called on a successful write, and by tests."""
+    global _skip_announced
+    _skip_announced = False
+
+
+def _announce_skip(reason: str) -> None:
+    global _skip_announced
+    if _skip_announced:
+        return
+    _skip_announced = True
+    try:
+        wire_failure(
+            module="learning_progress",
+            detail=(
+                "[R-F4101] freshness tracker writes are being SKIPPED: "
+                f"{reason}. The tracker is not updating, so stale_domains() "
+                "and the freshness panel are serving stale content until the "
+                "store recovers."
+            ),
+            gap_type="engine_failure",
+            source="learning_progress",
+        )
+    except Exception:      # bookkeeping must never break an ingest path
+        logger.debug("[R-F4101] could not wire the freshness skip",
+                     exc_info=True)
+
+
+async def _read_domains_strict(rs) -> dict | None:
+    """Current tracker contents, or None when they CANNOT BE ESTABLISHED.
+
+    None means "do not write" — it is not "empty". A genuinely absent key
+    returns `{}` so first use still works. Raising through would be worse than
+    returning None here: `record_refresh` is called from ingest paths that must
+    never fail on bookkeeping.
+    """
+    from .redis_store import StoreReadError
+    import json as _json
+
+    if not hasattr(rs, "get_strict"):
+        # A store shim without strict reads cannot distinguish absent from
+        # broken, so it can never be safe to write through. Skip, but say so:
+        # a silent skip would freeze the tracker with no signal at all, which
+        # is a worse failure than the clobber this function exists to prevent.
+        logger.warning(
+            "[R-F4097] store %s has no get_strict - freshness writes are being "
+            "SKIPPED to avoid clobbering the tracker", type(rs).__name__)
+        _announce_skip(f"store {type(rs).__name__} has no strict read")
+        return None
+    try:
+        raw = await rs.get_strict(_REDIS_KEY)
+    except StoreReadError:
+        _announce_skip("store read failed (StoreReadError)")
+        return None                      # store not ready -> never clobber
+    except Exception as e:
+        logger.debug("[R-F4097] freshness strict read failed: %s", e)
+        _announce_skip(f"store read raised {type(e).__name__}")
+        return None
+    if raw is None or raw == "":
+        return {}                        # genuinely absent: first write is safe
+    if isinstance(raw, dict):
+        return raw                       # already-decoded backends
+    try:
+        parsed = _json.loads(raw)
+    except Exception:
+        logger.warning(
+            "[R-F4097] freshness tracker value is unparseable - skipping the "
+            "write rather than replacing it")
+        _announce_skip("stored value is unparseable")
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 @fail_wire(module="learning_progress", gap_type="engine_failure")
 async def get_all_domains() -> list[dict[str, Any]]:
     """Return all tracked domains with computed staleness fields."""
     try:
         rs = await _redis()
-        existing = await rs.get_json(_REDIS_KEY)
     except Exception:
-        return []
-    if not isinstance(existing, dict):
-        return []
+        return None
+    # R-F4097 (C-152) — None, not []. `[]` rendered a confident "nothing
+    # tracked" for a store we could not read, which is the absence-as-health
+    # shape; the caller now says `store_readable: false` instead.
+    existing = await _read_domains_strict(rs)
+    if existing is None:
+        return None
     out = [_compute_staleness(r) for r in existing.values()]
     out.sort(key=lambda r: (not r.get("is_stale"), r.get("domain", "")))
     return out
@@ -351,6 +466,11 @@ async def stale_domains() -> list[dict[str, Any]]:
     """Return only the domains currently STALE — drives R-F90's
     continuous-update orchestrator."""
     all_d = await get_all_domains()
+    # R-F4097 (C-152): None = could not read. Returning [] would tell R-F90's
+    # orchestrator "nothing needs refreshing", which is the quietest possible
+    # way for the refresh loop to stop doing its job.
+    if all_d is None:
+        return []
     return [d for d in all_d if d.get("is_stale")]
 
 
@@ -358,6 +478,22 @@ async def stale_domains() -> list[dict[str, Any]]:
 async def stats() -> dict[str, Any]:
     """Aggregate dashboard view: tracked, stale, fresh, top-stale."""
     all_d = await get_all_domains()
+    if all_d is None:
+        # R-F4097 (C-152) - an unreadable store has NO counts. Zeros here
+        # rendered a confident "nothing tracked / 0% stale" on the freshness
+        # panel, which is the absence-as-health shape. None is honest.
+        return {
+            "store_readable": False,
+            "tracked": None,
+            "tracked_total": None,
+            "fresh_count": None,
+            "stale_count": None,
+            "stale_pct": None,
+            "protected_total": None,
+            "protected_stale": None,
+            "ambient_total": None,
+            "top_stale": [],
+        }
     stale = [d for d in all_d if d.get("is_stale")]
     fresh = [d for d in all_d if not d.get("is_stale")]
     # R-F4067 (C-110) — the two populations, reported separately. `0 stale /
@@ -369,6 +505,8 @@ async def stats() -> dict[str, Any]:
     protected = [d for d in all_d if _is_protected(d.get("domain", ""), d)]
     ambient = [d for d in all_d if not _is_protected(d.get("domain", ""), d)]
     return {
+        "store_readable": True,
+        "tracked":        len(all_d),
         "tracked_total":  len(all_d),
         "fresh_count":    len(fresh),
         "stale_count":    len(stale),

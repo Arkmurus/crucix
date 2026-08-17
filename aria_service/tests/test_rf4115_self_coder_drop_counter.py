@@ -1,4 +1,4 @@
-"""R-F4104 (C-148) — CAPABILITY: the coder must count the gaps it drops.
+"""R-F4115 (C-148) — CAPABILITY: the coder must count the gaps it drops.
 
 Measured live on aria-intel 2026-08-17, two log lines seconds apart:
 

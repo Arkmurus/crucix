@@ -84,7 +84,7 @@ _CONFIDENCE_FOOTER_RE = re.compile(
 # ═══════════════════════════════════════════════════════════════════════
 
 _last_collection_diag: dict[str, Any] = {}
-# R-F4103 (C-147) — the unreachable-gate signal is announced once per process;
+# R-F4114 (C-147) — the unreachable-gate signal is announced once per process;
 # STYLE-LEARN-HOURLY fires hourly and the condition is persistent.
 _gate_gap_announced = False
 
@@ -166,7 +166,7 @@ async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
             "[style_learner] %d entries scanned but 0 kept — filtered: %s",
             filtered["total_entries"], filtered,
         )
-        # ── R-F4103 (C-147) §21a/§21d — this module was DARK. ────────────────
+        # ── R-F4114 (C-147) §21a/§21d — this module was DARK. ────────────────
         # It has scanned 200 entries and kept 0 every hour for weeks (live
         # 2026-08-17: not_grounded 200/200, against a live status mix of
         # no_claims 78 / unverified 34 / well_formed 8 / grounded 0), and the
@@ -202,7 +202,7 @@ async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
                         f"the gate is an operator quality decision."
                     ),
                     gap_type="missing_capability",
-                    source="style_learner:_collect_gold_replies:R-F4103",
+                    source="style_learner:_collect_gold_replies:R-F4114",
                 )
             except Exception:   # observability must never break collection
                 pass

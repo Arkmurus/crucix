@@ -1,4 +1,4 @@
-"""R-F4102 (C-146) — CAPABILITY: the neural tier's outcome must be observable.
+"""R-F4113 (C-146) — CAPABILITY: the neural tier's outcome must be observable.
 
 Measured live on aria-intel 2026-08-17: **131 of 131** brain_hook absorb lines
 in a 23-minute window read

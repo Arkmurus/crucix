@@ -1,4 +1,4 @@
-"""R-F4100 (C-144) — CAPABILITY: a store blip must not fork the CHAT audit chain.
+"""R-F4111 (C-144) — CAPABILITY: a store blip must not fork the CHAT audit chain.
 
 `chat_audit_log.record_chat` read its chain head as:
 
