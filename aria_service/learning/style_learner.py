@@ -84,6 +84,9 @@ _CONFIDENCE_FOOTER_RE = re.compile(
 # ═══════════════════════════════════════════════════════════════════════
 
 _last_collection_diag: dict[str, Any] = {}
+# R-F4103 (C-147) — the unreachable-gate signal is announced once per process;
+# STYLE-LEARN-HOURLY fires hourly and the condition is persistent.
+_gate_gap_announced = False
 
 
 async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
@@ -163,6 +166,46 @@ async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
             "[style_learner] %d entries scanned but 0 kept — filtered: %s",
             filtered["total_entries"], filtered,
         )
+        # ── R-F4103 (C-147) §21a/§21d — this module was DARK. ────────────────
+        # It has scanned 200 entries and kept 0 every hour for weeks (live
+        # 2026-08-17: not_grounded 200/200, against a live status mix of
+        # no_claims 78 / unverified 34 / well_formed 8 / grounded 0), and the
+        # only trace was the log line above. A learning loop that cannot learn
+        # was therefore invisible to the self-heal loop that exists to notice
+        # exactly this.
+        #
+        # Announced ONCE per process: STYLE-LEARN-HOURLY fires hourly and the
+        # condition is persistent, so a per-run signal is the
+        # sanctions_coverage_degraded flood shape.
+        #
+        # NOT fixed by widening the gate to accept `well_formed` — that changes
+        # what ARIA learns style from, which is an operator quality decision,
+        # not a way to silence a warning (§1: root cause, not symptom).
+        global _gate_gap_announced
+        if not _gate_gap_announced:
+            _gate_gap_announced = True
+            _dominant = max(
+                ((k, v) for k, v in filtered.items()
+                 if k not in ("total_entries", "kept") and v),
+                key=lambda kv: kv[1], default=("unknown", 0),
+            )
+            try:
+                from ..intel.engine_wiring import wire_failure
+                wire_failure(
+                    module="style_learner",
+                    detail=(
+                        f"style gate is UNREACHABLE: {filtered['total_entries']} "
+                        f"entries scanned, 0 kept; dominant rejection "
+                        f"{_dominant[0]}={_dominant[1]}. The gate requires "
+                        f"verification_status == 'grounded'; live traffic "
+                        f"produces none, so this loop cannot learn. Widening "
+                        f"the gate is an operator quality decision."
+                    ),
+                    gap_type="missing_capability",
+                    source="style_learner:_collect_gold_replies:R-F4103",
+                )
+            except Exception:   # observability must never break collection
+                pass
     return out[:_MAX_REPLIES_PER_RUN]
 
 

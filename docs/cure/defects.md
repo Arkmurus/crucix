@@ -8526,7 +8526,7 @@ successful encode and a deliberately exploding encoder produced **byte-identical
 operator output**. RED 2 failed / 1 passed; GREEN 3 passed, plus 25 green across
 the brain_hook suites.
 
-## C-147 · style_learner's grounded-only gate has a 0% live pass rate
+## C-147 · style_learner's grounded-only gate has a 0% live pass rate (R-F4103)
 
 ```
 [style_learner] 200 entries scanned but 0 kept — filtered:
@@ -8541,6 +8541,30 @@ The verifier runs (`aria_engine.py:3661-3722` can emit `grounded`) — this is n
 a dark path — but nothing reaches the one value the gate accepts, so
 `STYLE-LEARN-HOURLY` fires every hour and can never learn. The function's own
 comment records a previous field-rename incident of exactly this shape.
+
+### Fixed (R-F4103) — wired, not widened
+
+The module had **no brain wiring at all** — no `wire_success`, no
+`wire_failure`, no `record_gap` (§21a: a path that only logs is DARK). So a
+learning loop that had been unable to learn for weeks was invisible to the
+self-heal loop that exists to notice exactly that. §21d: when you find
+something dark, the fix is to wire it.
+
+A totally-rejected non-empty sample now emits `wire_failure` naming the
+**dominant rejection reason** and the counts. Announced **once per process**,
+because `STYLE-LEARN-HOURLY` fires hourly against a persistent condition.
+
+**Deliberately NOT widened to accept `well_formed`.** That would change what
+ARIA learns style from, and a warning stopping is not evidence a problem was
+solved (§1). A guard test asserts the `verdict != "grounded"` bar is still in
+place, so a future session cannot quietly relax it to silence the log.
+
+**OPERATOR DECISION (§21e exception):** should the style gate accept
+`well_formed` (8 of 120 live) as well as `grounded` (0 of 120)? That is a
+quality call about ARIA's own voice. Until then the loop honestly reports that
+it cannot learn.
+
+RED 3 failed / 3 passed; GREEN 6 passed, plus 17 green across the selection.
 
 ## C-148 · self_coder drops 145 of 146 gaps with no counter (R-F4104)
 

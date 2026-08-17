@@ -1646,9 +1646,12 @@
       "title": "style_learner grounded-only gate has a 0 percent live pass rate",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4103"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:42:42Z"
     },
     {
       "c_number": "C-148",
