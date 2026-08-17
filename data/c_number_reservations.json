@@ -1487,9 +1487,12 @@
       "title": "empty search results were labelled a failure rate",
       "claimed_at": "2026-08-16T21:11:37Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4083"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:52Z"
     },
     {
       "c_number": "C-132",
@@ -1544,9 +1547,12 @@
       "title": "the unscoped labels render unflagged, so the panel looks healthier than before",
       "claimed_at": "2026-08-17T04:58:12Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4092"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:52Z"
     },
     {
       "c_number": "C-138",
@@ -1766,9 +1772,12 @@
       "title": "the secret-scan gate is red on two synthetic fixtures, so it cannot catch a real leak",
       "claimed_at": "2026-08-17T10:23:59Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4117"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:53Z"
     },
     {
       "c_number": "C-160",

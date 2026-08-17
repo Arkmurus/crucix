@@ -34772,9 +34772,10 @@
       "title": "an empty result set is an answer not an error",
       "claimed_at": "2026-08-16T21:11:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c72f421a",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:32Z"
     },
     {
       "r_number": "R-F4085",
@@ -34851,9 +34852,10 @@
       "title": "flag unscoped spend on the cost panel, not just the literal uncategorized",
       "claimed_at": "2026-08-17T04:58:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8796f273",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:33Z"
     },
     {
       "r_number": "R-F4093",
@@ -34870,18 +34872,20 @@
       "title": "derive external error counts from a persisted outcome breakdown",
       "claimed_at": "2026-08-17T06:38:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "485b03e9",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:33Z"
     },
     {
       "r_number": "R-F4095",
       "title": "match attribution skip-prefixes on a module boundary",
       "claimed_at": "2026-08-17T06:38:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "485b03e9",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:33Z"
     },
     {
       "r_number": "R-F4096",
@@ -35098,9 +35102,10 @@
       "title": "accept the rf4017 synthetic fixtures into the secret-scan baseline",
       "claimed_at": "2026-08-17T10:23:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf680ed1",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:34Z"
     },
     {
       "r_number": "R-F4118",
@@ -35153,9 +35158,10 @@
       "title": "record the operator deploy override in section 26 and re-record the suite baseline",
       "claimed_at": "2026-08-17T11:19:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8fd610d4",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:07:34Z"
     },
     {
       "r_number": "R-F4125",
