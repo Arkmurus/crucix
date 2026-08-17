@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4118,
+  "next_available": 4122,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35095,6 +35095,33 @@
       "r_number": "R-F4117",
       "title": "accept the rf4017 synthetic fixtures into the secret-scan baseline",
       "claimed_at": "2026-08-17T10:23:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4118",
+      "title": "C-156 chat_audit_log head update is compare-and-set, not read-modify-write",
+      "claimed_at": "2026-08-17T10:28:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4120",
+      "title": "C-149 autonomous task productivity signal for repeated zero-yield runs",
+      "claimed_at": "2026-08-17T10:28:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4121",
+      "title": "C-158 isolate the brain_hook stats coalescing cross-suite polluter",
+      "claimed_at": "2026-08-17T10:28:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
