@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4096,
+  "next_available": 4097,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34879,6 +34879,15 @@
       "title": "match attribution skip-prefixes on a module boundary",
       "claimed_at": "2026-08-17T06:38:38Z",
       "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4096",
+      "title": "balance resolution DPO update budget",
+      "claimed_at": "2026-08-17T07:03:43Z",
+      "claimed_by": "codex",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null

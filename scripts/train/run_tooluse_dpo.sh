@@ -24,6 +24,7 @@ EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
 PROTECTED_DPO_AXES="${PROTECTED_DPO_AXES:-}"
 DPO_BETA="${DPO_BETA:-0.3}"
 DPO_LR="${DPO_LR:-2e-6}"
+DPO_GRAD_ACCUM="${DPO_GRAD_ACCUM:-1}"
 SFT_LR="${SFT_LR:-1e-5}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
 RESUME_ADAPTER_LOCAL="${RESUME_ADAPTER_LOCAL:-}"
@@ -190,9 +191,12 @@ fi
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
 PARENT_MODE=accepted_adapter
 [ "$FRESH_BASE" != 1 ] || PARENT_MODE=fresh_base
+if [ "$TRAINING_RECIPE_KIND" = tooluse_dpo_balanced_diagnostic_continuation ]; then
+  PARENT_MODE=diagnostic_candidate
+fi
 case "$TRAINING_RECIPE_KIND" in
-  tooluse_dpo_continuation)
-    RECIPE_JSON=$(printf '{"kind":"tooluse_dpo_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":1,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$PARENT_MODE")
+  tooluse_dpo_continuation|tooluse_dpo_balanced_diagnostic_continuation)
+    RECIPE_JSON=$(printf '{"kind":"%s","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":%s,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$TRAINING_RECIPE_KIND" "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$DPO_GRAD_ACCUM" "$PARENT_MODE")
     ;;
   tooluse_positive_sft_continuation)
     RECIPE_JSON=$(printf '{"kind":"tooluse_positive_sft_continuation","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"learning_rate":1e-5,"batch_size":2,"max_sequence_length":4096,"lora_rank":32,"lora_alpha":64,"load_in_4bit":true,"completion_only_loss":true,"parent_mode":"%s"}' "$POD_RUNNER" "$PARENT_MODE")
@@ -360,7 +364,7 @@ if [ "$FRESH_BASE" != 1 ]; then
 fi
 arm_watchdog "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" || exit 1
 disarm_prearm_watchdog
-POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR SFT_LR=$SFT_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
+POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_BETA=$DPO_BETA DPO_LR=$DPO_LR DPO_GRAD_ACCUM=$DPO_GRAD_ACCUM SFT_LR=$SFT_LR DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
 [ -z "$HELDOUT_BASELINE_LOCAL" ] || POD_ENV="$POD_ENV HELDOUT_BASELINE=/workspace/eval/aria_tooluse_parent_heldout.json"
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1

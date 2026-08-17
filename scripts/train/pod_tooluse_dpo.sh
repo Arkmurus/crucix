@@ -23,6 +23,7 @@ EXPECTED_EVAL_ROWS="${EXPECTED_EVAL_ROWS:-168}"
 EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
 DPO_BETA="${DPO_BETA:-0.3}"
 DPO_LR="${DPO_LR:-2e-6}"
+DPO_GRAD_ACCUM="${DPO_GRAD_ACCUM:-1}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 FRESH_BASE="${FRESH_BASE:-0}"
 export HF_HOME=/workspace/.cache/huggingface
@@ -89,14 +90,14 @@ print(torch.cuda.get_device_name(0))
 PY
 
 if [ "$SKIP_TRAIN" != 1 ]; then
-  log "DPO training: $EXPECTED_DPO_PAIRS pairs, one epoch, beta=$DPO_BETA, lr=$DPO_LR, batch=2"
+  log "DPO training: $EXPECTED_DPO_PAIRS pairs, one epoch, beta=$DPO_BETA, lr=$DPO_LR, batch=2, grad_accum=$DPO_GRAD_ACCUM"
   PARENT_ARGS=(--sft-checkpoint "$SFT_ADAPTER")
   [ "$FRESH_BASE" != 1 ] || PARENT_ARGS=(--fresh-lora)
   python "$SCRIPTS/dpo_train.py" \
     --base-model "$BASE_MODEL" "${PARENT_ARGS[@]}" \
     --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
     --epochs 1 --beta "$DPO_BETA" --lr "$DPO_LR" --batch-size 2 \
-    --gradient-accumulation-steps 1 \
+    --gradient-accumulation-steps "$DPO_GRAD_ACCUM" \
     --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
     2>&1 | tee "$LOGS/tooluse_dpo_train.log"
 else
