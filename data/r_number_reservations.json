@@ -34897,9 +34897,10 @@
       "title": "strict-read the freshness tracker so a not-ready store cannot clobber it",
       "claimed_at": "2026-08-17T07:10:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fbbc63b4",
+      "notes": null,
+      "shipped_at": "2026-08-17T07:20:32Z"
     }
   ]
 }
