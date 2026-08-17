@@ -9727,3 +9727,69 @@ chroma, and the same answer applies.
    does not fall away, the attribution was wrong** and this entry must say so.
 3. Only then consider making the ranking itself sublinear; offloading removes the
    stall, it does not make an O(566k) scan per chat turn a good idea.
+
+### CORRECTION (same session, before anyone acted on it)
+
+**The diagnosis above is wrong in its decisive claim, and the fix it recommends
+is a no-op.** Recorded here rather than edited away, because the reasoning that
+produced it is the useful part.
+
+`_safe_call` does NOT run on the event-loop thread. Reading the code around it:
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+...
+# Fetch all layers in parallel (up to 6 threads — IO-bound, not CPU-bound)
+```
+
+The context layers already execute in a **ThreadPoolExecutor**, so
+`search_knowledge` is *already* off the loop. Wrapping it in `asyncio.to_thread`
+would have changed nothing while looking like a fix — and I would have
+"verified" it by watching stalls that had nothing to do with the change.
+
+Two things were right: the frame distribution (the ranking scan really is what
+the loop is starved by) and the self-worsening O(corpus) shape. What was wrong is
+WHY: not "called on the loop thread" but **GIL saturation** — a CPU-bound Python
+scan holds the GIL wherever it runs, and R-F2086's `time.sleep(0)` every 256
+facts only offers the loop a sliver back while up to six pool threads contend for
+it. The pool's own comment — *"IO-bound, not CPU-bound"* — is a premise that
+stopped being true as the corpus grew.
+
+### Measured, so the next attempt starts from data
+
+`_rank_knowledge_facts` against a synthetic corpus at the live size (566,265
+facts), on this box:
+
+```
+cold   1.061s      warm   1.008s      warm2  1.463s      (hits=10)
+```
+
+**~1.0–1.5 s of GIL-holding CPU per call**, warm — and `search_knowledge` runs on
+every chat turn, alongside `search_fact_records`. That is the stall, and it grows
+with §7's infinite memory: the better ARIA's recall gets, the longer chat blocks.
+
+### What the fix actually requires
+
+An inverted word index (query words → candidate ids, rank only candidates) turns
+O(566k) into O(candidates). Feasibility, measured on the same synthetic:
+
+```
+build 1.93s   distinct_words 907   postings 4.7M   ~79 MB   lookup 0.044s
+```
+
+⚠️ **That synthetic is NOT representative** — it draws from 10 words, so 55% of
+the corpus matches any query and the candidate count is meaningless. It bounds
+build time and memory, nothing else. A real corpus has far more distinct terms
+and far shorter postings per term.
+
+So the remaining work is: validate against the REAL corpus, decide whether
+~80–150 MB of extra RSS is acceptable on this container, and maintain the index
+incrementally on `add_fact` next to the existing `_topic_index` / `_content_index`
+(R-F1622) rather than rebuilding it.
+
+**Not attempted here.** It is a structural change to the core knowledge module on
+the chat hot path, and the correct move after discovering my own premise was
+wrong is to hand over measurements, not to improvise a second fix on top of a
+mistaken first one. Do NOT "fix" this with `to_thread`, and do not raise the
+yield frequency — both leave the 1.4s scan exactly where it is.
+
