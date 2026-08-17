@@ -180,6 +180,68 @@ def _crash_counter_write(n: int) -> None:
         logger.warning("[R-F2855] could not persist chroma crash counter: %s", e)
 
 
+
+def _ensure_rag_wal(rag_path: str) -> bool:
+    """Put chroma's sqlite into WAL before chromadb opens it. Returns True if the
+    database is (now) in WAL, False if there was nothing to do or it could not be
+    done. NEVER raises.
+
+    R-F4130 (C-165). Measured on aria-intel: `PSI io full = 77.9s of 93 min`,
+    meaning EVERY runnable task blocked — the whole process frozen — which is
+    §28's unexplained stall signature (50 of 59 dumps showing a bare asyncio
+    frame with nothing blocking; nothing blocks in Python because the block is
+    beneath it, in the kernel). The app wrote +647 MB of blocks in 45 s
+    (~1.24 TB/day) at ~6,175 write syscalls/sec while NO file grew to match, so
+    it was rewrite and fsync churn.
+
+    chroma.sqlite3 was the only database on the volume still in rollback-journal
+    mode, at 5.08 GB with synchronous=FULL — roughly three fsyncs per commit
+    (journal write + fsync, page write + fsync, journal delete + directory
+    fsync). `aria_state.db` and `aria_knowledge_store.db` already run WAL on the
+    SAME volume, which is what proves the mode works on this filesystem.
+
+    ORDERING IS THE SAFETY PROPERTY. Switching journal_mode requires that no
+    other connection holds the database, so this runs after `mkdir` and BEFORE
+    `PersistentClient` is constructed. Once chroma exists it holds the file.
+
+    It must also never be a new way to fail: this module documents a native
+    SIGSEGV in chromadb's Rust core and carries a crash-loop breaker for it. A
+    degraded RAG is survivable; a service that will not boot is not (§9). So
+    every path is exception-wrapped, and a short timeout skips a locked database
+    rather than waiting on it.
+    """
+    try:
+        import sqlite3
+        db = Path(rag_path) / "chroma.sqlite3"
+        if not db.exists():
+            return False          # fresh volume: chroma has not created it yet
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        try:
+            current = (conn.execute("pragma journal_mode").fetchone()
+                       or [""])[0]
+            if str(current).lower() == "wal":
+                return True       # idempotent: WAL persists in the file header
+            result = conn.execute("pragma journal_mode=WAL").fetchone()
+            got = str((result or [""])[0]).lower()
+            if got == "wal":
+                logger.warning(
+                    "[R-F4130] chroma sqlite journal_mode %s -> WAL (%s); "
+                    "rollback-journal cost ~3 fsyncs per commit on a %.1fGB file "
+                    "and froze the event loop",
+                    current, db, db.stat().st_size / 1e9)
+                return True
+            logger.warning(
+                "[R-F4130] chroma sqlite would not switch to WAL (still %s) — "
+                "the RAG store keeps paying rollback-journal fsyncs", got)
+            return False
+        finally:
+            conn.close()
+    except Exception as e:
+        # Never block boot on a durability optimisation.
+        logger.warning("[R-F4130] could not set WAL on the chroma store: %s", e)
+        return False
+
+
 def _crash_counter_bump() -> None:
     # Must never raise into _get_client — a broken counter must not break RAG init.
     try:
@@ -559,6 +621,9 @@ def _get_client_unlocked():
         import chromadb
         from chromadb.config import Settings
         Path(RAG_PATH).mkdir(parents=True, exist_ok=True)
+        # R-F4130 (C-165) — WAL before chroma opens the file. After
+        # PersistentClient exists, chroma holds it and the switch cannot be made.
+        _ensure_rag_wal(RAG_PATH)
         local_client = chromadb.PersistentClient(
             path=RAG_PATH,
             settings=Settings(anonymized_telemetry=False, allow_reset=False),

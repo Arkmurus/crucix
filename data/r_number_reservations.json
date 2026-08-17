@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4130,
+  "next_available": 4131,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35206,6 +35206,15 @@
       "commit_sha": "8a276804",
       "notes": null,
       "shipped_at": "2026-08-17T15:40:37Z"
+    },
+    {
+      "r_number": "R-F4130",
+      "title": "put the chroma RAG store into WAL so its fsyncs stop freezing the event loop",
+      "claimed_at": "2026-08-17T17:24:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

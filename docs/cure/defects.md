@@ -9576,3 +9576,26 @@ keeps recording, so it is written down instead.
 
 **Do not treat step 2 as done until `io full` is re-measured.** The whole point
 of this entry is that the previous three suspects were plausible and wrong.
+
+### R-F4130 — the fix, applied in code rather than by hand
+
+Applied at the one moment nothing holds the file: after `mkdir`, **BEFORE**
+`PersistentClient` is constructed. Once chroma exists it holds the database and
+the mode cannot be switched, so ordering is the safety property, and a test pins
+it. (That test first matched `PersistentClient(` inside this module's own
+docstring and reported the call as too late — literal matching in prose, the
+R-F3858 class; it now matches the real construction.)
+
+Safe because: two other databases on the SAME volume already run WAL, which is
+what proves the mode works on this filesystem; the switch is a header change,
+O(1) on a 5 GB file, reversible and idempotent. And it can never be a new way to
+die — `rag_store` documents a native SIGSEGV in chromadb's Rust core and carries
+a crash-loop breaker, so the helper sits inside that guard, is fully
+exception-wrapped, and uses a 5s timeout to skip a locked database rather than
+wait on it. A degraded RAG is survivable; a service that will not boot is not
+(§9).
+
+**Verify by re-measuring, not by reading the log line.** After deploy, compare
+`PSI io full` over an equivalent window against the 77.9s/93min recorded above.
+If it does not fall materially, THE ATTRIBUTION WAS WRONG and this entry must
+say so — the previous three suspects were plausible and wrong too.
