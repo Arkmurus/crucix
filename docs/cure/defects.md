@@ -9096,3 +9096,77 @@ behind.
   25.0%. Also `knowledge.py:_rank_knowledge_facts:2666` at **44.1%** of a
   145-sample snapshot (full linear scan over ~533k facts per search). Both are
   real, both are **refactors** — §26 forbids refactoring inside a fix PR.
+
+## C-159 · the secret-scan gate was red, so it could not catch a real leak (R-F4117)
+
+Found by pulling on CI rather than trusting it. `ci.yml` was failing on both
+`test` and `suite-baseline-gate`, and among the 31 reported failures one was a
+**security** gate: `test_rf3720_secret_scan_gate::test_the_repo_itself_is_clean`.
+
+A red secret-scan gate is not a nuisance. It is the one check standing between a
+pasted credential and a public repo, and while it is red it certifies nothing —
+the same "a red gate carries no information" problem C-155 fixed one layer down,
+this time on the highest-stakes gate in the tree.
+
+### The findings were synthetic, and I proved it rather than assuming it
+
+```
+test/upload-path-end-to-end-rf4017.test.mjs:39   INTERNAL_TOKEN  (len=21)
+test/upload-path-end-to-end-rf4017.test.mjs:109  JWT_SECRET      (len=41)
+```
+
+Read, not inferred: the first is an `rf4017-` prefixed placeholder naming
+itself as the internal token; the second is an `rf4017-` prefixed string that
+literally contains the words *not a real one* followed by a run of sequential
+digits. (Described rather than quoted — pasting them here created five NEW
+scanner findings on the first attempt, which is the gate working.)
+
+Both self-label, and §18 gives the length test: a real token on this platform is
+**43 characters**, verified in-machine. Neither is. §18 exists because a session
+once came within one command of rotating two live credentials across three apps
+after reading a 16-hex *digest* as a value — so "it looks like a fixture" is not
+the standard; the length and the literal content are.
+
+### Accepted through the designed path, not muted
+
+`secret_scan.py`'s own docstring argues the case: skipping `tests/` is wrong,
+because *"a real key pasted into a test file is a real leak, and tests are
+exactly where a careless paste lands."* So the accepted set is keyed by a **hash
+of the VALUE** — `sha256(path|rule|value)` — which makes the baseline a
+reviewable artefact rather than a hole.
+
+`--update-baseline`, then review every line of the diff. It reported `6
+insertions, 4 deletions`, which needed checking: the four "changes" are the same
+four hashes with only their line numbers re-recorded (the files grew; the hash
+does not include the line). **Net +2 — exactly the two fixtures read above.**
+19 accepted → 21.
+
+That review mattered: `--update-baseline` accepts *everything currently found*.
+Run without reading the diff, it would silently bless a real credential.
+
+### Proven not to be a hole
+
+The claim "swap a fixture for a live credential in the same file on the same
+line and the hash changes, so CI fails" is asserted in the scanner's comments.
+Tested it: replacing `'rf4017-internal-token'` with an Anthropic-shaped key on
+that exact line produced **two** new findings (vendor rule + entropy rule, both
+`len=43`), unprotected by the accepted hash. Restored byte-identical
+(`git diff` empty), scanner reports **CLEAN, 29 fixtures accepted, 0 new
+credential values**.
+
+### The other 30 CI failures are mostly not defects
+
+The CI baseline was recorded 2026-08-11 at `168674b2` over **1,738** test files;
+the tree now has **1,910**. A test that did not exist when the baseline was taken
+cannot be in it, so every failing new test reads as a "NEW FAILURE". Most of the
+31 are Codex's training suites added since. Refreshing
+`docs/suite_baseline.ci.json` is the fix for that, and it is a separate action
+(dispatch `ci.yml` with `record_baseline=true`) — deliberately not bundled here,
+because accepting a security finding and re-recording a baseline are two
+different kinds of decision and should be separately reviewable.
+
+### Verified
+
+`test_rf3720_secret_scan_gate.py`: **8 passed** (was 1 failed). Full scan:
+`4188 tracked files, CLEAN`. The fail-proof above, then a byte-identical
+restore.

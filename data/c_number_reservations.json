@@ -1760,6 +1760,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-159",
+      "title": "the secret-scan gate is red on two synthetic fixtures, so it cannot catch a real leak",
+      "claimed_at": "2026-08-17T10:23:59Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

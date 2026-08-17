@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4117,
+  "next_available": 4118,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35090,6 +35090,15 @@
       "commit_sha": "4f8a7f48",
       "notes": null,
       "shipped_at": "2026-08-17T09:47:09Z"
+    },
+    {
+      "r_number": "R-F4117",
+      "title": "accept the rf4017 synthetic fixtures into the secret-scan baseline",
+      "claimed_at": "2026-08-17T10:23:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
