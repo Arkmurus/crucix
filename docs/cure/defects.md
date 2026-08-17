@@ -9894,6 +9894,60 @@ Properties that are load-bearing:
   it is exactly what a later refactor does.
 * Overhead measured at **<2 ms/call** against a 0.27-0.88s scan.
 
+#### R-F4137 — the first LIVE reading named nothing, and the fix adds the signal C-166 needs
+
+R-F4136 was deployed and read through the running server. It worked. The answer
+was useless:
+
+```
+totalFacts 568,081
+total_calls 1  total_seconds 5.356  mean 5.3559  announced False
+   concurrent.futures.thread     calls=1  secs=5.36  max=5.36
+```
+
+`concurrent.futures.thread` is the worker pool, not a caller. Most call sites go
+through `asyncio.to_thread(search_knowledge, ...)` and **`search_knowledge` IS
+the to_thread target**, so the caller's frames are on another thread by the time
+the scan runs and the walk legitimately finds only pool plumbing. That is the
+same "the caller's stack is gone" problem `cost_tracker` documents for
+`record_call` inside `create_task` — arriving inside the instrument written to
+avoid guessing.
+
+**Fix 1 — a fallback that crosses the hop.** `asyncio.to_thread` runs its target
+inside `contextvars.copy_context()`, so a `feature()` scope set on the async side
+is visible in the worker. Measured, not assumed:
+
+```
+direct call         -> walk='__main__'  feature='uncategorized'
+to_thread, no scope -> feature='uncategorized'
+to_thread, scoped   -> feature='deep_researcher'      <-- survives the hop
+```
+
+Three answers, kept distinguishable so the useless one cannot look like the
+useful one: `<module>` (named, in-thread) · `to_thread:<feature>` (offloaded,
+identified) · `to_thread:unattributed` (offloaded, no scope — honest, never a
+guess). Collapsing the third into a plausible module name would be this
+register's most-repeated defect.
+
+**Fix 2 — an on-loop / off-loop split, and this is the one that matters.**
+C-166 is about event-loop STARVATION. A scan on a worker thread starves the loop
+only through GIL contention; a scan on the LOOP thread blocks it outright. Those
+are different severities with different fixes, and neither the totals nor the
+caller names could tell them apart. The loop runs on the main thread, so
+`on_loop_calls` / `on_loop_seconds` are read directly rather than inferred.
+
+How to read the production output:
+
+* large `total_calls`, `on_loop_seconds` ~0 → offloading works; the residual is
+  GIL pressure, and **amplification** is the target.
+* non-trivial `on_loop_seconds` → a call site is blocking the loop outright and
+  must be offloaded before anything else is attempted.
+
+**One number in the live reading must not be misread:** the 5.36s was the BOOT
+WARMUP call (`main.py:1649`), which also builds the 568k-entry lowercase cache.
+It is not the steady-state per-call cost of 0.27-0.88s, and quoting it as such
+would over-state the problem by ~6x.
+
 **Still OPEN.** The fix is not built, and now should not be chosen until the
 production reading says which fix it is.
 

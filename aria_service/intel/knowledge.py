@@ -2665,14 +2665,57 @@ _RANK_CALLS_ALERT = 500
 _RANK_SECONDS_ALERT = 120.0
 
 
+#: Thread/offload plumbing. Skipped IN ADDITION to cost_tracker's own list so a
+#: worker-pool frame can never masquerade as the caller — see `_rank_caller`.
+_RANK_SKIPS = (
+    "aria_service.intel.knowledge",
+    "concurrent.futures",
+    "threading",
+    "contextvars",
+)
+
+
 def _rank_caller() -> str:
     """Which module asked for a ranking. Never raises — an instrument that can
-    break the thing it measures is worse than no instrument."""
+    break the thing it measures is worse than no instrument.
+
+    R-F4137 (C-166) — the first LIVE reading returned
+    `concurrent.futures.thread`, which names nothing. Most call sites go through
+    `asyncio.to_thread(search_knowledge, ...)`, and `search_knowledge` IS the
+    to_thread TARGET: by the time the scan runs, the caller's frames are on a
+    different thread and the walk legitimately finds only pool plumbing. This is
+    the same "the caller's stack is gone" problem `cost_tracker` documents for
+    `record_call` inside `create_task`.
+
+    So the walk is backed by a fallback that DOES cross the hop:
+    `asyncio.to_thread` runs the target inside `contextvars.copy_context()`, so
+    a `feature()` scope set on the async side is visible here — verified by
+    measurement, not assumed.
+
+    The three answers are deliberately distinguishable, because they mean
+    different things and the useless one must not look like the useful one:
+
+      * `<module>`               — a real, named, IN-THREAD caller
+      * `to_thread:<feature>`    — offloaded, identified by its cost scope
+      * `to_thread:unattributed` — offloaded with no scope. Honest, not a guess.
+    """
     try:
-        from .cost_tracker import caller_module
-        return caller_module(("aria_service.intel.knowledge",)) or "unknown"
+        from .cost_tracker import caller_module, get_current_feature
     except Exception:
         return "unknown"
+    try:
+        who = caller_module(_RANK_SKIPS)
+    except Exception:
+        who = ""
+    if who:
+        return who
+    try:
+        feat = (get_current_feature() or "").strip()
+    except Exception:
+        feat = ""
+    if feat and feat != "uncategorized":
+        return f"to_thread:{feat}"
+    return "to_thread:unattributed"
 
 
 def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
@@ -2682,15 +2725,29 @@ def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
     global _rank_amplification_announced
     try:
         elapsed = time.perf_counter() - started
+        # R-F4137 (C-166) — the split that actually answers the question.
+        # C-166 is about EVENT-LOOP STARVATION, and a scan on a worker thread
+        # starves the loop only through GIL contention, while a scan on the
+        # loop thread blocks it outright. Those are different severities and
+        # different fixes, and the totals cannot tell them apart. The loop runs
+        # on the main thread, so this is a direct read, not an inference.
+        try:
+            on_loop = threading.current_thread() is threading.main_thread()
+        except Exception:
+            on_loop = False
         with _rank_stats_lock:
             row = _rank_stats.get(who)
             if row is None:
                 row = {"calls": 0, "seconds": 0.0, "facts_scanned": 0,
-                       "max_seconds": 0.0}
+                       "max_seconds": 0.0, "on_loop_calls": 0,
+                       "on_loop_seconds": 0.0}
                 _rank_stats[who] = row
             row["calls"] += 1
             row["seconds"] += elapsed
             row["facts_scanned"] += facts_scanned
+            if on_loop:
+                row["on_loop_calls"] += 1
+                row["on_loop_seconds"] += elapsed
             if elapsed > row["max_seconds"]:
                 row["max_seconds"] = elapsed
             hot = (row["calls"] >= _RANK_CALLS_ALERT
@@ -2742,16 +2799,27 @@ def ranking_stats() -> dict:
         callers = {k: dict(v) for k, v in _rank_stats.items()}
     total_calls = sum(v["calls"] for v in callers.values())
     total_seconds = sum(v["seconds"] for v in callers.values())
+    on_loop_calls = sum(v.get("on_loop_calls", 0) for v in callers.values())
+    on_loop_seconds = sum(v.get("on_loop_seconds", 0.0) for v in callers.values())
     return {
         "total_calls": total_calls,
         "total_seconds": round(total_seconds, 3),
         "mean_seconds": round(total_seconds / total_calls, 4) if total_calls else None,
+        # R-F4137 — the headline for C-166. Seconds spent scanning ON the event
+        # loop thread is time the loop was blocked outright, not merely
+        # contended. A large `total` with `on_loop_seconds` near zero means the
+        # offloading is working and the residual is GIL pressure; a non-trivial
+        # `on_loop_seconds` names a call site that must be offloaded first.
+        "on_loop_calls": on_loop_calls,
+        "on_loop_seconds": round(on_loop_seconds, 3),
         "amplification_announced": _rank_amplification_announced,
         "callers": {
             k: {"calls": v["calls"],
                 "seconds": round(v["seconds"], 3),
                 "max_seconds": round(v["max_seconds"], 3),
                 "mean_seconds": round(v["seconds"] / v["calls"], 4) if v["calls"] else None,
+                "on_loop_calls": v.get("on_loop_calls", 0),
+                "on_loop_seconds": round(v.get("on_loop_seconds", 0.0), 3),
                 "facts_scanned": v["facts_scanned"]}
             for k, v in sorted(callers.items(),
                                key=lambda kv: kv[1]["seconds"], reverse=True)
