@@ -4,20 +4,55 @@
 > `suite_baseline_2026_07_30.md`.** Both are retained only as the history section at
 > the bottom. There is ONE baseline; do not add a fourth file.
 
-## Current baseline — 2026-08-09, tool-recorded, provably clean, environment-stamped
+## Current baseline — 2026-08-17, tool-recorded, provably clean, environment-stamped
 
 ```
 VALID=YES
-89 failed, 14,610 passed   (14,699 collected across 1,731 files)
-sha e68f0088   tree 8acea472e2979109 (identical before AND after)
-env  python 3.13.14 · 121 packages · 0871fe4d97709643 · fastapi 0.141.1
+113 failed, 15,794 passed  (15,907 collected across 1,923 files)
+sha bf680ed1   tree d14505b6ed5e633d (identical before AND after)
+env  python 3.13.14 · win32/ARM64 · 123 packages · 506de2c206be9c7e · fastapi 0.141.1
 recorded by:  python scripts/admin/suite_baseline.py --single-process --record
-measured on:  a git worktree at e68f0088 (see "quiet tree" below)
+measured on:  a git worktree at bf680ed1 (see "quiet tree" below)
 ```
 
-**Set diff against 2026-08-01 (103 @ `cd522878`): 87 standing · 16 fixed · 2 new.**
-Both new entries pass standalone, so they are order-dependent rather than deterministic
-regressions; the cause is not established and is recorded as open in CLAUDE.md §16.
+**Set diff against 2026-08-11 (90 @ `168674b2`, 1,738 files): 71 standing · 19 fixed
+· 42 new.**
+
+**The 42 "new" are overwhelmingly NEW TESTS, not regressions.** 185 test files were
+added between the two recordings (1,738 → 1,923). A test that did not exist when the
+baseline was taken cannot be in it, so every failing new test reads as "new". Most are
+the training/DPO suites. **Zero of the 42 are in the work landed by this session**
+(R-F4083..R-F4117) — checked by name against the failure set, not assumed.
+
+Two entries were run in isolation before publishing this number, because both would
+otherwise be read as something they are not:
+
+* `test_lifespan_smoke::test_lifespan_starts_and_shuts_down_cleanly` — §9 treats a
+  lifespan failure as the boot-outage class, so this one matters. It is **not** a boot
+  defect: it fails on `PermissionError: [WinError 32]` cleaning up a subprocess's
+  `err.txt`, a win32 tempfile-teardown artifact. Direct `lifespan(app)` invocations
+  returned `LIFESPAN OK` repeatedly the same day.
+* `test_rf1664_1665_wedge_cure::…records_latency_before_neural_runs` — **passes in
+  isolation**, so order-dependent, not contention. Worth stating because the box was
+  running at ~49% under a concurrent Codex training driver during this measurement, and
+  the two latency-threshold flakes §16 names (`rf2144`, `rf2200`) are **absent** from
+  the failure set — so contention did not manufacture entries here.
+
+⚠️ **A KNOWN POLLUTER IS LIVE IN THIS MEASUREMENT, deliberately.** The peer agent's
+C-158 fix — `brain_hook._stats_flush_lock` is a module-level `asyncio.Lock`, so one
+`asyncio.run()` closing mid-acquire latches stats coalescing off for the life of the
+process — was **verified but unpushed** when this ran. §16 lists that brain-hook family
+as the dominant known-flaky set with the polluter *unidentified*; it is identified now.
+**When that fix lands, several entries here will go GREEN. That is a FIX, not drift** —
+do not read the next set-diff as a regression in the other direction.
+
+**Recording hazard hit and repaired during this run (worth knowing).** A reflex
+fetch-then-fast-forward mid-measurement pulled two new test files into
+`aria_service/`, changing the hashed set and heading for `VALID=NO`. Restoring the
+worktree to the measured commit brought the tree hash back to
+`d14505b6ed5e633d` — verified equal to the run's opening hash, with
+`dirty_measured_files() == []` — so the run stayed valid. **Do not fetch into a
+worktree that a baseline is reading.**
 
 **R-F3794 — this is the first baseline carrying an ENVIRONMENT fingerprint.** A failure
 set is a function of the code AND the installed packages, and only the first was ever

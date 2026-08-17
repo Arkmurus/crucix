@@ -1769,6 +1769,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-160",
+      "title": "three public functions shipped dark after the wiring gate went green",
+      "claimed_at": "2026-08-17T11:08:56Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

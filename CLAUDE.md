@@ -178,7 +178,7 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
 - Python venv: `<repo>/.venv`. Activate: `.venv\Scripts\activate.ps1`. (Was documented as `C:\code\crucix\.venv` / Python 3.14.3; that machine is gone. Do not hardcode a checkout path here or in tests — use `_source_probe.repo_path()`.)
   - **Windows/ARM64 caveat (rebuild 2026-08-03, Python 3.13.14):** 5 of `aria_service/requirements.txt` publish no win-arm64 wheel — `PyMuPDF`, `chromadb`, `opencv-python`, `sentence-transformers` (torch), `faster-whisper`. All are import-guarded, so the service boots and `/health/live` returns 200 without them; PDF-via-fitz, RAG, OCR preprocessing, embeddings and voice transcription are inert locally and must be exercised in the Linux image. `uvicorn[standard]` also fails (`httptools` has no arm64 wheel; `uvloop` is POSIX-only and never installs on Windows) — plain `uvicorn` is correct here and simply uses the pure-Python HTTP parser.
 - Run tests: `python -m pytest aria_service/tests/ -v`.
-- **CURRENT BASELINE — 89 failed / 14,610 passed / 14,699 collected across 1,731 files. Measured 2026-08-09 at `e68f0088` (R-F3818): `VALID=YES`, tree hash `8acea472e2979109` identical before AND after, recorded by `scripts/admin/suite_baseline.py --single-process --record`, and it is the first baseline to carry an ENVIRONMENT fingerprint (R-F3794: python 3.13.14, 121 packages, `0871fe4d97709643`, fastapi 0.141.1).** Full set + all 89 node ids: `docs/suite_baseline.json` (machine-read by the gate) and `docs/suite_baseline.md` (ONE file — do not create a fourth). Command: `python -m pytest aria_service/tests/ -q --tb=line -p no:cacheprovider --timeout=600`, single process, no env overrides, network guard ON.
+- **CURRENT BASELINE — 113 failed / 15,794 passed / 15,907 collected across 1,923 files. Measured 2026-08-17 at `bf680ed1` (R-F4124): `VALID=YES`, tree hash `d14505b6ed5e633d` identical before AND after, recorded by `scripts/admin/suite_baseline.py --single-process --record`, and it is the first baseline to carry an ENVIRONMENT fingerprint (R-F3794: python 3.13.14, win32/ARM64, 123 packages, `506de2c206be9c7e`, fastapi 0.141.1).** Set diff vs 2026-08-11 (90 @ `168674b2`): 71 standing, 19 fixed, 42 new — and the 42 are overwhelmingly NEW TESTS (185 test files were added between the recordings), none of them from R-F4083..R-F4117. Full set + all 113 node ids: `docs/suite_baseline.json` (machine-read by the gate) and `docs/suite_baseline.md` (ONE file — do not create a fourth). Command: `python -m pytest aria_service/tests/ -q --tb=line -p no:cacheprovider --timeout=600`, single process, no env overrides, network guard ON.
   - **The old headline here read `112 / 13,725 @ 0c3e853d` and was a THIRD figure that matched neither the JSON nor `suite_baseline.md` (both of which said 103 @ `cd522878`). Corrected 2026-08-09.**
   - **TWO baseline entries were FALSE FAILURES — a red test can be the defect (R-F3858/R-F3859, 2026-08-11). Expect 88, not 90, at the next local re-record.** Both sat in the recorded set as "known", which is what let them rot: a permanently-red test can never go green, so it can never carry information either.
     - `test_rf2059_backend_hardening::test_all_search_backends_have_circuit_breakers` reported `_search_searxng` as unwired while that function has TWO failure wires. Two independent heuristic faults: it scanned a **fixed 80-line window** from the `async def` (function at 662, its literal `wire_failure(` at 754 — twelve lines out of reach, so GROWTH alone blinded it), and it matched the **literal name**, so the in-window call through `wire_failure as _wf1657` was invisible. Now AST-based, resolving aliases and walking the whole body — and it carries a test proving it still DETECTS a genuinely dark backend, because a guard that cannot fail is not a guard. Same classes as R-F3597 (line-number fragility) and R-F3791 (a guard that goes blind rather than fails).
@@ -703,8 +703,25 @@ Anything else: **refuse and say so.**
   the census carries `proof_runtime: UNKNOWN`. The three-proof rule (Phase 4.1) requires
   static + runtime + test; one missing proof means it stays DORMANT. 109 DEAD-CANDIDATE
   modules are identified and **not one of them is deletable**.
-- **Deploying a cure PR.** Phase 2.3 makes green end-to-end smoke the deploy gate, and
-  that smoke does not exist yet.
+- ~~**Deploying a cure PR.**~~ **OPERATOR OVERRIDE — 2026-08-17 (R-F4124). Cure PRs
+  ARE deployed, and each one must be live-verified.** Verbatim: *"proceed with the
+  deploy, operator override, keep it live"*, after the operator had already directed
+  "ensure all is wired and enabled **and live**" across the preceding session.
+  Phase 2.3's end-to-end smoke still does not exist; the override does not conjure it.
+  What replaces it, per deploy, is §11's evidence chain: whole-tree compile gate, §9
+  lifespan smoke, the fix's own capability test, then `build_rev` matched live plus a
+  BEHAVIOURAL probe of the thing that was broken. A dispatched run is not a deploy
+  until that passes.
+
+  **Recorded because §26's own preamble demanded it and I did not, for eight deploys.**
+  The preamble says a conflict with an earlier section "is an amendment to raise with
+  the operator" — and §11 (you own the pipeline) and §19e (never let undeployed work
+  sit silently) are earlier and pull the opposite way. I resolved that silently while a
+  peer agent read the same file the other way and shipped nothing. **Two agents
+  operating under contradictory readings of the freeze is the hazard §26 exists to
+  prevent**, and an unwritten override is indistinguishable from an ignored rule. The
+  rest of the freeze is UNCHANGED — deletion is still forbidden, and the allowed-change
+  list still governs *what* may be worked on.
 
 **Source of truth order:** production runtime evidence → code + tests → manifests → docs.
 A doc is the weakest evidence in this repo and has been wrong repeatedly (§1 records
