@@ -2511,11 +2511,24 @@ async function loadLlmCost() {
         // /search/health.brave_usage.monthly, not disguised as an error here.
         html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th><th style="text-align:right">Error rate</th></tr>';
         for (const [name, row] of svcRows) {
-          const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
           const rate = row.error_rate;
-          const rateTxt = rate == null ? 'n/a' : `${(rate * 100).toFixed(0)}%`;
-          const rateCls = rate == null ? 'neutral' : rate >= 0.20 ? 'bad' : rate > 0 ? 'warn' : 'good';
-          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(4))}</td><td class="${escapeHtml(errCls)}" style="text-align:right">${escapeHtml(row.errors||0)}</td><td class="${escapeHtml(rateCls)}" style="text-align:right">${escapeHtml(rateTxt)}</td></tr>`;
+          // R-F4094 (C-138): a `legacy_counter` rate was incremented from a
+          // boolean whose defining rule has since changed, and the outcome that
+          // produced it was never stored. It cannot be re-derived, so it must
+          // not be rendered as a current verdict. Live proof: brave read a red
+          // 42% for a full day after C-131 corrected the rule, against a ledger
+          // showing zero real failures. Show the number, mark it provisional,
+          // and let the derived rate take over as evidence accrues.
+          const legacy = row.error_source === 'legacy_counter';
+          const rateTxt = rate == null ? 'n/a'
+            : `${(rate * 100).toFixed(0)}%${legacy ? '?' : ''}`;
+          const errCls = legacy ? 'neutral' : (row.errors||0) > 0 ? 'warn' : 'neutral';
+          const rateCls = (rate == null || legacy) ? 'neutral'
+            : rate >= 0.20 ? 'bad' : rate > 0 ? 'warn' : 'good';
+          const why = legacy
+            ? 'Counted before R-F4094 stored outcomes, so it cannot be re-derived. Provisional until new calls accrue a breakdown.'
+            : `Derived from ${row.error_sample || 0} recorded outcomes.`;
+          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(4))}</td><td class="${escapeHtml(errCls)}" style="text-align:right">${escapeHtml(row.errors||0)}</td><td class="${escapeHtml(rateCls)}" style="text-align:right" title="${escapeHtml(why)}">${escapeHtml(rateTxt)}</td></tr>`;
         }
         html += '</table></div>';
       } else {

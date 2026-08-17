@@ -35,6 +35,7 @@ from __future__ import annotations
 import pytest
 
 from aria_service.intel import cost_tracker as ct
+from aria_service.tests._source_probe import repo_path
 
 
 def test_an_explicit_scope_is_never_overridden():
@@ -187,6 +188,55 @@ def test_the_decorator_is_invisible_to_attribution():
         _as_if_defined_in("aria_service.llm.metered", _inner))
 
     assert plain() == wrapped()
+
+
+def test_skip_prefixes_match_on_a_module_boundary():
+    """R-F4095 (C-139): a raw string prefix over-matches.
+
+    `startswith("aria_service.intel.wire")` also swallows a future
+    `aria_service.intel.wire_utils`; `startswith("contextlib")` swallows
+    `contextlib_helpers`. Nothing collides today, which is what makes it
+    dangerous — the day someone adds `wire_utils.py`, its spend silently becomes
+    unattributable with no error and no failing test.
+    """
+    assert ct._is_plumbing("aria_service.intel.wire")
+    assert ct._is_plumbing("aria_service.intel.wire.sub")
+    assert ct._is_plumbing("aria_service.llm.metered")
+    assert ct._is_plumbing("asyncio.events")
+    assert ct._is_plumbing("contextlib")
+
+    # The over-match cases — each is a legitimate caller that must be named.
+    for legit in ("aria_service.intel.wire_utils",
+                  "aria_service.intel.wiring_harness",
+                  "aria_service.intel.cost_tracker_helpers",
+                  "aria_service.intel.engine_wiring_extras",
+                  "contextlib_helpers",
+                  "functools_extras",
+                  "asyncio_helpers"):
+        assert not ct._is_plumbing(legit), f"{legit} is a real caller, not plumbing"
+
+
+def test_no_real_module_is_swallowed_by_the_skip_list():
+    """Enumerate the actual tree: no shipped module may be classed as plumbing
+    except the four that genuinely are."""
+    import pathlib
+
+    root = repo_path("aria_service")
+    real_plumbing = {
+        "aria_service.intel.cost_tracker",
+        "aria_service.intel.wire",
+        "aria_service.intel.engine_wiring",
+    }
+    swallowed = []
+    for f in root.rglob("*.py"):
+        if "tests" in f.parts:
+            continue
+        mod = "aria_service." + ".".join(f.relative_to(root).with_suffix("").parts)
+        if mod.startswith("aria_service.llm."):
+            continue          # the metering layer, legitimately skipped
+        if ct._is_plumbing(mod) and mod not in real_plumbing:
+            swallowed.append(mod)
+    assert swallowed == [], f"real modules classed as plumbing: {swallowed}"
 
 
 def test_record_call_honours_an_explicitly_passed_feature():

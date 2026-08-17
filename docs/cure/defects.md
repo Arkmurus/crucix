@@ -8141,3 +8141,130 @@ open and the summary — rather than by distance.
 **5 passed**, and proven able to fail: reverting the predicate to
 `name === 'uncategorized'` turns 2 of the 5 red. Full Node guard sweep across
 the page: **188 passed, 0 failed.**
+
+## C-138 · the external ledger persisted a verdict without its evidence (R-F4094)
+
+C-131 corrected the rule: an `empty` search result is an ANSWER, not a failure.
+The fix was real, shipped, and live-verified at `brave_usage.py:333`.
+
+**A full day later the panel still read "Fail rate 42%".** Measured 2026-08-17:
+
+```
+/api/aria/cost/external    brave: calls 168, errors 71, error_rate 0.4226
+/api/aria/search/health    brave_usage.monthly: {total: 234, ok: 135, empty: 99}
+```
+
+Zero `rate_limited` / `auth_failed` / `http_error` / `timeout` — **zero real
+failures** — while the command centre rendered a red 42% against the paid,
+DD-only search engine.
+
+### Why the correction could not reach backwards
+
+`record_external_call` persisted the boolean `success`, and the flush
+incremented a monotonic `errors` counter from it:
+
+```python
+if not rec.get("success", True):
+    sa["errors"] += 1
+```
+
+The **outcome that produced that boolean was discarded at record time.** So the
+71 increments are uninterpretable: nothing distinguishes "empty, miscounted
+under the old rule" from a genuine timeout. The counter keeps serving them
+forever, and no amount of fixing the write rule can touch them.
+
+**A derived verdict persisted without its evidence is uncorrectable by
+construction.** That is the root, and Brave is only where it surfaced — the same
+shape would freeze any future reclassification on any service.
+
+### The fix: keep the evidence, derive the verdict at read time
+
+`record_external_call` gains an `outcome` label, the flush accumulates
+`by_outcome: {ok: n, empty: m, timeout: k, …}`, and `errors` is DERIVED in
+`_apply_error_policy()` from `_NON_ERROR_OUTCOMES`. Reclassifying an outcome is
+now a one-line edit that **retroactively corrects every historical reading** —
+exactly what was impossible before.
+
+Load-bearing choices, each pinned by a test:
+
+* **A row with no breakdown keeps its legacy counter and says so**
+  (`error_source: "legacy_counter"`). It is NOT reinterpreted as zero: we
+  cannot know what those increments meant, and rendering a confident "no
+  failures" from an unreadable history is the absence-as-health failure this
+  register keeps recording.
+* **An EMPTY `by_outcome` counts as absent, not as zero errors.** 0 of 0 is not
+  evidence.
+* **The stale counter is preserved**, not deleted, as `errors_legacy_counter`.
+  We correct the reading; we do not erase what was recorded.
+* **`error_sample` is published** so the rate carries its own n — a rate over 3
+  calls and a rate over 3,000 are not the same claim.
+* A malformed row still cannot raise out of a read endpoint (R-F4064's lesson).
+
+### Verified
+
+Fixture-first: **9 failed → 9 passed.** `-k "cost or metered or brave or rf4087
+or rf4094 or external"`: **375 passed, 0 failed.** Wider `-k` including `wire`:
+883 passed, 4 failed — the same four already proven pre-existing by an
+identical-selection stashed comparison. Compile gate green; §9 lifespan smoke
+`LIFESPAN OK`.
+
+**Expect the Brave row to keep reading `legacy_counter` / 42% until new calls
+accrue a breakdown** — Brave is DD-only and low volume, so this will take days,
+and that is honest rather than instant. The figure will correct itself as
+evidence arrives, which is the property that was missing.
+
+### The panel half: a legacy counter must not read as a verdict
+
+Deriving from evidence fixes the future, and this entry first ended by
+accepting that the Brave row would keep showing a red 42% for days until a
+breakdown accrued. **That is not good enough** - it leaves the exact false
+reading on screen that this defect is about, now with the explanation buried in
+a register nobody reads at 3am.
+
+So the panel reads the provenance. An `error_source: "legacy_counter"` rate
+renders NEUTRAL with a trailing `?` and a hover line saying it predates outcome
+storage and cannot be re-derived. The number is still shown, because
+suppressing it would invent silence about spend that really was recorded. A
+DERIVED rate keeps the full red/amber verdict and states the n it came from.
+
+Keyed on `error_source`, never on the service name: hardcoding `brave` would
+fix today's symptom and rot the moment another service carries a legacy
+counter. A test asserts a derived rate can STILL go red, because a panel where
+nothing can raise an alarm is not an improvement.
+
+## C-139 · attribution skip-prefixes matched without a module boundary (R-F4095)
+
+`_caller_module()` classified a frame as plumbing with a raw string prefix:
+
+```python
+if name and not name.startswith(_ATTRIBUTION_SKIP_PREFIXES):
+```
+
+`"aria_service.intel.wire"` therefore also swallows a future
+`aria_service.intel.wire_utils`, and `"contextlib"` swallows
+`contextlib_helpers`.
+
+**No module in the tree collides today** — verified by enumerating every
+shipped module — and that is precisely what makes it worth fixing now. The day
+someone adds `intel/wire_utils.py`, its LLM spend silently becomes
+unattributable: no error, no failing test, just a caller that quietly stops
+being named. A guard that goes blind instead of failing is the R-F3791 shape,
+and this module exists specifically to stop spend disappearing quietly.
+
+`_is_plumbing()` now matches on a boundary: `a.b` matches `a.b` itself and
+`a.b.anything`, never `a.bc`.
+
+### The test that matters is the enumeration
+
+Case-by-case assertions on invented names (`wire_utils`, `contextlib_helpers`)
+prove the predicate, but they cannot notice a REAL module added tomorrow that
+happens to collide. So a second test walks the actual tree and asserts no
+shipped module is classed as plumbing except the four that genuinely are. That
+one fails on the day the problem becomes real, which is the only time it
+matters.
+
+### Verified
+
+Proven both ways: reverting to `startswith(_ATTRIBUTION_SKIP_PREFIXES)` turns
+`test_skip_prefixes_match_on_a_module_boundary` red on
+`aria_service.intel.wire_utils`; restored, **14 passed**.

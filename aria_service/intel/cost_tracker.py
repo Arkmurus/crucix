@@ -698,10 +698,31 @@ def _caller_module() -> str:
         if frame is None:
             break
         name = frame.f_globals.get("__name__", "")
-        if name and not name.startswith(_ATTRIBUTION_SKIP_PREFIXES):
+        if name and not _is_plumbing(name):
             return name
         frame = frame.f_back
     return ""
+
+
+def _is_plumbing(module: str) -> bool:
+    """R-F4095 (C-139) — match on a MODULE BOUNDARY, not a raw string prefix.
+
+    `startswith("aria_service.intel.wire")` also swallows a future
+    `aria_service.intel.wire_utils`, and `startswith("contextlib")` swallows
+    `contextlib_helpers`. Nothing in the tree collides today — verified by
+    enumerating every module — so this is latent, which is exactly the problem:
+    the day someone adds `wire_utils.py` its spend silently becomes
+    unattributable, with no error and no failing test. A guard that goes blind
+    instead of failing is the R-F3791 shape, and this module exists to stop
+    spend disappearing quietly.
+
+    `a.b` matches `a.b` itself and `a.b.anything`, never `a.bc`.
+    """
+    for p in _ATTRIBUTION_SKIP_PREFIXES:
+        stem = p[:-1] if p.endswith(".") else p
+        if module == stem or module.startswith(stem + "."):
+            return True
+    return False
 
 
 def attribute_unscoped_caller() -> str:
@@ -798,8 +819,16 @@ async def record_external_call(
     latency_ms: int = 0,
     metadata: dict | None = None,
     error: str = "",
+    outcome: str = "",
 ) -> dict:
     """Persist one external-service call (Brave / Upstash / etc).
+
+    R-F4094 (C-138): `outcome` is the EVIDENCE behind `success` — the label the
+    caller actually observed (`ok` / `empty` / `timeout` / `rate_limited` / ...).
+    Persisting only the boolean made every historical row uninterpretable the
+    moment the rule deriving it changed; see `_NON_ERROR_OUTCOMES`. Optional, so
+    a caller that has no outcome vocabulary is unaffected and simply keeps the
+    legacy counter semantics.
 
     Same Redis-index + monthly-rollup pattern as record_call() but
     keyed under EXTERNAL_RECORD_PREFIX so the LLM cost panel doesn't
@@ -821,6 +850,7 @@ async def record_external_call(
         "latency_ms": int(latency_ms or 0),
         "success": success,
         "error": (error or "")[:300],
+        "outcome": (outcome or "").strip()[:32],
         "metadata": metadata or {},
     }
     # R-F2483 — coalesce: accumulate the record and let the batched flush update the
@@ -839,6 +869,59 @@ async def record_external_call(
     return record
 
 
+# ── Read-time error policy (R-F4094 / C-138) ───────────────────────────────
+# Which outcomes are NOT failures. Declared here, at READ time, on purpose.
+#
+# The external ledger used to persist only the boolean `success` and increment a
+# monotonic `errors` counter from it. The outcome that produced that boolean was
+# discarded, so when R-F4083 corrected the rule (an `empty` search result is an
+# ANSWER, not a failure) the correction could not reach a single historical row.
+# A full day after that fix shipped and was live-verified, the panel still read
+# `brave: errors 71, error_rate 0.4226` while the one meter that DID keep
+# outcomes reported `{"total": 234, "ok": 135, "empty": 99}` — zero real
+# failures. A red "Fail rate 42%" on the paid, DD-only search engine.
+#
+# A derived verdict persisted without its evidence is uncorrectable BY
+# CONSTRUCTION. Keep the breakdown; derive the verdict here. Reclassifying an
+# outcome is now a one-line edit that retroactively corrects every reading —
+# precisely what was impossible before.
+_NON_ERROR_OUTCOMES = frozenset({"ok", "empty", "cached", "no_results"})
+
+
+def _apply_error_policy(agg: dict) -> dict:
+    """Annotate each service row in-place with `errors` / `error_rate` /
+    `error_source`, deriving from `by_outcome` when it exists.
+
+    A row WITHOUT a usable breakdown keeps its legacy counter and says so. It is
+    not reinterpreted as zero: we genuinely cannot know what those increments
+    meant, and rendering a confident "no failures" from an unreadable history is
+    the absence-as-health failure this module keeps hitting. An EMPTY
+    `by_outcome` counts as absent for the same reason — 0 of 0 is not evidence.
+    """
+    for _svc in agg.values():
+        if not isinstance(_svc, dict):
+            continue          # R-F4064: one malformed row must not raise
+        _calls = int(_svc.get("calls", 0) or 0)
+        _legacy = int(_svc.get("errors", 0) or 0)
+        _by = _svc.get("by_outcome")
+        _by = _by if isinstance(_by, dict) else {}
+        _sample = sum(int(v or 0) for v in _by.values())
+        if _sample > 0:
+            _errs = sum(int(v or 0) for k, v in _by.items()
+                        if k not in _NON_ERROR_OUTCOMES)
+            _svc["errors_legacy_counter"] = _legacy   # preserved, never deleted
+            _svc["errors"] = _errs
+            _svc["error_sample"] = _sample
+            _svc["error_rate"] = round(_errs / _sample, 4)
+            _svc["error_source"] = "outcome_breakdown"
+        else:
+            _svc["errors"] = _legacy
+            _svc["error_sample"] = _calls
+            _svc["error_rate"] = round(_legacy / _calls, 4) if _calls > 0 else None
+            _svc["error_source"] = "legacy_counter"
+    return agg
+
+
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def record_brave_call(
     *,
@@ -847,6 +930,7 @@ async def record_brave_call(
     success: bool = True,
     latency_ms: int = 0,
     cost_per_call_usd: float | None = None,
+    outcome: str = "",
 ) -> dict:
     """Convenience wrapper around record_external_call for Brave.
     Operator can override per-call cost via BRAVE_COST_PER_CALL_USD."""
@@ -864,6 +948,7 @@ async def record_brave_call(
         feature_name=feature_name,
         success=success,
         latency_ms=latency_ms,
+        outcome=outcome,
     )
 
 
@@ -901,12 +986,7 @@ async def get_external_summary(month: str | None = None) -> dict:
     #
     # None, not 0.0, when there are no calls: a service nobody called has no
     # error rate, and rendering 0% would read as perfect health.
-    for _svc in agg.values():
-        if not isinstance(_svc, dict):
-            continue
-        _calls = int(_svc.get("calls", 0) or 0)
-        _errors = int(_svc.get("errors", 0) or 0)
-        _svc["error_rate"] = round(_errors / _calls, 4) if _calls > 0 else None
+    _apply_error_policy(agg)
     # R-F4064 — the totals assumed every value is a dict, so ONE malformed row
     # raised AttributeError out of a read endpoint and took the whole cost panel
     # down with it. Found by the malformed-entry case written for the rate above.
@@ -1475,6 +1555,16 @@ async def _flush_external_pending(force: bool = False) -> bool:
                 sa["cost_usd"] = round(sa["cost_usd"] + float(rec.get("cost_usd") or 0.0), 6)
                 if not rec.get("success", True):
                     sa["errors"] += 1
+                # R-F4094 (C-138) — keep the EVIDENCE, not just the verdict, so
+                # a future reclassification can be re-derived over history
+                # instead of being frozen into a counter nobody can unpick.
+                _oc = (rec.get("outcome") or "").strip()
+                if _oc:
+                    _bo = sa.get("by_outcome")
+                    if not isinstance(_bo, dict):
+                        _bo = {}
+                    _bo[_oc] = int(_bo.get(_oc, 0) or 0) + 1
+                    sa["by_outcome"] = _bo
                 agg[svc] = sa
             await rs.set_json(EXTERNAL_AGG_KEY, agg, ex=COST_TTL)
             # 4. Composite month rollup(s) — identical math to the LLM path

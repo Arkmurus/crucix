@@ -331,6 +331,13 @@ async def _record_spend(outcome: str, status: int | None) -> None:
             # /search/health.brave_usage.monthly, where it is named `empty`
             # rather than dressed as an error.
             success=(outcome in ("ok", "empty")),
+            # R-F4094 (C-138) — hand over the EVIDENCE too. `success` alone made
+            # the C-131 correction above unreachable for every row already
+            # written; a day after it shipped the panel still read "42% fail"
+            # against a ledger showing zero failures. The outcome label lets the
+            # rate be DERIVED at read time, so a future reclassification applies
+            # to history instead of only to the future.
+            outcome=outcome,
             # status is None only when no response arrived (timeout/transport error).
             cost_per_call_usd=None if status is not None else 0.0,
         )
