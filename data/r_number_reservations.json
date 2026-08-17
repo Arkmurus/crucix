@@ -34978,18 +34978,20 @@
       "title": "abstain on ambiguous international registry name searches",
       "claimed_at": "2026-08-17T09:15:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ec1c7969d3a0670388d6eb79cc55325f18d0afd1",
+      "notes": null,
+      "shipped_at": "2026-08-17T10:33:55Z"
     },
     {
       "r_number": "R-F4106",
       "title": "close registry adapter transport precommit gaps",
       "claimed_at": "2026-08-17T09:18:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf23f36b",
+      "notes": null,
+      "shipped_at": "2026-08-17T10:33:55Z"
     },
     {
       "r_number": "R-F4107",
