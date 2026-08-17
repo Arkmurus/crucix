@@ -1871,6 +1871,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T18:41:37Z"
+    },
+    {
+      "c_number": "C-168",
+      "title": "recall returns facts matching no query word, ranked by re-absorption count",
+      "claimed_at": "2026-08-17T18:57:17Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

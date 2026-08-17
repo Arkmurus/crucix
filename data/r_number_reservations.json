@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4133,
+  "next_available": 4134,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35242,6 +35242,15 @@
       "commit_sha": "70b663ab",
       "notes": null,
       "shipped_at": "2026-08-17T18:41:37Z"
+    },
+    {
+      "r_number": "R-F4133",
+      "title": "popularity boost applied before the relevance threshold in _rank_knowledge_facts",
+      "claimed_at": "2026-08-17T18:57:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
