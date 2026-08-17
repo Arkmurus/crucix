@@ -867,12 +867,18 @@ async function loadMode() {
   // entry was nine days old while the check runs hourly. This is the only route
   // out of DEGRADED, which suppresses all external delivery, so an evaluator
   // that quietly stopped would leave delivery off with nothing saying why.
+  // R-F4085 (C-132) — the threshold must match the real cadence.
+  // HOURLY-ECOSYSTEM-REASSESS is named hourly and its cron is `0 */6 * * *`,
+  // so this warned at >3h and would have shown WARN for most of every 6-hour
+  // cycle. A verdict that cries wolf is one nobody reads (R-F4024), and I built
+  // this one on the task's NAME rather than its cron. Two missed cycles plus
+  // slack is the honest line; absent entirely is still bad.
   const evalAge = _ageLabel(d.last_evaluated_at);
   html += metricRow(
     'Last evaluated',
-    d.last_evaluated_at ? evalAge : 'not in the last 72h',
+    d.last_evaluated_at ? `${evalAge} (runs every 6h)` : 'not in the last 72h',
     !d.last_evaluated_at ? 'bad'
-      : (_ageHours(d.last_evaluated_at) > 3 ? 'warn' : 'good'),
+      : (_ageHours(d.last_evaluated_at) > 13 ? 'warn' : 'good'),
   );
   if (d.history?.length) {
     html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Recent transitions:</div>';

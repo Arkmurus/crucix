@@ -1,6 +1,7 @@
 """ARIA Ecosystem Reassessment — hourly self-audit of her own capabilities.
 
-Fires hourly (HOURLY-ECOSYSTEM-REASSESS) and writes a priority queue that
+Fires every 6 hours (HOURLY-ECOSYSTEM-REASSESS — the id is historical, the
+cron is `0 */6 * * *`; R-F4085) and writes a priority queue that
 DAILY-CORE-DEVELOP drains the following morning.
 
 What this module does (read-only):

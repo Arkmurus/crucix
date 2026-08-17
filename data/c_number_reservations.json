@@ -1490,6 +1490,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-132",
+      "title": "a task named HOURLY runs every six hours",
+      "claimed_at": "2026-08-17T03:25:34Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

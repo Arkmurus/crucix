@@ -7809,3 +7809,57 @@ charged.
 real-failure outcomes parametrised, and a label check so the fix cannot be
 half-done). `-k "brave or cost or external"`: **346 passed, 0 failed.** Node
 guards 168 passed. Compile gate green.
+
+## C-132 · a task named HOURLY runs every six hours, and I built a threshold on the name (R-F4085)
+
+`tasks.yaml` contradicted itself inside a single block:
+
+```yaml
+  # HOURLY-ECOSYSTEM-REASSESS — every hour on the hour, ARIA surveys her ...
+  - id: HOURLY-ECOSYSTEM-REASSESS
+    name: Ecosystem reassessment (hourly)
+    description: |
+      Every 6 hours — ARIA surveys her ecosystem ...        <- the only true line
+    cron: "0 */6 * * *"                                     <- 6-hourly
+    enabled: true    # ... safe to fire hourly
+```
+
+`ecosystem_reassess.py`'s docstring said "Fires hourly" too. Someone changed the
+cron and updated only the description.
+
+Found by following R-F4065's new "Last evaluated" stamp to its first live
+reading: `crucix:aria:operating_mode:last_evaluated_at` = `2026-08-17T00:00:16Z`,
+age **3.4h**. That looked like a missed hourly run. It was not — the stamp was
+working perfectly and the schedule is 6-hourly.
+
+### Two things I had built on the wrong premise
+
+* **C-112 relocated the mastery correction onto this task** because the name said
+  hourly. Landing on a 6-hourly schedule is SAFE — fewer corrections, never more,
+  and `_CORRECT_COOLDOWN` still floors it — but the record claimed something
+  untrue about how often mastery actually moves. Corrected in the docstring.
+* **R-F4065's "Last evaluated" warned above 3h.** On a 6-hourly task that is
+  WARN for most of every cycle: the cry-wolf shape R-F4024 records
+  (*"a verdict that cries wolf is one nobody reads"*). Calibrated against the
+  task's NAME rather than its cron. Now 13h — two missed cycles plus slack —
+  and the row states "(runs every 6h)" so the reader can judge it. **An absent
+  stamp is still `bad`**: relaxing the threshold must not relax the real signal,
+  and a test pins that too.
+
+### What was NOT changed
+
+**The cron.** Nobody asked for this to run more often, and quietly making it
+hourly to match a label would be changing behaviour to protect a name — the
+inverse of the whole batch. The id is kept as well: tests and persisted task
+state reference `HOURLY-ECOSYSTEM-REASSESS`, so renaming it would break things
+to fix prose. The prose is what was wrong, so the prose is what moved.
+
+### Verified
+
+`test_rf4085_reassess_cadence_is_honest.py`: **5 passed.** It pins the cron
+(so a later "fix" cannot quietly make it hourly), asserts no prose in the block
+claims hourly, asserts the panel threshold allows a full cycle, and asserts an
+absent stamp is still `bad`. The strict no-hourly-prose rule caught my own
+replacement comment on the first run and the comment was reworded rather than
+the rule loosened. 306 passed in the task/calibration/operating-mode regression
+(1 known worktree `.env` failure); `tasks.yaml` parses; Node 173 passed.

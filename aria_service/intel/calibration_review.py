@@ -71,9 +71,17 @@ async def run_calibration_review(apply_correction: bool = False) -> dict:
     acknowledging the driver rather than removing it.
 
     The correction is a wanted capability, so it is relocated rather than
-    deleted: the hourly ``ecosystem_reassess`` task passes ``True`` (it already
-    owns the other hourly evaluations — operating mode, composite score), and
-    every read path keeps the default. **A GET must not move a score.**
+    deleted: the scheduled ``ecosystem_reassess`` task passes ``True`` (it
+    already owns the other periodic evaluations — operating mode, composite
+    score), and every read path keeps the default. **A GET must not move a
+    score.**
+
+    R-F4085 (C-132): that task runs every 6 HOURS, not hourly — its id says
+    HOURLY and its cron says ``0 */6 * * *``. So ``_CORRECT_COOLDOWN`` (3600s)
+    is no longer the binding constraint; the schedule is. That is safe (fewer
+    corrections, never more) and the cooldown stays as the floor if a second
+    scheduled caller is ever added — but do not read 'hourly' here as a
+    statement about how often mastery actually moves.
     """
 
     # 1. Get mastery scores. Use `headline_mastery` (= min(overall, core) per

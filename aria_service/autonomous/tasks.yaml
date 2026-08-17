@@ -992,17 +992,20 @@ tasks:
     escalate_if: ["contradicted", "human_required"]
     mem0_tags: [verified_intel, clause17, refresh, autonomous]
 
-  # HOURLY-ECOSYSTEM-REASSESS — every hour on the hour, ARIA surveys her
+  # HOURLY-ECOSYSTEM-REASSESS — R-F4085 (C-132): the id's prefix is historical
+  # and the cron is `0 */6 * * *`. The CRON is authoritative; the id is kept
+  # because tests and persisted task state reference it.
+  # Every 6 hours, ARIA surveys her
   # own ecosystem: mastery drift, source freshness, mistake-ledger patterns,
   # capability gaps. Emits a priority queue `aria:core:reassess:queue` that
   # CORE-DEVELOP drains the next morning. Read-only, cheap.
   - id: HOURLY-ECOSYSTEM-REASSESS
-    name: Ecosystem reassessment (hourly)
+    name: Ecosystem reassessment (every 6h)
     description: |
       Every 6 hours — ARIA surveys her ecosystem and writes a priority
       queue for CORE-DEVELOP. No external calls, no mutations.
     cron: "0 */6 * * *"
-    enabled: true    # ENABLED 2026-04-15: read-only queue builder, safe to fire hourly
+    enabled: true    # ENABLED 2026-04-15: read-only queue builder, cheap to fire
     priority: LOW
     timeout_seconds: 60
     cost_cap_usd: 0.01
