@@ -279,6 +279,9 @@ async def record_refresh(
             )
             existing = dict(sorted_items[:_MAX_TRACKED_DOMAINS])
         await rs.set_json(_REDIS_KEY, existing, ex=_TTL_SECONDS)
+        # R-F4101: the tracker is writing again - re-arm, so the NEXT
+        # outage is announced rather than swallowed by a spent latch.
+        _reset_skip_announcement()
     except Exception as e:
         logger.debug("learning_progress record_refresh failed (non-fatal): %s", e)
 
@@ -348,7 +351,52 @@ def _compute_staleness(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@fail_wire(module="learning_progress", gap_type="engine_failure")
+# R-F4101 (C-153) — announce a skipped write ONCE per degraded episode.
+#
+# R-F4097 made `record_refresh` skip rather than clobber when the store cannot
+# be read. Right for the data, but as shipped the skip was DARK: a
+# `logger.warning` is explicitly not wiring under §21a. And a permanent skip is
+# a WORSE failure mode than the clobber it replaced, because it is silent by
+# construction — the tracker just stops updating, `stale_domains()` keeps
+# returning stale content, R-F90's orchestrator keeps believing everything is
+# fresh, and the panel can still read `store_readable: true` because reads
+# recover while writes are still being skipped.
+#
+# Once per EPISODE, not per call: record_refresh fires on every ingested fact,
+# so a per-skip gap is the self-sustaining flood that filled the 500-slot
+# capability ledger (C-98, `sanctions_coverage_degraded`). Recovery re-arms it,
+# so a second outage after a good period announces again instead of being
+# swallowed by a latch that already fired.
+_skip_announced = False
+
+
+def _reset_skip_announcement() -> None:
+    """Re-arm the announcement. Called on a successful write, and by tests."""
+    global _skip_announced
+    _skip_announced = False
+
+
+def _announce_skip(reason: str) -> None:
+    global _skip_announced
+    if _skip_announced:
+        return
+    _skip_announced = True
+    try:
+        wire_failure(
+            module="learning_progress",
+            detail=(
+                "[R-F4101] freshness tracker writes are being SKIPPED: "
+                f"{reason}. The tracker is not updating, so stale_domains() "
+                "and the freshness panel are serving stale content until the "
+                "store recovers."
+            ),
+            gap_type="engine_failure",
+            source="learning_progress",
+        )
+    except Exception:      # bookkeeping must never break an ingest path
+        logger.debug("[R-F4101] could not wire the freshness skip",
+                     exc_info=True)
+
 
 async def _read_domains_strict(rs) -> dict | None:
     """Current tracker contents, or None when they CANNOT BE ESTABLISHED.
@@ -369,13 +417,16 @@ async def _read_domains_strict(rs) -> dict | None:
         logger.warning(
             "[R-F4097] store %s has no get_strict - freshness writes are being "
             "SKIPPED to avoid clobbering the tracker", type(rs).__name__)
+        _announce_skip(f"store {type(rs).__name__} has no strict read")
         return None
     try:
         raw = await rs.get_strict(_REDIS_KEY)
     except StoreReadError:
+        _announce_skip("store read failed (StoreReadError)")
         return None                      # store not ready -> never clobber
     except Exception as e:
         logger.debug("[R-F4097] freshness strict read failed: %s", e)
+        _announce_skip(f"store read raised {type(e).__name__}")
         return None
     if raw is None or raw == "":
         return {}                        # genuinely absent: first write is safe
@@ -387,10 +438,12 @@ async def _read_domains_strict(rs) -> dict | None:
         logger.warning(
             "[R-F4097] freshness tracker value is unparseable - skipping the "
             "write rather than replacing it")
+        _announce_skip("stored value is unparseable")
         return None
     return parsed if isinstance(parsed, dict) else None
 
 
+@fail_wire(module="learning_progress", gap_type="engine_failure")
 async def get_all_domains() -> list[dict[str, Any]]:
     """Return all tracked domains with computed staleness fields."""
     try:

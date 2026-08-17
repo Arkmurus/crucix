@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4101,
+  "next_available": 4103,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34926,6 +34926,24 @@
       "r_number": "R-F4100",
       "title": "document fixed-origin Companies House fetch SSRF safety",
       "claimed_at": "2026-08-17T07:52:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4101",
+      "title": "wire the freshness skip to the brain, once per episode",
+      "claimed_at": "2026-08-17T07:56:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4102",
+      "title": "widen the stolen-decorator gate to every module that opts into fail_wire",
+      "claimed_at": "2026-08-17T07:56:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

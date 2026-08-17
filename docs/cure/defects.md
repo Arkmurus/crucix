@@ -8339,3 +8339,92 @@ or rf4097 or stale"`: **469 passed, 5 failed** — all five proven PRE-EXISTING 
 re-running the identical selection with the diff stashed, which reproduces the
 same five (`rf1696`, `rf3976`, `rf4088`, `rf684`, `rf728`); the +6 delta is this
 fix's own tests. Compile gate green; §9 lifespan smoke `LIFESPAN OK`.
+
+## C-153 · the freshness tracker skipped writes and told nobody (R-F4101)
+
+R-F4097 stopped `record_refresh` clobbering the tracker when the store cannot be
+read: it now SKIPS the write. Right for the data — and as shipped, **dark**. The
+skip reached a `logger.warning` at most, and §21a is explicit that a log line is
+not wiring.
+
+The failure mode that creates is worse than the one it replaced. A clobber is
+loud in the numbers: 1,000 tracked domains drop to 8 and someone eventually
+notices. **A permanent skip is silent by construction** — the tracker simply
+stops updating, `stale_domains()` keeps returning what it last held, R-F90's
+refresh orchestrator keeps believing everything is fresh, and the panel can
+still read `store_readable: true`, because reads recover while writes are still
+being skipped. §25 calls that a limb ARIA cannot feel.
+
+**Once per episode, not per call.** `record_refresh` fires on every ingested
+fact, so a per-skip gap is the self-sustaining flood that already filled the
+500-slot capability ledger (C-98, `sanctions_coverage_degraded`). A successful
+write **re-arms** the latch, so a second outage after a good period announces
+again instead of being swallowed by a latch that already fired — a latch that
+can only fire once degrades into "we told you in March".
+
+---
+
+## C-154 · the stolen-decorator gate watched ONE file, so the same theft shipped (R-F4102)
+
+**R-F4097 stole a decorator, and it shipped, deployed, and live-verified clean.**
+
+R-F3928 built a guard for exactly this class after R-F3919 did exactly this
+thing. Its docstring states the rule in capitals — *"WHEN INSERTING A FUNCTION
+ABOVE ANOTHER, ANCHOR ON THE DECORATOR, NOT THE `def`"* — and warns the gate
+"must never be muted or baselined away". And it is scoped to one target:
+
+```python
+_TARGET = "aria_service/autonomous/safety.py"
+```
+
+So when R-F4097 inserted `_read_domains_strict` above `get_all_domains` in
+`learning_progress.py`, anchoring on the `async def`, the pre-existing
+`@fail_wire` landed on the new **private helper** and `get_all_domains` was
+silently un-wired. Nothing failed, because **the thing it broke is the reporting
+of failure.**
+
+It surfaced only by accident. The NEXT insertion (R-F4101) put a comment between
+the orphaned decorator and the following `def` — a SyntaxError. *A compile error
+found a wiring defect that six test selections and a live smoke had all passed
+over.*
+
+**A guard that enumerates one file certifies the other 104.** Same shape as
+R-F3791 (a check whose universe went empty always passes) and the three Phase A
+gates §1 records as "certified by an absence" — here the absence is the rest of
+the tree.
+
+### Widened to the definition, not to a syntax
+
+The first version required the `@fail_wire` **decorator** and immediately
+flagged `chat_ep` and `chat_stream_ep` — the two most important user-facing
+paths in the product, both wired perfectly well through in-body `absorb` calls.
+That false positive mattered more than it looks: **a gate that shouts about
+correct code is a gate someone mutes**, and this is the gate that must never be
+muted.
+
+So the rule encodes §21a's actual definition — a public async function is dark
+only when it reaches **no brain sink at all**, by decorator or in body. Under
+that rule the honest baseline is **9 dark functions across 4 modules** (the
+decorator-only rule claimed 16 across 9, three of them false).
+
+`_KNOWN_DARK` is **SHRINK-ONLY** — same contract as `KNOWN_DEAD_CALLS` and
+`LEGACY_COLLISIONS`. Wire the function and delete the line; a new entry means
+the gate was bypassed. A test asserts every baselined entry still exists and is
+still dark, so the set cannot rot into a permanent exemption list.
+
+### Verified
+
+C-153 fixture-first: **4 errors → 4 passed**, including a test that drives 50
+consecutive skips and asserts exactly ONE signal, and one that proves recovery
+re-arms. C-154: **5 passed**, with a case proving the gate still detects the
+exact theft shape and another proving in-body wiring is accepted. Combined with
+the R-F4097 and R-F4067 suites: **25 passed.** Compile gate green; §9 lifespan
+smoke `LIFESPAN OK`.
+
+**Standing red, found while verifying and NOT fixed here:** three wiring gates —
+`test_rf1783_wiring_gates_ast::test_all_gates_clean_no_infra_false_positives`,
+`test_rf3560_gap_type_overrides::test_no_blocking_wiring_violations_remain`, and
+`test_rf1158_compliance_watch_failure` — are red before and after this change
+(proven by the identical selection with the diff stashed). **That is very likely
+why the R-F4097 theft was not caught**: the repo's wiring gates carry no
+information while they are red. Diagnosing them is the obvious next task.

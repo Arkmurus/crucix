@@ -1667,6 +1667,24 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T07:20:32Z"
+    },
+    {
+      "c_number": "C-153",
+      "title": "the freshness tracker skips writes on an unreadable store and tells nobody",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-154",
+      "title": "the stolen-decorator gate watches one file, so the same theft shipped elsewhere",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
