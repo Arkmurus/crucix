@@ -557,7 +557,10 @@ async def _build_heatmap_uncached(
     freshness_records = {}
     try:
         all_freshness = await _lp.get_all_domains()
-        for f in all_freshness:
+        # R-F4097 (C-152): None = the tracker could not be read. Iterating it
+        # would raise; treating it as empty silently drops freshness from every
+        # heatmap cell, so skip and leave the records absent.
+        for f in (all_freshness or []):
             freshness_records[f.get("domain", "")] = f
     except Exception:
         pass

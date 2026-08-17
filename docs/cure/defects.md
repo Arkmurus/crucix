@@ -8268,3 +8268,74 @@ matters.
 Proven both ways: reverting to `startswith(_ATTRIBUTION_SKIP_PREFIXES)` turns
 `test_skip_prefixes_match_on_a_module_boundary` red on
 `aria_service.intel.wire_utils`; restored, **14 passed**.
+
+## C-152 · a store read failure wiped the whole freshness tracker (R-F4097)
+
+Found by diffing a panel reading against itself across a deploy.
+
+The freshness panel read `protected_total 91 / ambient_total 909` — 1,000
+tracked domains, at the cap — before a deploy, and **`8 / 128` after it.**
+Protected domains are never pruned (`_is_expired_ambient` returns False for
+them by construction), so expiry cannot explain the loss. A clobber can.
+
+`record_refresh` did a read-modify-write of the entire domain dict:
+
+```python
+existing = await rs.get_json(_REDIS_KEY)      # non-strict
+if not isinstance(existing, dict):
+    existing = {}
+...
+await rs.set_json(_REDIS_KEY, existing, ex=_TTL_SECONDS)
+```
+
+`get_json` honours the R-F1 None-on-error contract (`redis_store.py:299-303`):
+`None` for a genuinely absent key **and** for a store failure, indistinguishable.
+So one failed read collapsed `existing` to `{}` and the very next line replaced
+the durable key with a **single domain**.
+
+**This is the R-F2664 shape exactly, in a second module.** §1 records it for
+`_load_regional_mastery`: *"a slow-boot StoreReadError poisoned
+`_regional_cache` to `{}` → the next `update_regional_mastery` CLOBBERED the
+durable key"*. aria-intel boots for ~10 minutes (§11c), so the not-ready window
+is large and is entered **on every deploy**.
+
+§7 is explicit: infinite memory, no eviction. Losing ~860 tracked domains to a
+boot-time race is what that rule forbids, and it was silent — no error, no gap,
+just a smaller number on a panel nobody was diffing.
+
+### The fix
+
+`_read_domains_strict()` reads with `get_strict` and returns `None` when the
+contents **cannot be established**; `record_refresh` then SKIPS the write. One
+lost timestamp beats a wiped tracker.
+
+* **`get_strict`, not `get_json_strict`** — deliberately. The json helper
+  swallows a parse failure into `None`, which puts us straight back into
+  "unreadable looks like absent" for a corrupt value. A test covers the corrupt
+  case separately from the wedged one.
+* **A genuinely absent key still returns `{}`**, so first use works. The guard
+  must not break the empty case it is protecting.
+* **A store with no `get_strict` skips and WARNS.** A blanket
+  `except Exception: return None` froze every write with no signal, which is a
+  worse failure than the clobber — the tracker would simply stop, silently.
+  Caught because it broke six of R-F4067's own tests, whose fake store predated
+  the strict contract.
+
+### And the reader was lying too
+
+`get_all_domains` returned `[]` on failure, so `stats()` rendered a confident
+`tracked 0 / 0% stale` for a store it could not read — the absence-as-health
+shape, again. It now returns `None`, and `stats()` reports
+`store_readable: false` with `None` counts. `stale_domains()` maps that to `[]`
+but only after the distinction is made: returning "nothing is stale" to R-F90's
+orchestrator is the quietest possible way for the refresh loop to stop working.
+
+### Verified
+
+Fixture-first: **5 failed → 6 passed**, including a test that fails on the
+clobber itself (1,000 domains in the store, wedged read, assert nothing was
+written). `-k "learning_progress or freshness or coverage or heatmap or rf4067
+or rf4097 or stale"`: **469 passed, 5 failed** — all five proven PRE-EXISTING by
+re-running the identical selection with the diff stashed, which reproduces the
+same five (`rf1696`, `rf3976`, `rf4088`, `rf684`, `rf728`); the +6 delta is this
+fix's own tests. Compile gate green; §9 lifespan smoke `LIFESPAN OK`.

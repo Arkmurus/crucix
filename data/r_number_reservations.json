@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4097,
+  "next_available": 4098,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34888,6 +34888,15 @@
       "title": "balance resolution DPO update budget",
       "claimed_at": "2026-08-17T07:03:43Z",
       "claimed_by": "codex",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4097",
+      "title": "strict-read the freshness tracker so a not-ready store cannot clobber it",
+      "claimed_at": "2026-08-17T07:10:11Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null

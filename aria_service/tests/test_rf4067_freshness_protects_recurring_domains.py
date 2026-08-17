@@ -59,6 +59,12 @@ class _FakeStore:
     async def get_json(self, key):
         return json.loads(json.dumps(self.data))
 
+    async def get_strict(self, key):
+        # R-F4097 (C-152): the real store returns a RAW STRING here and raises
+        # StoreReadError on failure. record_refresh reads strictly now, so a
+        # fake without this method would make every write skip.
+        return json.dumps(self.data)
+
     async def set_json(self, key, obj, ex=None):
         self.data = json.loads(json.dumps(obj))
 

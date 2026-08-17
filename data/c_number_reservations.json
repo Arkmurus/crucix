@@ -1655,6 +1655,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-152",
+      "title": "a store read failure wipes the whole freshness tracker on the next write",
+      "claimed_at": "2026-08-17T07:10:10Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
