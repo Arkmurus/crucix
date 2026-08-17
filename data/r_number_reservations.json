@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4131,
+  "next_available": 4132,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35211,6 +35211,15 @@
       "r_number": "R-F4130",
       "title": "put the chroma RAG store into WAL so its fsyncs stop freezing the event loop",
       "claimed_at": "2026-08-17T17:24:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4131",
+      "title": "complete epoch accepted parent resolution DPO",
+      "claimed_at": "2026-08-17T17:36:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
