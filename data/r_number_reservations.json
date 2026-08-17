@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4134,
+  "next_available": 4135,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35247,6 +35247,15 @@
       "r_number": "R-F4133",
       "title": "popularity boost applied before the relevance threshold in _rank_knowledge_facts",
       "claimed_at": "2026-08-17T18:57:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4134",
+      "title": "persist remote failure diagnosis with sentinel",
+      "claimed_at": "2026-08-17T18:59:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

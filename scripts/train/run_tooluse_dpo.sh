@@ -35,6 +35,7 @@ EVAL_LOCAL="${EVAL_LOCAL:-data/training/split_v2/eval.jsonl}"
 TRAIN_PROOF="${TRAIN_PROOF:-data/training/tooluse_dpo_generation_v3.jsonl}"
 GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 REPORT_LOCAL="${REPORT_LOCAL:-data/eval_reports/aria_tooluse_dpo_v3_eval.json}"
+FAILURE_DIAGNOSTICS_LOCAL="${FAILURE_DIAGNOSTICS_LOCAL:-${REPORT_LOCAL%.json}_failure.txt}"
 OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v3.tgz}"
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_dpo_v3_pod_state}"
 EXISTING_POD_ID="${EXISTING_POD_ID:-}"
@@ -427,8 +428,34 @@ persist_diagnostics(){
   mv "${DIAGNOSTICS_LOCAL}.download" "$DIAGNOSTICS_LOCAL"
 }
 log "cycle started"; RC=""
+OBSERVATION_LOCAL="${REPORT_LOCAL}.cycle_observation"
+rm -f "$OBSERVATION_LOCAL" "$FAILURE_DIAGNOSTICS_LOCAL"
+observe_cycle(){
+  TSSH -p "$PORT" root@"$HOST" 'rc=$(cat /workspace/eval/_cycle_status 2>/dev/null) || exit 4
+[ -n "$rc" ] || exit 4
+printf "%s\n" "$rc"
+if [ "$rc" != 0 ]; then
+  printf "%s\n" "__ARIA_FAILURE_BUNDLE_BEGIN__"
+  {
+    printf "%s\n" "=== eval files ==="
+    find /workspace/eval -maxdepth 1 -type f -printf "%f %s bytes\n" 2>&1 | sort
+    for file in tooluse_dpo_cycle.log tooluse_dpo_train.log tooluse_dpo_shim.log tooluse_dpo_probe.log tooluse_dpo_eval.log _cycle_watch.log _selfstop_v04.log; do
+      printf "=== %s ===\n" "$file"
+      tail -160 "/workspace/logs/$file" 2>&1
+    done
+  } | gzip -c | base64 -w0
+  printf "\n%s\n" "__ARIA_FAILURE_BUNDLE_END__"
+fi'
+}
 for i in $(seq 1 100); do
-  RC=$(TSSH -p "$PORT" root@"$HOST" 'cat /workspace/eval/_cycle_status 2>/dev/null' 2>/dev/null | tr -d '\r[:space:]'); [ -n "$RC" ] && break
+  if observe_cycle > "$OBSERVATION_LOCAL" 2>/dev/null; then
+    RC=$("$PYBIN" -m scripts.train.capture_tooluse_cycle_status \
+      --input "$OBSERVATION_LOCAL" --failure-out "$FAILURE_DIAGNOSTICS_LOCAL" 2>/dev/null) || {
+        log "failure sentinel arrived without valid atomic diagnostics"
+        RC=""
+      }
+  fi
+  if [ -n "$RC" ]; then break; fi
   if [ $((i % 5)) -eq 0 ]; then
     mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
     if [ -n "$INTERMEDIATE_LOCAL" ]; then persist_intermediate || true
@@ -446,14 +473,15 @@ harvest_logs(){
   return $((1-saved))
 }
 if [ "$RC" != 0 ]; then
-  INTERMEDIATE_SAVED=0; REPORT_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0
+  INTERMEDIATE_SAVED=0; REPORT_SAVED=0; DIAGNOSTICS_SAVED=0; LOGS_SAVED=0; ATOMIC_DIAG_SAVED=0
+  [ ! -s "$FAILURE_DIAGNOSTICS_LOCAL" ] || ATOMIC_DIAG_SAVED=1
   if [ -n "$INTERMEDIATE_LOCAL" ]; then
     if persist_intermediate; then INTERMEDIATE_SAVED=1; fi
   fi
   if persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.failed"; then REPORT_SAVED=1; fi
   if persist_diagnostics; then DIAGNOSTICS_SAVED=1; fi
   if harvest_logs; then LOGS_SAVED=1; fi
-  log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED report=$REPORT_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED"
+  log "FATAL cycle rc=${RC:-missing}; recovered intermediate=$INTERMEDIATE_SAVED report=$REPORT_SAVED diagnostics=$DIAGNOSTICS_SAVED logs=$LOGS_SAVED atomic_diagnostics=$ATOMIC_DIAG_SAVED"
   exit 1
 fi
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
