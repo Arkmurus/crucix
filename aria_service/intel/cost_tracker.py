@@ -1012,6 +1012,7 @@ async def record_call(
     provider_name: str = "",
     success: bool = True,
     error: str = "",
+    usage_unknown: bool = False,
 ) -> dict:
     """Persist one LLM call's cost record. Called by the metered provider
     wrapper — should not be invoked directly by feature code.
@@ -1036,6 +1037,10 @@ async def record_call(
         "latency_ms": int(latency_ms or 0),
         "success": success,
         "error": (error or "")[:300],
+        # R-F4101 (C-145) — True when the provider gave us no usage to read.
+        # cost_usd is then 0.0 because we could not price it, NOT because the
+        # call was free. Downstream must be able to tell those apart.
+        "usage_unknown": bool(usage_unknown),
     }
     try:
         await rs.set_json(f"{COST_RECORD_PREFIX}{call_id}", record, ex=COST_TTL)
@@ -2044,12 +2049,19 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
         total_calls = 0
         total_tokens = 0
         total_cost = 0.0
+        # R-F4101 (C-145) — how blind is this meter? These calls happened and
+        # spent tokens; we simply could not read the usage, so they contribute
+        # 0.0 to the cost the cap enforces. Counting them is the difference
+        # between "a quiet month" and "a meter with a hole in it" (§17).
+        unmetered_calls = 0
 
         for e in windowed:
             feat = e.get("feature") or "uncategorized"
             mdl = e.get("model") or "unknown"
             tk = e.get("total_tokens") or 0
             usd = e.get("cost_usd") or 0.0
+            if e.get("usage_unknown"):
+                unmetered_calls += 1
 
             total_calls += 1
             total_tokens += tk
@@ -2077,6 +2089,12 @@ async def get_cost_summary(window_hours: int = 24) -> dict:
             "projected_monthly_usd": projected_monthly,
             "by_feature": by_feature,
             "by_model": by_model,
+            # R-F4101 (C-145) — calls whose usage could not be read. Their cost
+            # is 0.0 because it is UNKNOWN, not because it was free, so
+            # total_cost_usd (and the cap it feeds) is a LOWER BOUND while this
+            # is non-zero. Live 2026-08-17 this was 142 of 1,000.
+            "unmetered_calls": unmetered_calls,
+            "cost_is_lower_bound": unmetered_calls > 0,
         }
     except Exception as e:
         return {"error": str(e)}

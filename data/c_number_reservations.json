@@ -1625,9 +1625,12 @@
       "title": "metered stream records 0 tokens when inner stream skips on_done",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4101"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:09:00Z"
     },
     {
       "c_number": "C-146",

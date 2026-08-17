@@ -8470,7 +8470,7 @@ ops under a lock, and this machine is already timing out store reads (C-140);
 bundling a latency-risky change into a data-integrity fix is how a fix becomes
 an outage. It gets its own number and its own measurement.
 
-## C-145 · the cost meter records 0 tokens when a stream skips on_done
+## C-145 · the cost meter records 0 tokens when a stream skips on_done (R-F4101)
 
 The 24 h cost summary reports a model literally named `fallback`:
 **142 of 1,000 calls, 0 tokens, $0.00** — 14.2% of all LLM traffic. It is not a
@@ -8495,6 +8495,33 @@ rollups that enforce the cap, so **the meter reads low**.
 *Not established:* which concrete provider stream skips `on_done`. The base
 implementation (`provider.py:149-155`) fires it **after** `yield`, so an abandoned
 generator skips it; the resilience wrappers all pass it through cleanly.
+
+### Fixed (R-F4101) — root cause, then honesty
+
+**Root cause.** `provider.py.stream()` fired `on_done` *after* its `yield`. An
+async generator whose consumer stops early never runs the code after the yield,
+so the usage callback was skipped — while `complete()` above it had already
+spent the tokens. It is now a `try/finally`, which fires on normal exhaustion
+**and** on `GeneratorExit`, so the meter sees every call exactly once. A test
+drives a consumer that walks away after the first chunk and asserts the usage
+still arrives.
+
+**Honesty.** `_record_cost` no longer borrows the provider's *name* as a model.
+`FallbackProvider.name` is the literal string `"fallback"`, which is why 142
+usage-less calls appeared as a plausible $0 *model*. The record now carries
+`usage_unknown: True`, and `get_cost_summary` reports `unmetered_calls` plus
+`cost_is_lower_bound`.
+
+**Deliberately NOT estimated.** Inventing a token count from the streamed text
+would be a guess wearing a measurement's clothes (the C-41 phrasing). The
+honest statement is "this call happened, we could not read its usage, and the
+total is therefore a lower bound" — which is exactly what §17 needed when a
+`spent_usd: 0.0` reading nearly became a fabricated P0.
+
+RED 4 failed / 2 passed; GREEN 6 passed, plus 297 green across the
+stream/cost/metered selection. The two `test_rf450_stream_footer_integration`
+failures in that selection are **recorded baseline entries** and were confirmed
+to fail identically with `provider.py` reverted to base.
 
 ## C-146 · brain_hook's neural indicator is a constant, not a measurement (R-F4102)
 

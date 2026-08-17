@@ -114,13 +114,30 @@ class MeteredProvider(LLMProvider):
             in_tk = 0
             out_tk = 0
             routed_via = ""
+            # R-F4101 (C-145) — UNKNOWN USAGE IS NOT ZERO COST.
+            #
+            # The `else` below used to fall back to the provider's NAME as the
+            # model. FallbackProvider.name is the literal string "fallback", so
+            # 142 of 1,000 calls in 24 h (14.2%) landed on the cost panel as a
+            # plausible-looking $0 "model" — one of them 23 seconds of
+            # autonomous_engine work, priced at nothing.
+            #
+            # The tokens were spent; only our reading of them failed. Estimating
+            # a count here would be a guess wearing a measurement's clothes, so
+            # the record is FLAGGED instead: a call we could not read must stay
+            # distinguishable from one that genuinely cost nothing, and the
+            # count must be visible — §17, where a meter reading low is
+            # otherwise indistinguishable from a quiet month.
+            usage_unknown = False
             if result is not None:
                 model = getattr(result, "model", "") or getattr(self._inner, "model", "")
                 in_tk = int(getattr(result, "input_tokens", 0) or 0)
                 out_tk = int(getattr(result, "output_tokens", 0) or 0)
                 routed_via = getattr(result, "routed_via", "") or ""
             else:
-                model = getattr(self._inner, "model", "") or getattr(self._inner, "name", "")
+                # Deliberately NOT the provider name — see above.
+                model = getattr(self._inner, "model", "") or "unknown"
+                usage_unknown = True
             # R-F131 (2026-05-10): the dashboard panel was showing
             # 100% of spend attributed to "fallback" because the
             # MeteredProvider wraps a FallbackProvider whose name
@@ -144,6 +161,7 @@ class MeteredProvider(LLMProvider):
                 success=success,
                 error=error,
                 feature_name=feature_name,
+                usage_unknown=usage_unknown,   # R-F4101 (C-145)
             ))
             # R-F104: surface silent failures
             def _on_done(t):

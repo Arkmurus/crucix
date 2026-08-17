@@ -150,6 +150,17 @@ class LLMProvider(ABC):
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, model=model,
         )
-        yield result.text
-        if on_done:
-            on_done(result)
+        # R-F4101 (C-145) — `on_done` USED TO SIT AFTER THE YIELD, so a consumer
+        # that stopped reading early never ran it and the usage of a call that
+        # had ALREADY happened was silently discarded. `complete()` above has
+        # spent the tokens by this point; a consumer walking away does not
+        # un-spend them. The `finally` fires on normal exhaustion AND on
+        # GeneratorExit, so the meter sees every call exactly once.
+        try:
+            yield result.text
+        finally:
+            if on_done:
+                try:
+                    on_done(result)
+                except Exception:      # usage reporting never breaks a stream
+                    pass
