@@ -2636,7 +2636,159 @@ def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
     return matches[: max(1, min(limit, 200))]
 
 
+# ── R-F4136 (C-166) — RANKING INSTRUMENT ────────────────────────────────────
+# C-166 attributes the residual event-loop stalls to this scan and recommends
+# making it sublinear. Before building that, measure WHICH question we are
+# actually answering, because two very different roots produce the same dumps:
+#
+#   * per-call cost   — one chat turn pays one O(corpus) scan, or
+#   * AMPLIFICATION   — a research loop issues one scan PER ARTICLE / PER ENTITY
+#                       across a 6-thread pool, so the corpus is re-scanned
+#                       dozens of times for a single request.
+#
+# `deep_researcher` alone holds ELEVEN call sites, several inside per-item
+# loops, which makes the second hypothesis the likely one — but "likely" is not
+# a measurement (§22), and the fix differs completely: an index for the first,
+# collapsing the repeat for the second. Building the index first would be a
+# large change to the chat hot path aimed at a cause nobody has confirmed.
+#
+# Cost of the instrument is one perf_counter pair and a frame walk per call,
+# against a call that already costs 0.27-0.88s — measured below in the tests.
+_rank_stats: dict[str, dict] = {}
+_rank_stats_lock = threading.Lock()
+_rank_amplification_announced = False
+
+#: Per-process thresholds at which amplification stops being normal and becomes
+#: worth a gap. Deliberately generous: the point is to catch a runaway caller,
+#: not to editorialise about ordinary traffic.
+_RANK_CALLS_ALERT = 500
+_RANK_SECONDS_ALERT = 120.0
+
+
+def _rank_caller() -> str:
+    """Which module asked for a ranking. Never raises — an instrument that can
+    break the thing it measures is worse than no instrument."""
+    try:
+        from .cost_tracker import caller_module
+        return caller_module(("aria_service.intel.knowledge",)) or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
+    """Accumulate per-caller ranking cost. Called from a `finally`, so it must
+    swallow everything: a failure here must not turn a served answer into an
+    exception."""
+    global _rank_amplification_announced
+    try:
+        elapsed = time.perf_counter() - started
+        with _rank_stats_lock:
+            row = _rank_stats.get(who)
+            if row is None:
+                row = {"calls": 0, "seconds": 0.0, "facts_scanned": 0,
+                       "max_seconds": 0.0}
+                _rank_stats[who] = row
+            row["calls"] += 1
+            row["seconds"] += elapsed
+            row["facts_scanned"] += facts_scanned
+            if elapsed > row["max_seconds"]:
+                row["max_seconds"] = elapsed
+            hot = (row["calls"] >= _RANK_CALLS_ALERT
+                   or row["seconds"] >= _RANK_SECONDS_ALERT)
+            announce = hot and not _rank_amplification_announced
+            if announce:
+                _rank_amplification_announced = True
+                snapshot = dict(row)
+        if not announce:
+            return
+        # §21a — reaches the brain ONCE PER PROCESS, not once per call. Every
+        # call is "amplified" once a loop is running, so a per-call gap is the
+        # self-sustaining flood that has already filled the capability ledger
+        # (see the sanctions_coverage_degraded note in §28).
+        try:
+            # §3b — `capability_gaps.record_gap` is ASYNC and takes no `module`;
+            # calling it from this sync `finally` (a worker thread, often with
+            # no running loop) would raise, and the except below would hide it.
+            # `wire_failure` is the sync fire-and-forget helper and writes BOTH
+            # sinks — the coder loop AND the brain health metric.
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="knowledge",
+                gap_type="ranking_amplification",
+                detail=(
+                    f"{who} issued {snapshot['calls']} O(corpus) knowledge "
+                    f"rankings in this process, {snapshot['seconds']:.1f}s "
+                    f"cumulative, worst {snapshot['max_seconds']:.2f}s. "
+                    "C-166: confirms amplification over per-call cost."
+                ),
+                source="knowledge:R-F4136",
+            )
+        except Exception:
+            logger.debug("[R-F4136] amplification gap not recorded", exc_info=True)
+    except Exception:
+        logger.debug("[R-F4136] ranking instrument failed (non-fatal)", exc_info=True)
+
+
+@fail_wire(module="knowledge", gap_type="engine_failure")
+def ranking_stats() -> dict:
+    """Per-caller ranking cost for this process.
+
+    `callers` is keyed by the module that asked, so the answer to "is C-166
+    per-call cost or amplification?" is readable directly: one caller with
+    thousands of calls is amplification; many callers with a handful each is
+    per-call cost.
+    """
+    with _rank_stats_lock:
+        callers = {k: dict(v) for k, v in _rank_stats.items()}
+    total_calls = sum(v["calls"] for v in callers.values())
+    total_seconds = sum(v["seconds"] for v in callers.values())
+    return {
+        "total_calls": total_calls,
+        "total_seconds": round(total_seconds, 3),
+        "mean_seconds": round(total_seconds / total_calls, 4) if total_calls else None,
+        "amplification_announced": _rank_amplification_announced,
+        "callers": {
+            k: {"calls": v["calls"],
+                "seconds": round(v["seconds"], 3),
+                "max_seconds": round(v["max_seconds"], 3),
+                "mean_seconds": round(v["seconds"] / v["calls"], 4) if v["calls"] else None,
+                "facts_scanned": v["facts_scanned"]}
+            for k, v in sorted(callers.items(),
+                               key=lambda kv: kv[1]["seconds"], reverse=True)
+        },
+    }
+
+
 def _rank_knowledge_facts(query: str, limit: int) -> list[dict]:
+    """Instrumented shell around the ranking scan (R-F4136 / C-166).
+
+    The measurement lives here rather than inside the scan so that EVERY exit
+    is counted — including the two early returns for an empty cache or an
+    all-short query. A caller hammering the empty-query path is amplification
+    too, and an instrument that only sees the expensive path would report the
+    loop as quiet while it burned.
+    """
+    started = time.perf_counter()
+    # Both probes are wrapped HERE, not only inside themselves. `_rank_caller`
+    # already swallows its own errors, but that is its promise, not this
+    # function's guarantee — and a later edit to it must not be able to take
+    # recall down. The test that found this replaced the whole probe, which is
+    # exactly what a future refactor does.
+    try:
+        who = _rank_caller()
+    except Exception:
+        who = "unknown"
+    try:
+        scanned = len(_cache.get("facts") or ()) if _cache else 0
+    except Exception:
+        scanned = 0
+    try:
+        return _rank_knowledge_facts_inner(query, limit)
+    finally:
+        _record_rank_call(who, started, scanned)
+
+
+def _rank_knowledge_facts_inner(query: str, limit: int) -> list[dict]:
     """Return ranked fact records for the shared knowledge search paths."""
     if not _cache:
         return []
@@ -2973,6 +3125,11 @@ async def get_stats() -> dict:
         "totalFacts": len(db["facts"]),
         "totalQueries": len(db["queries"]),
         "totalLearnings": len(db["learnings"]),
+        # R-F4136 (C-166) — surfaced on the EXISTING authed stats route rather
+        # than behind a new one: an instrument nobody can query is a private
+        # variable, and C-166 needs an answer from PRODUCTION traffic, which is
+        # the only place the research loops actually run.
+        "ranking": ranking_stats(),
     }
 
 

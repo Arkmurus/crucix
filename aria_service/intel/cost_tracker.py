@@ -685,26 +685,46 @@ _ATTRIBUTION_SKIP_PREFIXES = (
 _ATTRIBUTION_MAX_FRAMES = 30
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
+def caller_module(extra_skips: tuple[str, ...] = ()) -> str:
+    """Dotted module path of the nearest frame outside the calling plumbing.
+
+    R-F4136 (C-166) — made public and parameterised so a SECOND instrument can
+    ask the same question without copying the frame walk. The thing worth not
+    copying is `_is_plumbing`'s module-BOUNDARY rule (R-F4095/C-139): a raw
+    `startswith` silently swallows a future `wire_utils`, and a duplicate of
+    that rule is a duplicate that will not be fixed when the original is.
+    `extra_skips` lets a caller add its own plumbing (knowledge.py skips
+    itself) without widening LLM attribution, which must stay untouched.
+
+    The walk starts at frame 0, not frame 1, so it is DEPTH-INDEPENDENT: this
+    module is itself in the skip list, so its own frames are skipped by the
+    same rule that skips everyone else's. That is what makes it safe to call
+    through a wrapper.
+    """
+    import sys
+
+    frame = sys._getframe(0)
+    for _ in range(_ATTRIBUTION_MAX_FRAMES):
+        if frame is None:
+            break
+        name = frame.f_globals.get("__name__", "")
+        if name and not _is_plumbing(name, extra_skips):
+            return name
+        frame = frame.f_back
+    return ""
+
+
 def _caller_module() -> str:
     """Dotted module path of the nearest frame outside the metering plumbing.
 
     Separate from `attribute_unscoped_caller` so a test can break it and prove
     the fail-open path (a probe that raises must never break an LLM call).
     """
-    import sys
-
-    frame = sys._getframe(1)
-    for _ in range(_ATTRIBUTION_MAX_FRAMES):
-        if frame is None:
-            break
-        name = frame.f_globals.get("__name__", "")
-        if name and not _is_plumbing(name):
-            return name
-        frame = frame.f_back
-    return ""
+    return caller_module()
 
 
-def _is_plumbing(module: str) -> bool:
+def _is_plumbing(module: str, extra_skips: tuple[str, ...] = ()) -> bool:
     """R-F4095 (C-139) — match on a MODULE BOUNDARY, not a raw string prefix.
 
     `startswith("aria_service.intel.wire")` also swallows a future
@@ -718,7 +738,7 @@ def _is_plumbing(module: str) -> bool:
 
     `a.b` matches `a.b` itself and `a.b.anything`, never `a.bc`.
     """
-    for p in _ATTRIBUTION_SKIP_PREFIXES:
+    for p in _ATTRIBUTION_SKIP_PREFIXES + tuple(extra_skips or ()):
         stem = p[:-1] if p.endswith(".") else p
         if module == stem or module.startswith(stem + "."):
             return True

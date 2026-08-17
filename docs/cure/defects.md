@@ -9813,6 +9813,91 @@ wrong is to hand over measurements, not to improvise a second fix on top of a
 mistaken first one. Do NOT "fix" this with `to_thread`, and do not raise the
 yield frequency — both leave the 1.4s scan exactly where it is.
 
+### R-F4136 (2026-08-17) — INSTRUMENTED, and a prototype FAILED. Read this before building the index.
+
+The recommendation above ("make the ranking sublinear") was acted on, and the
+first attempt did not survive measurement. Both results are recorded because the
+negative one saves the next attempt a day.
+
+#### The prototype that failed
+
+A per-fact **512-bit character-trigram bloom** with exact substring
+verification — candidates from the bloom, then the same `w in text` test, so
+semantics cannot narrow. Measured on a realistic 567,000-fact corpus (60k-word
+Zipf vocabulary, 704 chars/fact — NOT the degenerate 10-word synthetic that
+produced the numbers higher up this entry):
+
+```
+common word  old 0.882s (382,449 hits) | new 0.294s (cand 411,199) ->  3.0x
+rare word    old 0.326s (    105 hits) | new 0.091s (cand  60,742) ->  3.6x
+substring    old 0.347s (382,481 hits) | new 0.327s (cand 466,534) ->  1.1x
+two words    old 0.649s (205,216 hits) | new 0.506s (cand 375,140) ->  1.3x
+no match     old 0.269s (      0 hits) | new 0.059s (cand  16,769) ->  4.5x
+ALL RESULTS IDENTICAL: True      signatures 36 MB      build 597s
+```
+
+**Semantics held perfectly. Speed did not.** A 704-char fact carries ~550
+distinct trigrams, which saturates any affordable bloom — **359 of 512 bits
+set** — so a 7-trigram query word has a ~8% false-positive rate and the filter
+barely filters. 1.1-4.5x does not justify a new index on the chat hot path, and
+a 597s build is disqualifying on its own. Enlarging the bloom does not rescue
+it: the bits-set fraction is driven by document length, so cutting the false
+positives to a useful level needs ~8192 bits/fact = **567 MB**.
+
+#### Two numbers in this entry were wrong
+
+* **Per-call cost is 0.27-0.88s, not 1.0-1.5s.** The original figure came from a
+  synthetic drawing on 10 words, where every query matched most of the corpus.
+* The feasibility numbers quoted for an inverted index came from that same
+  synthetic and are meaningless, as the entry already warned.
+
+#### What is actually unconfirmed — and is now measurable
+
+Two roots produce identical wedge dumps and demand OPPOSITE fixes:
+
+* **per-call cost** — one chat turn pays one O(corpus) scan; fix = an index.
+* **amplification** — a research loop issues one scan PER ARTICLE / PER ENTITY
+  across the 6-thread pool; fix = collapse the repeat.
+
+`deep_researcher` alone holds **eleven** call sites, several inside per-item
+loops (`:1275` over articles, `:2278`/`:2320` over entities), against **one**
+call per chat turn from `aria_engine.py:1774`. At 0.27-0.88s each, a single
+research run plausibly re-scans the corpus dozens of times — which fits the
+33.8s stalls far better than one chat turn does. **But that is a hypothesis, and
+building an index to fix an unconfirmed cause is how a week goes missing.**
+
+`ranking_stats()` now records, per calling module, the call count, cumulative
+and worst-case seconds, and facts scanned — exposed on the existing authed
+`GET /api/aria/knowledge`. One caller with thousands of calls is amplification;
+many callers with a handful each is per-call cost. The reading settles it.
+
+Properties that are load-bearing:
+
+* **Attribution reuses `cost_tracker.caller_module`**, generalised with an
+  `extra_skips` argument rather than copied. The thing not worth duplicating is
+  R-F4095's module-BOUNDARY rule; a copy of it is a copy that will not be fixed
+  when the original is. `knowledge` skips itself, so the instrument names who
+  ASKED — C-154 established that plumbing otherwise wins every frame count.
+* **The walk now starts at frame 0, not frame 1**, making it depth-independent:
+  `cost_tracker` is itself in the skip list, so its own frames are skipped by
+  the same rule. That is what makes it safe to call through a decorator.
+* **Every exit is counted**, including the two early returns. A caller hammering
+  the cheap path is amplification too, and an instrument blind to it would
+  report a quiet process while the pool burned.
+* **`finally`, not `except`** — a failing scan is still counted and still
+  propagates.
+* **The announcement is once per process** (§21a). Past the threshold every call
+  qualifies, so a per-call gap is the self-sustaining flood that has already
+  filled the 500-slot ledger.
+* **It cannot break recall.** Both probes are wrapped at the call site, not only
+  inside themselves — a test that replaced the whole probe found that gap, and
+  it is exactly what a later refactor does.
+* Overhead measured at **<2 ms/call** against a 0.27-0.88s scan.
+
+**Still OPEN.** The fix is not built, and now should not be chosen until the
+production reading says which fix it is.
+
+
 ## C-167 · is_cacheable had a dead branch, a docstring that contradicted it, and a test that could not fail (R-F4132)
 
 Found by auditing my own work rather than by anything failing. Three defects in
