@@ -2439,3 +2439,84 @@ without short cuts". The review found real defects, in my own work and beneath i
 - **C-149 / C-156 / C-158** are the peer's.
 - `organ:search` RED from a real signal: 54 gate-#2 cells flat below 0.70 over 90.3h.
 - CI `suite-baseline-gate` needs a `record_baseline=true` dispatch.
+
+
+## Session continuation — 2026-08-17 (C-166 root surgery) · R-F4135, R-F4136, R-F4137 · C-169
+
+Operator: "proceed surgically and ensure it is root precision surgery, ensure
+all is wired and enabled, test and re-test, follow protocol." Started on C-166,
+the last open item of mine. §8 (map before you change) is what made the session.
+
+### The map found a second defect, worse than the one I was chasing
+
+**R-F4135 / C-169 @ 127b1c14 (live)** — `entity_resolver.py:103` called
+`knowledge.search_knowledge(query, limit=limit)`. That function takes **no**
+`limit`. Every call since R-F730 raised `TypeError` into an `except Exception`
+whose only response was `logger.debug`. **The resolver has never seen a prior
+fact.** Proven in four lines: the fact exists, the plain call returns it, the
+`limit=` call raises, the wrapper returns `[]`.
+
+The cost was more than an empty list. `prior_facts` is worth 0.5 of the
+resolver's confidence, so confidence was **structurally capped at 0.5** and any
+threshold above it was unreachable — a silent ceiling, not an error. And the
+`[ENTITY HINTS]` block feeding BOTH chat paths (§13) never carried the verified
+facts ARIA already held about the entity being asked about.
+
+Two failures, and the second is why it survived: **§3b** (a call written against
+a signature nobody checked) and **§21a** (the failure was DARK — a permanently
+broken capability is byte-identical to "this entity has no history"). Fixed with
+the failure branch wired, and a test that pins the RENDERED BLOCK, because the
+obvious swap returns raw facts while the renderer reads `f["summary"]` — green,
+and nothing changes on screen.
+
+### C-166: I built the recommended fix, and measurement rejected it
+
+**The prototype FAILED and that is recorded.** A per-fact 512-bit trigram bloom
+with exact substring verification, on a realistic 567k-fact corpus (60k-word
+Zipf vocabulary, 704 chars/fact): **1.1-4.5x**, build 597s. Semantics held
+perfectly; speed did not. 704-char facts carry ~550 distinct trigrams and
+saturate the bloom (359 of 512 bits set), so the filter barely filters —
+and enlarging it needs ~567 MB.
+
+That run also **corrected C-166's own headline**: real per-call cost is
+0.27-0.88s, not the 1.0-1.5s recorded there, which came from a degenerate
+10-word synthetic where every query matched most of the corpus.
+
+**R-F4136 @ 127b1c14 (live)** — so I shipped the instrument instead of a guess.
+Two roots produce identical wedge dumps and need opposite fixes: per-call cost
+(an index) versus AMPLIFICATION (`deep_researcher` holds eleven call sites,
+several in per-item loops, against one per chat turn). `ranking_stats()` records
+per-caller calls/seconds/worst-case on the existing authed route.
+
+**R-F4137 @ 62df2261 (live)** — and the first LIVE reading exposed a blind spot
+in my own instrument: it named `concurrent.futures.thread`, because
+`search_knowledge` IS the `to_thread` target, so the caller's frames are on
+another thread. Fixed with a `contextvars` fallback that crosses the hop
+(measured: a `feature()` scope survives `to_thread`), plus the signal C-166
+actually needs — an **on-loop / off-loop split**, since a scan on a worker
+thread contends for the GIL while a scan on the loop thread blocks it outright.
+
+### Errors I made and caught
+
+- **My first `record_gap` call was wrong on two counts** — it is `async` and
+  takes no `module=`. Caught by following §3b rather than by a test. Switched to
+  the sync `wire_failure`, which writes both sinks.
+- **A test found a real gap in my instrument**: `_rank_caller()` sat outside the
+  shell's protection, so a future failure there would have killed recall. Fixed
+  the code, not the test.
+- **The wiring gates caught two new public functions as dark** and I wired them
+  rather than exempting them.
+
+### Verified, not assumed
+
+- One suite failure (`test_rf2172_cost_coalescing`) passes standalone and is
+  ALREADY in the recorded §16 baseline — pre-existing order dependence.
+- The 5.36s in the first live reading is the BOOT WARMUP call, which also builds
+  the 568k-entry lowercase cache. Quoting it as per-call cost would over-state
+  the problem ~6x; it is recorded as the warmup it is.
+
+### Still open, honestly
+
+- **C-166** remains OPEN by choice. The fix is not built and should not be
+  chosen until the production reading says which fix it is. That is now
+  measurable rather than arguable.
