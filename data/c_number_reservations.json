@@ -1571,81 +1571,108 @@
       "title": "state_backend health surface has no memory of store read timeouts",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4107"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:09Z"
     },
     {
       "c_number": "C-141",
       "title": "intel_ledger rewrites the whole 35MB ledger every 2s debounce (C-95 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4108"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
     },
     {
       "c_number": "C-142",
       "title": "intel_ledger off-host snapshot writes 8MB to the volume it backs up (C-98 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4109"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
     },
     {
       "c_number": "C-143",
       "title": "intel_ledger orphans mkstemp tmp files on kill — 382MB, no reclaim",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4110"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
     },
     {
       "c_number": "C-144",
       "title": "chat_audit_log non-strict head read forks the chain (R-F3711 port)",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4111"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
     },
     {
       "c_number": "C-145",
       "title": "metered stream records 0 tokens when inner stream skips on_done",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4112"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
     },
     {
       "c_number": "C-146",
       "title": "brain_hook neural= log reads neural_ok before the neural lane runs",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4113"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
     },
     {
       "c_number": "C-147",
       "title": "style_learner grounded-only gate has a 0 percent live pass rate",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4114"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
     },
     {
       "c_number": "C-148",
       "title": "self_coder drops 145 of 146 gaps with no counter",
       "claimed_at": "2026-08-17T07:01:50Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4115"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:12Z"
     },
     {
       "c_number": "C-149",
@@ -1718,9 +1745,12 @@
       "title": "engine wires task success unconditionally, discarding execute_task status",
       "claimed_at": "2026-08-17T09:40:33Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4116"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:12Z"
     },
     {
       "c_number": "C-158",
