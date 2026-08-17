@@ -1592,9 +1592,12 @@
       "title": "intel_ledger off-host snapshot writes 8MB to the volume it backs up (C-98 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4098"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:24:24Z"
     },
     {
       "c_number": "C-143",

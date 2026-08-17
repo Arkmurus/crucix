@@ -134,7 +134,12 @@ _flusher_started: bool = False
 _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
 _flusher_stop = False
 FLUSH_DEBOUNCE_S = 2.0
-SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence
+# R-F4098 (C-142) — this cadence is only spent when the target is a GENUINE
+# second failure domain; see `_snapshot_target_is_offhost`. With the sqlite
+# backend on the same volume it was 8.18 MB of gzip every 600 s into the file's
+# own neighbour, which is not a backup.
+SNAPSHOT_INTERVAL_S = 600.0  # 10 min — off-host backup cadence (when off-host)
+_snapshot_skip_announced = False   # announce the skip ONCE per process
 
 
 def _resolve_disk_path() -> str:
@@ -226,6 +231,78 @@ def _write_to_disk_atomic(data: dict) -> None:
         raise
 
 
+def _device_of(path) -> int | None:
+    """`st_dev` of the nearest existing directory for `path`, else None.
+
+    Separate and patchable so the off-host decision can be tested
+    deterministically — device ids are platform-specific and a temp dir is
+    always on the caller's own volume. Compared by device IDENTITY, not path
+    strings, so a symlink or bind mount cannot masquerade as a second domain.
+    """
+    try:
+        p = os.path.dirname(str(path)) or "."
+        for _ in range(4):                 # walk up to a directory that exists
+            if os.path.isdir(p):
+                return os.stat(p).st_dev
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+    except OSError:
+        pass
+    return None
+
+
+def _snapshot_target_is_offhost() -> bool | None:
+    """Is the R-F334 snapshot target a DIFFERENT failure domain to the ledger?
+
+    R-F4098 (C-142) — the port of C-98 into the module C-98 did not cover.
+
+    `SNAPSHOT_INTERVAL_S` still calls this "the Redis off-host backup cadence",
+    and when R-F334 wrote it that was true. R-F745 flipped the default backend
+    to sqlite and Upstash was cancelled (§6/§18); nothing revisited this module.
+    Measured live 2026-08-17: 8.18 MB of gzipped ledger written every 600 s into
+    `/data/aria_state.db` — the SAME volume as the `/data/aria_signals.json` it
+    backs up, on a 630 MB state DB that is timing out reads (C-140). A copy
+    sharing a failure domain with its original is not a backup.
+
+    Returns True (genuinely elsewhere), False (same volume), or **None = COULD
+    NOT MEASURE**.
+
+    The tri-state is load-bearing and its safety default is the OPPOSITE of a
+    write's: an unmeasurable target must keep BACKING UP. "I don't know" is a
+    reason to keep a copy, never to silently stop making one.
+    """
+    try:
+        from . import redis_store as _rs
+        backend = str(getattr(_rs, "_BACKEND", "") or "").strip().lower()
+        if backend and backend != "sqlite":
+            # A remote store (upstash/redis) IS a real second failure domain.
+            # Keep this branch: re-pointing the state store off-host must
+            # resume the backup with no code change.
+            return True
+        from . import state_store as _ss
+        db = getattr(_ss, "_DB_PATH", None)
+        if not db:
+            db = os.getenv("ARIA_STATE_DB_PATH", "/data/aria_state.db")
+        dev_state = _device_of(db)
+        dev_ledger = _device_of(_DISK_PATH)
+        if dev_state is None or dev_ledger is None:
+            return None
+        return dev_state != dev_ledger
+    except Exception:
+        return None
+
+
+def _should_snapshot(offhost: bool | None) -> bool:
+    """Run the snapshot unless we KNOW it is not a backup.
+
+    Only a measured False skips. None (unknown) runs — see
+    `_snapshot_target_is_offhost`.
+    """
+    return offhost is not False
+
+
 async def _flush_to_disk() -> None:
     """Serialize the cache and write to disk in a thread executor (json.dump
     is sync C; doing it on the event loop blocks every other coroutine for
@@ -270,6 +347,25 @@ async def _flush_loop() -> None:
                 and (now - last_snapshot) >= SNAPSHOT_INTERVAL_S
                 and _cache
             ):
+                # R-F4098 (C-142) — only skip on a MEASURED same-volume target.
+                _offhost = _snapshot_target_is_offhost()
+                if not _should_snapshot(_offhost):
+                    global _snapshot_skip_announced
+                    if not _snapshot_skip_announced:
+                        _snapshot_skip_announced = True
+                        # Announced ONCE per process: at a 600 s cadence a
+                        # per-cycle notice would emit ~144/day — the
+                        # sanctions_coverage_degraded flood shape.
+                        logger.info(
+                            "[R-F4098] intel_ledger snapshot SKIPPED — the "
+                            "state store shares a volume with %s, so the "
+                            "'off-host backup' is a same-domain copy. Point "
+                            "the state store off-host to resume it.",
+                            _DISK_PATH,
+                        )
+                    last_snapshot = now      # keep the cadence, skip the work
+                    _dirty_since_snapshot = False
+                    continue
                 try:
                     # R-F714 (2026-05-19): _encode_snapshot does
                     # json.dumps + gzip.compress on the full ledger

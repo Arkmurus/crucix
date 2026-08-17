@@ -8349,7 +8349,7 @@ now 81,971 and 8.18 MB. §7 forbids eviction, so **the cost rises without bound 
 the better ARIA's memory gets, the more starved she becomes.** That is C-95's
 transferable lesson: any O(total-data) step under an infinite-memory policy.
 
-## C-142 · the ledger's "off-host backup" writes to the volume it backs up
+## C-142 · the ledger's "off-host backup" writes to the volume it backs up (R-F4098)
 
 `SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence`
 (`intel_ledger.py:137`). Redis was decommissioned (§6/§18): `REDIS_URL` is unset,
@@ -8369,6 +8369,30 @@ This is C-98's premise-voided-by-a-change-elsewhere defect in the module C-98's
 fix did not cover. **Second, separate loose end:** C-98 correctly gated *new*
 knowledge-shard writes, but the 83.2 MB already written was never reclaimed —
 13% of a 630 MB state DB that is now timing out reads (C-140).
+
+### Fixed (R-F4098) — the write half
+
+Ported C-98: `_snapshot_target_is_offhost()` + `_should_snapshot()`, consulted
+by `_flush_loop` before it spends the 600 s cadence. Device identity is compared
+via `st_dev`, never path strings, so a symlink or bind mount cannot masquerade
+as a second domain.
+
+**The tri-state safety default is the opposite of a write's, and a test pins
+it:** `True` (remote backend, or sqlite on another volume) → runs; `False`
+(same volume) → skips; **`None` (unmeasurable) → RUNS**. "I could not measure"
+must never silently stop backing data up. The remote-backend branch is kept
+deliberately so that re-pointing the state store off-host resumes the backup
+with **no code change** — do not simplify it away.
+
+The skip announces **once per process**: at a 600 s cadence a per-cycle notice
+would emit ~144/day, which is the `sanctions_coverage_degraded` flood shape.
+
+RED 7 failed; GREEN 7 passed, plus 34 green across the ledger suites.
+
+**STILL OPEN — the 83.2 MB of already-written knowledge shards.** C-98 stopped
+new writes; nothing reclaimed the existing 225 keys. That is a *reclaim*, which
+§26 forbids without the deletion ladder, and it belongs with C-143's
+archive-with-manifest rather than being smuggled in here.
 
 ## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim
 
