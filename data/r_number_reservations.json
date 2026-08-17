@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4089,
+  "next_available": 4090,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34815,6 +34815,15 @@
       "commit_sha": "d116c45fb265bcaab315204b7fcc1b88292e3377",
       "notes": null,
       "shipped_at": "2026-08-17T04:31:58Z"
+    },
+    {
+      "r_number": "R-F4089",
+      "title": "measure resolution branch expansion",
+      "claimed_at": "2026-08-17T04:34:31Z",
+      "claimed_by": "codex",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
