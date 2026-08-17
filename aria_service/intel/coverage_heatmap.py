@@ -468,13 +468,30 @@ async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, in
 # A cold build is still SERVED — the caller asked, and returning nothing is worse
 # — but it is not written, and it is labelled so the reader can tell.
 def is_cacheable(payload: dict) -> bool:
-    """False only on a POSITIVE reading of zero facts.
+    """A build that saw ZERO facts is never persisted. Everything else is.
 
-    `knowledge_cache_facts: None` means COULD NOT MEASURE; refusing on that would
-    disable caching entirely wherever the probe fails, which is a self-inflicted
-    outage of the cache. A payload with no diagnostics at all predates R-F4128
-    and is cacheable — treating absence as "cold" would refuse every legacy
-    write.
+    R-F4132 (C-167) — this docstring used to claim "False only on a POSITIVE
+    reading of zero facts", and that `knowledge_cache_facts: None` would not
+    block. **Neither was true of the code.** Both branches below `facts_seen == 0`
+    returned False, so the `cache_facts` conditional was DEAD and an unmeasurable
+    probe blocked exactly like a measured one. Prose and behaviour disagreed, and
+    the prose is what the next reader would have trusted.
+
+    The BEHAVIOUR was right and is kept. `facts_seen == 0` has three causes and
+    two of them are indistinguishable at the point of decision:
+
+      * cache > 0  — facts exist and the build saw none. Definitely cold.
+      * cache == 0 — boot (the cache has not loaded) OR a genuinely empty corpus.
+                     **Identical readings.** Blocking costs a transient
+                     uncached build on a brand-new deployment, and that resolves
+                     the moment the first fact lands. Caching the wrong one costs
+                     an hour of empty matrix, which is the defect C-164 exists to
+                     stop.
+      * cache is None — could not measure. Never treat that as proof of anything.
+
+    So the rule is simply: saw nothing, persist nothing. A payload with no
+    diagnostics at all predates R-F4128 and stays cacheable, because treating
+    absence as "cold" would refuse every legacy write.
     """
     try:
         d = payload.get("matcher_diagnostics")
@@ -485,12 +502,7 @@ def is_cacheable(payload: dict) -> bool:
     seen = d.get("facts_seen")
     if not isinstance(seen, int) or seen > 0:
         return True
-    # facts_seen == 0. Cold unless the corpus itself is genuinely empty, which a
-    # positive cache reading would disprove.
-    cache_facts = d.get("knowledge_cache_facts")
-    if isinstance(cache_facts, int) and cache_facts > 0:
-        return False                     # facts exist but the build saw none
-    return False                         # saw none, and cannot prove otherwise
+    return False                         # saw zero facts -> never persist
 
 
 def mark_cacheability(payload: dict) -> dict:

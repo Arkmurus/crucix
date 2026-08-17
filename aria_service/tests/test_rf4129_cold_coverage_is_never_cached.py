@@ -63,12 +63,28 @@ def test_a_warm_build_is_cacheable():
                                     populated=282)) is True
 
 
-def test_an_unmeasurable_diagnostic_does_not_block_caching():
-    """`knowledge_cache_facts: None` means COULD NOT MEASURE. Refusing to cache
-    on that would disable caching entirely on any deployment where the probe
-    fails — a self-inflicted outage of the cache. Only a POSITIVE reading of
-    zero facts blocks the write."""
+def test_an_unmeasurable_cache_probe_does_not_block_a_build_that_SAW_facts():
+    """R-F4132 (C-167): this test used to be named "an unmeasurable diagnostic
+    does not block caching" and asserted exactly this line — with
+    `facts_seen=12`, which short-circuits at `seen > 0` before
+    `knowledge_cache_facts` is ever read. **It passed for a reason unrelated to
+    its name and could not fail.** The real unmeasurable case is asserted
+    directly below.
+    """
     assert ch.is_cacheable(_payload(facts_seen=12, cache_facts=None)) is True
+
+
+def test_a_build_that_saw_zero_facts_never_caches_however_the_probe_reads():
+    """The path the previous test claimed to cover, now actually exercised.
+
+    `facts_seen == 0` blocks for all three cache readings, and that is
+    deliberate: cache==0 cannot be told apart from a cache that has not loaded
+    yet, so the safe answer is the same one. Pinning all three stops a future
+    "simplification" from re-introducing a branch that looks like it decides
+    something."""
+    for cache in (0, None, 99):
+        assert ch.is_cacheable(_payload(facts_seen=0, cache_facts=cache)) is False, (
+            f"a build that saw zero facts must never be persisted (cache={cache})")
 
 
 def test_a_payload_with_no_diagnostics_is_still_cacheable():

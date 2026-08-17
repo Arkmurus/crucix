@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4132,
+  "next_available": 4133,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35227,6 +35227,15 @@
       "r_number": "R-F4131",
       "title": "complete epoch accepted parent resolution DPO",
       "claimed_at": "2026-08-17T17:36:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4132",
+      "title": "make is_cacheable say what it does and test the path it claims",
+      "claimed_at": "2026-08-17T18:25:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

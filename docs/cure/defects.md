@@ -9248,6 +9248,26 @@ Both corrections came from the existing suite failing, not from review. The
 module node still receives the raw red — nothing is hidden, only the organ's
 blast radius is corrected.
 
+### KNOWN LIMITATION found by self-audit (not changed — operator rule)
+
+A **total** scraped-search blackout now reads amber, where before it read red.
+Measured: with every scraped member of the web-search pool open and Brave's
+breaker not fired — Brave is DD-only and can go hours without a call, so its
+breaker often does not exist — every member caps at amber and **no organ reaches
+red**, though general search (chat, research, student loop) would have no engine
+at all.
+
+That is faithful to the instruction ("amber, and reserve red for paid sources we
+depend on") and it is what the tests here pin, including
+`test_a_whole_SCRAPED_pool_open_is_amber_not_red`. But one blocked engine — §27's
+expected steady state — and EVERY engine blocked at once are materially different
+conditions, and the second is not what §27 calls expected.
+
+Not changed unilaterally, because it modifies an explicit operator decision. If
+it should be reinstated, the honest rule is: red when the entire substitutable
+pool is simultaneously open, kept distinct from the per-source ceiling. Recorded
+so the gap is visible rather than discovered during an outage.
+
 ### Simulated against the live breaker state
 
 ```
@@ -9793,3 +9813,40 @@ wrong is to hand over measurements, not to improvise a second fix on top of a
 mistaken first one. Do NOT "fix" this with `to_thread`, and do not raise the
 yield frequency — both leave the 1.4s scan exactly where it is.
 
+## C-167 · is_cacheable had a dead branch, a docstring that contradicted it, and a test that could not fail (R-F4132)
+
+Found by auditing my own work rather than by anything failing. Three defects in
+one small function, all mine, shipped the same day.
+
+**1. Dead branch.** Below `facts_seen == 0`, the function computed
+`knowledge_cache_facts` and branched on it — and **both branches returned
+False**. The conditional decided nothing.
+
+**2. The docstring contradicted the code.** It claimed *"False only on a POSITIVE
+reading of zero facts"* and that `knowledge_cache_facts: None` would not block.
+Measured: `is_cacheable(seen=0, cache=None)` returns **False** — it blocks. Prose
+and behaviour disagreed, and prose is what the next reader trusts.
+
+**3. The test for that case could not fail.**
+`test_an_unmeasurable_diagnostic_does_not_block_caching` asserted
+`is_cacheable(facts_seen=12, cache_facts=None) is True`. `facts_seen=12`
+short-circuits at `seen > 0` **before `cache_facts` is read at all**, so it
+passed for a reason unrelated to its name. The exact class this register keeps
+recording — a guard that cannot fail — written by the person recording it.
+
+### The behaviour was right; only the story was wrong
+
+`facts_seen == 0` has three causes and two are indistinguishable at the decision
+point: cache>0 is definitely cold; **cache==0 cannot be told apart from a cache
+that has not loaded yet**; cache is None is unmeasurable. Blocking all three
+costs a transient uncached build on a brand-new deployment and resolves the
+moment the first fact lands, whereas caching the wrong one costs an hour of empty
+matrix — the defect C-164 exists to stop. So the rule is now stated plainly (saw
+nothing, persist nothing), the dead branch is gone, and a new test pins all three
+readings so a future "simplification" cannot re-introduce a branch that looks
+like it decides something.
+
+### Verified
+
+14 passed across the C-163/C-164 suites. Compile gate green; wiring gates 0/0/0;
+§9 lifespan smoke `LIFESPAN OK`.
