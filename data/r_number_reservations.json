@@ -34762,9 +34762,10 @@
       "title": "scale positive replay update budget to curriculum size",
       "claimed_at": "2026-08-17T03:27:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f3ab957",
+      "notes": null,
+      "shipped_at": "2026-08-17T04:18:44Z"
     },
     {
       "r_number": "R-F4083",
