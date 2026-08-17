@@ -572,12 +572,37 @@ async def _build_heatmap_uncached(
     # 186.89s of main-thread time in this nested loop. With facts
     # + signals pre-fetched, the entire matrix compute is sync and
     # runs in a single worker thread; the loop is free.
+    # R-F4128 (C-163) — record WHY the list is what it is.
+    #
+    # This read `_k.all_facts() if hasattr(...) else []`, so a missing attribute
+    # produced an empty list with no error and no log — which is the R-F164
+    # mechanism verbatim ("the hasattr check silently evaluated False, and every
+    # coverage cell returned fact_count=0"). The same 867/867 recurred on
+    # 2026-08-17 and the payload still could not say which of three causes it was.
     facts: list[dict] = []
+    _facts_source = "ok"
     try:
         from . import knowledge as _k
-        facts = _k.all_facts() if hasattr(_k, "all_facts") else []
+        if not hasattr(_k, "all_facts"):
+            _facts_source = "attribute_missing"
+        else:
+            facts = _k.all_facts() or []
     except Exception as e:
+        _facts_source = "error"
         logger.debug("coverage facts fetch failed: %s", e)
+
+    # The discriminator inference could not settle: is the ACCESSOR returning
+    # empty, or is the cache behind it empty? None = could not measure, which is
+    # never the same as zero.
+    _cache_facts = None
+    try:
+        from . import knowledge as _k2
+        _c = getattr(_k2, "_cache", None)
+        if isinstance(_c, dict):
+            _cf = _c.get("facts")
+            _cache_facts = len(_cf) if isinstance(_cf, list) else 0
+    except Exception:
+        _cache_facts = None
 
     signals: list[dict] = []
     try:
@@ -617,8 +642,15 @@ async def _build_heatmap_uncached(
         # R-F2340: newest fact timestamp per cell → measured freshness.
         cell_newest_ts: dict[tuple[str, str], float] = {}
 
+        # R-F4128 — per-stage counters. Three different defects produce an
+        # identical 867/867: no source, no text, no match. Counting each stage is
+        # what separates them, and costs one increment per item in a loop that
+        # already walks every fact.
+        stage = {"with_text": 0, "matched_domain": 0, "matched_both": 0}
+
         def _tally(items: list, text_fn, target: dict[tuple[str, str], int],
-                   ts_target: dict[tuple[str, str], float] | None = None) -> None:
+                   ts_target: dict[tuple[str, str], float] | None = None,
+                   _stage: dict | None = None) -> None:
             for idx, it in enumerate(items):
                 # R-F931 — yield the GIL every 1024 items so this worker thread
                 # can't starve the event loop, regardless of corpus size
@@ -630,18 +662,24 @@ async def _build_heatmap_uncached(
                 text = text_fn(it)
                 if not text:
                     continue
+                if _stage is not None:
+                    _stage["with_text"] += 1
                 matched_doms = [
                     d for d in domain_list
                     if all(tok in text for tok in dom_tokens_map[d])
                 ]
                 if not matched_doms:
                     continue
+                if _stage is not None:
+                    _stage["matched_domain"] += 1
                 matched_jurs = [
                     j for j in juris_list
                     if any(s in text for s in jur_syn_map[j])
                 ]
                 if not matched_jurs:
                     continue
+                if _stage is not None:
+                    _stage["matched_both"] += 1
                 # R-F2340: parse the item's timestamp ONCE per item (not per cell).
                 fts = _fact_ts(it) if ts_target is not None else None
                 for d in matched_doms:
@@ -653,7 +691,7 @@ async def _build_heatmap_uncached(
                             if prev is None or fts > prev:
                                 ts_target[key] = fts
 
-        _tally(facts, _fact_text, fact_cells, cell_newest_ts)
+        _tally(facts, _fact_text, fact_cells, cell_newest_ts, stage)
         _tally(signals, _signal_text, signal_cells)
 
         # R-F2340: precompute per-domain staleness windows (hours) once.
@@ -702,9 +740,9 @@ async def _build_heatmap_uncached(
                     "freshness_known":     freshness_known,
                     "hours_since_refresh": hours_since_refresh,
                 }
-        return m
+        return m, stage
 
-    matrix = await asyncio.to_thread(_compute_matrix_sync)
+    matrix, _stage = await asyncio.to_thread(_compute_matrix_sync)
 
     score, summary_stats = _compute_score(matrix, domain_list, juris_list)
     return {
@@ -714,6 +752,21 @@ async def _build_heatmap_uncached(
         "matrix":             matrix,
         "summary":            summary_stats,
         "coverage_score":     score,
+        # R-F4128 (C-163) — ALWAYS present, not only when the matrix is empty.
+        # A diagnostics block that appears only on failure cannot describe the
+        # dangerous case: a populated matrix built from far fewer facts than
+        # expected. Same reasoning as C-39's coverage provenance.
+        "matcher_diagnostics": {
+            "facts_seen":            len(facts),
+            "signals_seen":          len(signals),
+            "facts_source":          _facts_source,
+            "knowledge_cache_facts": _cache_facts,
+            "facts_with_text":       _stage["with_text"],
+            "facts_matched_domain":  _stage["matched_domain"],
+            "facts_matched_both":    _stage["matched_both"],
+            "domains":               len(domain_list),
+            "jurisdictions":         len(juris_list),
+        },
     }
 
 

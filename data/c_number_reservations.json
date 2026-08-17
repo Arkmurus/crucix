@@ -1796,6 +1796,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-163",
+      "title": "the coverage matrix reads 867/867 gaps and cannot say why",
+      "claimed_at": "2026-08-17T13:00:47Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

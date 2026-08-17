@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4128,
+  "next_available": 4129,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35179,6 +35179,15 @@
       "r_number": "R-F4127",
       "title": "derive organ r_numbers from their member modules",
       "claimed_at": "2026-08-17T12:30:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4128",
+      "title": "instrument the coverage matcher so an empty matrix names its own cause",
+      "claimed_at": "2026-08-17T13:00:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

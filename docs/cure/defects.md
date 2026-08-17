@@ -9330,3 +9330,77 @@ baseline AND fails with this diff stashed. (It asserts a hardcoded
 `len(orphans) == 3` and the tree now has 7, because four modules the peers added
 match no organ — the orphan bucket alerting correctly while the magic number
 rots.) Compile gate green; §9 lifespan smoke `LIFESPAN OK`.
+
+## C-163 · the coverage matrix reported 867/867 gaps and could not say why (R-F4128)
+
+```
+/api/aria/learning/coverage
+  cells 867 · gap_count 867 · populated_cells 0 · gap_pct 100.0
+  coverage_score 0.0 · freshness_measured_cells 0
+  every cell fact_count 0 · one cell signal_count 1
+```
+
+The operator reported "the heatmap is not displaying any values". It is not a
+rendering fault — there are none. But the payload could not separate the three
+conditions that produce an identical 867/867:
+
+1. the fact source returned nothing,
+2. facts arrived carrying no matchable text,
+3. facts matched a domain but never a jurisdiction, or the reverse.
+
+`signal_count: 1` on one cell proves the tally loop runs and that matching CAN
+succeed, so by elimination the facts contributed nothing. **Elimination is not
+measurement**, and `all_facts()`'s own docstring records this exact symptom
+before — R-F164: *"every coverage cell returned fact_count=0, leaving the
+dashboard heatmap at 867/867 absent indefinitely"* — caused then by a silent
+`hasattr` evaluating False. Same number, different mechanism, and no instrument
+either time. That is the actual defect: a computation that can fail three ways
+and reports none of them.
+
+### Why it is in the payload and not a probe endpoint
+
+I tried to measure `len(all_facts())` with a `flyctl ssh python3` one-off and got
+`0`. **That reading was worthless** — a detached process has no loaded cache, the
+same trap §17 records for the cost meter, where it produced a fabricated
+`spent_usd: 0.0` and nearly a fabricated P0. The only honest place to measure a
+computation is inside the computation, in the process that runs it. So the
+matcher reports what it actually saw:
+
+```
+facts_seen · signals_seen · facts_source
+knowledge_cache_facts          <- accessor empty, or cache empty?
+facts_with_text · facts_matched_domain · facts_matched_both
+domains · jurisdictions
+```
+
+`facts_source` is `ok` / `attribute_missing` / `error`, so the R-F164 mechanism —
+a missing attribute swallowed into `[]` — is now visible rather than silent.
+`knowledge_cache_facts` is the discriminator inference could not settle, and is
+`None` when it cannot be read, never `0`: "could not measure" is not "measured
+and empty".
+
+### Always emitted, never only on failure
+
+A diagnostics block that appears only when the result is empty cannot describe
+the dangerous case — a matrix that IS populated, but from far fewer facts than
+expected. Same reasoning as C-39's coverage provenance, which is emitted on the
+healthy path for exactly this reason.
+
+### Two test defects the run exposed, both mine
+
+* The first "still emitted when healthy" test grepped the source for an `if`.
+  Fragile and indirect; replaced by feeding the matcher a fact that genuinely
+  matches and asserting the block is present with `facts_seen == 1`.
+* The `facts_source == "error"` case passed a monkeypatched raiser and still read
+  `ok` — because `build_heatmap` has a **120s cache** and served the fixture's
+  earlier build. The tests now set `_HEATMAP_TTL_S = 0`. The cache was working
+  correctly; my test was measuring the wrong build.
+
+### Verified
+
+Fixture-first: **6 failed → 6 passed**. Compile gate green; wiring gates
+**0/0/0**; §9 lifespan smoke `LIFESPAN OK`. Coverage/heatmap regression: 336
+passed, 4 failed — all four in the recorded baseline (`rf1696`, `rf4088`,
+`rf684`, `rf728`), and the two in this file's blast radius re-checked with the
+diff stashed: identical result both ways (1 failed, 10 passed), so `rf684` is
+pre-existing and `rf728` is order-dependent, neither caused here.
