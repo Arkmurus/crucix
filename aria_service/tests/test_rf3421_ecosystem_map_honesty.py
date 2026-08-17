@@ -63,12 +63,42 @@ def test_one_open_pool_member_caps_the_organ_at_amber():
 
 
 def test_the_whole_pool_open_is_genuinely_red():
-    """The cap must not hide a real outage."""
+    """The cap must not hide a real outage.
+
+    R-F4126 (C-161) changed WHY this is red, not WHETHER. It used to be red
+    because breadth reached 100%. It is now red because the web-search pool
+    contains `brave`, a paid dependency — and §17 RULE ONE makes Brave the
+    DD-EXCLUSIVE engine, so its scraped pool siblings cannot serve DD in its
+    place however many of them are up.
+
+    The old assertion on the literal note "whole pool open" is dropped
+    deliberately: that string described the breadth reasoning, which no longer
+    decides this case. Asserting the colour is what protects the property this
+    test exists for.
+    """
     pool = em._BACKEND_POOLS["duckduckgo"]
+    assert "brave" in pool, "precondition: the paid member is what makes this red"
     h = _health({"breakers": [_breaker(f"search:{m}") for m in pool]},
                 _nodes("organ:search"))
-    assert h["organ:search"]["color"] == "red"
-    assert "whole pool open" in h["organ:search"]["value"]
+    assert h["organ:search"]["color"] == "red", (
+        "a paid dependency being open must still reach the top severity")
+
+
+def test_a_whole_SCRAPED_pool_open_is_amber_not_red():
+    """The operator's rule, at the extreme case it is easiest to get wrong.
+
+    The web-archive pool (`wayback`, `archive_is`) has no paid member. Both being
+    open is the exact live condition that painted organ:search red on 2026-08-17,
+    and §27 calls it the expected steady state rather than an incident — so it is
+    amber. Without this test, "whole pool open ⇒ red" could be restored from the
+    test above and the cry-wolf would return.
+    """
+    pool = em._BACKEND_POOLS["archive_is"]
+    assert not any("brave" in m for m in pool), "precondition: no paid member"
+    h = _health({"breakers": [_breaker(m) for m in pool]},
+                _nodes("organ:search"))
+    assert h["organ:search"]["color"] == "amber", (
+        "an all-scraped pool going dark is expected (§27), not a red incident")
 
 
 def test_a_backend_outside_any_pool_is_unaffected():

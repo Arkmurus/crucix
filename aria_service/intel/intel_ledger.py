@@ -335,6 +335,7 @@ def _tmp_orphans() -> list[tuple[str, int, float]]:
     return out
 
 
+@fail_wire(module="intel_ledger", gap_type="engine_failure")
 def tmp_orphan_report() -> dict:
     """How much disk is stranded in temp files nobody will ever read?"""
     items = _tmp_orphans()
@@ -351,6 +352,7 @@ def tmp_orphan_report() -> dict:
     }
 
 
+@fail_wire(module="intel_ledger", gap_type="engine_failure")
 def sweep_tmp_orphans() -> dict:
     """Reclaim stranded temp files — REPORT-ONLY unless the operator opts in.
 

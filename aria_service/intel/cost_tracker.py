@@ -870,6 +870,25 @@ async def record_external_call(
     return record
 
 
+# ── Paid services (R-F4126 / C-161) ────────────────────────────────────────
+# The services this platform is BILLED for. Declared HERE, beside the meter,
+# because this module is what actually observes the money — a severity model that
+# has to guess which sources are paid will guess wrong.
+#
+# `ecosystem_map` consumes this, and a test asserts every name here is honoured
+# there. That cross-check is the anti-rot: if a new paid dependency is metered and
+# nobody updates the severity model, an outage of it would be capped at amber, and
+# the TEST fails rather than the operator discovering it from a quiet dashboard.
+#
+# §17 (Anthropic, DeepSeek, Brave) and §18 (OpenSanctions) are the authority.
+_KNOWN_PAID_SERVICES: frozenset[str] = frozenset({
+    "brave",           # §17 RULE ONE — paid, DD-exclusive search
+    "anthropic",       # §17 — paid, non-degrading DD pin
+    "deepseek",        # §17 — paid, general chain head
+    "opensanctions",   # §18 — paid plan, screening breadth
+})
+
+
 # ── Read-time error policy (R-F4094 / C-138) ───────────────────────────────
 # Which outcomes are NOT failures. Declared here, at READ time, on purpose.
 #

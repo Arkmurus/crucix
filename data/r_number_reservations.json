@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4126,
+  "next_available": 4127,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35161,6 +35161,15 @@
       "r_number": "R-F4125",
       "title": "wire the three dark public functions gate A caught",
       "claimed_at": "2026-08-17T11:19:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4126",
+      "title": "cap scraped-source breakers at amber and reserve red for paid dependencies",
+      "claimed_at": "2026-08-17T11:41:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

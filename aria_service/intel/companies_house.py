@@ -445,6 +445,7 @@ def _pick_best_company(query: str, results: list[dict],
     return winner
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 def resolve_company_search(query: str, results: list[dict]) -> tuple[dict | None, dict]:
     """Resolve a registry search only when its identity decision is safe.
 

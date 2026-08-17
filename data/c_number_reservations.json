@@ -1778,6 +1778,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-161",
+      "title": "a blocked scraped source paints an organ RED, reserving no severity for paid dependencies",
+      "claimed_at": "2026-08-17T11:41:03Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

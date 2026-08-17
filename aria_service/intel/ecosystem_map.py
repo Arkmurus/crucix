@@ -1015,6 +1015,98 @@ for _pool in (
         _BACKEND_POOLS[_member] = _pool
 del _pool, _member
 
+# ── R-F4126 (C-161) — severity KIND, the axis `_cap_for_pool` was missing ────
+#
+# Live 2026-08-17: organ:search read RED from `circuit_breaker[archive_is]`
+# "OPEN/timeout (whole pool open)". Every open breaker was a free scraped source
+# (search:duckduckgo, semantic_scholar, openalex, archive_is, wayback). No paid
+# dependency was down and search was serving normally through Brave.
+#
+# §27: "you cannot code your way out of an IP block ... the engine list rots
+# continuously." A scraped block is the EXPECTED steady state, so spending the top
+# severity on it leaves nothing louder for the failures that actually stop the
+# product — and §17 records what those cost: DD went down when the Anthropic
+# credit ran out.
+#
+# Operator, 2026-08-17: "amber, and reserve red for paid sources we depend on".
+def _paid_backends() -> frozenset[str]:
+    """Paid names, sourced from the meter rather than re-declared here.
+
+    Fails toward the QUIETER verdict: if the declaration cannot be read we return
+    empty, so nothing is promoted to red on a guess. An undeclared paid source is
+    caught by the metered cross-check test, not by assuming loud here.
+    """
+    try:
+        from .cost_tracker import _KNOWN_PAID_SERVICES
+        return frozenset(str(x).lower() for x in _KNOWN_PAID_SERVICES)
+    except Exception:
+        return frozenset()
+
+
+_PAID_BACKENDS: frozenset[str] = _paid_backends()
+
+
+def _is_paid_backend(backend: str) -> bool:
+    """Substring-aware on the paid NAME, so registry spellings like
+    `brave_search`, `search:brave` or `anthropic_dd` all resolve.
+
+    R-F3423 is the reason: two hand-typed pool names did not match the registry
+    (`gnews` vs `gnews_api`), so the real backend was never covered while a
+    phantom one was, silently.
+    """
+    b = (backend or "").lower().strip()
+    return bool(b) and any(p in b for p in _PAID_BACKENDS)
+
+
+def _cap_for_pool_with_kind(backend: str, color: str, open_now: set) -> tuple[str, str]:
+    """(organ_colour, note) — blast radius AND kind.
+
+    Blast radius (R-F3421): a pool member caps at amber while a declared sibling
+    still serves. Kind (R-F4126): a source we do not pay for never reaches red at
+    ORGAN level, whatever its pool is doing.
+
+    The MODULE node keeps the raw colour — that backend really is open and nothing
+    is hidden; only the organ's blast radius is corrected.
+    """
+    if color != "red":
+        return color, ""
+
+    # KIND FIRST, and this ordering is the point rather than a detail.
+    #
+    # Brave is IN the web-search pool, so a blast-radius-first rule downgraded it
+    # to amber whenever a scraped sibling was still up. That is wrong: §17 RULE ONE
+    # makes Brave the DD-EXCLUSIVE engine and the pool siblings tier-2 only, so
+    # they cannot serve DD in its place. "A sibling is serving" is only a reason to
+    # relax when the siblings are genuine substitutes — for a paid dependency they
+    # are not, which is precisely why we pay for it.
+    if _is_paid_backend(backend):
+        return "red", ""
+
+    # The amber ceiling is scoped to POOLED backends, and that scoping is the
+    # correction a failing test forced.
+    #
+    # A first draft made the rule paid-vs-everything-else, which quietly demoted
+    # `ofac` to amber. OFAC is free, but it is an OFFICIAL registry, not a
+    # consumer engine we impersonate a browser against — and C-39 records what an
+    # unmeasured sanctions source costs: eight lists stamped CLEAN without being
+    # queried. §27's "a block is the expected steady state" is a claim about
+    # SCRAPED aggregators specifically, and the pools are exactly that set (web
+    # search, academic lookup, web archive).
+    #
+    # So the exception list is the scraped set — small, and already defined by
+    # §27 — while the DEFAULT is red-capable. An unpooled or unknown backend fails
+    # LOUD, which is the safer direction for a severity model and preserves
+    # R-F3421's existing contract that an unpooled backend is unaffected.
+    pool = _BACKEND_POOLS.get(backend)
+    if not pool:
+        return "red", ""
+    alive = [m for m in pool if m not in open_now]
+    if alive:
+        return "amber", f" ({len(alive)}/{len(pool)} of the pool still serving)"
+    return "amber", " (scraped pool - an IP block is expected, §27)"
+
+
+
 # Modules that RECORD gaps on behalf of the whole system. A gap whose `source` is one of
 # these says nothing about that module's own health, so it must not colour its organ.
 # `brain_hook` is the live case: it is the generic sink, so every subsystem's failure
@@ -1149,13 +1241,9 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
     def _cap_for_pool(backend: str, color: str) -> tuple[str, str]:
         """(organ_colour, note) — caps a pool member's ORGAN colour at amber unless
         every declared sibling is also open."""
-        pool = _BACKEND_POOLS.get(backend)
-        if not pool or color != "red":
-            return color, ""
-        alive = [m for m in pool if m not in _open_now]
-        if not alive:
-            return "red", " (whole pool open)"
-        return "amber", f" ({len(alive)}/{len(pool)} of the pool still serving)"
+        # R-F4126 — ONE rule, in `_cap_for_pool_with_kind`. Duplicating it here is
+        # how the organ view and its test drift apart.
+        return _cap_for_pool_with_kind(backend, color, _open_now)
 
     for b in signals.get("breakers", []):
         name = b.get("name", "")

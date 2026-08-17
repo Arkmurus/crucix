@@ -9170,3 +9170,108 @@ different kinds of decision and should be separately reviewable.
 `test_rf3720_secret_scan_gate.py`: **8 passed** (was 1 failed). Full scan:
 `4188 tracked files, CLEAN`. The fail-proof above, then a byte-identical
 restore.
+
+## C-160 · three public functions shipped dark after the wiring gate went green (R-F4125)
+
+R-F4102 (C-154) widened the stolen-decorator gate beyond `safety.py`; R-F4103
+(C-155) greened the two blocking gates. Within hours GATE A reported three public
+sync functions with no route to the brain:
+
+```
+companies_house.py:448  resolve_company_search()   <- Codex, R-F4104/R-F4105
+intel_ledger.py:338     tmp_orphan_report()        <- peer,  R-F4110 / C-143
+intel_ledger.py:354     sweep_tmp_orphans()        <- peer,  R-F4110 / C-143
+```
+
+**That is the gate working on code that landed after it went green** — live
+enforcement rather than decoration.
+
+`resolve_company_search` is the one that matters: it decides whether a registry
+search result is SAFE to treat as an identity, returning `(None, decision)` for
+empty, dead, partial or ambiguous matches precisely so a caller cannot feed an
+inferred registration number into identity-dependent work. Unwired, a failure of
+that decision reached nobody.
+
+Preconditions checked rather than assumed: `fail_wire` **re-raises** (both
+wrappers end in a bare `raise`), so a decorator cannot silently turn a raise into
+a `None` return and break the `company, decision = …` unpacking at three call
+sites; all three are sync non-generators; and gap_type came from
+`get_gap_type()` — `api_missing` (19/19 siblings agree) and `engine_failure`
+(12/13) — because a wrong type merely trades a GATE A violation for a GATE B one.
+
+Tests INVOKE the functions and force a failure rather than grepping for a
+decorator (§3c), including one asserting the decorator does **not** swallow: if
+it did, the caller would unpack `None` and read a crash as "no match found",
+which is strictly worse than the dark version.
+
+---
+
+## C-161 · a blocked scraped source painted an organ RED (R-F4126)
+
+```
+/health degraded_reasons: ['ecosystem_red_nodes_1', 'ecosystem_degraded_nodes_22']
+organ:search  red  <- circuit_breaker[archive_is] "OPEN/timeout (whole pool open)"
+```
+
+Every OPEN breaker was a free scraped source — `search:duckduckgo`,
+`semantic_scholar`, `openalex`, `archive_is`, `wayback`. No paid dependency was
+down and search was serving through Brave.
+
+§27 says this is the expected steady state: *"you cannot code your way out of an
+IP block … the engine list rots continuously."* So the product's **top severity
+was permanently spent on a known, expected, uncodeable condition**, leaving
+nothing louder for the failures that actually stop the product. §17 records what
+those cost: DD went down when the Anthropic credit ran out.
+
+Operator, 2026-08-17: *"amber, and reserve red for paid sources we depend on."*
+
+`_cap_for_pool` understood **breadth** (how many siblings still serve) and was
+silent on **kind**. `_cap_for_pool_with_kind` adds the missing axis, and the
+paid set is sourced from `cost_tracker._KNOWN_PAID_SERVICES` — declared beside
+the meter, because the thing that observes the money is what knows.
+
+### Two orderings the tests corrected, both of which I had wrong
+
+* **Kind must beat breadth for a paid source.** The first draft checked the pool
+  first, which demoted **Brave** to amber whenever a scraped sibling was up. Wrong:
+  §17 RULE ONE makes Brave the DD-EXCLUSIVE engine and the siblings tier-2 only, so
+  they cannot serve DD in its place. "A sibling is serving" only justifies relaxing
+  when the siblings are genuine substitutes.
+* **The amber ceiling is scoped to POOLED backends, not to "everything unpaid".**
+  The second draft demoted `ofac` — free, but an OFFICIAL registry, not a consumer
+  engine we scrape. C-39 records what an unmeasured sanctions source costs. §27's
+  claim is about scraped aggregators, and the pools are exactly that set, so the
+  **exception list is the small scraped one and the DEFAULT is red-capable**. An
+  unpooled or unknown backend fails LOUD, which also preserves R-F3421's contract.
+
+Both corrections came from the existing suite failing, not from review. The
+module node still receives the raw red — nothing is hidden, only the organ's
+blast radius is corrected.
+
+### Simulated against the live breaker state
+
+```
+archive_is  wayback  -> amber (scraped pool)
+openalex  semantic_scholar -> amber (2/4 of the pool still serving)
+duckduckgo           -> amber (6/7 of the pool still serving)
+brave                -> red
+```
+
+### Two superseded contract tests were rewritten, not deleted
+
+`test_the_whole_pool_open_is_genuinely_red` still asserts RED — but the reason
+changed from "breadth hit 100%" to "the pool contains a paid dependency". Its
+assertion on the literal note is dropped because that string described the
+breadth reasoning. A new sibling pins the operator's rule at the case easiest to
+get wrong: an all-scraped pool going dark is **amber**, so "whole pool open ⇒
+red" cannot be restored from the test above and bring the cry-wolf back.
+
+### Verified
+
+C-161 fixture-first: **6 failed → 9 passed**. C-160: **8 passed**, invoking each
+path. Four suites together: **50 passed**. Wiring gates **0/0/0,
+`has_blocking_violations: False`** (was 3). Broad regression
+(`ecosystem|companies_house|intel_ledger|wiring|breaker|health|cost`): **1,108
+passed, 1 failed** — `rf2172`, proven pre-existing: it is in the recorded
+baseline's failure set AND passes in isolation. Compile gate green; §9 lifespan
+smoke `LIFESPAN OK`.
