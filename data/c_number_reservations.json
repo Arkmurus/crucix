@@ -1538,6 +1538,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T04:50:13Z"
+    },
+    {
+      "c_number": "C-137",
+      "title": "the unscoped labels render unflagged, so the panel looks healthier than before",
+      "claimed_at": "2026-08-17T04:58:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

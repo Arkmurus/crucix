@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4092,
+  "next_available": 4093,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34844,6 +34844,15 @@
       "commit_sha": "7de62fd5",
       "notes": null,
       "shipped_at": "2026-08-17T04:50:12Z"
+    },
+    {
+      "r_number": "R-F4092",
+      "title": "flag unscoped spend on the cost panel, not just the literal uncategorized",
+      "claimed_at": "2026-08-17T04:58:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

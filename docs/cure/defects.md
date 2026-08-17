@@ -8079,3 +8079,65 @@ now `unscoped:intel.adversarial_challenge` — 9 of the 12 LLM calls in the firs
 the first time, and it is immediately actionable: `adversarial_challenge` needs
 a `feature()` scope. Note this is the SECOND live reading to correct the first;
 the deploy probe is what makes attribution claims falsifiable, not the tests.
+
+## C-137 · the fix for unattributed spend made the panel look healthier (R-F4092)
+
+Found by reviewing my own work, not by a failure.
+
+R-F4087/R-F4090 renamed the majority of month-to-date LLM spend from
+`uncategorized` to `unscoped:<module>`. Both mean exactly the same thing: a
+caller that declared no `feature()` scope. But the panel flagged only the
+literal string:
+
+```js
+const cls = name === 'uncategorized' ? 'warn' : '';
+```
+
+So the rename moved **53% of spend off the one label the panel highlights.**
+The Cost panel would have rendered those rows as ordinary, unflagged spend —
+**healthier-looking than before, with the underlying gap unchanged.** That is an
+absence rendered as health, self-inflicted by the fix written to end exactly
+that pattern. The improvement in attribution was real; the improvement in the
+panel's verdict was not.
+
+### The second, quieter way it could hide
+
+The table slices to the **top 10**. One big `uncategorized` row sat at #1; split
+across N modules, every piece can fall below the cut and vanish from the panel
+entirely while the month total is unchanged. So the new summary sums over **all**
+features, never the sliced rows — a figure that cannot be truncated away:
+
+> Unattributed spend: $46.26 (53% of month). Callers with no `feature()` scope.
+
+### Flag the condition, never the spelling
+
+Both the row class and the total now key on *"did this caller declare a scope"*,
+not on a specific string. A test asserts the two rules agree, because they encode
+the same policy in two places and a drift would make the flagged rows and the
+headline describe different sets — the panel contradicting itself.
+
+### Two defects in my own first draft, both caught by the tests
+
+* The summary `<div>` was emitted **inside the `<table>`** (invalid HTML;
+  browsers hoist it and the layout breaks).
+* The reduce read `r[1]` and-ed with zero on the destructured value — `undefined`, so
+  `undefined + n` is **NaN** and the headline would have rendered `$NaN`. The
+  guard now evaluates the real accessor against malformed rows.
+
+A third was caught by an existing guard: R-F3278 rejected an em dash in the new
+copy.
+
+### And the guard test was itself fragile first
+
+`test_the_summary_is_emitted_outside_the_table` originally scanned a **400-char
+lookbehind** and failed on correct code, because the explanatory comment above
+the summary is ~414 characters. That is the line/offset fragility R-F3597
+records, reproduced inside a guard written to prevent a different fragility.
+Rewritten to assert **structurally** — that a `</table>` occurs between the table
+open and the summary — rather than by distance.
+
+### Verified
+
+**5 passed**, and proven able to fail: reverting the predicate to
+`name === 'uncategorized'` turns 2 of the 5 red. Full Node guard sweep across
+the page: **188 passed, 0 failed.**

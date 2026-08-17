@@ -2443,10 +2443,29 @@ async function loadLlmCost() {
     for (const [name, row] of featRows) {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const fname = name.length > 22 ? name.slice(0, 21) + '…' : name;
-      const cls = name === 'uncategorized' ? 'warn' : '';
+      // R-F4092 (C-137): `unscoped:<module>` means exactly what `uncategorized`
+      // means — spend whose caller declared no feature() scope. R-F4090 renamed
+      // most of that spend from the one label the panel flags to labels it did
+      // not, which would have made the panel look HEALTHIER while the
+      // underlying gap was unchanged. Flag the condition, never the spelling.
+      const unattributed = name === 'uncategorized' || name.startsWith('unscoped:');
+      const cls = unattributed ? 'warn' : '';
       html += `<tr><td title="${escapeHtml(name)}" class="${escapeHtml(cls)}">${escapeHtml(fname)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(2))}</td><td style="text-align:right;color:#6b6862">${escapeHtml(share.toFixed(0))}%</td></tr>`;
     }
-    html += '</table></div>';
+    html += '</table>';
+    // R-F4092 (C-137): the top-10 slice is the second way R-F4090 could have
+    // hidden this. One big `uncategorized` row sat at #1; splitting it across
+    // N modules can push every piece below the cut, so the spend disappears
+    // from the panel entirely while the total is unchanged. Sum over ALL
+    // features, not the sliced rows, so the figure cannot be truncated away.
+    const unattrib = Object.entries(byFeat)
+      .filter(([n]) => n === 'uncategorized' || n.startsWith('unscoped:'))
+      .reduce((a, [, r]) => a + ((r && r.cost_usd) || 0), 0);
+    if (unattrib > 0) {
+      const pct = spent > 0 ? (unattrib / spent * 100) : 0;
+      html += `<div class="warn" style="font-size:0.78em;margin-top:4px">Unattributed spend: $${escapeHtml(unattrib.toFixed(2))} (${escapeHtml(pct.toFixed(0))}% of month). Callers with no <code>feature()</code> scope.</div>`;
+    }
+    html += '</div>';
   }
 
   // Top individual calls (collapsed by default)
