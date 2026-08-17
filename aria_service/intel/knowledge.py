@@ -2678,8 +2678,20 @@ def _rank_knowledge_facts(query: str, limit: int) -> list[dict]:
         for w in words:
             if w in text:
                 score += 3
-        score += min(f.get("accessCount", 0), 5)
+        # R-F4133 (C-168) — the popularity boost is a TIE-BREAKER BETWEEN
+        # RELEVANT FACTS, and it used to be added BEFORE this threshold. That
+        # let it manufacture relevance: `accessCount` counts RE-ABSORPTION (all
+        # three of its bumps are in store_fact, fired when the same content or
+        # topic is stored again), which is exactly what the crawl and reading
+        # loops do all day. A fact matching nothing scored up to 5 and beat a
+        # fact matching one query word, which scores 3 — and search_knowledge
+        # renders the winners into the chat prompt under "[ARIA KNOWLEDGE BASE
+        # — verified facts]". Measured live on 2026-08-17: ~10.8% of 567,720
+        # facts carry accessCount >= 1 (max 3,593), so ~61,000 unrelated rows
+        # entered the candidate set of EVERY query. Self-worsening under §7:
+        # the more ARIA reads, the higher the noise floor, and it never falls.
         if score > 0:
+            score += min(f.get("accessCount", 0), 5)
             scored.append((score, f))
 
     scored.sort(key=lambda x: x[0], reverse=True)

@@ -9850,3 +9850,107 @@ like it decides something.
 
 14 passed across the C-163/C-164 suites. Compile gate green; wiring gates 0/0/0;
 §9 lifespan smoke `LIFESPAN OK`.
+
+## C-168 · recall served facts matching no query word, ranked by re-absorption count (fixed, R-F4133)
+
+Found by the self-audit the operator asked for, while chasing C-166 — not by any
+test or alert. It is a **correctness defect on the chat path**, and it had been
+live for as long as the scoring loop has existed.
+
+### The code
+
+```python
+score = 0
+for w in words:
+    if w in text:
+        score += 3
+score += min(f.get("accessCount", 0), 5)   # <-- added BEFORE the threshold
+if score > 0:
+    scored.append((score, f))
+```
+
+`accessCount` is not a recall counter. **All three of its bumps are in
+`store_fact`** and fire on RE-ABSORPTION — the same content or topic being
+stored again — which is precisely what the crawl and reading loops do all day
+(§28 measured the production mix at ~1 new fact per 9 re-absorbs).
+
+So `score > 0` was satisfied by popularity alone, and the ORDERING was worse
+than the inclusion:
+
+* a fact matching ONE query word scores **3**
+* a fact matching NOTHING, re-absorbed 5+ times, scores **5**
+
+The irrelevant fact wins outright; on a tie the stable sort hands the slot to
+whichever sits earlier in the corpus. `search_knowledge` renders the winners
+into the chat prompt under **"[ARIA KNOWLEDGE BASE — verified facts]"**, so
+unrelated rows were presented to the model as established fact about the subject
+being asked about.
+
+### Reproduced before it was believed
+
+300 popular-but-irrelevant facts + 1 genuinely relevant one:
+
+```
+query matching NOTHING     -> returned 10 facts, none containing a query word
+query "rosoboronexport"    -> the ONLY matching fact was ABSENT from the top 10
+```
+
+### Sized against production, 2026-08-17
+
+Three 8 MB windows of the live 416 MB corpus (567,720 facts):
+
+```
+window @0 MB     11,368 facts   accessCount>=1   3.8%   max    44
+window @198 MB   11,663 facts   accessCount>=1  11.7%   max   848
+window @384 MB   12,162 facts   accessCount>=1  16.8%   max 3,593
+```
+
+≈10.8% overall — **~61,000 facts entered the candidate set of every query**,
+whatever the query was, and the maxima show the +5 cap is reached comfortably.
+The rising trend across windows is the mechanism visible in the data: older
+regions of the corpus have been re-absorbed more.
+
+Self-worsening in the same way as C-95 and C-166 — re-absorption is how ARIA
+reads, so the noise floor climbs as she learns, and under §7 (no eviction) it
+never falls.
+
+### The fix
+
+Move the boost INSIDE the threshold. Popularity remains a tie-breaker between
+relevant facts; it can no longer manufacture relevance. Six tests, four of them
+RED before the change — and the first RED run failed on a missing fixture key
+rather than on the defect, which was corrected before the fix was applied, since
+a test that fails for the wrong reason proves nothing.
+
+One test exists solely to stop the wrong fix: deleting the boost outright would
+green the two headline tests and silently drop the tie-break.
+
+### NO performance claim — measured, and it disproves the tempting one
+
+It would be natural to bank this as a partial C-166 win, since the candidate set
+shrinks. Measured on a 567k synthetic:
+
+```
+no-match query   BEFORE candidates  62,260  sort 0.004s   AFTER       0  sort 0.000s
+narrow query     BEFORE candidates 505,512  sort 0.033s   AFTER 497,934  sort 0.032s
+```
+
+**The sort was never the bottleneck** — 4-33 ms of a 1.0-1.5 s call. The cost is
+the O(corpus) substring scan, which this does not touch. C-166 is unchanged.
+
+### A CORRECTION TO C-166's RECOMMENDATION, found here
+
+C-166 recommends replacing the scan with a **word-level inverted index**. That
+would silently narrow recall, because the scoring is a **substring** test:
+
+```
+text = "rosoboronexport supplies air-defence systems"
+"export" in text            -> True      (matches today)
+"export" in text.split()    -> False     (would stop matching)
+```
+
+On an adverse-media path a quietly narrowed result set is the R-F3857 failure —
+an emptied set reads as CLEAN. Any index must produce a candidate **superset**
+(character n-grams, not words) and still verify each candidate with the same
+`w in text` test. A test pins this so the "obvious optimisation" cannot be
+applied by someone who has not read this paragraph.

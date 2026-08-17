@@ -1877,9 +1877,12 @@
       "title": "recall returns facts matching no query word, ranked by re-absorption count",
       "claimed_at": "2026-08-17T18:57:17Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4133"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T19:02:32Z"
     }
   ]
 }
