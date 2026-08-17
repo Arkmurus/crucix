@@ -8428,3 +8428,70 @@ smoke `LIFESPAN OK`.
 (proven by the identical selection with the diff stashed). **That is very likely
 why the R-F4097 theft was not caught**: the repo's wiring gates carry no
 information while they are red. Diagnosing them is the obvious next task.
+
+## C-155 · three wiring gates stood red, so the gate that catches a stolen decorator carried no information (R-F4103)
+
+C-154 asked why R-F4097's decorator theft was not caught. This is the answer.
+
+`wiring_harness.run_all_gates()` is the repo's primary §21a enforcement, and it
+was **red on two blocking gates** — plus a third wiring test red for an unrelated
+reason. A red gate carries no information in either direction: it cannot
+distinguish a healthy tree from a broken one, and nobody investigates a board
+that is already red. The theft shipped into that silence.
+
+### Only TWO real violations were holding it red
+
+```
+gate_scope 0 | gate_a 2 | gate_b 0
+  - cost_tracker.py:728  attribute_unscoped_caller()  no @fail_wire
+  - dd_schema.py:2699    sanctions_coverage()         no @fail_wire
+```
+
+One of them was **mine, shipped earlier the same day** (R-F4087's attribution
+helper). The other, `sanctions_coverage` — the single classification of a
+sanctions screen's per-list coverage, on the DD report path — had been dark
+since R-F4007.
+
+Both are now wired, and neither is a gate-appeasing decoration: if
+`sanctions_coverage` throws, a DD report silently loses its coverage
+classification, which is the C-39 failure class this codebase has already paid
+for once. `run_all_gates()` now reports **0 / 0 / 0, `has_blocking_violations:
+False`.**
+
+### The third gate was a stale test, not a defect
+
+`test_rf1158_compliance_watch_failure::test_source_contains_failure_wiring`
+asserted:
+
+```python
+src = function_source(a, "brain_signal_ep")
+assert '_cw_result.get("captured")' in src or 'not _cw_result' in src
+```
+
+The wiring was **never removed**. It was extracted into `_route_one_signal` and
+the variable renamed `_cw`. So the test pinned two implementation details — a
+function name and a local variable name — and reported a defect that did not
+exist. Its own three behavioural siblings passed the entire time, which is the
+decisive evidence: the behaviour was always correct.
+
+Rewritten to ask the question that can be answered wrong. Not *"is this string
+in that function"* but *"is the capture result checked and reported where it is
+captured"* — located by AST over the whole module, so renaming the function or
+the variable cannot break it, and **deleting the check still can.** Proven: with
+`if not _cw.get("captured")` temporarily replaced by `if False`, the test fails;
+restored, it passes.
+
+### Why this is the highest-leverage fix in the batch
+
+Every other defect this session was one instrument lying. This one is the
+instrument that watches the instruments. With it green, the next stolen
+decorator fails CI instead of being found — as R-F4097's was — by a
+coincidental SyntaxError two commits later.
+
+### Verified
+
+**19 passed** across the three formerly-red gates; the wider
+`-k "wiring or rf1158 or rf1783 or rf3560 or rf3928 or rf4102 or dd_schema or
+cost_tracker"` selection: **364 passed, 0 failed.** `routes/aria.py` restored
+byte-identical after the fail-proof (`git diff` empty). Compile gate green; §9
+lifespan smoke `LIFESPAN OK`.

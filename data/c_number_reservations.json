@@ -1685,6 +1685,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-155",
+      "title": "three wiring gates stood red, so the gate that should catch a stolen decorator carried no information",
+      "claimed_at": "2026-08-17T08:04:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

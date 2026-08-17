@@ -2696,6 +2696,7 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
     }
 
 
+@fail_wire(module="dd_schema", gap_type="engine_failure")
 def sanctions_coverage(screen) -> dict | None:
     """R-F4007 (C-86) — THE ONE classification of a sanctions screen's per-list coverage.
 

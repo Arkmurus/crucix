@@ -725,6 +725,7 @@ def _is_plumbing(module: str) -> bool:
     return False
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 def attribute_unscoped_caller() -> str:
     """Return `unscoped:<module>` for a caller that declared no feature, or
     `""` when a real `feature()` scope is active or the caller cannot be named.
