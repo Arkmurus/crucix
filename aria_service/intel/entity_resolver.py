@@ -96,30 +96,82 @@ async def _resolve_person(query: str, nationality_iso2: str | None) -> dict[str,
 
 
 def _fetch_prior_facts_sync(query: str, limit: int) -> list[dict[str, Any]]:
-    """Sync body of the facts fetch — runs in a worker thread."""
+    """Sync body of the facts fetch — runs in a worker thread.
+
+    R-F4135 (C-169) — this called `knowledge.search_knowledge(query, limit=limit)`,
+    and `search_knowledge(query: str) -> str` takes NO `limit`. Every call since
+    R-F730 raised `TypeError` into the `except` below, whose only response was a
+    `logger.debug`. So this returned `[]` unconditionally and nothing said so.
+
+    The cost was not merely an empty list. `prior_facts` is worth 0.5 of the
+    resolver's confidence score — the largest single component — so confidence
+    was structurally capped at 0.5, and `render_context_block` never emitted a
+    "Prior facts" section into the `[ENTITY HINTS]` block that feeds BOTH chat
+    paths (§13).
+
+    Two failures, and the second is why it survived: §3b (a call written against
+    a signature nobody checked) and §21a (the failure was DARK — a permanently
+    broken capability was indistinguishable from an entity with no history).
+
+    `search_fact_records` is the function this code always wanted: it accepts
+    `limit` and returns records. The records MUST be normalised to `summary`,
+    because `render_context_block` reads `f["summary"]` while raw facts carry
+    `topic`/`content` — swapping the call without the mapping would return facts
+    and still render nothing.
+    """
     try:
         from . import knowledge
-        if hasattr(knowledge, "search_knowledge"):
-            hits = knowledge.search_knowledge(query, limit=limit)
-            if isinstance(hits, str) and hits:
-                lines = [
-                    ln.strip(" -•").strip()
-                    for ln in hits.splitlines()
-                    if ln.strip()
-                ][:limit]
-                return [{"summary": ln} for ln in lines]
-            if isinstance(hits, list):
-                return hits[:limit]
+        recs = knowledge.search_fact_records(query, limit=limit)
+        out: list[dict[str, Any]] = []
+        for r in recs or []:
+            if not isinstance(r, dict):
+                continue
+            summary = (r.get("content") or r.get("topic") or "").strip()
+            if not summary:
+                continue
+            out.append({
+                "summary": summary[:400],
+                "topic": r.get("topic") or "",
+                "source": r.get("source") or "",
+                "confidence": r.get("confidence"),
+            })
+            if len(out) >= limit:
+                break
+        return out
     except Exception as e:
-        logger.debug("knowledge.search_knowledge failed for %r: %s", query, e)
+        # §21a — a wire, not a debug log. The debug log is what let this stay
+        # broken: silence and "no history" looked identical for the whole life
+        # of the feature.
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="entity_resolver",
+                gap_type="engine_failure",
+                detail=f"prior-facts lookup failed for {query[:80]!r}: {e}",
+                source="entity_resolver:R-F4135",
+            )
+        except Exception:
+            logger.debug("[R-F4135] prior-facts failure wire failed", exc_info=True)
+        logger.debug("knowledge.search_fact_records failed for %r: %s", query, e)
     return []
 
 
 async def _fetch_prior_facts(query: str, limit: int = 5) -> list[dict[str, Any]]:
     """Pull recent knowledge-store facts mentioning the entity. Wedge
-    guard: search_knowledge does a sync iteration on the knowledge
-    cache (~55k facts in prod), so we dispatch to a worker thread to
-    keep the event loop responsive per the R-F727 wedge findings."""
+    guard: the ranking scan is a sync iteration over the whole knowledge
+    cache, so we dispatch to a worker thread to keep the event loop
+    responsive per the R-F727 wedge findings.
+
+    R-F4135 (C-169) — the corpus is **567,000 facts**, not the "~55k in prod"
+    this said; and the count matters more than it used to, because restoring
+    this lookup (dead since R-F730, see `_fetch_prior_facts_sync`) adds a REAL
+    O(corpus) scan per resolve where the TypeError previously made it free. At
+    the measured 0.27-0.88s per scan that is a genuine new cost on the chat
+    path, taken deliberately: a resolver that cannot see ARIA's own verified
+    facts is the more expensive failure. R-F4136's `knowledge.ranking_stats()`
+    will show it under this module's name — if `entity_resolver` turns out to
+    dominate that reading, C-166's fix is the one that pays for it.
+    """
     return await asyncio.to_thread(_fetch_prior_facts_sync, query, limit)
 
 

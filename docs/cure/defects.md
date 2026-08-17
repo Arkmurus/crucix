@@ -10039,3 +10039,81 @@ an emptied set reads as CLEAN. Any index must produce a candidate **superset**
 (character n-grams, not words) and still verify each candidate with the same
 `w in text` test. A test pins this so the "obvious optimisation" cannot be
 applied by someone who has not read this paragraph.
+
+## C-169 · the entity resolver has never seen a prior fact — wrong signature, swallowed (fixed, R-F4135)
+
+Found while mapping C-166's callers (§8: map before you change). Dead since
+R-F730 introduced it.
+
+```python
+hits = knowledge.search_knowledge(query, limit=limit)     # entity_resolver.py:103
+```
+
+`search_knowledge(query: str) -> str` takes **no** `limit`. Every call raised
+
+```
+TypeError: search_knowledge() got an unexpected keyword argument 'limit'
+```
+
+into an `except Exception` whose only response was `logger.debug(...)`. So
+`_fetch_prior_facts` returned `[]` unconditionally, for every entity, forever.
+
+### Proven before believed
+
+One matching fact in the store:
+
+```
+search_knowledge('rosoboronexport')            -> "[ARIA KNOWLEDGE BASE ...]"  works
+search_knowledge('rosoboronexport', limit=5)   -> TypeError
+_fetch_prior_facts('rosoboronexport')          -> []
+```
+
+### What it cost — more than an empty list
+
+`prior_facts` is the largest single component of the resolver's confidence:
+
+```python
+if out["prior_facts"]:   score += 0.5
+if out["prior_signals"]: score += 0.3
+if out["aliases"]:       score += 0.2
+```
+
+So confidence was **structurally capped at 0.5** and any downstream threshold
+above it was unreachable — a silent ceiling, not an error. And
+`render_context_block` never emitted a "Prior facts" section, so the
+`[ENTITY HINTS]` block feeding BOTH chat paths (`aria_engine.py:4227` complete,
+`:5147` stream — §13) has been missing the verified facts ARIA already holds
+about the entity being asked about.
+
+### Two failures, and the second is why it survived
+
+1. **§3b** — a call written against a signature nobody checked. This is exactly
+   what §3b exists for, and it was added to CLAUDE.md after the same mistake
+   twice in one session (R-F1069).
+2. **§21a** — the failure was **DARK**. `logger.debug` is not a wire. A brain
+   signal on the failure branch would have surfaced this on day one; instead a
+   permanently-broken capability was indistinguishable from an entity with no
+   history. This is the register's most-repeated shape: **an absence rendered as
+   a measurement**.
+
+### The fix, and the trap inside it
+
+`search_fact_records` is the function this code always wanted — it accepts
+`limit` and returns records. But the records must be **normalised to
+`summary`**: `render_context_block` reads `f["summary"]` while raw facts carry
+`topic`/`content`. Swapping the call without the mapping returns facts and still
+renders nothing — a fix that goes green and changes nothing the user sees. A
+test pins the rendered block, not just the return value.
+
+The failure branch is now wired (`wire_failure`, both sinks), and a test proves
+the wire cannot break the lookup.
+
+### An honest new cost, taken deliberately
+
+The TypeError made this call FREE. Restoring it adds a real O(corpus) ranking
+scan per resolve — **0.27-0.88s** at the current 567,000 facts (C-166). That is
+accepted: a resolver blind to ARIA's own verified facts is the more expensive
+failure. R-F4136's instrument will show `entity_resolver` by name in
+`ranking_stats()`, so if it dominates that reading, C-166's fix is the one that
+pays for it. The stale "~55k facts in prod" in the docstring — off by 10x — was
+corrected at the same time.
