@@ -38,6 +38,7 @@ from typing import Any
 
 import httpx
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
+from . import url_safety
 
 logger = logging.getLogger("aria.intel.companies_house")
 
@@ -169,7 +170,7 @@ async def _get_outcome(path: str, _attempt: int = 0) -> tuple[dict | None, str]:
     url = f"{_BASE_URL}{path}"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:  # no-breaker: Companies House is a free authoritative source; breaker belongs at the caller (DD pipeline)
-            resp = await client.get(url, headers=_headers())
+            resp = await url_safety.safe_get(client, url, headers=_headers())
             if resp.status_code == 404:
                 return None, OUTCOME_NOT_FOUND
             if resp.status_code == 429:
@@ -248,6 +249,10 @@ _GENERIC_COMPANY_TOKENS = frozenset({
     "limited", "ltd", "plc", "llp", "lp", "uk", "gb", "group", "holdings",
     "holding", "the", "and", "co", "company", "international", "services",
 })
+_DEAD_COMPANY_STATUSES = (
+    "dissolved", "closed", "closed-on", "converted-closed", "removed",
+    "liquidation",
+)
 
 
 def _name_tokens(s: str) -> set[str]:
@@ -296,6 +301,12 @@ def _exact_legal_name_matches(query: str, title: str) -> bool:
     """True when the register title IS the name that was searched for."""
     q, t = _normalised_legal_name(query), _normalised_legal_name(title)
     return bool(q) and q == t
+
+
+def _company_status_is_dead(status: str) -> bool:
+    """Return whether a registry status cannot safely identify a live subject."""
+    normalised = str(status or "").strip().lower()
+    return any(dead in normalised for dead in _DEAD_COMPANY_STATUSES)
 
 
 def _is_overseas_entity(row: dict) -> bool:
@@ -370,6 +381,7 @@ def _pick_best_company(query: str, results: list[dict],
                 "title": str(r.get("title") or ""),
                 "status": str(r.get("company_status") or ""),
                 "incorporated": str(r.get("date_of_creation") or ""),
+                "is_overseas_entity": _is_overseas_entity(r),
                 "name_match": round(_company_name_match(query, str(r.get("title") or "")), 3),
             }
             for r in results
@@ -378,15 +390,22 @@ def _pick_best_company(query: str, results: list[dict],
         tied = [c for c in scored if c["name_match"] >= top - 1e-9]
         win_num = str(winner.get("company_number") or "")
         win_status = str(winner.get("company_status") or "").lower()
-        win_dissolved = "active" not in win_status
+        win_dissolved = _company_status_is_dead(win_status)
         active_alts = [c for c in scored
                        if c["company_number"] != win_num and "active" in c["status"].lower()]
         # R-F3461 — an exact full legal-name match is an IDENTIFICATION, not a tie.
         exact = [c for c in scored if _exact_legal_name_matches(query, c["title"])]
-        exact_is_winner = len(exact) == 1 and exact[0]["company_number"] == win_num
+        exact_non_overseas = [c for c in exact if not c["is_overseas_entity"]]
+        exact_is_winner = (
+            (len(exact) == 1 and exact[0]["company_number"] == win_num)
+            or (
+                len(exact_non_overseas) == 1
+                and exact_non_overseas[0]["company_number"] == win_num
+            )
+        )
 
         reasons: list[str] = []
-        if len(exact) > 1:
+        if len(exact) > 1 and not exact_is_winner:
             # Two companies genuinely registered under the same legal name is rare and IS
             # ambiguous — and it is a SHARPER statement than the generic tie, so it is
             # tested first. Ordered the other way it never fired, because a set of exact
@@ -405,6 +424,10 @@ def _pick_best_company(query: str, results: list[dict],
                 f"{len(active_alts)} ACTIVE company/companies match this name "
                 f"(e.g. {active_alts[0]['company_number']} {active_alts[0]['title']}) — "
                 "confirm which legal entity is the intended counterparty")
+        elif win_dissolved:
+            reasons.append(
+                f"the only resolved name is {win_status or 'not active'} — confirm a "
+                "live registration number before due diligence")
         if top < 1.0:
             reasons.append(
                 f"no candidate is an exact distinctive-name match (best {top:.2f}) — "
@@ -1509,7 +1532,7 @@ async def _get_json_url(url: str) -> dict | None:
     metadata link is on a different host (document-api.*)."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:  # no-breaker: best-effort accounts-figure fetch
-            r = await client.get(url, headers=_headers())
+            r = await url_safety.safe_get(client, url, headers=_headers())
             return r.json() if r.status_code == 200 else None
     except Exception:
         return None
@@ -1520,12 +1543,21 @@ async def _get_document_content(dm_url: str, mime: str) -> str | None:
     signed URL that must be fetched WITHOUT the CH auth header (it has its own)."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:  # no-breaker: best-effort
-            r = await client.get(f"{dm_url}/content", headers={**_headers(), "Accept": mime})
+            content_url = f"{dm_url}/content"
+            # This first request needs CH auth, while the signed redirect must not
+            # receive it. Validate explicitly, then make exactly one non-following
+            # request; the redirect is fetched separately through safe_get below.
+            url_safety.assert_safe_url(content_url)
+            r = await client.get(  # no-ssrf-check: content_url validated immediately above
+                content_url, headers={**_headers(), "Accept": mime}
+            )
             if r.status_code in (301, 302, 303, 307, 308):
                 loc = r.headers.get("location")
                 if not loc:
                     return None
-                r2 = await client.get(loc)  # signed URL — no CH auth header
+                # The signed location is controlled by the upstream response. Validate
+                # it and every further redirect, while deliberately omitting CH auth.
+                r2 = await url_safety.safe_get(client, loc)
                 return r2.text if r2.status_code == 200 else None
             return r.text if r.status_code == 200 else None
     except Exception as e:
@@ -1672,9 +1704,25 @@ async def investigate_uk_entity(
         # company; fall back to overseas only when it is genuinely the best hit.
         # R-F3123 — capture WHY this company was chosen, so the DD can disclose an
         # ambiguous name instead of asserting an identity it merely inferred.
-        company_number = (
-            _pick_best_company(company_name, results, _resolution) or {}
-        ).get("company_number")
+        selected = _pick_best_company(company_name, results, _resolution) or {}
+        company_number = selected.get("company_number")
+        # R-F4099 — disclosure after the fact is not a resolution control. Before
+        # this gate, an ambiguous name still drove profile, officer, PSC and filing
+        # requests for the inferred winner; every downstream fact inherited the
+        # unresolved identity. Stop at the shared investigation boundary and make
+        # callers request the registration number. Explicit-number investigations
+        # never enter this branch and remain unchanged.
+        if _resolution.get("ambiguous"):
+            return {
+                "found": False,
+                "resolution_required": True,
+                "query": company_name,
+                "resolution": _resolution,
+                "error": (
+                    "Company identity is ambiguous; confirm the Companies House "
+                    "registration number before due diligence"
+                ),
+            }
 
     if not company_number:
         return {"error": "No company number or name provided"}
@@ -1882,6 +1930,21 @@ async def investigate_uk_entity(
 @fail_wire(module="companies_house", gap_type="api_missing")
 def format_for_prompt(investigation: dict) -> str:
     """Format a CH investigation result as a context block for the LLM prompt."""
+    if investigation.get("resolution_required"):
+        resolution = investigation.get("resolution") or {}
+        candidates = resolution.get("candidates") or []
+        listed = "; ".join(
+            f"{c.get('title')} ({c.get('status')}, {c.get('company_number')})"
+            for c in candidates[:4]
+        )
+        reasons = " ".join(str(r) for r in resolution.get("reasons") or [])
+        return (
+            "\n[COMPANIES HOUSE — IDENTITY RESOLUTION REQUIRED]\n"
+            f"I cannot safely identify '{resolution.get('query') or investigation.get('query')}'. "
+            f"{reasons}\nCandidates: {listed}\n"
+            "Ask the user to confirm the Companies House registration number. Do not "
+            "continue due diligence on an inferred company."
+        )
     if not investigation.get("found"):
         return ""
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4099,
+  "next_available": 4101,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34912,6 +34912,24 @@
       "commit_sha": "b5b7a98a",
       "notes": "Renumbered from displaced local R-F4097 during rebase",
       "shipped_at": "2026-08-17T07:42:52Z"
+    },
+    {
+      "r_number": "R-F4099",
+      "title": "halt ambiguous company investigation before downstream hops",
+      "claimed_at": "2026-08-17T07:48:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4100",
+      "title": "document fixed-origin Companies House fetch SSRF safety",
+      "claimed_at": "2026-08-17T07:52:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
