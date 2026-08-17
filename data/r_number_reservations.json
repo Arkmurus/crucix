@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4135,
+  "next_available": 4137,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35263,6 +35263,24 @@
       "commit_sha": "4963a137",
       "notes": null,
       "shipped_at": "2026-08-17T19:57:44Z"
+    },
+    {
+      "r_number": "R-F4135",
+      "title": "entity_resolver calls search_knowledge with limit= which raises TypeError",
+      "claimed_at": "2026-08-17T20:00:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4136",
+      "title": "C-166 instrument: per-caller ranking call counter so amplification is measurable",
+      "claimed_at": "2026-08-17T20:01:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

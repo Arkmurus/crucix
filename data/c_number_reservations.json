@@ -1883,6 +1883,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T19:02:32Z"
+    },
+    {
+      "c_number": "C-169",
+      "title": "entity_resolver prior-facts lookup dead since inception: wrong function signature, swallowed",
+      "claimed_at": "2026-08-17T20:00:16Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
