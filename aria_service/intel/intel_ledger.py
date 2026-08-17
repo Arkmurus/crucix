@@ -134,6 +134,66 @@ _flusher_started: bool = False
 _flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
 _flusher_stop = False
 FLUSH_DEBOUNCE_S = 2.0
+# ── R-F4097 (C-141): journalled writes ───────────────────────────────────────
+# `_write_to_disk_atomic` rewrote the WHOLE ledger every debounced flush —
+# 81,971 signals / 35.5 MB, plus fsync + rename + dir-fsync, to persist however
+# few signals changed. Live 2026-08-17 that was 52.0% and 59.3% of two
+# consecutive profiler snapshots. §7 forbids eviction, so the cost rises
+# without bound: the better ARIA's memory gets, the more starved she becomes.
+#
+# An APPEND journal is correct here because signals are never edited in place —
+# verified by AST: the only two assignments into `signals` are whole-list
+# replacements (`_prune`, the keyword purge), which are structural and compact.
+_journal_pending: list[dict] = []
+#: One-element box so `_save` can flag a compaction without a `global`.
+_force_full_rewrite: list[bool] = [False]
+#: Compact once replaying the journal would cost more than a snapshot.
+JOURNAL_MAX_BYTES = 32 * 1024 * 1024
+
+
+def _journal_path() -> str:
+    """Derived from `_DISK_PATH` at call time, not cached at import — tests
+    repoint the ledger path, and a cached journal path would then write beside
+    the wrong file."""
+    return _DISK_PATH + ".journal.jsonl"
+
+
+def _append_journal(records: list[dict]) -> None:
+    """Append changed signals, one JSON object per line, in a single write."""
+    if not records:
+        return
+    blob = "".join(json.dumps(r, default=str) + "\n" for r in records)
+    with open(_journal_path(), "a", encoding="utf-8") as f:
+        f.write(blob)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _read_journal() -> list[dict]:
+    """Replay the journal, newest-first to match the ledger's head-insert
+    ordering. A torn trailing line is skipped, not fatal."""
+    out: list[dict] = []
+    try:
+        with open(_journal_path(), "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    out.reverse()          # journal is append-order; the ledger is newest-first
+    return out
+
+
+def _drop_journal() -> None:
+    try:
+        os.unlink(_journal_path())
+    except OSError:
+        pass
 # R-F4098 (C-142) — this cadence is only spent when the target is a GENUINE
 # second failure domain; see `_snapshot_target_is_offhost`. With the sqlite
 # backend on the same volume it was 8.18 MB of gzip every 600 s into the file's
@@ -447,6 +507,40 @@ async def _flush_to_disk() -> None:
     if not _cache or not _dirty:
         return
     snapshot = _cache  # write-by-reference is safe — we don't mutate
+    # ── R-F4097 (C-141) — append the declared records instead of rewriting
+    # 35 MB. Compaction (a full snapshot) happens when the change could NOT be
+    # described as appends, or when replaying the journal would cost more than
+    # a snapshot. Both paths clear the journal so a stale one can never replay
+    # over a compacted file.
+    _needs_compaction = _force_full_rewrite[0] or not _journal_pending
+    # A JOURNAL WITHOUT ITS BASE IS NOT RECOVERABLE. `_load` replays the
+    # journal *over* the snapshot, so if no snapshot exists yet the appended
+    # records would be orphaned — which is data loss, and it is exactly what
+    # `test_disk_round_trip_survives_cache_reset` caught. The first write to a
+    # fresh ledger must therefore create the snapshot.
+    if not _needs_compaction and not os.path.exists(_DISK_PATH):
+        _needs_compaction = True
+    if not _needs_compaction:
+        try:
+            if os.path.getsize(_journal_path()) >= JOURNAL_MAX_BYTES:
+                _needs_compaction = True
+        except OSError:
+            pass
+    if not _needs_compaction:
+        from ._snapshot_throttle import run_in_thread_throttled
+        _records, _journal_pending[:] = list(_journal_pending), []
+        try:
+            await run_in_thread_throttled(_append_journal, _records)
+            _dirty = False
+            _dirty_since_snapshot = True
+            return
+        except Exception as e:
+            # Could not journal → fall through to the honest full rewrite.
+            # Put the records back so the snapshot below still contains them
+            # (they are already in `_cache`, so this is belt-and-braces).
+            _journal_pending[:0] = _records
+            logger.warning("intel_ledger: journal append failed (%s) — "
+                           "falling back to a full snapshot", e)
     try:
         # R-F787 — throttle against knowledge + neural_memory encoders
         # so concurrent flushes don't pile up GIL holders and stall
@@ -455,6 +549,12 @@ async def _flush_to_disk() -> None:
         await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
         _dirty = False
         _dirty_since_snapshot = True
+        # R-F4097 (C-141) — the snapshot now CONTAINS everything the journal
+        # described, so the journal must go. A stale journal replayed over a
+        # compacted file resurrects rows a purge just removed.
+        _journal_pending.clear()
+        _force_full_rewrite[0] = False
+        _drop_journal()
         # F87 observability (preserved from pre-F110 _save): log signal
         # count at flush time on 250-signal increments so the operator can
         # spot trajectory drops between two boots from the disk-flush log.
@@ -681,9 +781,17 @@ async def _load() -> dict:
     data = _read_from_disk()
     if data:
         _cache = data
+        # R-F4097 (C-141) — replay the journal over the snapshot. Entries are
+        # prepended (newest first) because signals are head-inserted, so a tail
+        # watermark would be wrong. Compaction drops the journal, so anything
+        # still here post-dates the snapshot.
+        _replayed = _read_journal()
+        if _replayed:
+            _cache["signals"] = _replayed + (_cache.get("signals") or [])
         logger.info(
-            "intel_ledger: loaded %d signals from disk (%s)",
+            "intel_ledger: loaded %d signals from disk (%s)%s",
             len(_cache.get("signals", [])), _DISK_PATH,
+            f" (+{len(_replayed)} replayed from journal)" if _replayed else "",
         )
         _prune()
         _ensure_flusher()
@@ -710,7 +818,18 @@ async def _load() -> dict:
         return _cache
 
     # 3. Cold start with no prior state.
-    _cache = {"signals": [], "version": 1}
+    # R-F4097 (C-141) — belt and braces: `_flush_to_disk` refuses to journal
+    # without a snapshot, so reaching here with a journal present should be
+    # impossible. If it happens anyway (a snapshot deleted underneath us), the
+    # journalled signals are still real and §7 says we do not lose facts.
+    _orphaned = _read_journal()
+    _cache = {"signals": _orphaned, "version": 1}
+    if _orphaned:
+        logger.warning(
+            "intel_ledger: no snapshot on disk but the journal held %d signal(s) "
+            "— recovered them rather than starting empty (R-F4097)",
+            len(_orphaned),
+        )
     _prune()
     _ensure_flusher()
     return _cache
@@ -728,8 +847,16 @@ def _prune() -> None:
     if not _cache:
         return
     cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
+    _before = len(_cache["signals"])
     _cache["signals"] = [s for s in _cache["signals"] if s.get("ts", "") >= cutoff]
     sig_count = len(_cache["signals"])
+    if sig_count != _before:
+        # R-F4097 (C-141) — a REMOVAL cannot be expressed as a journal append,
+        # and replaying appends over it would resurrect what was dropped. Force
+        # the next flush to compact. `add_signal` calls `_prune()` immediately
+        # before `_save(record=...)`, so this is what keeps that path honest.
+        _journal_pending.clear()
+        _force_full_rewrite[0] = True
     if sig_count > WARN_SIGNALS:
         global _signal_warn_throttle
         _signal_warn_throttle += 1
@@ -741,14 +868,40 @@ def _prune() -> None:
             )
 
 
-async def _save() -> None:
+async def _save(record: "dict | list[dict] | None" = None) -> None:
     """Mark the cache dirty. Actual disk I/O is debounced through
     _flush_loop so sweep bursts (50+ signals/cycle) coalesce into a single
-    write. Pre-F110 this did rs.set_json on every call — see module docstring."""
+    write. Pre-F110 this did rs.set_json on every call — see module docstring.
+
+    R-F4097 (C-141) — `record` DECLARES the one signal that changed, so the
+    flush can APPEND it to the journal instead of rewriting the whole ledger.
+
+    **Calling `_save()` with no `record` forces a FULL REWRITE.** That is the
+    safety default and it is load-bearing twice over:
+
+      1. A mutation site added later, which does not know about the journal,
+         degrades to the old (correct, expensive) behaviour rather than
+         silently losing data. "I was told nothing" must mean "write
+         everything".
+      2. The two STRUCTURAL sites — `_prune()` and `purge_by_keywords()` —
+         already call bare `_save()`, so they compact for free. Replaying an
+         append journal over a deletion would RESURRECT what was purged.
+
+    Do not "optimise" the undeclared path into a journal append.
+    """
     global _dirty
     if not _cache:
         return
     _dirty = True
+    if record is None:
+        # Undeclared change → the journal cannot describe it → compact.
+        _journal_pending.clear()
+        _force_full_rewrite[0] = True
+    elif isinstance(record, list):
+        # A sweep declares its whole batch at once.
+        _journal_pending.extend(record)
+    else:
+        _journal_pending.append(record)
     _ensure_flusher()
 
 
@@ -823,7 +976,7 @@ async def add_signal(payload: dict) -> str:
             source_score = _vi.TIER_SCORES[_tier]
         except Exception:
             pass
-    db["signals"].insert(0, {
+    _new_signal = {
         "text": text[:500],
         "source": source,
         "type": payload.get("type", "brain_lead"),
@@ -836,9 +989,13 @@ async def add_signal(payload: dict) -> str:
         "tags": payload.get("tags", []),
         "source_tier": source_tier,
         "source_tier_score": source_score,
-    })
+    }
+    db["signals"].insert(0, _new_signal)
+    # R-F4097 (C-141) — `_prune()` runs FIRST and forces a compaction if it
+    # actually removed anything, so declaring the record here is safe: the
+    # journal is only used when this insert is the whole of the change.
     _prune()
-    await _save()
+    await _save(record=_new_signal)
 
     # Signal brain about the new intel.
     # R-F456 (2026-05-13) — emit module="intel_ledger" so the topic
@@ -1027,6 +1184,7 @@ async def ingest_sweep_signals(current_data: dict) -> int:
     added = 0
     skipped_propaganda = 0
     now = datetime.now(timezone.utc).isoformat()
+    _new_records: list[dict] = []      # R-F4097 (C-141)
 
     def _add(text: str, source: str, sig_type: str, url: str = "", severity: str = "medium"):
         nonlocal added, skipped_propaganda
@@ -1038,11 +1196,13 @@ async def ingest_sweep_signals(current_data: dict) -> int:
         if text[:150].lower() in existing:
             return
         ent = _extract_entities(text)
-        db["signals"].insert(0, {
+        _rec = {
             "text": text[:500], "source": source, "type": sig_type, "url": url,
             "countries": ent["countries"], "products": ent["products"], "oems": ent["oems"],
             "severity": severity, "ts": now,
-        })
+        }
+        db["signals"].insert(0, _rec)
+        _new_records.append(_rec)     # R-F4097 (C-141) — declare the batch
         existing.add(text[:150].lower())
         added += 1
 
@@ -1075,8 +1235,11 @@ async def ingest_sweep_signals(current_data: dict) -> int:
     for l in (brain.get("salesLeads") or []):
         _add(f"{l.get('market','')}: {l.get('lead','')}", "brain", "brain_lead")
 
+    # R-F4097 (C-141) — declare the batch so a 50-signal sweep appends ~50
+    # small records instead of rewriting the whole 35 MB ledger. `_prune()`
+    # runs first and forces a compaction if it removed anything.
     _prune()
-    await _save()
+    await _save(record=_new_records or None)
     if skipped_propaganda > 0:
         logger.info(
             "Ledger ingested %d new signals (%d propaganda-tier signals skipped at boundary)",

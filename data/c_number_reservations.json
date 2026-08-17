@@ -1583,9 +1583,12 @@
       "title": "intel_ledger rewrites the whole 35MB ledger every 2s debounce (C-95 port)",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4097"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:24:36Z"
     },
     {
       "c_number": "C-142",

@@ -8330,7 +8330,7 @@ handler and assert the burst reaches `degraded_reasons` — not a source probe.
 Plus 20 green across the health/state_store suites, `main.py` import smoke (§9)
 clean.
 
-## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce
+## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce (R-F4097)
 
 `_flush_loop` (`intel_ledger.py:257-291`) runs on `FLUSH_DEBOUNCE_S = 2.0` and
 calls `_write_to_disk_atomic`, which `json.dump`s the **entire** ledger —
@@ -8348,6 +8348,46 @@ The R-F714 comment in that function still says "~36k signals to 2MB gzip". It is
 now 81,971 and 8.18 MB. §7 forbids eviction, so **the cost rises without bound —
 the better ARIA's memory gets, the more starved she becomes.** That is C-95's
 transferable lesson: any O(total-data) step under an infinite-memory policy.
+
+### Fixed (R-F4097) — the C-95 journal, ported
+
+`_save(record=…)` declares what changed; `_flush_to_disk` **appends** it to
+`<ledger>.journal.jsonl` instead of rewriting 35 MB, and `_load` replays the
+journal over the snapshot (prepended — signals are head-inserted, so a tail
+watermark would be wrong).
+
+**Measured, not asserted.** At 20,000 signals (4.3 MB on disk), 100
+single-signal flushes wrote **22,800 bytes in 0.06 s** against **451,336,700
+bytes** for the old behaviour — a **19,795x** reduction, and production is 4x
+larger again (81,971 signals / 35.5 MB).
+
+**Why an append journal is correct here** — §28 warns a positional journal is
+wrong when records are edited in place. Verified by AST: the only two
+assignments into `signals` are whole-list REPLACEMENTS (`_prune`, the keyword
+purge). Signals are head-inserted and removed en masse; nothing edits one.
+
+**The load-bearing safety defaults, each pinned by a test:**
+
+* **`_save()` with no declared record forces a FULL REWRITE.** A mutation site
+  added later degrades to the old, correct, expensive behaviour rather than
+  silently losing data — and it is what makes the two structural sites correct
+  *for free*, since both already call bare `_save()`.
+* **`_prune()` forces compaction when it actually removes something.**
+  `add_signal` calls `_prune()` immediately before `_save(record=…)`, so
+  without this a removal would be followed by a journal append and the replay
+  would resurrect the pruned rows.
+* **A journal is never created without its snapshot.** This one was found the
+  hard way: the first draft journalled on a *fresh* ledger, so the records had
+  no base to replay over and were orphaned. `test_f110_ledger_disk::
+  test_disk_round_trip_survives_cache_reset` caught it as real data loss. The
+  first write now compacts, and `_load` additionally recovers an orphaned
+  journal rather than starting empty (§7: we do not lose facts).
+
+RED 5 errors; GREEN 10 passed across the journal + F110 disk suites, 24 green
+across all four ledger suites, 555 green on the wider `ledger or signal or
+intel` selection. The two remaining failures there (`test_rf925…`, `test_rf1839…`) were
+A/B'd against base `intel_ledger.py` and fail identically without this change;
+`rf1839` is named explicitly in §16's KNOWN-FLAKY set.
 
 ## C-142 · the ledger's "off-host backup" writes to the volume it backs up (R-F4098)
 
