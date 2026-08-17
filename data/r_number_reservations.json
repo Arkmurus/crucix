@@ -34968,9 +34968,10 @@
       "title": "block ambiguous Companies House financial enrichment",
       "claimed_at": "2026-08-17T08:29:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d48ce8c6",
+      "notes": null,
+      "shipped_at": "2026-08-17T09:06:31Z"
     }
   ]
 }
