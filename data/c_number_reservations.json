@@ -1694,6 +1694,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T07:47:12Z"
+    },
+    {
+      "c_number": "C-152",
+      "title": "rf2157 brain_hook stats coalescing: deterministic cross-suite flake reproducer",
+      "claimed_at": "2026-08-17T08:57:23Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

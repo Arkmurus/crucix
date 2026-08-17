@@ -8711,6 +8711,56 @@ cheaper alternative worth costing first is making the head update atomic
 (compare-and-set on the store) rather than holding a lock across the whole
 entry build.
 
+## C-152 · a DETERMINISTIC reproducer for the brain-hook cross-suite flake (OPEN)
+
+§16 records the brain-hook family as the dominant known-flaky set and says the
+next step is *"bisection over the collection order preceding a failing file —
+expensive but tractable"*, with two hypotheses already disproven (R-F3841's
+dedup-index fixture, the brain_ingest_queue singleton). This entry contributes
+the missing piece: **a reproducer that fires every time.**
+
+```
+python -m pytest aria_service/tests/ -q -p no:cacheprovider   -k "audit or brain_hook or ledger or engine or coder or state_store or health"
+```
+
+reproduces **3 failures, every run**:
+
+```
+test_rf2157_brain_hook_stats_coalescing.py::test_no_counts_are_lost_under_coalescing
+test_rf2157_brain_hook_stats_coalescing.py::test_gate_skip_coalesces_and_persists
+test_rf2157_brain_hook_stats_coalescing.py::test_get_stats_force_flushes_pending
+```
+
+**None of the three is in `docs/suite_baseline.json`** (90 recorded failures,
+checked by name), so this is unrecorded — a red test nobody is counting, which
+is the [[standing-red-tests-hide-p0s]] shape.
+
+### What is already ruled out — do not repeat these
+
+* **It is not a regression from C-140/C-142/C-144/C-146/C-147/C-148/C-151.**
+  Proven by a clean A/B: the same selection, with the seven new test files
+  excluded from BOTH sides so the source change was the only variable, gives
+  **`5 failed, 1464 passed` identically** with the fixes applied and with all
+  nine source files reverted to the base commit. (A first A/B was *confounded*
+  — at base 31 of the new tests fail early and change execution order. That
+  run is not evidence either way, and reading it as exoneration would have
+  been wrong.)
+* **It is not any single pairing.** `brain_hook` crossed with each of `audit`,
+  `ledger`, `engine`, `coder`, `state_store`, `health` individually: **zero**
+  rf2157 failures in all six. It needs the accumulated state of the full
+  ~1,500-test selection.
+* **It is not the file itself.** 5/5 pass standalone; 75/75 pass across the
+  whole `-k brain_hook` family.
+
+### The lead worth pulling
+
+`test_rf2157` installs a `_FakeStore` over `redis_store` and asserts **counts of
+DB round-trips**. Any *background* task still alive from an earlier test that
+touches `redis_store` inflates those counters — which makes a leaked background
+task (a flusher, a drain loop) the shape to hunt, rather than shared key state.
+That is consistent with every pairing passing: one group does not leave enough
+behind.
+
 ## Registered, NOT scheduled under the freeze
 
 * **LLM general chain has no fallback.** `DEEPSEEK_BACKUP_API_KEY` is UNSET;
