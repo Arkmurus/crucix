@@ -1835,9 +1835,12 @@
       "title": "loop starvation and state-store read timeouts share one root: chroma fsyncs in rollback-journal mode",
       "claimed_at": "2026-08-17T17:19:45Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4130"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:03:17Z"
     }
   ]
 }

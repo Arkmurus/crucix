@@ -35212,9 +35212,10 @@
       "title": "put the chroma RAG store into WAL so its fsyncs stop freezing the event loop",
       "claimed_at": "2026-08-17T17:24:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c911f070",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:04:38Z"
     },
     {
       "r_number": "R-F4131",

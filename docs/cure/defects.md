@@ -9599,3 +9599,37 @@ wait on it. A degraded RAG is survivable; a service that will not boot is not
 `PSI io full` over an equivalent window against the 77.9s/93min recorded above.
 If it does not fall materially, THE ATTRIBUTION WAS WRONG and this entry must
 say so — the previous three suspects were plausible and wrong too.
+
+### Re-measured after deploy — the attribution held
+
+Verified by measurement, as the entry above demanded, not by reading the log line.
+
+```
+chroma journal_mode : delete -> wal   (-wal 4.19MB and -shm now present)
+status              : operational     degraded_reasons []   <- was degraded
+state_backend       : green           read timeouts 0       <- was amber, 14
+loop                : healthy   p50 0.3ms  p95 5.5ms  max 717.8ms  <- max was 3006.9ms
+```
+
+**The flattering ratio is wrong, and it is worth writing down why.** The naive
+comparison — 0.749 s/min before against 0.0069 s/min in the first window after —
+is ~109x and is NOT honest: `io full` was already 76.6s at 174s of uptime, so
+**boot dominates the cumulative total** in both readings.
+
+The fair figures:
+
+| | io full | note |
+|---|---|---|
+| before, whole uptime | 0.749 s/min | boot-inflated |
+| before, steady state | ~0.070 s/min | ESTIMATE — assumes the prior boot cost a similar ~76s |
+| after, steady state | **0.0203 s/min** | measured over 420s, WAL growing 4.19->6.9MB so the store was under real load |
+
+So roughly **3-4x** on steady-state IO pressure, and **~4x** on the symptom that
+matters: worst loop stall 3006.9ms -> 717.8ms. The estimated before-figure is
+labelled an estimate because the prior boot/steady split was never captured; only
+the after-figure is directly measured.
+
+Boot remains IO-heavy (~76s of `io full` in the first 174s) and that is expected
+— it loads several GB. This fix targets steady state, and there both symptoms
+cleared: `degraded_reasons` is empty and the store is green with zero read
+timeouts.
