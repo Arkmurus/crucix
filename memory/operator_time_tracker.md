@@ -2134,3 +2134,79 @@ refuses to clobber. Recorded in the register and in memory.
 - **Suite baseline not re-recorded.** 105 failed / 15,603 passed measured on the
   landed tree, but the tree is shared and moving; §16 requires a `VALID=YES`
   quiet-tree run and forbids recording while anything is unresolved.
+
+---
+
+## Session 2026-08-16 (Claude) — loop starvation → CLI → browser capability
+
+Observed span ~10:15–21:30 UTC from live-probe timestamps (not a clock
+measurement; recorded as observed rather than estimated).
+
+**19 R-numbers shipped, 19 C-numbers closed**, all live-verified by `build_rev`
+plus a behavioural probe — never by "it pushed".
+
+R-F4030/4032/4035/4038/4039 (C-99..C-103) · R-F4042/4045/4046/4048 (C-104..C-107)
+· R-F4052/4056/4057/4060 (C-108, C-120..C-122) · R-F4073/4074/4077 (C-125..C-127)
+· R-F4079/4080/4082 (C-128..C-130).
+
+### The through-line: gauges that could not fail
+
+Almost every defect was the same shape — a check that reported the same thing
+whether its subject was healthy or dead:
+
+- **CHECK 3 of the security audit could never fire.** 63 of 559,393 facts
+  contained an internal-prefix string *anywhere in content*, so the suppressor
+  was unconditionally on. Its findings are `critical`.
+- **The audit's outcome never reached the brain at all** — its `wire_*` calls
+  sat on a different function 150 lines below, so a grep made it look wired.
+- **`learning.knowledge_spider` reported healthy while the registered,
+  LOAD-BEARING `knowledge_spider` sat in `never_seen`** — health asserted from
+  an `import`, under a name the registry does not know.
+- **An enabled hourly SANCTIONS task failed every hour** with "unsupported tool
+  kind"; its handler existed but was never in the dispatch tuple.
+- **The CLI agent ran on a third of the constitution** — 120,871 chars against a
+  40,000 cap, so §25 and §26 CURE MODE never reached it.
+
+### Measured wins
+
+```
+security audit    13.390s → 0.137s loop starvation   (98x)
+compaction        96/day → 3.6/day, amplification 293x → 20x
+compaction I/O    ~78.8 GB/day → ~1.5 GB/day         (~53x, with C-103)
+journal           82.7% of entries were repeat upserts — now deduped
+CLI tests         0 collectable → 639 passing
+```
+
+### Cost: three more number collisions with the peer
+
+R-F4061/R-F4062, R-F4076, R-F4081 — including one on the very fix built to
+detect them. `reserve()` already unions the ledger with git and expands RANGE
+notation (verified); the hole is that **git cannot see an uncommitted claim**,
+so the reserve-to-commit window is unobserved. R-F4077 now reports both
+**unpublished** and **displaced** claims (`reserve_r_number.py unpublished`,
+0/1/2 exit). Title-divergence was measured and REJECTED as the detector —
+hundreds of entries differ from ordinary edits, and a guard that fires hundreds
+of times is one nobody reads.
+
+A blanket renumber also briefly rewrote the peer's register entries; caught,
+`defects.md` restored from HEAD, only my two re-appended. My route edit was
+transiently lost to a concurrent write and restored.
+
+### Still open, recorded rather than guessed
+
+- **Residual loop stalls are reduced, not eliminated.** 50/59 starved dumps show
+  a bare uvloop frame (nothing blocking). Three prime suspects were killed on
+  evidence: the R-F334 sharded snapshot (0 of 59 dumps), compaction cadence
+  (median gap 33.2 min, not 900s), and CPU (PSI 0.00, 8 usable vCPUs).
+- **~411 MB canonical rewrite per compaction** remains. Bounded now; removing it
+  needs segmented snapshots — real design work on the persistence path, and the
+  journal measurement showed the problem was redundancy, not volume.
+- **343 telemetry reporters outside `_MODULE_TOPICS`** — by design per C-106
+  (it is a routing table read only by `absorb`), now visible via
+  `unregistered_count`.
+- **`HOURLY-COST-FREE-LEARN` writes stay gated.** The read-only preview is now
+  enabled (it could never produce the evidence its own approval gate wanted),
+  but `distill_qa` seeds the 500-Q set and a commit would drift the frozen
+  gate-#6 pin — an operator decision requiring a deliberate re-pin.
+- **Peer has one unpushed commit** (`943e3c69`, R-F4084 replay budget), not
+  mine to push or deploy.

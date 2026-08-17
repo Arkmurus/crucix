@@ -34703,9 +34703,10 @@
       "title": "detect unpublished AND displaced reservations",
       "claimed_at": "2026-08-16T20:23:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ab131f6d",
+      "notes": null,
+      "shipped_at": "2026-08-17T03:32:20Z"
     },
     {
       "r_number": "R-F4078",
@@ -34722,18 +34723,20 @@
       "title": "aria CLI terminal runs degraded; one optional dep aborts 67 test files",
       "claimed_at": "2026-08-16T20:31:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8cf504d8",
+      "notes": null,
+      "shipped_at": "2026-08-17T03:32:20Z"
     },
     {
       "r_number": "R-F4080",
       "title": "four failures hidden by the CLI collection abort",
       "claimed_at": "2026-08-16T20:40:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8cf504d8",
+      "notes": null,
+      "shipped_at": "2026-08-17T03:32:21Z"
     },
     {
       "r_number": "R-F4081",
