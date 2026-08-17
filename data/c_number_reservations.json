@@ -1604,9 +1604,12 @@
       "title": "intel_ledger orphans mkstemp tmp files on kill — 382MB, no reclaim",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4099"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:13:09Z"
     },
     {
       "c_number": "C-144",

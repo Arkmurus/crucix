@@ -231,6 +231,142 @@ def _write_to_disk_atomic(data: dict) -> None:
         raise
 
 
+# ── R-F4099 (C-143): the ledger's own orphaned temp files ────────────────────
+#
+# `_write_to_disk_atomic` unlinks its mkstemp file ONLY on the `except` branch.
+# A process killed mid-write — every deploy, every restart — orphans it, and
+# with FLUSH_DEBOUNCE_S = 2.0 (C-141) the write window is a large fraction of
+# uptime, so the two defects compound. Measured on aria-intel 2026-08-17:
+#
+#     108 files · 401,138,594 bytes · 382.6 MB
+#     oldest 2026-05-17, newest 2026-07-31, individual files up to 25 MB
+#
+# A repo-wide search found NO cleanup anywhere — the only reference to the
+# prefix was the mkstemp call that creates them.
+_TMP_PREFIX = ".aria_signals."
+_TMP_SUFFIX = ".json.tmp"
+#: A young temp file may be an IN-FLIGHT write; removing it corrupts a flush
+#: happening right now. Writes complete in seconds, so a day is generous.
+_TMP_MIN_AGE_S = 86400.0
+
+
+def _tmp_orphans() -> list[tuple[str, int, float]]:
+    """(path, bytes, mtime) for every file matching OUR temp pattern.
+
+    Scoped to the ledger's own prefix AND suffix so it can never reach the
+    canonical file or another module's temporaries.
+    """
+    out: list[tuple[str, int, float]] = []
+    try:
+        d = os.path.dirname(_DISK_PATH) or "."
+        for name in os.listdir(d):
+            if not (name.startswith(_TMP_PREFIX) and name.endswith(_TMP_SUFFIX)):
+                continue
+            p = os.path.join(d, name)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            if not os.path.isfile(p):
+                continue
+            out.append((p, int(st.st_size), float(st.st_mtime)))
+    except OSError:
+        pass
+    return out
+
+
+def tmp_orphan_report() -> dict:
+    """How much disk is stranded in temp files nobody will ever read?"""
+    items = _tmp_orphans()
+    now = time.time()
+    stale = [i for i in items if (now - i[2]) >= _TMP_MIN_AGE_S]
+    oldest = max((now - m for _, _, m in items), default=0.0)
+    return {
+        "count": len(items),
+        "bytes": sum(b for _, b, _ in items),
+        "oldest_age_days": round(oldest / 86400.0, 1),
+        "would_remove": len(stale),
+        "would_free_bytes": sum(b for _, b, _ in stale),
+        "sweep_enabled": (os.getenv("ARIA_LEDGER_TMP_SWEEP", "") or "").strip() == "1",
+    }
+
+
+def sweep_tmp_orphans() -> dict:
+    """Reclaim stranded temp files — REPORT-ONLY unless the operator opts in.
+
+    §26 governs this: *"never touch data stores destructively (archive with a
+    manifest; `rm` is never the answer)"*. So:
+
+      * **Report-only by default.** Removing 382 MB is the operator's call, not
+        a session's. Set `ARIA_LEDGER_TMP_SWEEP=1` to enable.
+      * **A manifest is written BEFORE anything is removed**, recording name,
+        size and mtime — what went stays knowable even when the bytes do not.
+      * **Prefix-scoped and age-gated**, so it can reach neither the canonical
+        ledger nor an in-flight write.
+
+    Never raises: reclaim is housekeeping and must not break the caller.
+    """
+    now = time.time()
+    items = _tmp_orphans()
+    stale = [i for i in items if (now - i[2]) >= _TMP_MIN_AGE_S]
+    enabled = (os.getenv("ARIA_LEDGER_TMP_SWEEP", "") or "").strip() == "1"
+    result = {
+        "found": len(items),
+        "would_remove": len(stale),
+        "would_free_bytes": sum(b for _, b, _ in stale),
+        "removed": 0,
+        "freed_bytes": 0,
+        "manifest": None,
+        "enabled": enabled,
+    }
+    if not stale:
+        return result
+    if not enabled:
+        logger.info(
+            "[R-F4099] %d orphaned ledger temp file(s), %.1f MB stranded on %s "
+            "— sweep is REPORT-ONLY (set ARIA_LEDGER_TMP_SWEEP=1 to reclaim)",
+            len(stale), result["would_free_bytes"] / 1048576.0,
+            os.path.dirname(_DISK_PATH) or ".",
+        )
+        return result
+
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "reason": "R-F4099 (C-143) orphaned mkstemp files from _write_to_disk_atomic",
+        "min_age_s": _TMP_MIN_AGE_S,
+        "removed": [
+            {"name": os.path.basename(p), "bytes": b,
+             "mtime": datetime.fromtimestamp(m, timezone.utc).isoformat()}
+            for p, b, m in stale
+        ],
+    }
+    mpath = os.path.join(
+        os.path.dirname(_DISK_PATH) or ".",
+        f"aria_signals_tmp_reclaim_{int(now)}.manifest.json",
+    )
+    try:
+        # Manifest FIRST — a removal we cannot describe is not an archive.
+        with open(mpath, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=1)
+        result["manifest"] = mpath
+    except OSError as e:
+        logger.warning("[R-F4099] manifest write failed (%s) — refusing to sweep", e)
+        return result
+
+    for p, b, _m in stale:
+        try:
+            os.unlink(p)
+            result["removed"] += 1
+            result["freed_bytes"] += b
+        except OSError:
+            continue
+    logger.info(
+        "[R-F4099] reclaimed %d orphaned ledger temp file(s), %.1f MB (manifest: %s)",
+        result["removed"], result["freed_bytes"] / 1048576.0, mpath,
+    )
+    return result
+
+
 def _device_of(path) -> int | None:
     """`st_dev` of the nearest existing directory for `path`, else None.
 
@@ -337,6 +473,27 @@ async def _flush_loop() -> None:
     disk; every SNAPSHOT_INTERVAL_S, also push a Redis snapshot."""
     global _dirty_since_snapshot
     last_snapshot = time.monotonic()
+    # R-F4099 (C-143) §21a — ONCE per process, say how much disk is stranded in
+    # our own orphaned temp files. 382.6 MB had accumulated over ~2.5 months
+    # with no cleanup routine anywhere in the tree and nothing reporting it.
+    # Report-only unless ARIA_LEDGER_TMP_SWEEP=1 (§26: the reclaim is the
+    # operator's call). Off the request path, and it must never stop the loop.
+    try:
+        _orphans = await asyncio.to_thread(sweep_tmp_orphans)
+        if _orphans.get("would_remove") and not _orphans.get("removed"):
+            from .engine_wiring import wire_failure as _wf4099
+            _wf4099(
+                module="intel_ledger",
+                detail=(f"{_orphans['would_remove']} orphaned ledger temp file(s) "
+                        f"stranding {_orphans['would_free_bytes'] / 1048576.0:.1f} MB "
+                        f"on the data volume. Created by _write_to_disk_atomic when a "
+                        f"process is killed mid-write; nothing reclaims them. Set "
+                        f"ARIA_LEDGER_TMP_SWEEP=1 to reclaim (manifest is written first)."),
+                gap_type="infra_degraded",
+                source="intel_ledger:sweep_tmp_orphans:R-F4099",
+            )
+    except Exception:      # pragma: no cover — housekeeping never breaks the loop
+        pass
     while not _flusher_stop:
         try:
             await asyncio.sleep(FLUSH_DEBOUNCE_S)

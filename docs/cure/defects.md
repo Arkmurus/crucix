@@ -8394,7 +8394,7 @@ new writes; nothing reclaimed the existing 225 keys. That is a *reclaim*, which
 §26 forbids without the deletion ladder, and it belongs with C-143's
 archive-with-manifest rather than being smuggled in here.
 
-## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim
+## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim (R-F4099)
 
 `_write_to_disk_atomic` (`intel_ledger.py:204-226`) unlinks its `mkstemp` file
 only on the `except` branch. A process killed mid-write — every deploy, every
@@ -8412,6 +8412,32 @@ A repo-wide search finds **no cleanup routine** — no boot sweep, no timer, no
 unlink outside the exception handler. The only reference to the prefix is the
 `mkstemp` call that creates them. §26 forbids deletion: the reclaim must be
 archive-with-manifest or a guarded age-bounded sweep, never `rm`.
+
+### Fixed (R-F4099) — measured and wired; the reclaim stays the operator's call
+
+`tmp_orphan_report()` / `sweep_tmp_orphans()`, run once per process from the
+flusher (off the request path, in a thread) and **wired to the brain** (§21a)
+so the stranded MB reach the operator instead of a directory nobody lists.
+
+**§26 shapes every part of it:**
+
+* **Report-only by default.** Removing 382 MB is the operator's decision, not a
+  session's. `ARIA_LEDGER_TMP_SWEEP=1` enables the reclaim; without it the code
+  measures, logs and raises a gap, and removes nothing. A test pins that.
+* **Manifest FIRST.** Name, size and mtime are written to
+  `aria_signals_tmp_reclaim_<ts>.manifest.json` *before* any unlink, and a
+  failed manifest write **aborts the sweep**. A removal we cannot describe is
+  not an archive.
+* **Prefix-scoped and age-gated** (24 h), so it can reach neither the canonical
+  ledger nor an in-flight write. Three tests pin those boundaries explicitly —
+  the canonical file survives, a fresh temp survives (it may be a flush
+  happening right now), and an unrelated `.tmp` from another module survives.
+
+**Operator action (§19e):** the 382.6 MB is still on the volume. Set
+`ARIA_LEDGER_TMP_SWEEP=1` on aria-intel to reclaim it; the manifest lands
+beside the ledger. Fixing C-141 shrinks the window that creates new ones.
+
+RED 7 failed; GREEN 7 passed, plus 109 green across the ledger suites.
 
 ## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain (R-F4100)
 
