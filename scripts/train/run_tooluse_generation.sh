@@ -35,6 +35,18 @@ MAX_TRIES="${MAX_TRIES:-15}"
 EXPECTED_ROWS=$(grep -cve '^[[:space:]]*$' "$QUEUE" 2>/dev/null || true)
 
 log(){ echo "[$(date -u +%H:%M:%S)] [generation] $*"; }
+write_state(){
+  local phase=$1
+  mkdir -p "$(dirname "$STATE_FILE")"
+  {
+    echo "POD_ID=$POD_ID"
+    echo "HOST=$HOST"
+    echo "PORT=$PORT"
+    echo "LAUNCHED_AT=$LAUNCHED_AT"
+    echo "PHASE=$phase"
+    echo "PHASE_AT=$(date -u +%s)"
+  } > "$STATE_FILE"
+}
 rm -f "$GENERATION_LOG_LOCAL" "$SHIM_LOG_LOCAL"
 jget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
 pmget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print((d.get('portMappings') or {}).get('22') or '')" 2>/dev/null; }
@@ -73,7 +85,7 @@ log "strict preflight of train-only generation queue"
   --base-model mistralai/Mistral-7B-Instruct-v0.3 \
   --golden-set "$GOLDEN" --strict || exit 3
 
-POD_ID=""; HOST=""; PORT=""; ARMED=0
+POD_ID=""; HOST=""; PORT=""; ARMED=0; LAUNCHED_AT=""
 release(){
   [ -z "$POD_ID" ] && return 0
   log "stopping pod $POD_ID"
@@ -81,6 +93,9 @@ release(){
     curl.exe -s -X POST "$API/pods/$POD_ID/stop" \
       -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true
     if [ "$(pod_state)" = NOT_RUNNING ]; then
+      if [ -n "$LAUNCHED_AT" ]; then
+        write_state stopped
+      fi
       log "verified pod $POD_ID stopped"
       return 0
     fi
@@ -169,7 +184,8 @@ arm_watchdog \
   "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" \
   || exit 1
 ARMED=1
-{ echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; echo "LAUNCHED_AT=$(date -u +%s)"; } > "$STATE_FILE"
+LAUNCHED_AT=$(date -u +%s)
+write_state upload
 
 if [ "$BASE_ONLY" != 1 ]; then
 log "uploading validated serving adapter with resumable SFTP"
@@ -206,6 +222,7 @@ fi
 arm_watchdog \
   "rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$GENERATION_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_generation_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid" \
   || exit 1
+write_state generation
 POD_ENV="BASE_ONLY=$BASE_ONLY"
 [ "$BASE_ONLY" = 1 ] || POD_ENV="$POD_ENV ADAPTER='$REMOTE_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" \
@@ -269,3 +286,4 @@ if (d.get("complete") is not True or len(d.get("rows") or []) != expected
 print(f"verified {expected} complete train-only generations")
 PY
 log "DONE report=$REPORT_LOCAL"
+write_state complete

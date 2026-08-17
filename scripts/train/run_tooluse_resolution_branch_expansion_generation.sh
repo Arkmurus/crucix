@@ -21,4 +21,4 @@ REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   ADAPTER_LOCAL="$ADAPTER" \
   REPORT_LOCAL=data/eval_reports/aria_tooluse_resolution_branch_expansion_generations.json \
   STATE_FILE=data/eval_reports/.tooluse_resolution_branch_expansion_generation_pod_state \
-  exec bash scripts/train/run_tooluse_generation.sh
+  exec bash scripts/train/run_immutable_shell.sh scripts/train/run_tooluse_generation.sh
