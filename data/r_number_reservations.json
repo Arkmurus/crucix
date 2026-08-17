@@ -34780,18 +34780,20 @@
       "title": "reassess cadence: correct the name the docs and a threshold built on it",
       "claimed_at": "2026-08-17T03:34:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cbfadbd6",
+      "notes": null,
+      "shipped_at": "2026-08-17T03:46:33Z"
     },
     {
       "r_number": "R-F4086",
       "title": "make the heading-widening control falsifiable instead of permanently red",
       "claimed_at": "2026-08-17T03:38:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ebca0c73",
+      "notes": null,
+      "shipped_at": "2026-08-17T03:46:33Z"
     }
   ]
 }

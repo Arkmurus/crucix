@@ -1496,18 +1496,24 @@
       "title": "a task named HOURLY runs every six hours",
       "claimed_at": "2026-08-17T03:25:34Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4085"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T03:46:33Z"
     },
     {
       "c_number": "C-133",
       "title": "a control test pinned to a premise the register outgrew at C-39",
       "claimed_at": "2026-08-17T03:38:03Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4086"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T03:46:34Z"
     }
   ]
 }
