@@ -1,6 +1,7 @@
 """R-F4096 guards for balanced resolution DPO with a fixed update budget."""
 import json
 from pathlib import Path
+import tarfile
 
 from scripts.train.balance_resolution_dpo import balance_pairs
 from scripts.train.preflight_training_recipe import validate_recipe
@@ -34,6 +35,7 @@ def test_recipe_processes_all_pairs_in_four_optimizer_updates() -> None:
         "learning_rate": 2e-6,
         "batch_size": 2,
         "gradient_accumulation_steps": 5,
+        "expected_optimizer_steps": 4,
         "max_sequence_length": 4096,
         "max_gradient_norm": 0.3,
         "load_in_4bit": True,
@@ -41,18 +43,42 @@ def test_recipe_processes_all_pairs_in_four_optimizer_updates() -> None:
     }
     assert validate_recipe(recipe) == []
     micro_batches = (35 + recipe["batch_size"] - 1) // recipe["batch_size"]
-    optimizer_updates = (
-        micro_batches + recipe["gradient_accumulation_steps"] - 1
-    ) // recipe["gradient_accumulation_steps"]
-    assert optimizer_updates == 4
+    assert micro_batches == 18
+    assert micro_batches % recipe["gradient_accumulation_steps"] == 3
 
 
 def test_launcher_is_non_promotable_and_pins_both_eval_gates() -> None:
     launcher = (
         ROOT / "scripts/train/run_tooluse_resolution_balanced_dpo_v1.sh"
     ).read_text(encoding="utf-8")
-    assert "EXPECTED_DPO_PAIRS=35 DPO_GRAD_ACCUM=5" in launcher
+    assert "DPO_EXPECTED_UPDATES=4" in launcher
     assert "tooluse_dpo_balanced_diagnostic_continuation" in launcher
     assert "HELDOUT_BASELINE_LOCAL" in launcher
     assert "failed_candidate.tgz" in launcher
     assert "run_immutable_shell.sh scripts/train/run_tooluse_dpo.sh" in launcher
+
+
+def test_diagnostic_failed_calibration_and_cannot_support_promotion() -> None:
+    diagnostics = (
+        ROOT / "data/eval_reports/aria_tooluse_resolution_balanced_dpo_v1_diagnostics.tgz"
+    )
+    with tarfile.open(diagnostics, "r:gz") as archive:
+        verdict_member = archive.extractfile("aria_tooluse_curve_dpo_verdict.json")
+        probe_member = archive.extractfile("aria_tooluse_curve_dpo_probe.json")
+        assert verdict_member is not None and probe_member is not None
+        verdict = json.load(verdict_member)
+        probe = json.load(probe_member)
+    resolution = next(
+        row for row in probe["per_axis"] if row["label"] == "tooluse_resolution"
+    )
+    assert probe["honest"] == 26
+    assert probe["total"] == 30
+    assert resolution["honest"] == 0
+    assert resolution["total"] == 3
+    assert verdict == {
+        "pass": False,
+        "reason": "curve_gate_failed",
+        "gain": -1,
+        "protected_gain": -1,
+        "regressions": [{"label": "tooluse_resolution", "before": 1, "after": 0}],
+    }

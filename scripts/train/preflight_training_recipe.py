@@ -28,6 +28,7 @@ APPROVED_RECIPES: dict[str, dict[str, Any]] = {
         "learning_rate": 2e-6,
         "batch_size": 2,
         "gradient_accumulation_steps": 5,
+        "expected_optimizer_steps": 4,
         "max_sequence_length": 4096,
         "max_gradient_norm": 0.3,
         "load_in_4bit": True,

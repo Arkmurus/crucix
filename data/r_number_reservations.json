@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4098,
+  "next_available": 4099,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34901,6 +34901,15 @@
       "commit_sha": "fbbc63b4",
       "notes": null,
       "shipped_at": "2026-08-17T07:20:32Z"
+    },
+    {
+      "r_number": "R-F4098",
+      "title": "block truncated gradient accumulation epochs",
+      "claimed_at": "2026-08-17T07:23:37Z",
+      "claimed_by": "codex",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Renumbered from displaced local R-F4097 during rebase"
     }
   ]
 }

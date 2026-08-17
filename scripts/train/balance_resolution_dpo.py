@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -29,6 +30,25 @@ def balance_pairs(rows: list[dict]) -> list[dict]:
     if len(balanced) != 35:
         raise AssertionError("balanced resolution curriculum must contain 35 pairs")
     return balanced
+
+
+def validate_accumulation_budget(
+    pair_count: int, *, batch_size: int, accumulation_steps: int,
+    expected_updates: int,
+) -> int:
+    """Fail if Trainer would drop a partial accumulation window."""
+    micro_batches = math.ceil(pair_count / batch_size)
+    if micro_batches % accumulation_steps:
+        raise ValueError(
+            f"gradient accumulation truncates the epoch: {micro_batches} micro-batches "
+            f"is not divisible by {accumulation_steps}"
+        )
+    updates = micro_batches // accumulation_steps
+    if updates != expected_updates:
+        raise ValueError(
+            f"expected {expected_updates} optimizer updates, recipe produces {updates}"
+        )
+    return updates
 
 
 def main(argv: list[str] | None = None) -> int:
