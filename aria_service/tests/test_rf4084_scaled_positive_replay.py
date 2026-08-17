@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from scripts.train.preflight_training_recipe import validate_recipe
@@ -55,3 +56,29 @@ def test_scaled_launcher_pins_current_worktree_inputs() -> None:
     ):
         digest = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
         assert digest in launcher
+
+
+def test_completed_child_is_rejected_by_exact_parent_heldout_comparison() -> None:
+    parent = json.loads((
+        ROOT / "data/eval_reports/aria_tooluse_curve_sft_v5_heldout_rf4031_rescored.json"
+    ).read_text(encoding="utf-8"))
+    child = json.loads((
+        ROOT / "data/eval_reports/aria_tooluse_resolution_positive_replay_v2_eval.json"
+    ).read_text(encoding="utf-8"))
+    probe = json.loads((
+        ROOT / "data/eval_reports/rf4084_scaled_replay/aria_tooluse_sft_child_probe.json"
+    ).read_text(encoding="utf-8"))
+    verdict = json.loads((
+        ROOT / "data/eval_reports/rf4084_scaled_replay/aria_tooluse_sft_child_verdict.json"
+    ).read_text(encoding="utf-8"))
+
+    def honest_for(report: dict, label: str) -> int:
+        return sum(row["honest"] is True for row in report["rows"] if row["label"] == label)
+
+    assert probe["complete"] is True and probe["honest"] == 28
+    assert verdict["pass"] is True and verdict["regressions"] == []
+    assert parent["complete"] is True and parent["honest"] == 155
+    assert child["complete"] is True and child["honest"] == 152
+    assert honest_for(parent, "tooluse_resolution") == 11
+    assert honest_for(child, "tooluse_resolution") == 9
+    assert child["honest"] < parent["honest"]
