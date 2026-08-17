@@ -34938,27 +34938,30 @@
       "title": "wire the freshness skip to the brain, once per episode",
       "claimed_at": "2026-08-17T07:56:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "462188f1",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:22Z"
     },
     {
       "r_number": "R-F4102",
       "title": "widen the stolen-decorator gate to every module that opts into fail_wire",
       "claimed_at": "2026-08-17T07:56:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "462188f1",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:22Z"
     },
     {
       "r_number": "R-F4103",
       "title": "green the blocking wiring gates and make the compliance-watch check follow the code",
       "claimed_at": "2026-08-17T08:04:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d51daf8e",
+      "notes": null,
+      "shipped_at": "2026-08-17T08:26:23Z"
     }
   ]
 }
