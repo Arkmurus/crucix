@@ -8606,7 +8606,7 @@ non-auto-fixable gaps would be a behaviour change nobody asked for.
 
 RED 2 failed / 1 passed; GREEN 3 passed, plus 43 green across the coder suites.
 
-## C-149 · a known-blocked task burns four research runs a day, silently
+## C-149 · a known-blocked task burns four research runs a day, silently (OPEN)
 
 `MONITOR-POLYMARKET-GEO` (`30 */6 * * *`) ran a 58-second `deep_research` call
 and completed *"0 actions, normal"*. ARIA then wrote her own diagnosis to memory:
@@ -8620,6 +8620,96 @@ She identified the blocker, identified that it needs the operator, and recorded
 it where the operator will not see it. §19e requires the opposite. Meanwhile the
 task reports "normal" completion so nothing escalates, and it has burned ~44
 research runs over 11 days.
+
+### Still OPEN, and what working it uncovered
+
+Working this defect surfaced a larger one — the engine discarded
+`execute_task`'s result entirely and wired success unconditionally — which is
+now **[C-151] / R-F4106**. That does not close C-149: the Polymarket task
+returns `status=ok`. It genuinely runs, genuinely finds nothing, and is
+honestly reporting that.
+
+Escalating "succeeds but repeatedly achieves nothing" needs a **productivity**
+signal that does not exist yet — distinct from both execution status and
+delivery outcome. Designing one that cannot cry wolf (most tasks legitimately
+return nothing on most runs) is the actual work, and it should not be bolted
+onto a status fix.
+
+The underlying blocker is also an **operator action** (§21e exception): the
+Gamma/Polymarket feed is unavailable in this chat mode. No code change makes
+that data appear.
+
+## C-151 · the engine wired success for every task, including failed ones (R-F4106)
+
+Found while working C-149. `engine.py` called
+
+    await tasks_mod.execute_task(task=task, llm=llm, dry_run=is_dry_run())
+
+**discarding the return value**, then unconditionally wired
+`wire_success(module="autonomous_engine", summary=f"Task fired: {task_id}")`.
+
+`execute_task` returns a record whose `status` is one of
+`ok | error | timeout | blocked_by_predictor | started`, and — verified by
+walking its AST — it contains **zero `wire_failure` calls of its own**. So an
+autonomous task that raised, or that timed out, produced a brain **SUCCESS**
+signal and no failure signal anywhere.
+
+That is §21a inverted: the failure branch did not merely fail to reach the
+brain, it reached it wearing a success. §25a requires ARIA to know whether the
+intended result was produced, and every task was reporting that it was.
+
+R-F2706 fixed the neighbouring half (per-channel DELIVERY outcomes), which is
+why this looked covered. It was not: `_wire_task_delivery_outcomes` runs only
+on the success path and reports delivery, never execution status.
+
+### Fixed (R-F4106)
+
+`_wire_task_result()` binds the record and branches on the reported status.
+Three outcomes, three readings, all load-bearing:
+
+* `ok` → success.
+* `blocked_by_predictor` → a **deliberate skip**. §14: cooling/skipping is not
+  broken, so not a failure — but it must not read as a plain success either, or
+  "we skipped it" and "it worked" collapse into one signal. A test asserts the
+  two differ.
+* anything else, **including an unreadable or missing record** → failure,
+  carrying the reason so it can drive a self-heal. "I could not tell" is never
+  certified as success — the absence-reads-as-health shape §1 records three
+  times.
+
+Never raises: observability must not be able to kill the tick loop.
+
+RED 7 failed; GREEN 7 passed, plus 29 green across the engine suites.
+
+## C-150 · chat_audit_log's head read-modify-write is unsynchronised (OPEN)
+
+The second mechanism of [C-144], split out deliberately rather than bundled.
+
+`record_chat` reads the chain head at `:120` and writes it back at `:280`, with
+**no lock anywhere in the module** (grepped: zero `Lock` references). Two
+concurrent chat turns both read the same `prev_hash`, both compute their own
+`chain_hash`, both `lpush`, and the later `set(_K_HEAD, …)` wins — leaving one
+entry whose `prev_hash` is not its list-neighbour's `chain_hash`. A fork, by
+exactly the classic read-modify-write race. 16 breaks over 1,233 entries (1.3%)
+is consistent with it.
+
+### Why it is NOT fixed in R-F4100
+
+The critical section spans `lpush` + `ltrim` + `set` + `expire` plus the session
+index — several awaited store ops. Putting that under a lock serialises every
+chat audit write, on a machine that is **already timing out store reads**
+(C-140, 26 timeouts across 25 keys). The memory note is explicit about this
+class: *"an awaited store write turned a fix into an outage."*
+
+Bundling a latency-risky change into a data-integrity fix is how a fix becomes
+an incident, so it gets its own number, its own design and its own measurement.
+
+**Design constraint for whoever takes it:** an `asyncio.Lock` only serialises
+within one event loop, so it closes the observed single-process case and
+nothing more. Do not let that be mistaken for a distributed guarantee. The
+cheaper alternative worth costing first is making the head update atomic
+(compare-and-set on the store) rather than holding a lock across the whole
+entry build.
 
 ## Registered, NOT scheduled under the freeze
 
