@@ -177,9 +177,16 @@ async def absorb_tiers_bg(
         logger.warning("brain_hook(%s): %d errors — %s",
                         module, len(result["errors"]), "; ".join(result["errors"]))
     else:
-        logger.info("brain_hook(%s): absorbed [mastery=%s knowledge=%s neural=%s]",
-                     module, result.get("mastery_ok"), result.get("knowledge_ok"),
-                     result.get("neural_ok"))
+        # R-F4102 (C-146) — `neural=` USED TO BE REPORTED HERE AND WAS A LIE.
+        # This line runs BEFORE the neural lane (R-F1665 moved that lane last,
+        # see below), and the caller seeds the dict with "neural_ok": False
+        # (brain_hook.py:832) — so this printed the seed, not an outcome. Live
+        # 2026-08-17: 131 of 131 absorbs read `neural=False`, including ones
+        # whose encode succeeded. The neural outcome is now logged by the
+        # neural lane itself, where it is actually known. Do not add it back
+        # here: nothing at this point in the function can know it yet.
+        logger.info("brain_hook(%s): absorbed [mastery=%s knowledge=%s] (durable core)",
+                     module, result.get("mastery_ok"), result.get("knowledge_ok"))
 
     # R-F1342: .get() so durable_only mode (mastery/neural never set) can't
     # KeyError. The durable knowledge tier is what defines a successful absorb.
@@ -265,6 +272,14 @@ async def absorb_tiers_bg(
                     result["neural_ok"] = ok
                     if err:
                         result["errors"].append(err)
+                    # R-F4102 (C-146) — the neural tier's ONE observable
+                    # signal, emitted where the outcome is actually known.
+                    # `result["neural_ok"]` keeps its exact True/False domain
+                    # (several suites pin it); this is reporting only.
+                    logger.info(
+                        "brain_hook(%s): neural %s", module,
+                        "encoded" if ok else f"FAILED ({err or 'unknown'})",
+                    )
             finally:
                 if n_acquired and nsem is not None:
                     nsem.release()

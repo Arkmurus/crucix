@@ -8447,7 +8447,7 @@ rollups that enforce the cap, so **the meter reads low**.
 implementation (`provider.py:149-155`) fires it **after** `yield`, so an abandoned
 generator skips it; the resilience wrappers all pass it through cleanly.
 
-## C-146 · brain_hook's neural indicator is a constant, not a measurement
+## C-146 · brain_hook's neural indicator is a constant, not a measurement (R-F4102)
 
 All **131** absorb lines in the window read `neural=False`. Not one was a
 measurement. The log sits at `brain_hook_bg.py:180`; `result["neural_ok"]` is
@@ -8458,6 +8458,24 @@ logged is whatever the caller passed in.
 So the one operator-visible signal for the neural tier **cannot report success**,
 and the tier's real state — including its documented cap-skip and
 interactive-deferral paths — is unobservable. A guard that cannot fire.
+
+### Fixed (R-F4102)
+
+`neural=` is REMOVED from the durable-core line — nothing at that point in the
+function can know it — and the neural lane now logs its own outcome where the
+result is actually known (`brain_hook(<m>): neural encoded` / `neural FAILED (…)`).
+
+**Deliberately unchanged:** `_record_signal`, `_record_latency` and the breaker
+still run BEFORE the neural lane. R-F1665 put them there so the breaker measures
+the fast durable core rather than the GIL-bound encode that drove the 22-44 s
+absorb-p95 wedge; a test now pins that ordering so a future fix cannot re-open
+it. `result["neural_ok"]` also keeps its exact True/False domain — four suites
+pin it, and widening it was unnecessary for an observability defect.
+
+Proven both ways, and the second test is the one that matters: before the fix a
+successful encode and a deliberately exploding encoder produced **byte-identical
+operator output**. RED 2 failed / 1 passed; GREEN 3 passed, plus 25 green across
+the brain_hook suites.
 
 ## C-147 · style_learner's grounded-only gate has a 0% live pass rate
 
