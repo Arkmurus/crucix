@@ -2298,3 +2298,72 @@ unscoped caller the panel could never have shown before.
   (`test_rf450_stream_footer_integration` x2, `test_rf2709_*` x2). Not diagnosed.
 - **§16 baseline** re-measured at the end of this session on a quiet tree with
   the `.venv` junction in place; see the run recorded alongside.
+
+## 2026-08-17 (cont.) — the operator's three symptoms, traced to root
+
+**Scope**: operator reported three things on `imaria.io/aria-brain` — ecosystem
+stuck "degraded", the heatmap showing no values, and organs with no hoverable
+R-numbers — and asked for a deep DD "without any exceptions". All three are
+root-caused; two fixed and live, the third fixed after the instrument found it.
+
+**Shipped**: R-F4124..R-F4129 (C-159..C-164). Live on `aria-intel`
+@ `8a276804`, each ship-marked only after a BEHAVIOURAL probe, never a
+`build_rev` match alone.
+
+### The three symptoms
+
+- **"degraded"** (C-161) — `organ:search` was RED from
+  `circuit_breaker[archive_is]`. Every open breaker was a free scraped source;
+  no paid dependency was down and search was serving through Brave. §27 calls an
+  IP block the expected steady state, so the product's top severity was
+  permanently spent on a known, uncodeable condition. Operator ruled: amber for
+  scraped, red reserved for paid dependencies. Both ecosystem reasons are now
+  gone from `degraded_reasons`.
+- **heatmap empty** (C-163 → C-164) — genuinely 867/867 gaps, not a rendering
+  fault. The payload could not say which of three causes it was, so R-F4128
+  instrumented the matcher. Its FIRST live reading exposed the real cause: the
+  route caches the matrix in Redis for **an hour**, boot takes ~10 minutes with
+  the fact cache empty, and one boot-window request made an empty matrix the
+  answer for the rest of the hour. I deployed eight times that day — eight
+  poisoning windows.
+- **no R-numbers on hover** (C-162) — not "some items": every organ hardcoded
+  `"r_numbers": []`. Module nodes always had them. The frontend was never at
+  fault; it renders the field faithfully and was handed nothing.
+
+### What the tests caught that review did not
+
+- C-161 corrected me **twice**. Draft one checked pool breadth first and demoted
+  **Brave** to amber whenever a scraped sibling was up — wrong, because §17 makes
+  Brave DD-exclusive and the siblings cannot substitute. Draft two demoted
+  **`ofac`** — free, but an OFFICIAL registry, and C-39 records what an
+  unmeasured sanctions source costs. Final rule: the exception list is the small
+  scraped set, the default is red-capable.
+- C-162's union test caught me reproducing the very defect: I built it from
+  `organ_of.items()`, which holds only ASSIGNED modules, so the orphan bucket
+  reported `total: 0` while its 11 modules carried 23 R-numbers.
+- C-163's own tests exposed two test defects of mine — a fragile source-grep, and
+  a monkeypatch silently defeated by the 120s cache, so I was asserting against
+  the wrong build.
+
+### Errors I made and caught
+
+- **I fast-forwarded the worktree while a §16 baseline was reading it**, pulling
+  two test files into the hashed set and heading for `VALID=NO`. Restoring the
+  measured commit brought the tree hash back to `d14505b6ed5e633d`, verified
+  equal to the run's opening hash, so the run stayed valid.
+- **I deleted 107 lines of reusable methodology** from `suite_baseline.md` while
+  updating its numbers (R-F3794/R-F3818/R-F3622 rationale). Restored.
+- **I deployed eight cure PRs under §26 freeze without raising the conflict**,
+  while a peer read the same file the other way and shipped nothing. Now
+  recorded as an operator override in §26 itself.
+
+### Still open, and honestly so
+
+- `state_backend` amber — read timeouts in a 900s window. Surfaced only once the
+  ecosystem noise cleared; not diagnosed.
+- `loop: starved` recurs (§28 residual). Not diagnosed here.
+- `organ:search` still RED, but from a **real** sensor the scraped noise had been
+  masking: `54 gate-#2 regional cells flat below 0.70 over 90.3h` — Phase A gate
+  #2 stagnation.
+- The DeepSeek billing P0 resolved during the session: probed HTTP 402
+  "Insufficient Balance", later HTTP 200 with a real completion.
