@@ -2370,6 +2370,82 @@ _ERROR_LOG_COOLDOWN_S = 5.0
 _error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attempt, cached_result)
 
 
+# ── R-F4096 (C-140): the store must REMEMBER that it went blind ──────────────
+#
+# On 2026-08-17, 06:46:47-06:48:45Z, `get()` timed out on 25 distinct keys (26
+# reads) and returned None for every one. Under the R-F1 None-on-error contract
+# each became an absence indistinguishable from a real one — including
+# `autonomous:paused:task:*` (a paused task reads as NOT paused), `aria:cost`
+# (the meter enforcing the §17 cap) and `aria:error` (the ledger gate #3 reads).
+#
+# `/health` five minutes later: `state_backend: {reachable: true, status:
+# green}`. The indicator is point-in-time reachability with NO MEMORY, so a
+# surface cannot tell a quiet store from one that just failed 26 reads.
+#
+# THE RECORD IS DELIBERATELY IN-PROCESS ONLY. Persisting it would mean writing
+# to a wedged store precisely when it is wedged — the R-F2157 self-DOS shape,
+# deepening the outage it exists to report. The process that served the failed
+# reads is the process that serves /health, so in-memory is the honest scope.
+_READ_TIMEOUT_WINDOW_S = 900.0     # 15 min — long enough to survive a boot poll
+_READ_TIMEOUT_DEGRADE_AT = 5       # a blip is noise; the live burst was 26
+_READ_TIMEOUT_MAX = 500            # bounded: never a leak, never a lifetime tally
+_read_timeouts: list[tuple[float, str]] = []
+
+
+def note_read_timeout(key: Any) -> None:
+    """Record ONE store read timeout. Pure, in-process, and never raises.
+
+    Called from `get()`'s timeout branch, which is already on a failure path —
+    so this must not do I/O, must not await, and must not be able to turn a
+    degraded read into a crashed one.
+    """
+    try:
+        k = key if isinstance(key, str) else str(key)
+        _read_timeouts.append((time.monotonic(), k[:120]))
+        if len(_read_timeouts) > _READ_TIMEOUT_MAX:
+            del _read_timeouts[:-_READ_TIMEOUT_MAX]
+    except Exception:      # pragma: no cover — observability never breaks a read
+        pass
+
+
+def read_timeout_report(window_s: float = _READ_TIMEOUT_WINDOW_S) -> dict:
+    """How blind has this process been, recently?
+
+    `keys_sample` names WHAT went dark: "a timeout happened" is not actionable
+    when the key was the paused-task flag or the cost meter.
+    """
+    try:
+        cutoff = time.monotonic() - float(window_s)
+        recent = [(t, k) for (t, k) in _read_timeouts if t >= cutoff]
+        last_age = None
+        if recent:
+            last_age = round(time.monotonic() - max(t for t, _ in recent), 1)
+        # Distinct key families, newest first — 25 shard keys are one story.
+        seen: list[str] = []
+        for _, k in reversed(recent):
+            if k not in seen:
+                seen.append(k)
+            if len(seen) >= 10:
+                break
+        return {
+            "window_s": float(window_s),
+            "count": len(recent),
+            "distinct_keys": len({k for _, k in recent}),
+            "last_age_s": last_age,
+            "keys_sample": seen,
+            "degraded": len(recent) >= _READ_TIMEOUT_DEGRADE_AT,
+        }
+    except Exception:      # pragma: no cover
+        # Could not measure. Say so — never render an unknown as healthy (C-96).
+        return {"window_s": float(window_s), "count": 0, "distinct_keys": 0,
+                "last_age_s": None, "keys_sample": [], "degraded": False,
+                "unmeasurable": True}
+
+
+def _reset_read_timeouts_for_test() -> None:
+    _read_timeouts.clear()
+
+
 def _is_error_log_key(key: str) -> bool:
     """R-F3707 — the ONE predicate deciding what `get()` may cache.
 
@@ -2426,6 +2502,10 @@ async def get(key: str) -> str | None:
             "bloated or under WAL recovery. Returning None.",
             key[:80],
         )
+        # R-F4096 (C-140) — leave a trace /health can read. Without this the
+        # None below is indistinguishable from a genuine absence and the whole
+        # burst is invisible five minutes later.
+        note_read_timeout(key)
         if _cacheable:
             _error_log_cache[key] = (time.monotonic(), None)
         return None

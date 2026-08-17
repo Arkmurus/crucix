@@ -5403,6 +5403,22 @@ async def health():
     }
     state_backend_ind["status"] = "green" if state_backend_ind["reachable"] else "red"
 
+    # R-F4096 (C-140) — reachability is point-in-time and has no memory. On
+    # 2026-08-17 the store timed out on 25 distinct keys in two minutes and this
+    # block still read green five minutes later, because nothing here could
+    # remember. `read_timeouts` is that memory; an amber status distinguishes
+    # "answering now but recently blind" from a genuinely healthy store.
+    try:
+        from .intel.state_store import read_timeout_report as _rtr
+        _rt = _rtr()
+        state_backend_ind["read_timeouts"] = _rt
+        if _rt.get("degraded") and state_backend_ind["status"] == "green":
+            state_backend_ind["status"] = "amber"
+    except Exception as _rt_err:
+        # Could not measure is NOT healthy — say so rather than certify (C-96).
+        state_backend_ind["read_timeouts"] = {"unmeasurable": True,
+                                              "error": str(_rt_err)[:120]}
+
     # R-F2849 — loop-lag gauge (sync snapshot; never touches the loop).
     try:
         from .intel.loop_monitor import snapshot as _loop_snapshot
@@ -5438,6 +5454,11 @@ async def health():
         _degraded_reasons.append("autonomous_loop_stalled")
     if not state_backend_ind["reachable"]:
         _degraded_reasons.append("state_backend_unreachable")
+    # R-F4096 (C-140) — a burst that blinded 25 keys must reach the verdict, not
+    # sit in a sub-field nobody opens. That is the C-96 lesson: publishing a
+    # number no verdict consumes is why the degradation went unnoticed.
+    if (state_backend_ind.get("read_timeouts") or {}).get("degraded"):
+        _degraded_reasons.append("state_backend_read_timeouts")
     try:
         from .intel import operating_modes as _om_h
         _mode_now = await _om_h.get_mode()

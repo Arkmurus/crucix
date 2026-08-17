@@ -8288,7 +8288,7 @@ loop went p95 1.3 ms to 63.5 ms (max 4,734 ms). `/health` at 06:53 reported
 C-95 and C-98 fixed `knowledge.py` but not `intel_ledger.py`; R-F3711 fixed
 `audit_log.py` but not `chat_audit_log.py`.
 
-## C-140 · the health surface has no memory of store read timeouts
+## C-140 · the health surface has no memory of store read timeouts (R-F4096)
 
 `state_store` logged 26 read timeouts across 25 distinct keys in a two-minute
 burst, each *"timed out after 5s — DB may be bloated or under WAL recovery.
@@ -8304,6 +8304,31 @@ five minutes after the burst it read `reachable: true, status: green`. A surface
 with no memory cannot distinguish a quiet store from one that just failed 26
 reads, which is why C-95 ran unnoticed for a day and why this burst would have
 too. Same class as C-96 (`/health` not reading the gauge it publishes).
+
+### Fixed (R-F4096)
+
+`state_store.note_read_timeout()` records each timeout and
+`read_timeout_report()` answers "how blind has this process been, recently?" —
+count, distinct keys, age, and a **sample of the keys**, because "a timeout
+happened" is not actionable when the key was the paused-task flag or the cost
+meter. `/health` publishes it under `state_backend.read_timeouts`, turns the
+indicator **amber** (answering now, but recently blind — not the same as
+healthy), and appends `state_backend_read_timeouts` to `degraded_reasons`.
+
+**The record is deliberately IN-PROCESS ONLY, and a test enforces it by
+inspecting the function source for any I/O.** Persisting it would mean writing
+to a wedged store precisely when it is wedged — the R-F2157 self-DOS shape,
+deepening the outage it exists to report. The process that served the failed
+reads is the process that serves `/health`, so in-memory is the honest scope.
+
+Thresholded at 5 in 15 min: one timeout is a blip, and a surface that cries
+wolf is one nobody reads (the C-96 reasoning for excluding `busy`). A guard
+test pins that a quiet store stays **green**.
+
+RED 8 failed; GREEN **9 passed**, including two that drive the real `health()`
+handler and assert the burst reaches `degraded_reasons` — not a source probe.
+Plus 20 green across the health/state_store suites, `main.py` import smoke (§9)
+clean.
 
 ## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce
 

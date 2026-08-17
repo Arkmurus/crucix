@@ -1571,9 +1571,12 @@
       "title": "state_backend health surface has no memory of store read timeouts",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4096"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:21:47Z"
     },
     {
       "c_number": "C-141",
