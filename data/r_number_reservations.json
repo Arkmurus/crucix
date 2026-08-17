@@ -35229,9 +35229,10 @@
       "title": "complete epoch accepted parent resolution DPO",
       "claimed_at": "2026-08-17T17:36:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "91b764c4",
+      "notes": null,
+      "shipped_at": "2026-08-17T19:57:43Z"
     },
     {
       "r_number": "R-F4132",
@@ -35258,9 +35259,10 @@
       "title": "persist remote failure diagnosis with sentinel",
       "claimed_at": "2026-08-17T18:59:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4963a137",
+      "notes": null,
+      "shipped_at": "2026-08-17T19:57:44Z"
     }
   ]
 }
