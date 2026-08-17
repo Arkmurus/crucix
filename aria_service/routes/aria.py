@@ -4929,7 +4929,12 @@ async def learning_coverage_ep():
             return cached
         out = await _ch.build_heatmap()
         out["from_cache"] = False
-        await _write_heatmap_redis_cache(out)
+        # R-F4129 (C-164) — a matrix built before the knowledge cache loaded is
+        # SERVED but never persisted. The Redis TTL is an hour, so one
+        # boot-window build otherwise becomes the answer for the rest of it.
+        _ch.mark_cacheability(out)
+        if _ch.is_cacheable(out):
+            await _write_heatmap_redis_cache(out)
         return out
     except Exception as e:
         return {"ok": False, "error": str(e)}

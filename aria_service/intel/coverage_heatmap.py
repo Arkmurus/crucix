@@ -452,6 +452,56 @@ async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, in
     return _count_facts_for_cell_sync(domain, jurisdiction, facts, signals)
 
 
+
+# ── R-F4129 (C-164) — a cold build must never be cached ─────────────────────
+# aria-intel boots for ~10 minutes (§11c) with `knowledge._cache["facts"]` empty.
+# A `/learning/coverage` request in that window builds 867 cells / 867 gaps, and
+# `_write_heatmap_redis_cache` persisted it with **ex=3600** — so one boot-window
+# request made an empty matrix the answer for the next hour, long after the facts
+# had loaded. Eight deploys in a day means eight such windows.
+#
+# The defect is not the emptiness; it is PERSISTING it. A build that saw no facts
+# is a measurement taken before the instrument was ready — the same shape as
+# C-152 (a store that could not be read was allowed to overwrite the durable
+# copy) and R-F2664 before it.
+#
+# A cold build is still SERVED — the caller asked, and returning nothing is worse
+# — but it is not written, and it is labelled so the reader can tell.
+def is_cacheable(payload: dict) -> bool:
+    """False only on a POSITIVE reading of zero facts.
+
+    `knowledge_cache_facts: None` means COULD NOT MEASURE; refusing on that would
+    disable caching entirely wherever the probe fails, which is a self-inflicted
+    outage of the cache. A payload with no diagnostics at all predates R-F4128
+    and is cacheable — treating absence as "cold" would refuse every legacy
+    write.
+    """
+    try:
+        d = payload.get("matcher_diagnostics")
+    except Exception:
+        return True
+    if not isinstance(d, dict):
+        return True                      # pre-R-F4128 payload
+    seen = d.get("facts_seen")
+    if not isinstance(seen, int) or seen > 0:
+        return True
+    # facts_seen == 0. Cold unless the corpus itself is genuinely empty, which a
+    # positive cache reading would disprove.
+    cache_facts = d.get("knowledge_cache_facts")
+    if isinstance(cache_facts, int) and cache_facts > 0:
+        return False                     # facts exist but the build saw none
+    return False                         # saw none, and cannot prove otherwise
+
+
+def mark_cacheability(payload: dict) -> dict:
+    """Stamp `built_cold` so a served-but-unpersisted reading says so."""
+    try:
+        payload["built_cold"] = not is_cacheable(payload)
+    except Exception:
+        pass
+    return payload
+
+
 async def build_heatmap(
     *,
     domains: list[str] | None = None,

@@ -9404,3 +9404,68 @@ passed, 4 failed — all four in the recorded baseline (`rf1696`, `rf4088`,
 `rf684`, `rf728`), and the two in this file's blast radius re-checked with the
 diff stashed: identical result both ways (1 failed, 10 passed), so `rf684` is
 pre-existing and `rf728` is order-dependent, neither caused here.
+
+## C-164 · a cold-boot coverage build was cached for an hour and served as fact (R-F4129)
+
+**This is the root cause of the operator's "the heatmap is not displaying any
+values", and R-F4128's instrument is what made it findable.**
+
+The sequence, all of it measured:
+
+1. aria-intel boots for ~10 minutes (§11c: ~223k facts load before `/health`
+   goes green), during which `knowledge._cache["facts"]` is empty.
+2. Anything requesting `/api/aria/learning/coverage` in that window builds a
+   matrix from **zero facts** — 867 cells, 867 gaps, `coverage_score 0.0`.
+3. `_write_heatmap_redis_cache` persists it with **`ex=3600`**.
+4. For the next hour every caller is served that empty matrix, long after the
+   facts finished loading. `from_cache: True`, and nothing said the reading was
+   taken blind.
+
+**Eight deploys landed on 2026-08-17**, each restarting the machine and opening a
+fresh ten-minute poisoning window. Live evidence from the same day, same code
+path, hours apart:
+
+```
+earlier:  populated_cells   0 · gap_count 867 · coverage_score 0.0
+later:    populated_cells 282 · gap_count 585 · coverage_score 0.122
+```
+
+Nothing changed but which build happened to win the cache.
+
+### The defect is not the emptiness — it is persisting it
+
+A build that saw no facts is a measurement taken before the instrument was
+ready. §1 has a name for publishing those. It is the same shape as **C-152**,
+where a store that could not be read was allowed to overwrite the durable copy,
+and **R-F2664** before that.
+
+So a cold build is still **SERVED** — the caller asked, and returning nothing is
+worse — but it is never **WRITTEN** to the hour-long cache, and it carries
+`built_cold: true` so the reader can tell. The next request after warmup rebuilds
+and caches a real one.
+
+### Three properties that are load-bearing
+
+* **Only a POSITIVE reading of zero blocks the write.**
+  `knowledge_cache_facts: None` means *could not measure*; refusing on that would
+  disable caching wherever the probe fails — a self-inflicted outage of the cache
+  to prevent a stale entry.
+* **A payload with no diagnostics is cacheable.** It predates R-F4128; treating
+  absence as "cold" would refuse every legacy write.
+* **The guard is consulted by the write path**, and a test asserts that — a guard
+  the caller never calls is the shape this register keeps recording.
+
+### Why the earlier investigation could not reach this
+
+Two caches sit in front of this matrix: the module's 120s TTL and the route's
+1-hour Redis entry. Every reading I took said `from_cache: True`, so I was
+measuring a stored artefact rather than the computation — which is exactly why
+R-F4128 instrumented the computation itself rather than adding another probe.
+
+### Verified
+
+Fixture-first: **7 failed → 7 passed**; with R-F4128's suite, **13 passed**.
+Compile gate green; wiring gates **0/0/0**; §9 lifespan smoke `LIFESPAN OK`.
+Regression (`coverage|heatmap|learning|rf4128|rf4129`): **503 passed, 4 failed** —
+all four in the recorded baseline, and the two in this blast radius (`rf684`,
+`rf728`) re-checked with the diff stashed: identical result both ways.
