@@ -35289,9 +35289,10 @@
       "title": "ranking instrument: to_thread hides the caller; add feature fallback and on-loop split",
       "claimed_at": "2026-08-17T20:35:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "62df2261",
+      "notes": null,
+      "shipped_at": "2026-08-17T20:53:07Z"
     }
   ]
 }
