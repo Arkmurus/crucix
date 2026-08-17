@@ -438,11 +438,16 @@ def test_the_audit_cli_can_print_a_new_collision_on_a_cp1252_console():
 def test_a_stray_heading_level_cannot_evade_the_gate(tmp_path):
     """Found by adversarial review of this module, not by a failing test.
 
-    Every entry in the register happens to use `###`, but that is convention. A
-    parser pinned to `###` made an entry written as `## C-30 ·` or `#### C-30 ·`
-    INVISIBLE: not counted as a claim, so the allocator would reissue the number,
-    and not counted as a collision, so the gate would pass it. A guard that one
-    stray `#` defeats is the R-F3791 blind-guard shape."""
+    A parser pinned to `###` made an entry written as `## C-30 ·` or
+    `#### C-30 ·` INVISIBLE: not counted as a claim, so the allocator would
+    reissue the number, and not counted as a collision, so the gate would pass
+    it. A guard that one stray `#` defeats is the R-F3791 blind-guard shape.
+
+    R-F4086 (C-133) corrects the premise this docstring used to state — "every
+    entry in the register happens to use `###`". It did not: the register uses
+    `###` for C-1..C-38 and `##` from C-39 onward, and has since long before
+    R-F3878 was written. The hazard was never hypothetical, which makes the
+    widening load-bearing rather than defensive."""
     for level in ("##", "###", "####"):
         f = tmp_path / f"d{len(level)}.md"
         f.write_text(f"{level} C-30 · a\n{level} C-30 · b\n", encoding="utf-8")
@@ -451,30 +456,110 @@ def test_a_stray_heading_level_cannot_evade_the_gate(tmp_path):
         assert reg.new_collisions(claims), f"a {level} collision must be detected"
 
 
-def test_widening_the_heading_level_did_not_change_the_live_reading():
+def test_widening_the_heading_level_reads_only_entry_headings():
     """The converse control (R-F3858): broadening `###` to `#{2,4}` must not start
-    counting prose or continuations (C-11a, C-14b, C-18b, C-19-orig, C-22 POSTSCRIPT)
-    as claims.
+    counting prose or continuations (C-11a, C-14b, C-18b, C-19-orig) as claims.
 
-    Asserted as an INVARIANT, not a count. A first version pinned `len(claims) == 26`
-    and broke the same day when a peer legitimately added C-27 — a test that fails
-    whenever the register is USED is worse than no test, because the only way to
-    green it is to bump a magic number, which proves nothing and trains the next
-    person to ignore it. The honest question is "did widening change what we read?",
-    so it compares the two patterns against each other on the real document."""
+    Asserted as an INVARIANT, not a count. A first version pinned
+    `len(claims) == 26` and broke the same day when a peer legitimately added
+    C-27 — a test that fails whenever the register is USED is worse than no
+    test, because the only way to green it is to bump a magic number, which
+    proves nothing and trains the next person to ignore it.
+
+    R-F4086 (C-133): the SECOND version made the same mistake one level up. It
+    asserted `set(claims) == narrow` — the wide reading must equal the `###`-only
+    reading — which is true only while every entry is `###`. The register moved
+    to `##` at C-39 and never moved back, so from the day it was written this
+    test could report nothing but "widening changed the reading: [39, 40, 41,
+    …]" and grew one more number every time the register was used. It was red
+    for ~94 entries. **A permanently-red test carries no information**: it
+    cannot go green, so it can never distinguish a healthy register from a
+    broken parser, and the tempting way to green it is to narrow the parser back
+    to `###` — which would re-open the exact blind spot the sibling test above
+    exists to close, and hide 88 live claims from the allocator.
+
+    So ask the question that can actually be answered wrong. Not "is the wide
+    reading identical to the narrow one" (a premise about formatting) but "did
+    the wide reading pick up anything that is not an entry heading" (the hazard).
+    Three falsifiable invariants, each with a distinct failure mode:
+      1. widening LOSES nothing — a parser regression drops a `###` entry;
+      2. every claim is sourced from a real level-2/3 entry heading — a match
+         from prose, a `#####` sub-heading, or a suffixed continuation appears
+         as a difference;
+      3. fenced code blocks contribute nothing — a `## C-N ·` line inside a
+         ```yaml example would otherwise claim a number nobody reserved.
+    """
     import re
 
-    text = repo_path("docs/cure/defects.md").read_text(encoding="utf-8")
-    narrow = {int(m.group(1))
-              for m in re.finditer(r"^###\s+C-(\d{1,4})\s+·", text, re.MULTILINE)}
-    claims, readable = reg.claims_in_register(repo_path("docs/cure/defects.md"))
-
+    path = repo_path("docs/cure/defects.md")
+    text = path.read_text(encoding="utf-8")
+    claims, readable = reg.claims_in_register(path)
     assert readable is True
-    assert set(claims) == narrow, (
-        "widening the heading level changed what is read on the LIVE register — "
-        f"only under the wide pattern: {sorted(set(claims) - narrow)}; "
-        f"lost: {sorted(narrow - set(claims))}")
+
+    def _nums(pattern: str, src: str) -> set[int]:
+        return {int(m.group(1))
+                for m in re.finditer(pattern, src, re.MULTILINE)}
+
+    narrow = _nums(r"^###\s+C-(\d{1,4})\s+·", text)
+    entry_headings = narrow | _nums(r"^##\s+C-(\d{1,4})\s+·", text)
+
+    # 1. Widening must never lose a claim the narrow pattern could see.
+    assert narrow <= set(claims), (
+        "widening the heading level LOST entries the `###` pattern reads: "
+        f"{sorted(narrow - set(claims))}")
+
+    # 2. Everything read must come from a level-2 or level-3 entry heading.
+    #    `C-11a`/`C-19-orig` are continuations and must stay invisible — the
+    #    `C-<digits> ·` shape is what excludes them.
+    assert set(claims) == entry_headings, (
+        "the wide pattern read something that is not a level-2/3 entry heading "
+        f"— extra: {sorted(set(claims) - entry_headings)}; "
+        f"missing: {sorted(entry_headings - set(claims))}")
+
+    # 3. A heading inside a fenced code block is an EXAMPLE, not a claim.
+    unfenced = re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
+    assert set(claims) == _nums(r"^#{2,3}\s+C-(\d{1,4})\s+·", unfenced), (
+        "a C-number heading inside a fenced code block was counted as a claim")
+
     assert set(reg.new_collisions(claims)) == set(), "the live register must stay green"
+
+
+def test_the_widening_control_can_still_fail(tmp_path):
+    """R-F4086 (C-133): the control above was rewritten from an assertion that
+    could only fail into one that can pass — so prove it can still FAIL.
+
+    A guard that cannot fail is the shape this whole module exists to catch
+    (R-F3858), and rewriting a red test is exactly when that risk is highest."""
+    import re
+
+    def _read(md: str) -> tuple[set[int], set[int]]:
+        f = tmp_path / f"d{abs(hash(md))}.md"
+        f.write_text(md, encoding="utf-8")
+        claims, ok = reg.claims_in_register(f)
+        assert ok is True
+        entries = {int(m.group(1))
+                   for m in re.finditer(r"^#{2,3}\s+C-(\d{1,4})\s+·", md,
+                                        re.MULTILINE)}
+        return set(claims), entries
+
+    # A level-4 heading is NOT an entry heading, but the parser reads it —
+    # invariant 2 catches the divergence.
+    claims, entries = _read("## C-1 · a\n#### C-2 · b\n")
+    assert claims != entries and 2 in claims - entries
+
+    # A heading inside a fence is an example — invariant 3 catches it.
+    fenced = "## C-1 · a\n\n```md\n## C-999 · an example\n```\n"
+    claims, _ = _read(fenced)
+    unfenced = re.sub(r"^```.*?^```", "", fenced,
+                      flags=re.MULTILINE | re.DOTALL)
+    stripped = {int(m.group(1))
+                for m in re.finditer(r"^#{2,3}\s+C-(\d{1,4})\s+·", unfenced,
+                                     re.MULTILINE)}
+    assert 999 in claims and 999 not in stripped
+
+    # And a continuation must stay invisible under every level.
+    claims, _ = _read("## C-1 · a\n## C-1a · a continuation\n")
+    assert claims == {1}
 
 
 def test_backfill_does_not_guess_a_status(tmp_path):

@@ -1499,6 +1499,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-133",
+      "title": "a control test pinned to a premise the register outgrew at C-39",
+      "claimed_at": "2026-08-17T03:38:03Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

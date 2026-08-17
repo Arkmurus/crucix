@@ -7863,3 +7863,78 @@ absent stamp is still `bad`. The strict no-hourly-prose rule caught my own
 replacement comment on the first run and the comment was reworded rather than
 the rule loosened. 306 passed in the task/calibration/operating-mode regression
 (1 known worktree `.env` failure); `tasks.yaml` parses; Node 173 passed.
+
+## C-133 · a control test pinned to a premise the register outgrew at C-39 (R-F4086)
+
+`test_rf3878_c_number_allocator::test_widening_the_heading_level_did_not_change_the_live_reading`
+had been **red since the day it was written**, and could never have been anything
+else.
+
+R-F3878 widened the register parser from `###` to `#{2,4}` so a stray heading
+level could not hide a claim. This test was its converse control — widening must
+not start counting prose as claims — and it asked that question as:
+
+```python
+assert set(claims) == narrow      # narrow = the `###`-only reading
+```
+
+That equality holds only while **every** entry is `###`. Measured on the live
+register:
+
+```
+###  42 entries   (C-1 .. C-38)
+##   88 entries   (C-39 .. C-132)
+```
+
+The register switched heading level at **C-39** and never switched back — long
+before R-F3878 existed. So the assertion could only ever report *"widening
+changed the reading: [39, 40, 41, …]"*, and it grew one more number every time
+the register was used. Its sibling test's docstring stated the premise out loud
+— *"Every entry in the register happens to use `###`"* — and that sentence was
+already false when it was written.
+
+### Why a permanently-red test is a defect, not a nuisance
+
+It cannot go green, so it can never distinguish a healthy register from a broken
+parser: it carries no information in either direction. Worse, the obvious way to
+green it is to narrow the parser back to `###` — which would **re-open the exact
+blind spot R-F3878 closed and hide 88 live claims from the allocator.** Same
+shape as the two false-failure baseline entries recorded in §16 (R-F3858/R-F3859),
+where the red test was the defect and the tempting fix was to delete the line
+that was right.
+
+The test's own docstring already argued this about its FIRST version (a pinned
+`len(claims) == 26` that broke when a peer added C-27): *"a test that fails
+whenever the register is USED is worse than no test."* The second version made
+the same mistake one level up — swapping a magic number for a magic premise
+about formatting.
+
+### The fix — ask the question that can be answered wrong
+
+Not *"is the wide reading identical to the narrow one"* (a premise about
+formatting) but *"did the wide reading pick up anything that is not an entry
+heading"* (the hazard). Three invariants, each with a distinct failure mode:
+
+1. widening **loses** nothing — catches a parser regression dropping a `###`;
+2. every claim is sourced from a level-2/3 entry heading — a match from prose, a
+   `#####` sub-heading, or a suffixed continuation shows up as a difference;
+3. **fenced code blocks contribute nothing** — a `## C-N ·` inside a ```` ```md ````
+   example would otherwise claim a number nobody reserved. This one is new; the
+   register now contains fenced examples (this entry is one), so the hazard is
+   live rather than theoretical.
+
+`C-11a`, `C-14b`, `C-18b`, `C-19-orig` remain invisible: the `C-<digits> ·`
+shape is what excludes them, and that is asserted rather than assumed.
+
+### Rewriting a red test is exactly when a guard turns into a rubber stamp
+
+So a second test, `test_the_widening_control_can_still_fail`, drives each
+invariant to a genuine FAIL on synthetic registers — a `####` heading the parser
+reads but which is not an entry, a `## C-999 ·` inside a fence, and a `C-1a`
+continuation. Without it, "28 passed" would be equally consistent with a control
+that can no longer fail (R-F3858).
+
+### Verified
+
+**28 passed** (from 26 passed / 1 permanently red). The parser is unchanged —
+this is a test-only fix, so no deploy is required and none was claimed.
