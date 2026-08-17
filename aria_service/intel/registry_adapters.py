@@ -258,6 +258,30 @@ def _record_coverage_outcome(iso2: str, adapter: str, outcome: str) -> None:
         logger.debug("registry coverage record failed: %s", _rc_e)
 
 
+def _exact_or_single_registry_result(
+    results: list, query: str, *name_keys: str,
+) -> dict | None:
+    """Return one exact name match, or the sole result; otherwise abstain.
+
+    Registry relevance ranking is not identity evidence. Multiple exact matches
+    are also ambiguous because a name alone cannot distinguish their legal IDs.
+    """
+    candidates = [item for item in (results or []) if isinstance(item, dict)]
+    target = str(query or "").strip().casefold()
+    exact = [
+        item for item in candidates
+        if target and any(
+            str(item.get(key) or "").strip().casefold() == target
+            for key in name_keys
+        )
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None
+    return candidates[0] if len(candidates) == 1 else None
+
+
 async def _lookup_switzerland(name: str, reg_number: str | None) -> dict | None:
     """CH — Zefix (Federal Office of Justice) via the open LINDAS SPARQL endpoint.
 
@@ -277,11 +301,9 @@ async def _lookup_switzerland(name: str, reg_number: str | None) -> dict | None:
     if not rows:
         return None
 
-    # Prefer an exact registered-name match; otherwise the top hit. A partial
-    # CONTAINS match is NOT presented as an identity confirmation on its own —
-    # the caller sees the returned company_name and can compare.
-    needle = (name or "").strip().lower()
-    record = next((r for r in rows if (r.get("name") or "").strip().lower() == needle), rows[0])
+    record = _exact_or_single_registry_result(rows, name, "name")
+    if not record:
+        return None
 
     result = _build_result(
         company_name=record.get("name") or name,
@@ -1211,10 +1233,8 @@ async def _lookup_uae(name: str, reg_number: str | None) -> dict | None:
                     payload = difc_resp.json()
                     hits = payload if isinstance(payload, list) else payload.get("results") or payload.get("data") or []
                     if hits and isinstance(hits, list):
-                        target = (name or query).lower()
-                        match = next(
-                            (h for h in hits if isinstance(h, dict) and (h.get("name") or h.get("legal_name") or "").lower() == target),
-                            hits[0] if isinstance(hits[0], dict) else None,
+                        match = _exact_or_single_registry_result(
+                            hits, name or query, "name", "legal_name",
                         )
                         if match:
                             cname = match.get("name") or match.get("legal_name") or name
@@ -1848,12 +1868,7 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
                     payload = resp.json()
                     hits = payload if isinstance(payload, list) else payload.get("results", [])
                     if hits:
-                        # Best hit = exact case-insensitive match if present, else first.
-                        target_lower = name.strip().lower()
-                        company = next(
-                            (h for h in hits if (h.get("name") or "").lower() == target_lower),
-                            hits[0],
-                        )
+                        company = _exact_or_single_registry_result(hits, name, "name")
 
             if not company or not isinstance(company, dict):
                 return None
@@ -2025,10 +2040,8 @@ async def _lookup_france(name: str, reg_number: str | None) -> dict | None:
                     payload = resp.json()
                     results = payload.get("results", [])
                     if results:
-                        target = name.strip().lower()
-                        company = next(
-                            (r for r in results if (r.get("nom_complet") or r.get("nom_raison_sociale") or "").lower() == target),
-                            results[0],
+                        company = _exact_or_single_registry_result(
+                            results, name, "nom_complet", "nom_raison_sociale",
                         )
 
             if not company or not isinstance(company, dict):
