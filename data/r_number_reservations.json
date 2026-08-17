@@ -34821,9 +34821,10 @@
       "title": "measure resolution branch expansion",
       "claimed_at": "2026-08-17T04:34:31Z",
       "claimed_by": "codex",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "71b9b730",
+      "notes": null,
+      "shipped_at": "2026-08-17T07:00:46Z"
     },
     {
       "r_number": "R-F4090",
@@ -34859,9 +34860,10 @@
       "title": "make generation driver phase observable",
       "claimed_at": "2026-08-17T06:29:38Z",
       "claimed_by": "codex",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renumbered from displaced local R-F4090 during rebase"
+      "status": "shipped",
+      "commit_sha": "c7f9fac9ebedb5f4e6cf392a353dd72cd953fdc1",
+      "notes": "Renumbered from displaced local R-F4090 during rebase",
+      "shipped_at": "2026-08-17T07:00:46Z"
     },
     {
       "r_number": "R-F4094",
