@@ -35202,9 +35202,10 @@
       "title": "never cache a coverage matrix built before the knowledge cache loaded",
       "claimed_at": "2026-08-17T13:54:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8a276804",
+      "notes": null,
+      "shipped_at": "2026-08-17T15:40:37Z"
     }
   ]
 }

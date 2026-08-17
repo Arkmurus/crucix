@@ -1823,9 +1823,12 @@
       "title": "a cold-boot coverage build is cached for an hour and served as fact",
       "claimed_at": "2026-08-17T13:54:10Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4129"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:40:38Z"
     }
   ]
 }
