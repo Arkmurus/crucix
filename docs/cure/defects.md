@@ -8268,3 +8268,229 @@ matters.
 Proven both ways: reverting to `startswith(_ATTRIBUTION_SKIP_PREFIXES)` turns
 `test_skip_prefixes_match_on_a_module_boundary` red on
 `aria_service.intel.wire_utils`; restored, **14 passed**.
+
+---
+
+# Live-log review 2026-08-17 — C-140..C-149
+
+Source: 23 minutes of streamed `aria-intel` logs (06:30:10–06:53:18Z, 2,722 lines)
+at `build_rev 7de62fd5`, covering 21 profiler cycles, 21 web-integrity cycles and
+16 autonomous-engine firings, plus in-machine probes over localhost.
+
+**The window's headline:** between 06:46:47 and 06:48:45 the state store timed out
+on **25 distinct keys** (26 warnings), the LLM chain exhausted **10 times**, **7**
+brain signals were dropped and **14** absorbs were shed at the cap, while the event
+loop went p95 1.3 ms to 63.5 ms (max 4,734 ms). `/health` at 06:53 reported
+`status: operational`, `degraded_reasons: []`, `state_backend: green`,
+`diagnostic: GREEN 76/0/0`. **Zero ERROR-level lines** in the whole window.
+
+**The pattern:** three fixes landed in one module and never reached its twin —
+C-95 and C-98 fixed `knowledge.py` but not `intel_ledger.py`; R-F3711 fixed
+`audit_log.py` but not `chat_audit_log.py`.
+
+## C-140 · the health surface has no memory of store read timeouts
+
+`state_store` logged 26 read timeouts across 25 distinct keys in a two-minute
+burst, each *"timed out after 5s — DB may be bloated or under WAL recovery.
+Returning None."* Under the R-F1 None-on-error contract every one became an
+absence indistinguishable from a real one. Affected families include the ones
+that adjudicate safety: `autonomous:paused:task:*` (a paused task reads as
+NOT paused), `aria:cost` (the meter enforcing the $600 cap — §17's fabricated-zero
+hazard), `aria:error` (the ledger gate #3 measures), `dd:report:*`,
+`aria:neurons:shard:0-5`, `aria:reasoning_library:*`.
+
+`/health` → `state_backend` reports **point-in-time reachability only**. Probed
+five minutes after the burst it read `reachable: true, status: green`. A surface
+with no memory cannot distinguish a quiet store from one that just failed 26
+reads, which is why C-95 ran unnoticed for a day and why this burst would have
+too. Same class as C-96 (`/health` not reading the gauge it publishes).
+
+## C-141 · intel_ledger rewrites the whole 35 MB ledger on a 2 s debounce
+
+`_flush_loop` (`intel_ledger.py:257-291`) runs on `FLUSH_DEBOUNCE_S = 2.0` and
+calls `_write_to_disk_atomic`, which `json.dump`s the **entire** ledger —
+81,971 signals, 35.5 MB on disk — plus `fsync`, `os.replace` and `_fsync_dir`,
+to persist however few signals changed. This is verbatim the write amplification
+C-95 removed from `knowledge.py` by journalling; `intel_ledger` was never ported.
+
+Live: `json/__init__.py:dump:182` took **52.0%** and **59.3%** of two profiler
+snapshots, co-occurring with `intel_ledger.py:_write_to_disk_atomic:218` in both.
+The platform's own gap detector recorded it twice unprompted as `[performance]`.
+`get_stats()` (`:941-953`) compounds it — an uncached full walk of all 81,971
+signals and their country lists, called ~1x/min by `/api/aria/brain/stats`.
+
+The R-F714 comment in that function still says "~36k signals to 2MB gzip". It is
+now 81,971 and 8.18 MB. §7 forbids eviction, so **the cost rises without bound —
+the better ARIA's memory gets, the more starved she becomes.** That is C-95's
+transferable lesson: any O(total-data) step under an infinite-memory policy.
+
+## C-142 · the ledger's "off-host backup" writes to the volume it backs up
+
+`SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence`
+(`intel_ledger.py:137`). Redis was decommissioned (§6/§18): `REDIS_URL` is unset,
+`ARIA_STATE_BACKEND=sqlite`, confirmed live via `/health`. So every 10 minutes it
+gzips the whole ledger and `rs.set`s **8.18 MB into `/data/aria_state.db`** — the
+same volume as the `/data/aria_signals.json` it is meant to protect. A copy
+sharing a failure domain with its original is not a backup.
+
+Measured in-machine:
+
+```
+intel_ledger      keys=  11  bytes=  8,179,418
+knowledge_shards  keys= 225  bytes= 83,232,780
+```
+
+This is C-98's premise-voided-by-a-change-elsewhere defect in the module C-98's
+fix did not cover. **Second, separate loose end:** C-98 correctly gated *new*
+knowledge-shard writes, but the 83.2 MB already written was never reclaimed —
+13% of a 630 MB state DB that is now timing out reads (C-140).
+
+## C-143 · the ledger orphans its mkstemp files on kill — 382.6 MB, no reclaim
+
+`_write_to_disk_atomic` (`intel_ledger.py:204-226`) unlinks its `mkstemp` file
+only on the `except` branch. A process killed mid-write — every deploy, every
+restart — orphans it. With a 2 s flush debounce (C-141) the write window is a
+large fraction of uptime, so the two defects compound.
+
+```
+108 files - 401,138,594 bytes - 382.6 MB
+oldest 2026-05-17 11:15   newest 2026-07-31 07:15
+prefix .aria_signals.*.json.tmp  (all 108; individual files up to 25 MB)
+/dev/vdc  30G  17G used  60%  /data
+```
+
+A repo-wide search finds **no cleanup routine** — no boot sweep, no timer, no
+unlink outside the exception handler. The only reference to the prefix is the
+`mkstemp` call that creates them. §26 forbids deletion: the reclaim must be
+archive-with-manifest or a guarded age-bounded sweep, never `rm`.
+
+## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain
+
+Recorded live during the window:
+
+```
+Capability gap recorded: [data_integrity] audit chain BROKEN:
+  16 link(s) failed over 1233 of 1233 entries; first at index 434
+```
+
+`chat_audit_log.py:120` reads the chain head as
+`prev_hash = await rs.get(_K_HEAD) or _GENESIS_HASH` — a **non-strict** read.
+Under the None-on-error contract a store blip silently re-genesises the chain,
+forking it and orphaning every prior entry. That is verbatim the failure
+**R-F3711** fixed in the sibling `audit_log.py:296-310`, whose comment reads:
+*"Chaining to genesis because the store blipped would fork the evidentiary chain
+and orphan every prior entry; refusing the write loses ONE record and keeps the
+chain provable."* `chat_audit_log` was never ported.
+
+C-140 proves the trigger is live on this machine — 26 store timeouts returning
+None in two minutes. **Second, independent hazard:** the head is read at `:120`
+and written at `:206` with **no lock anywhere in the module**, so concurrent chat
+turns race and fork the chain the same way. 16 breaks over 1,233 entries = 1.3%.
+
+*Cause not established* — both mechanisms are present and both fit the signature;
+neither was reproduced.
+
+## C-145 · the cost meter records 0 tokens when a stream skips on_done
+
+The 24 h cost summary reports a model literally named `fallback`:
+**142 of 1,000 calls, 0 tokens, $0.00** — 14.2% of all LLM traffic. It is not a
+free path. `MeteredProvider._record_cost` falls back to the provider's *name*
+only when `result is None` (`metered.py:122-123, 132-136`), and the one site
+passing `result=None` with `success=True` is **`metered.py:337`** — the streaming
+path, when the inner stream never fires `on_done`.
+
+```
+GET /api/aria/cost/call/call_1786947251321_f56186
+{"model":"fallback","provider":"fallback","feature":"autonomous_engine",
+ "input_tokens":0,"output_tokens":0,"cost_usd":0.0,
+ "latency_ms":23030,"success":true,"error":""}
+```
+
+23 seconds of work recorded as free. In a 200-call sample 25 carried this label —
+12 successes, 13 failures — so roughly half are real completions whose token
+counts were lost, and the rest are failures rendered on the cost panel as a
+zero-cost *model* rather than as failures. These records feed the day/month
+rollups that enforce the cap, so **the meter reads low**.
+
+*Not established:* which concrete provider stream skips `on_done`. The base
+implementation (`provider.py:149-155`) fires it **after** `yield`, so an abandoned
+generator skips it; the resilience wrappers all pass it through cleanly.
+
+## C-146 · brain_hook's neural indicator is a constant, not a measurement
+
+All **131** absorb lines in the window read `neural=False`. Not one was a
+measurement. The log sits at `brain_hook_bg.py:180`; `result["neural_ok"]` is
+assigned **only** at `:251` (deferred) and `:265` (actual), both inside the
+neural lane that R-F1665 deliberately moved to run *last*, at `:214`. The value
+logged is whatever the caller passed in.
+
+So the one operator-visible signal for the neural tier **cannot report success**,
+and the tier's real state — including its documented cap-skip and
+interactive-deferral paths — is unobservable. A guard that cannot fire.
+
+## C-147 · style_learner's grounded-only gate has a 0% live pass rate
+
+```
+[style_learner] 200 entries scanned but 0 kept — filtered:
+  {'not_grounded': 200, 'too_short': 0, 'quarantined': 0, 'kept': 0}
+```
+
+`style_learner.py:131-134` requires `verification_status == "grounded"`. Sampling
+120 live audit entries via `/api/aria/chat-audit/recent`:
+`no_claims` 78, `unverified` 34, `well_formed` 8, **`grounded` 0**.
+
+The verifier runs (`aria_engine.py:3661-3722` can emit `grounded`) — this is not
+a dark path — but nothing reaches the one value the gate accepts, so
+`STYLE-LEARN-HOURLY` fires every hour and can never learn. The function's own
+comment records a previous field-rename incident of exactly this shape.
+
+## C-148 · self_coder drops 145 of 146 gaps with no counter
+
+```
+[gap_detector] scan complete: 146 actionable gaps (from 216 raw signals)
+[aria_coder]   1 actionable gaps -- fixing top 6 (budget=6, cap=6)
+```
+
+The reduction happens at `self_coder.py:571`:
+`if g.severity < GapSeverity.MEDIUM or not g.auto_fixable: continue`.
+The two adjacent filters — `protected_file_gaps` and `pending_skip` — both log
+their counts (`:588-603`). **This one logs nothing**, so the two modules disagree
+on the word "actionable" and no instrument shows the gap.
+
+The loop IS draining, so this is not the §21c P0 — but if `auto_fixable` ever
+regressed the loop would go quiet and look exactly like this. The one gap it did
+claim failed at the reproduce gate with an **empty reason string**
+(`"LLM failed to write reproduce test:"`), plausibly C-145 surfacing downstream.
+R-F3919's rate-slot refund worked correctly.
+
+## C-149 · a known-blocked task burns four research runs a day, silently
+
+`MONITOR-POLYMARKET-GEO` (`30 */6 * * *`) ran a 58-second `deep_research` call
+and completed *"0 actions, normal"*. ARIA then wrote her own diagnosis to memory:
+
+```
+[mem0] stored: Polymarket/Gamma live data unavailable in this chat mode;
+  blocker repeated 10x since 06 Aug — user must paste Gamma market data
+```
+
+She identified the blocker, identified that it needs the operator, and recorded
+it where the operator will not see it. §19e requires the opposite. Meanwhile the
+task reports "normal" completion so nothing escalates, and it has burned ~44
+research runs over 11 days.
+
+## Registered, NOT scheduled under the freeze
+
+* **LLM general chain has no fallback.** `DEEPSEEK_BACKUP_API_KEY` is UNSET;
+  live chain is `["deepseek"]`, `general_vendor_depth: 1`. Confirmed by
+  `[R-F3680] dialling deepseek DESPITE its cooldown — it is the only reachable
+  provider left` (x4) and `all LLM providers failed` (x6). This is a *consequence*
+  of RULE ONE being enforced correctly, not a violation — Anthropic is rightly
+  out of the general chain and nothing replaced it. **Operator decision (§21e
+  exception): add a second cheap general-tier vendor, or accept the exposure.**
+  Note CLAUDE.md §17 documents the healthy reading as
+  `["deepseek","deepseek_backup"]` — a doc/live divergence.
+* **147 `httpx.AsyncClient(` sites, no shared client.**
+  `ssl.create_default_context` appears in 4 of 7 profiler snapshots, peaking at
+  25.0%. Also `knowledge.py:_rank_knowledge_facts:2666` at **44.1%** of a
+  145-sample snapshot (full linear scan over ~533k facts per search). Both are
+  real, both are **refactors** — §26 forbids refactoring inside a fix PR.
