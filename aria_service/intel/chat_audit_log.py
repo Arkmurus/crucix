@@ -64,6 +64,54 @@ _TTL_DAYS = 36500  # 100 years
 _SIGNING_KEY = (os.getenv("ARIA_AUDIT_SIGNING_KEY") or "dev-unsigned").encode()
 _GENESIS_HASH = "0" * 64
 
+
+class ChatAuditChainUnreadable(RuntimeError):
+    """R-F4100 (C-144) — the chat chain head could not be READ.
+
+    Distinct from "the log is empty". Only one of those means genesis.
+    """
+
+
+async def _read_head_hash(*, strict: bool = False) -> str:
+    """Read the current chain head, or genesis if the log is empty.
+
+    R-F4100 (C-144) — A TRANSIENT READ FAILURE IS NOT GENESIS.
+
+    THE DEFECT: `record_chat` read its head as
+
+        prev_hash = await rs.get(_K_HEAD) or _GENESIS_HASH
+
+    `redis_store.get` returns None on a store FAILURE (the documented
+    None-on-error contract), so a blip answered "this log is empty" and the
+    next entry was chained to genesis — SILENTLY FORKING the evidentiary chain
+    and orphaning every prior entry.
+
+    This is verbatim the defect R-F3711 fixed in the sibling `audit_log.py`;
+    this module was never ported. Both halves were measured live on aria-intel
+    2026-08-17, in the same 23-minute window:
+
+        audit chain BROKEN: 16 link(s) failed over 1233 of 1233 entries
+        state_store.get(...) timed out after 5s — ... Returning None.   (x26)
+
+    `strict=True` raises so the WRITE path can refuse rather than fork. The
+    read-only verifier stays lenient on purpose — it reports rather than
+    extends, and a genesis fallback there is visible in its own output, where
+    hardening it would make a store blip look like tampering.
+    """
+    from . import redis_store as rs
+    try:
+        h = await (rs.get_strict(_K_HEAD) if strict else rs.get(_K_HEAD))
+    except Exception as exc:
+        if strict:
+            raise ChatAuditChainUnreadable(str(exc)) from exc
+        return _GENESIS_HASH
+    if h:
+        return h
+    # An ABSENT key is the genuine empty-log case and is legitimate — the very
+    # first entry must be able to chain to genesis. Only a store FAILURE (the
+    # branch above) is refused. Collapsing these two again is the whole defect.
+    return _GENESIS_HASH
+
 # Confidence tag patterns
 _CONFIDENCE_RE = re.compile(r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)"
                             r"[^\]]*\]", re.IGNORECASE)
@@ -116,8 +164,34 @@ async def record_chat(
     aria_chat() or aria_chat_stream() response."""
     from . import redis_store as rs
 
-    # Get previous chain hash
-    prev_hash = await rs.get(_K_HEAD) or _GENESIS_HASH
+    # R-F4100 (C-144) — the WRITE path reads strictly. Chaining to genesis
+    # because the store blipped would fork the evidentiary chain and orphan
+    # every prior entry; refusing the write loses ONE record and keeps the
+    # chain provable. Losing a chat-audit entry is bad. Silently invalidating
+    # the whole trail is categorically worse, and it is what this used to do.
+    try:
+        prev_hash = await _read_head_hash(strict=True)
+    except ChatAuditChainUnreadable as _cce:
+        logger.error(
+            "[R-F4100] chat audit head hash UNREADABLE (%s) — refusing to "
+            "write session=%r rather than chain it to genesis and fork the "
+            "chain", _cce, session_id,
+        )
+        try:  # §21a — a refused audit write must reach the brain, not just a log
+            wire_failure(
+                module="chat_audit_log",
+                detail=(f"chat audit write refused: head hash unreadable "
+                        f"({str(_cce)[:120]}) session={session_id}"),
+                gap_type="data_integrity",
+                source="chat_audit_log:record_chat:R-F4100",
+            )
+        except Exception:
+            pass
+        # Deliberately NOT shaped like an entry: aria_engine reads
+        # `response_hash` off this dict to enqueue a reconcile, so a refusal
+        # that carried one would queue work for a record that never existed.
+        return {"ok": False, "recorded": False,
+                "reason": "chat_audit_chain_unreadable"}
 
     # R-F107 (2026-05-09): merge URLs cited in the response with the
     # RAG sources that were actually retrieved (passed via tool_context

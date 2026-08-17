@@ -3746,7 +3746,12 @@ async def _verify_and_record_chat(
     # via the periodic reconciler — without that, claims that were
     # 1-source on first appearance stay below the grounded threshold
     # forever and the training pipeline misses them.
-    if audit_entry and verification_status in ("well_formed", "unverified"):
+    # R-F4100 (C-144) — `response_hash` is the guard, not truthiness. A refused
+    # write (chain head unreadable) returns a dict too, and enqueuing a
+    # reconcile keyed on an empty hash would queue work for a record that was
+    # never written.
+    if (audit_entry and audit_entry.get("response_hash")
+            and verification_status in ("well_formed", "unverified")):
         try:
             from .intel import response_verifier as _rv2
             from .intel import verification_accumulator as _va

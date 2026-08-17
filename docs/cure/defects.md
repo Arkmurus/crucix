@@ -8364,7 +8364,7 @@ unlink outside the exception handler. The only reference to the prefix is the
 `mkstemp` call that creates them. §26 forbids deletion: the reclaim must be
 archive-with-manifest or a guarded age-bounded sweep, never `rm`.
 
-## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain
+## C-144 · chat_audit_log's non-strict head read forks the evidentiary chain (R-F4100)
 
 Recorded live during the window:
 
@@ -8389,6 +8389,37 @@ turns race and fork the chain the same way. 16 breaks over 1,233 entries = 1.3%.
 
 *Cause not established* — both mechanisms are present and both fit the signature;
 neither was reproduced.
+
+### Fixed (R-F4100) — the strict-read half
+
+Ported R-F3711: `ChatAuditChainUnreadable` + `_read_head_hash(strict=…)`. The
+WRITE path reads strictly and **refuses**, logging + `wire_failure` (§21a) and
+returning `{"ok": False, "recorded": False, "reason": "chat_audit_chain_unreadable"}`.
+The read-only `verify_chain` and `get_stats` stay lenient on purpose — they
+report rather than extend, and hardening them would make a store blip look like
+tampering.
+
+**The distinction a naive fix destroys, and which two tests now pin:** an ABSENT
+key is the genuine empty-log case and must still chain to genesis, because the
+first entry has no predecessor. Only a store FAILURE is refused. Verified
+against `redis_store.get_strict` (`:307-322`) rather than assumed — it raises
+`StoreReadError` on a store-layer failure and returns None only for a genuinely
+absent key.
+
+The refusal dict is deliberately **not** shaped like an entry: `aria_engine`
+reads `response_hash` off it to enqueue a reconcile, so that guard was tightened
+from truthiness to `audit_entry.get("response_hash")` — a refusal must not queue
+work for a record that was never written.
+
+Proven both ways: before the fix `record_chat` wrote an entry carrying
+`"prev_hash": "0000…0000"` with the head unreadable (RED, 2 failed / 3 passed);
+after, **5 passed**, plus 86 green across the audit- and chat-adjacent suites.
+
+**The race is NOT fixed here — it is [C-150].** The head is read at `:120` and
+written at `:280` with no lock. Wrapping that span costs several awaited store
+ops under a lock, and this machine is already timing out store reads (C-140);
+bundling a latency-risky change into a data-integrity fix is how a fix becomes
+an outage. It gets its own number and its own measurement.
 
 ## C-145 · the cost meter records 0 tokens when a stream skips on_done
 

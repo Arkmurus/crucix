@@ -1607,9 +1607,12 @@
       "title": "chat_audit_log non-strict head read forks the chain (R-F3711 port)",
       "claimed_at": "2026-08-17T07:01:49Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4100"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:11:34Z"
     },
     {
       "c_number": "C-145",
@@ -1651,6 +1654,15 @@
       "c_number": "C-149",
       "title": "MONITOR-POLYMARKET-GEO burns 4 runs a day on an operator-clearable blocker",
       "claimed_at": "2026-08-17T07:01:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-150",
+      "title": "chat_audit_log head read-modify-write is unsynchronised (C-144 second mechanism)",
+      "claimed_at": "2026-08-17T07:08:32Z",
       "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
