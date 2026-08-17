@@ -6,6 +6,7 @@ BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 SFT_ADAPTER="${SFT_ADAPTER:-}"
 SFT_FILE=/workspace/datasets/aria_tooluse_retention_sft.jsonl
 EXPECTED_SFT_ROWS="${EXPECTED_SFT_ROWS:-0}"
+SFT_LR="${SFT_LR:-1e-5}"
 PROBE_FILE=/workspace/datasets/aria_tooluse_curve_probe.jsonl
 BEFORE_PROBE=/workspace/eval/aria_tooluse_curve_raw_probe.json
 EVAL_FILE=/workspace/datasets/aria_tooluse_eval.jsonl
@@ -67,10 +68,10 @@ import torch, transformers, peft, trl
 if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
     raise SystemExit("required CUDA bf16 runtime unavailable")
 PY
-log "positive SFT continuation: $EXPECTED_SFT_ROWS rows from accepted parent"
+log "positive SFT continuation: $EXPECTED_SFT_ROWS rows from parent at lr=$SFT_LR"
 python "$SCRIPTS/sft_train.py" --base-model "$BASE_MODEL" \
   --sft-checkpoint "$SFT_ADAPTER" --train-file "$SFT_FILE" --output-dir "$SFT_OUT" \
-  --epochs 1 --lora-rank 32 --lora-alpha 64 --lr 1e-5 --batch-size 2 \
+  --epochs 1 --lora-rank 32 --lora-alpha 64 --lr "$SFT_LR" --batch-size 2 \
   --max-seq-len 4096 --load-in-4bit --completion-only-loss \
   2>&1 | tee "$LOGS/tooluse_sft_continue.log" || fail "SFT continuation"
 [ -f "$SFT_OUT/adapter_config.json" ] || fail "SFT continuation produced no adapter"

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4084,
+  "next_available": 4085,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34748,6 +34748,16 @@
       "r_number": "R-F4082",
       "title": "page inspection: security headers, console errors, third-party requests",
       "claimed_at": "2026-08-16T20:58:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e9807df2",
+      "notes": null,
+      "shipped_at": "2026-08-16T21:11:25Z"
+    },
+    {
+      "r_number": "R-F4084",
+      "title": "scale positive replay update budget to curriculum size",
+      "claimed_at": "2026-08-17T03:27:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
