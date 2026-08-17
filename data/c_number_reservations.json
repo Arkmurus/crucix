@@ -1865,9 +1865,12 @@
       "title": "is_cacheable has a dead branch, a docstring that contradicts it, and a test that cannot fail",
       "claimed_at": "2026-08-17T18:25:45Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4132"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:41:37Z"
     }
   ]
 }

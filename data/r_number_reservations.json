@@ -34743,9 +34743,10 @@
       "title": "restore the inner result loop so multilingual adverse-media hits reach the report",
       "claimed_at": "2026-08-16T20:40:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fbbb135e",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:42:16Z"
     },
     {
       "r_number": "R-F4082",
@@ -35237,9 +35238,10 @@
       "title": "make is_cacheable say what it does and test the path it claims",
       "claimed_at": "2026-08-17T18:25:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "70b663ab",
+      "notes": null,
+      "shipped_at": "2026-08-17T18:41:37Z"
     }
   ]
 }
