@@ -9469,3 +9469,110 @@ Compile gate green; wiring gates **0/0/0**; §9 lifespan smoke `LIFESPAN OK`.
 Regression (`coverage|heatmap|learning|rf4128|rf4129`): **503 passed, 4 failed** —
 all four in the recorded baseline, and the two in this blast radius (`rf684`,
 `rf728`) re-checked with the diff stashed: identical result both ways.
+
+## C-165 · loop starvation and state-store read timeouts share ONE root: chroma fsyncs in rollback-journal mode
+
+**DIAGNOSIS ONLY. No code changed. The fix touches a 5 GB production data store
+and needs operator sign-off** — see "Why this was not applied" below.
+
+§28 left this as the surviving open item, having already disproven the sharded
+snapshot (0 of 59 dumps), compaction cadence (median 33 min, not 900 s) and CPU
+(PSI 0.00), and recorded the lead as *"the surviving, measured lead is IO …
+writer not yet attributed"*. This attributes it.
+
+### The two symptoms are one phenomenon, and both are intermittent
+
+Measured at 93 min uptime, steady state:
+
+```
+state_backend  sqlite GREEN   read_timeouts 0 in the 900s window
+loop           healthy        p50 0.3ms  p95 1.0ms   max 3006.9ms
+```
+
+So neither is a constant fault — the earlier `amber / 14 timeouts / starved p95
+2334ms` reading was a boot window. But `max_ms 3006.9` inside the last ~10
+minutes shows the multi-second stalls still occur, matching §28's recorded
+inter-arrival of ~33 min median.
+
+### CPU and memory are ruled out; IO is measured
+
+```
+PSI cpu     some total=3.30s        full=0          (93 min uptime)
+PSI memory  some=0                  full=0
+PSI io      some total=78.30s       full total=77.87s
+```
+
+**`io full` is 77.9 s of 93 min, and `full` ≈ `some`.** `full` means *every*
+runnable task was blocked — the whole process freezes, which is precisely the
+signature §28 could not explain: 50 of 59 stall dumps showing a bare
+`asyncio/runners.py` frame with nothing blocking. Nothing is blocking in Python
+because the block is beneath it, in the kernel, waiting on the volume.
+
+### The writer, attributed
+
+```
+PID 721 (the app), over 45 s:
+  write_bytes  3,598,295,040 -> 4,245,340,160   = +647 MB   (~863 MB/min)
+  syscw        1,388,179 -> 1,666,047           = +277,868  (~6,175/s)
+  read_bytes   +4.7 MB
+```
+
+~1.24 TB/day of block writes, while **no file grows to match** — so it is
+rewrite and fsync churn, not new data.
+
+⚠️ `/proc/1/io` was static throughout and reads 30 MB — **PID 1 is `init`, not
+the app.** Measuring it would have said "30 MB in 93 minutes, nothing to see",
+the same wrong-process error class as the detached-`python3` probe in §17.
+
+### The outlier, and the smoking gun
+
+```
+chroma.sqlite3           journal=delete   synchronous=2 (FULL)   5.08 GB
+aria_state.db            journal=wal      synchronous=2          0.63 GB
+aria_knowledge_store.db  journal=wal      synchronous=2          1.42 GB
+```
+
+The RAG store is the **only** database in rollback-journal mode. Every write
+transaction there copies the original pages to a `-journal`, **fsyncs**, writes
+the new pages, **fsyncs**, deletes the journal and **fsyncs the directory** —
+roughly three fsyncs per commit against a 5 GB file on a network-backed Fly
+volume. The others are in WAL, which is correct.
+
+Confirmed active, not idle: the rollback journal was present in **1 of 12**
+one-second samples and `chroma.sqlite3` mtime age was **0 s**.
+
+Both symptoms follow: the loop starves because the process is frozen in `io
+full`, and `state_store` reads exceed their timeout for the same reason — which
+is why the read timeouts were worst during boot, when load peaks, and are zero
+in a quiet steady state.
+
+### Why this was NOT applied
+
+The obvious remedy is `PRAGMA journal_mode=WAL` on chroma. It is a header change,
+not a rewrite, and reversible. It is still not something to do unattended:
+
+* it mutates a **5 GB production data store that backs DD**, and §26 is explicit
+  that data stores get care;
+* `rag_store.py` has **no journal_mode handling at all** — chromadb owns the
+  file — so this is manual surgery, not a code lever a test can cover;
+* that same module documents *"a native SIGSEGV in chromadb's Rust core"* on
+  `PersistentClient` construction, and R-F3527 records two threads racing the
+  same path. This is a fragile subsystem;
+* the operator was away and DD could not be exercised afterwards.
+
+Applying a data-store change I could not then verify is the failure this register
+keeps recording, so it is written down instead.
+
+### Recommended, in order
+
+1. **Confirm the attribution costs nothing to re-check**: re-read PSI `io full`
+   and the PID's `write_bytes` delta. Both are read-only.
+2. `PRAGMA journal_mode=WAL` on `chroma.sqlite3`, with chroma quiesced, and
+   re-measure `io full` over an equivalent window. Expect a large fall if the
+   attribution is right — and if it does not fall, **the attribution was wrong**
+   and this entry should say so.
+3. Only then consider `synchronous=NORMAL`, which is safe under WAL and removes
+   a further fsync per commit.
+
+**Do not treat step 2 as done until `io full` is re-measured.** The whole point
+of this entry is that the previous three suspects were plausible and wrong.
