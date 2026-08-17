@@ -9633,3 +9633,97 @@ Boot remains IO-heavy (~76s of `io full` in the first 174s) and that is expected
 — it loads several GB. This fix targets steady state, and there both symptoms
 cleared: `degraded_reasons` is empty and the store is green with zero read
 timeouts.
+
+## C-166 · the residual loop stalls are GIL-held ranking over 566k facts, not IO (open)
+
+**DIAGNOSIS ONLY. Not fixed** — the change is on the chat hot path and the
+operator was away; see "why not now".
+
+C-165/R-F4130 fixed the IO half and the measurements hold: `state_backend` green
+with **0** read timeouts, `degraded_reasons` empty, steady-state `io full` down to
+~0.02–0.07 s/min. **But loop stalls did not stop.** A 33.8s stall was captured
+after that deploy, so there is a SECOND, independent cause — and claiming the
+loop was fixed on the strength of the IO result would have been wrong.
+
+### The dumps name it
+
+Across the 25 most recent wedge dumps, app frames excluding plumbing:
+
+```
+34 x  knowledge.py:2728  search_knowledge
+33 x  knowledge.py:2666  _rank_knowledge_facts
+11 x  knowledge.py:2722  search_fact_records
+11 x  knowledge.py:2679  _rank_knowledge_facts
+47 x  wire.py sync_wrapper        <- the @fail_wire decorator wrapping them
+18 x  aria_engine.py:1811 _safe_call
+10 x  routes/aria.py:11621 chat_ep
+```
+
+§28 recorded `_rank_knowledge_facts` in **1 of 59** dumps and could not attribute
+the residual. It now dominates — because the corpus grew. Live: **566,265 facts**.
+
+(`wire.py sync_wrapper` topping the list is the decorator, not the culprit —
+exactly the plumbing-wins-the-frame-count effect C-154 established.)
+
+### Why it is the loop thread, provably
+
+The main thread in the fresh dump is the §28 signature: `asyncio/runners.py:119`,
+idle in uvloop with **nothing blocking**, while the heartbeat is 33.8s stale. At
+the same time `PSI cpu ≈ 0` (not waiting for CPU) and `PSI io` is now low (not
+waiting for IO). A thread that is runnable, not waiting, and not running is a
+thread that cannot get the GIL — or one that IS the GIL holder and simply has not
+returned.
+
+The call sites settle which:
+
+```
+to_thread (correct):  dd_orchestrator.py:8614
+                      deep_researcher.py:434, 1275, 1762
+DIRECT (on the loop): aria_engine.py:1774  lambda: search_knowledge(message)
+                      routes/aria.py:10128, 10874, 19234, 19839, 19844
+```
+
+The DD and researcher paths already offload. **The chat path does not** — it calls
+a synchronous O(566k) scan directly from an async handler, which is why
+`_safe_call` and `chat_ep` sit above the knowledge frames in the dumps.
+
+### The existing mitigation cannot work there, and that is the trap
+
+`_rank_knowledge_facts` already yields every 256 facts:
+
+```python
+# R-F2086 — yield every 256 facts (was 2048) ... 8x more frequent GIL release
+if (idx & 0xFF) == 0:
+    time.sleep(0)
+```
+
+`time.sleep(0)` releases the **GIL to other threads**. When the scan runs ON the
+event-loop thread, the loop is that thread — nothing can service it until the
+call returns, however often the GIL is dropped. The mitigation is real and works
+for the `to_thread` callers; on the chat path it is a no-op that looks like
+protection.
+
+### Self-worsening, and the same class as C-95
+
+This is an O(total-corpus) operation under §7's infinite-memory policy: the
+better ARIA's memory gets, the longer chat blocks the loop. C-95 was the same
+shape on the persistence path.
+
+### Why not fixed now
+
+The four `to_thread` call sites are the established in-repo pattern, so the fix
+is known. But `aria_engine.py:1774` passes `search_knowledge` as a **sync lambda
+inside a candidate list** consumed by `_safe_call`, so making it awaitable is a
+structural change to the chat engine rather than a one-line wrap — on the
+product's user-facing hot path, unattended. That is the risk profile declined for
+chroma, and the same answer applies.
+
+### Recommended
+
+1. Offload the chat-path calls with `asyncio.to_thread`, matching
+   `deep_researcher.py:434`. Start with `aria_engine.py:1774`, which the dumps
+   implicate most.
+2. Re-measure the wedge-dump distribution afterwards — **if `_rank_knowledge_facts`
+   does not fall away, the attribution was wrong** and this entry must say so.
+3. Only then consider making the ranking itself sublinear; offloading removes the
+   stall, it does not make an O(566k) scan per chat turn a good idea.

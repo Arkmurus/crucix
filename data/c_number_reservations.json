@@ -1850,6 +1850,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-17T18:03:17Z"
+    },
+    {
+      "c_number": "C-166",
+      "title": "residual loop stalls are GIL-held ranking over 566k facts, not IO",
+      "claimed_at": "2026-08-17T18:12:01Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
