@@ -7938,3 +7938,86 @@ that can no longer fail (R-F3858).
 
 **28 passed** (from 26 passed / 1 permanently red). The parser is unchanged —
 this is a test-only fix, so no deploy is required and none was claimed.
+
+## C-134 · 53% of LLM spend was bucketed `uncategorized`, and the ledger kept no caller identity (R-F4087)
+
+Measured live on aria-intel 2026-08-17, month-to-date:
+
+```
+uncategorized         46.2561   52.8%      <- the largest bucket by far
+self_improve          18.3593   21.0%
+research_extraction   13.3800   15.3%
+metacognitive          2.7194    3.1%
+student_reading        1.6102    1.8%
+...
+TOTAL by_feature      87.5727
+```
+
+360 of the last 1,000 LLM calls carried no feature label. And the ledger record
+is:
+
+```
+{cost_usd, feature, id, model, success, total_tokens, ts}
+```
+
+**No caller identity of any kind.** So the majority of the spend could not be
+attributed even retroactively — the evidence was never written down. A cost
+meter that cannot say who spent most of the money is the §1
+"absence-rendered-as-a-measurement" shape applied to the budget, and §17 records
+what that costs in practice: the RULE ONE breach that drained the Anthropic
+credit and took DD down hid inside `self_improve` + `uncategorized`.
+
+Note this is **not** the §17 fabricated-zero: the total is right and the cap is
+enforced. What is missing is attribution — the meter says *how much* but not
+*who*, which is the half you need to act.
+
+### Why not a call-site sweep, and why not `record_call`
+
+Adding `with feature(...)` at every LLM call site is whack-a-mole: the ninth
+site re-opens it silently. That is exactly why R-F3946 moved the Brave policy
+off a curated route list and onto a single decision point, and the same argument
+applies here. Attribution happens once, where the call is made.
+
+The obvious single point — `record_call` — **cannot work**, and this is the part
+worth remembering. `metered._record_cost` dispatches it through
+`asyncio.create_task(...)`, so by the time `record_call` runs the stack belongs
+to the new task and the caller's frames are gone. The contextvar survives
+(`create_task` copies the context); the stack does not. A stack walk there would
+have returned asyncio internals and looked like it worked.
+
+So the capture sits at the entry of `MeteredProvider.complete` / `.stream`,
+which run on the caller's own stack, and the label is threaded to
+`_record_cost` → `record_call(feature_name=...)`.
+
+### The properties that are load-bearing
+
+* **An explicit scope always wins.** `attribute_unscoped_caller()` returns `""`
+  when a real `feature()` scope is active, so correctly-scoped callers are
+  untouched and `record_call`'s existing precedence is unchanged.
+* **`""` on the unknown path too, not a guess.** An unnameable caller degrades
+  to today's `uncategorized` rather than to a wrong name. A guess dressed as a
+  measurement is worse than the honest blank — the whole point of the batch.
+* **Module granularity.** Per-function or per-line labels would explode
+  `by_feature` into thousands of unreadable rows.
+* **`unscoped:` is deliberately ugly.** It should read as a TODO on the cost
+  panel, not as a legitimate feature name. Scoping the caller properly with
+  `feature()` is still the right fix; this only makes the omission visible.
+* **Fail-open.** Attribution is bookkeeping and must never be why an LLM call
+  fails; a test breaks the probe and asserts the neutral label comes back.
+* **§13.** `stream` is a subset-fork of `complete`, so the hook is mirrored into
+  both — and streaming is the user-facing path, so omitting it would have left
+  exactly the spend a reader most wants named still sitting in `uncategorized`.
+
+### Verified
+
+Fixture-first: **8 failed → 10 passed**. `-k "cost_tracker or metered or cost or
+rf4087"`: **185 passed**. `-k "llm or provider or fallback or stream"`: 754
+passed, 4 failed — **proven pre-existing** by reverting the diff and re-running
+the same selection, which reproduces the identical four
+(`test_rf450_stream_footer_integration` ×2, `test_rf2709_…` ×2). Compile gate
+green; §9 lifespan smoke `LIFESPAN OK`.
+
+**Expect `unscoped:<module>` rows to appear on the cost panel after this
+deploys. That is the fix working.** Each one names a call site that should be
+given a real `feature()` scope; do not silence them by mapping them back to
+`uncategorized`.

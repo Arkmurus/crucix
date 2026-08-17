@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4087,
+  "next_available": 4088,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34794,6 +34794,15 @@
       "commit_sha": "ebca0c73",
       "notes": null,
       "shipped_at": "2026-08-17T03:46:33Z"
+    },
+    {
+      "r_number": "R-F4087",
+      "title": "name the unscoped LLM caller instead of bucketing it as uncategorized",
+      "claimed_at": "2026-08-17T03:51:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

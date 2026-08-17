@@ -37,6 +37,23 @@ logger = logging.getLogger("aria.llm.metered")
 _PAUSE_CACHE_TTL = 2.0
 
 
+def _cost_attribution() -> str:
+    """R-F4087 (C-134) — delegate to `cost_tracker.attribute_unscoped_caller()`.
+
+    Must be called from `complete`/`stream` themselves, on the CALLER's stack:
+    the actual record is written inside an `asyncio.create_task`, where the
+    caller's frames no longer exist. Lazy import for the same reason every
+    other cost_tracker use here is lazy — metered.py must stay free of cost
+    import cycles — and fail-open, because attribution is bookkeeping and must
+    never be the reason an LLM call fails.
+    """
+    try:
+        from ..intel.cost_tracker import attribute_unscoped_caller
+        return attribute_unscoped_caller()
+    except Exception:
+        return ""
+
+
 class EnginePausedError(RuntimeError):
     """R-F1568 — raised when an AUTONOMOUS LLM call is issued while the engine
     is paused (the emergency kill switch). A RuntimeError subclass so callers
@@ -70,8 +87,17 @@ class MeteredProvider(LLMProvider):
         # without us listing every field.
         return getattr(self._inner, item)
 
-    def _record_cost(self, started: float, result, success: bool, error: str) -> None:
+    def _record_cost(self, started: float, result, success: bool, error: str,
+                     feature_name: str = "") -> None:
         """Fire-and-forget cost recording. Never blocks the caller.
+
+        R-F4087 (C-134): `feature_name` carries the caller label captured at
+        `complete`/`stream` entry. It must be captured THERE and threaded
+        through, because `record_call` below runs inside a `create_task` — the
+        contextvar survives (create_task copies the context) but the caller's
+        stack frames do not, so attribution is impossible by that point.
+        Empty means "a real scope is active, or the caller could not be named",
+        and `record_call` then falls back to the contextvar exactly as before.
 
         R-F104 (2026-05-09): instrumented to surface silent failures.
         Previously the create_task'd record_call could raise inside the
@@ -117,6 +143,7 @@ class MeteredProvider(LLMProvider):
                 provider_name=provider_for_metric,
                 success=success,
                 error=error,
+                feature_name=feature_name,
             ))
             # R-F104: surface silent failures
             def _on_done(t):
@@ -234,6 +261,10 @@ class MeteredProvider(LLMProvider):
         # operator/user chat is never gated (callers opt in).
         await self._enforce_kill_switch(autonomous)
         await self._enforce_spend_caps()
+        # R-F4087 (C-134) — capture WHO is spending, on the caller's own stack.
+        # Empty when a real `feature()` scope is active, so correctly-scoped
+        # callers are untouched.
+        _feature_name = _cost_attribution()
         started = time.time()
         success = True
         error = ""
@@ -263,7 +294,7 @@ class MeteredProvider(LLMProvider):
             error = str(e)
             raise
         finally:
-            self._record_cost(started, result, success, error)
+            self._record_cost(started, result, success, error, _feature_name)
 
     async def stream(
         self,
@@ -281,6 +312,11 @@ class MeteredProvider(LLMProvider):
         # interactive streaming chat unaffected; only autonomous callers gate.
         await self._enforce_kill_switch(autonomous)
         await self._enforce_spend_caps()
+        # R-F4087 (C-134) — §13: `stream` is a subset-fork of `complete`, so the
+        # attribution hook is mirrored here. Streaming is the USER-FACING path;
+        # leaving it out would keep exactly the spend a reader most wants named
+        # sitting in `uncategorized`.
+        _feature_name = _cost_attribution()
         started = time.time()
         final_result = None
 
@@ -298,12 +334,12 @@ class MeteredProvider(LLMProvider):
                 **({"model": model} if model else {}),   # R-F2769
             ):
                 yield chunk
-            self._record_cost(started, final_result, True, "")
+            self._record_cost(started, final_result, True, "", _feature_name)
             # R-F2489 §21a — stream is an async generator (fail_wire cannot wrap
             # it), so wire BOTH branches explicitly here.
             wire_success(module="metered", summary=f"metered stream ({self.name})")
         except Exception as e:
-            self._record_cost(started, final_result, False, str(e))
+            self._record_cost(started, final_result, False, str(e), _feature_name)
             wire_failure(
                 module="metered", detail=f"metered stream failed ({self.name}): {e}",
                 gap_type="engine_failure", source="metered",

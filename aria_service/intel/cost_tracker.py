@@ -644,6 +644,86 @@ def feature(name: str):
             pass
 
 
+# ── Attribution of last resort (R-F4087 / C-134) ───────────────────────────
+# 53% of month-to-date LLM spend ($46.26 of $87.57) bucketed as
+# "uncategorized", and the ledger record carries NO caller identity — only
+# {cost_usd, feature, id, model, success, total_tokens, ts} — so it could not
+# be attributed after the fact. A meter that cannot say who spent the majority
+# of the money is the §1 "absence rendered as a measurement" shape applied to
+# the budget, and §17 records what it cost: the RULE ONE breach hid in
+# `self_improve` + `uncategorized`.
+#
+# The fix is NOT a sweep of `with feature(...)` over every call site — that is
+# whack-a-mole and the ninth site re-opens it silently, which is why R-F3946
+# moved the Brave policy off a curated route list onto a single decision point.
+# A caller that declares nothing gets NAMED instead of hidden.
+#
+# Module granularity is deliberate: a per-function or per-line label would
+# explode `by_feature` into thousands of unreadable rows. `unscoped:` is also a
+# deliberately ugly prefix — it should read as a TODO on the cost panel, not as
+# a legitimate feature name. Scoping the caller properly with `feature()`
+# remains the right fix; this only makes the omission visible.
+_ATTRIBUTION_SKIP_PREFIXES = (
+    "aria_service.llm.",          # metered / factory / fallback / providers
+    "aria_service.intel.cost_tracker",
+    "asyncio.",
+    "contextlib",
+)
+_ATTRIBUTION_MAX_FRAMES = 30
+
+
+def _caller_module() -> str:
+    """Dotted module path of the nearest frame outside the metering plumbing.
+
+    Separate from `attribute_unscoped_caller` so a test can break it and prove
+    the fail-open path (a probe that raises must never break an LLM call).
+    """
+    import sys
+
+    frame = sys._getframe(1)
+    for _ in range(_ATTRIBUTION_MAX_FRAMES):
+        if frame is None:
+            break
+        name = frame.f_globals.get("__name__", "")
+        if name and not name.startswith(_ATTRIBUTION_SKIP_PREFIXES):
+            return name
+        frame = frame.f_back
+    return ""
+
+
+def attribute_unscoped_caller() -> str:
+    """Return `unscoped:<module>` for a caller that declared no feature, or
+    `""` when a real `feature()` scope is active or the caller cannot be named.
+
+    Returning `""` (not a label) on both the scoped and the unknown path is
+    what makes this safe to pass straight through as `feature_name=`:
+    `record_call` falls back to the contextvar, so existing attribution is
+    untouched and an unnameable caller degrades to today's "uncategorized"
+    rather than to a wrong name. A guess dressed as a measurement is worse
+    than the honest blank.
+
+    Called on the caller's own stack (see `MeteredProvider.complete`/`.stream`)
+    — `record_call` runs inside an `asyncio.create_task`, by which point the
+    caller's frames are gone.
+    """
+    try:
+        current = _current_feature.get()
+        if current and current != "uncategorized":
+            return ""            # an explicit scope always wins
+        module = _caller_module()
+        if not module:
+            return ""
+        short = module
+        for prefix in ("aria_service.", "scripts."):
+            if short.startswith(prefix):
+                short = short[len(prefix):]
+                break
+        return f"unscoped:{short}"[:64]
+    except Exception:
+        # Fail-open: attribution is bookkeeping and must never break a call.
+        return ""
+
+
 # ── Pricing lookup ─────────────────────────────────────────────────────────
 
 def _get_price(model: str) -> tuple[float, float]:
