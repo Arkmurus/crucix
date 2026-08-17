@@ -8072,3 +8072,10 @@ Proven both ways, which is the only reason to trust it: **fix removed → 2 fail
 12 passed. Compile gate green. Found by auditing my own fix against live data
 rather than by anything failing — R-F4087's own deploy verification is what
 surfaced it.
+
+**Live after deploy (`7de62fd5`)**: `unscoped:intel.wire` is GONE. The label is
+now `unscoped:intel.adversarial_challenge` — 9 of the 12 LLM calls in the first
+5.4 minutes. That is the previously-invisible 53% naming its real spender for
+the first time, and it is immediately actionable: `adversarial_challenge` needs
+a `feature()` scope. Note this is the SECOND live reading to correct the first;
+the deploy probe is what makes attribution claims falsifiable, not the tests.
