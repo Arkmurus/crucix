@@ -2367,3 +2367,75 @@ root-caused; two fixed and live, the third fixed after the instrument found it.
   #2 stagnation.
 - The DeepSeek billing P0 resolved during the session: probed HTTP 402
   "Insufficient Balance", later HTTP 200 with a real completion.
+
+
+## Session continuation — 2026-08-17 (self-audit) · R-F4132, R-F4133 · C-167, C-168
+
+The operator asked for "a full review of your work — deep critic and analysis
+without short cuts". The review found real defects, in my own work and beneath it.
+
+### Shipped
+
+- **R-F4132 / C-167 @ 70b663ab (live)** — three defects in one function I had
+  written the same day. `is_cacheable` carried a **dead branch** (both arms below
+  `facts_seen == 0` returned False), a **docstring that contradicted the code**
+  (it claimed an unmeasurable probe would not block; it blocks), and a test whose
+  name described a path it never reached — `facts_seen=12` short-circuits before
+  `cache_facts` is read, so **it could not fail**. The behaviour was right and was
+  kept; the prose and the guard are now honest, and a new test pins all three
+  cache readings.
+- **R-F4133 / C-168 @ 853f0410 (live)** — the substantive find, and not a defect
+  of mine: **knowledge recall served facts matching no query word.** The
+  popularity boost was added BEFORE the relevance threshold, and `accessCount`
+  counts **re-absorption** (all three write sites are in `store_fact`), which is
+  what the crawl loop does all day. A fact matching nothing scored 5 and beat a
+  fact matching one query word (3) — and `search_knowledge` renders the winners
+  into the chat prompt as "[ARIA KNOWLEDGE BASE — verified facts]". Reproduced:
+  the only relevant fact was **absent from the top 10**. Sized on production:
+  ~10.8% of 567,720 facts carry `accessCount >= 1` (max 3,593) — ~61,000
+  irrelevant rows in every query's candidate set. Self-worsening under §7.
+
+### Recorded, not changed
+
+- **The C-161 blind spot.** A TOTAL scraped-search blackout now reads amber, not
+  red: with every pooled member open and Brave's breaker unfired, nothing escalates
+  though general search would have no engine at all. Faithful to the operator's
+  explicit rule ("amber, and reserve red for paid sources we depend on"), so it is
+  the operator's call — written into the register rather than changed unilaterally.
+- **A correction to C-166's own recommendation.** It proposes a word-level
+  inverted index. Scoring is a **substring** test, so that would silently narrow
+  recall ("export" would stop matching "rosoboronexport") — R-F3857 on an
+  adverse-media path. A test now pins the semantics.
+
+### Claims I nearly made and the measurement refused
+
+- **A performance win for C-168.** The candidate set shrinks, so crediting part of
+  the C-166 stall was tempting. Measured: the sort is 4-33 ms of a 1.0-1.5 s call.
+  It was never the bottleneck. No claim made.
+- **A state_backend regression.** `degraded: ['state_backend_read_timeouts']`
+  appeared after both deploys — at 326 s uptime, inside the §11c boot window.
+  Re-measured past boot: `operational`, state_backend **green, 0 timeouts / 900 s**,
+  loop healthy p95 1.1-1.2 ms. Reporting the first reading would have invented a
+  regression out of a boot.
+
+### Errors I made and caught
+
+- **My first C-168 RED run failed on a missing fixture key**, not on the defect —
+  the very "passes/fails for the wrong reason" class the register keeps recording.
+  Fixed the fixture and re-ran RED before touching the code.
+- **Six ship-marks and three closes had been silently discarded** by earlier
+  collision recovery (`git checkout origin/main -- data/*_reservations.json` takes
+  origin's copy wholesale). Audited the range, re-verified each sha with
+  `git merge-base --is-ancestor`, restored **R-F4081**, and deliberately did NOT
+  mark four landed numbers belonging to other agents — a ship-mark is a deploy
+  claim and §11 says it belongs to whoever verified it live.
+
+### Still open, honestly
+
+- **C-166** — GIL-held O(566k) ranking on the chat path. Diagnosed, measured,
+  corrected once (my first diagnosis was wrong: `_safe_call` already runs in a
+  thread pool, so `to_thread` would have been a no-op), and handed over. The
+  remaining work needs real-corpus validation and an ~80-150 MB RSS decision.
+- **C-149 / C-156 / C-158** are the peer's.
+- `organ:search` RED from a real signal: 54 gate-#2 cells flat below 0.70 over 90.3h.
+- CI `suite-baseline-gate` needs a `record_baseline=true` dispatch.
