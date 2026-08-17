@@ -35162,36 +35162,40 @@
       "title": "wire the three dark public functions gate A caught",
       "claimed_at": "2026-08-17T11:19:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8665a00c",
+      "notes": null,
+      "shipped_at": "2026-08-17T15:33:18Z"
     },
     {
       "r_number": "R-F4126",
       "title": "cap scraped-source breakers at amber and reserve red for paid dependencies",
       "claimed_at": "2026-08-17T11:41:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8665a00c",
+      "notes": null,
+      "shipped_at": "2026-08-17T15:33:19Z"
     },
     {
       "r_number": "R-F4127",
       "title": "derive organ r_numbers from their member modules",
       "claimed_at": "2026-08-17T12:30:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2570ce21",
+      "notes": null,
+      "shipped_at": "2026-08-17T15:33:19Z"
     },
     {
       "r_number": "R-F4128",
       "title": "instrument the coverage matcher so an empty matrix names its own cause",
       "claimed_at": "2026-08-17T13:00:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "017a10b7",
+      "notes": null,
+      "shipped_at": "2026-08-17T15:33:19Z"
     },
     {
       "r_number": "R-F4129",

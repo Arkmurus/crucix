@@ -1775,36 +1775,48 @@
       "title": "three public functions shipped dark after the wiring gate went green",
       "claimed_at": "2026-08-17T11:08:56Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4125"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:34Z"
     },
     {
       "c_number": "C-161",
       "title": "a blocked scraped source paints an organ RED, reserving no severity for paid dependencies",
       "claimed_at": "2026-08-17T11:41:03Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4126"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:34Z"
     },
     {
       "c_number": "C-162",
       "title": "organ nodes hardcode an empty r_numbers, so hover can never show the audit trail",
       "claimed_at": "2026-08-17T12:30:14Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4127"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:35Z"
     },
     {
       "c_number": "C-163",
       "title": "the coverage matrix reads 867/867 gaps and cannot say why",
       "claimed_at": "2026-08-17T13:00:47Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4128"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:35Z"
     },
     {
       "c_number": "C-164",
