@@ -541,7 +541,11 @@ try {
         # R-F3133: Python's logging writes to stderr, so an un-wrapped call here would
         # abort the script under 5.1 AFTER a successful deploy — losing the health
         # verdict and the CleanHead restore below.
-        Invoke-Native { python "$REPO_ROOT/scripts/live_health_check.py" --app ($healthApps -join ',') --expected-sha $GIT_SHORT } | ForEach-Object { Write-Host $_ }
+        $healthPython = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
+        if (-not (Test-Path -LiteralPath $healthPython)) {
+            throw "Project Python not found at $healthPython; cannot run live health checks"
+        }
+        Invoke-Native { & $healthPython "$REPO_ROOT/scripts/live_health_check.py" --app ($healthApps -join ',') --expected-sha $GIT_SHORT } | ForEach-Object { Write-Host $_ }
         if ($script:NativeExitCode -ne 0) {
             Write-Host "=== [FAIL] Live health regression suite FAILED - deploy succeeded but health checks failed. ==="
             Write-Host "    Check flyctl logs -a (app) for details."
