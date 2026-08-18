@@ -1972,6 +1972,24 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T15:19:28Z"
+    },
+    {
+      "c_number": "C-176",
+      "title": "aria_coder current_task frozen at starting up; registry advertises it as live state",
+      "claimed_at": "2026-08-18T15:35:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-177",
+      "title": "the learning loop cannot close: mark_prevented has no internal caller and the predictor penalises forever",
+      "claimed_at": "2026-08-18T15:35:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
