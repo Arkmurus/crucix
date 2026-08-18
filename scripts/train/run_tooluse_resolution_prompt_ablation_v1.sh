@@ -2,7 +2,8 @@
 # R-F4153 — bounded, evaluation-only prompt-policy ablation on the accepted parent.
 set -uo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+DRIVER_SOURCE="${ARIA_DRIVER_SOURCE:-${BASH_SOURCE[0]}}"
+SCRIPT_DIR=$(cd "$(dirname "$DRIVER_SOURCE")" && pwd) || exit 1
 REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"; cd "$REPO" || exit 1
 API=https://rest.runpod.io/v1
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"

@@ -105,6 +105,7 @@ def test_host_launcher_bounds_paid_work_and_harvests_both_arms() -> None:
     ).read_text(encoding="utf-8")
 
     assert "trap release EXIT" in launcher
+    assert 'DRIVER_SOURCE="${ARIA_DRIVER_SOURCE:-${BASH_SOURCE[0]}}"' in launcher
     assert "host pre-arm watchdog armed" in launcher
     assert "arm_watchdog \"$UPLOAD_DEADLINE\"" in launcher
     assert "arm_watchdog \"$CYCLE_DEADLINE\"" in launcher
