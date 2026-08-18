@@ -1907,6 +1907,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T05:32:25Z"
+    },
+    {
+      "c_number": "C-171",
+      "title": "the G4 on-loop vaccine matches only bare names, so it is blind to every real call site",
+      "claimed_at": "2026-08-18T06:21:29Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
