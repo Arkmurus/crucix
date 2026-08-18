@@ -2627,3 +2627,71 @@ All 7 failures in the 1,634-test regression checked individually against
 Read before this deploy: `premise_verifier` 8 calls, **0 on-loop** (C-170
 holding, was 7/7), `signal_correlator` the sole remaining blocker at 11/11.
 Exactly what the instrument predicted, which is itself a check on the instrument.
+
+
+## Session continuation — 2026-08-18 · R-F4143 · C-172 — read the dump, don't assume the hypothesis
+
+Operator: *"lets claim those things"* — i.e. go and close what I had explicitly
+left unclaimed. The honest way to do that turned out to be **checking whether the
+thing I planned to fix was still the problem.**
+
+### The step that saved a week
+
+C-166's live hypothesis was GIL contention from `autonomous_research` (83% of
+scan seconds). Building an index for it was the obvious next move. Instead I
+measured the post-C-171 stall state first:
+
+* **1 wedge dump in 27 minutes** (down from 21 in a single pre-fix process)
+* loop `max` **1151 ms** vs **33.8 s** before
+* PSI cpu `0.00`, io `full avg300=0.11`
+
+Shrunk enormously, not gone — which is exactly when reading the remaining dump
+beats guessing. **It was not ranking at all.**
+
+### R-F4143 / C-172 @ 6860e2f9 (live)
+
+The loop thread was inside `import transformers`, in
+`importlib.metadata.packages_distributions()` — walking every installed
+distribution's metadata off disk. Heartbeat stale **5.17 s**. The chain came
+straight out of the same dump, no inference:
+
+```
+main.py:3754  _proactive_loop -> proactive:854 daily_briefing_check
+              -> reasoning_library:1301 get_stats -> :295 _get_embedder
+```
+
+`async def get_stats()` held `"embedder_available": _get_embedder() is not None`,
+and `_get_embedder` imports torch, imports sentence_transformers, and **loads the
+model** — seconds of blocking work on the loop to fill in one boolean, in a
+function whose whole job is to report numbers. **Same class as C-99**
+(`import torch` on the loop, caught by a 5.25 s dump). Second instance = a class,
+so it got a gate.
+
+### The gate had to be made honest before it could be widened
+
+Adding `_get_embedder` to the G4 denylist produced six hits and **four were false
+positives** — `await self._get_embedder()` against real `async def` methods. An
+awaited call is a coroutine by construction, so it cannot be this defect.
+Shipping those four would have forced bogus edits or an exemption list, and §27d
+says a gate that cannot distinguish is worse than none. The visitor now exempts a
+Call that is the DIRECT operand of `await`, **and a test proves the exemption
+does not leak** — a bare call nested inside an awaited expression is still
+caught, so wrapping an offender in any `await` cannot launder it.
+
+One of the two real sites was also redundant: `_embed_async` pre-checked the
+embedder **on the loop** before offloading to `_embed`, which makes the identical
+check on the first line of its own body inside the worker thread.
+
+### Left unchanged, deliberately, and written down
+
+A STATS call still triggers a cold model load as a side effect of asking "is the
+embedder available?". Cheaper would be to report only an already-loaded embedder
+— but that changes what the field MEANS, so it is the operator's call, not
+something to slip into a loop-blocking fix.
+
+### The pattern across C-170 / C-171 / C-172
+
+Each was found by an instrument, not by inspection, and each fix widened the net
+rather than patching the instance: measure -> read the evidence -> fix the guard
+-> the guard finds the rest. C-171 alone surfaced nine sites that nine separate
+deploys would otherwise have chased one at a time.
