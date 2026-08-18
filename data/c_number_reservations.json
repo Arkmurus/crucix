@@ -1966,9 +1966,12 @@
       "title": "CRLF-contaminated fly secrets silently disable the email reader and mislead the auth diagnostic",
       "claimed_at": "2026-08-18T14:53:52Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4152"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T15:19:28Z"
     }
   ]
 }

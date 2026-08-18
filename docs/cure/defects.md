@@ -10622,3 +10622,86 @@ its dispatch verified end to end by a falsifiable test, and its sink verified
 live from fourteen other modules. What has *not* been observed is this specific
 gap in production, and that is the correct state — it means nothing is
 amplifying.
+
+## C-175 · a trailing CR in fly secrets silently disabled the email reader and made the auth diagnostic confidently wrong (fixed, R-F4152)
+
+Found while diagnosing an operator lockout on imaria.io. Measured live on
+aria-web, 2026-08-18:
+
+```
+ARIA_EMAIL_ENABLED = "true\r"
+ARIA_EMAIL_USER    = "aria@arkmurus.com\r"
+ARIA_EMAIL_PASS    = "...\r"
+ADMIN_EMAIL        = "acorrea@arkmurus.com\r"
+```
+
+The secrets were set out of a CRLF file, so each carries one invisible byte.
+
+### What it cost
+
+**1. A feature that was switched on was off.**
+`const ENABLED = process.env.ARIA_EMAIL_ENABLED === 'true'`, and
+`"true\r" === 'true'` is **false**. The email reader logged *"Disabled — set
+ARIA_EMAIL_ENABLED=true to activate"* and did nothing, for a flag the operator
+HAD set to true. Nothing failed and nothing alerted.
+
+**2. SMTP AUTH.** Proven against the real server, connect + AUTH only, no mail
+sent:
+
+```
+AS-IS (with trailing CR): 535 5.7.8 Authentication failed
+TRIMMED:                  AUTH OK
+```
+
+The credentials were always correct; one byte per secret was not.
+
+**3. The diagnostic lied, and I believed it.** `/api/auth/system-status` printed
+the RAW value, showing a broken SMTP user while `lib/auth/email.mjs` — which
+already had its own `_clean` — was trimming and authenticating fine. During a
+live lockout I published *"all outbound email is dead"* on the strength of that
+reading and had to retract it. **A diagnostic that shows something other than
+what the code uses is worse than none, because it is confidently wrong** — and
+it hid the module that genuinely WAS reading raw.
+
+### Why the fix is at the READ, not "set the secret more carefully"
+
+`lib/auth/email.mjs` had already been bitten by this and carries a comment
+ending *"Reverted in favour of trim"*. That fix was **per-module**, so the next
+module to read the same secrets inherited none of it. A habit that lives in one
+file is not a fix. No amount of care at the setting end reliably prevents a CRLF
+paste, so tolerance belongs where the value is consumed.
+
+### The fix introduced the defect, briefly
+
+A literal `\r` in my own explanatory comment split a line in a CRLF file and
+broke `server.mjs` syntax; and my first placement of `_eff` used it before its
+`const` declaration — a TDZ `ReferenceError` on the one endpoint you reach for
+during an outage. `node --check` caught the first, reading caught the second,
+and both are now pinned by tests.
+
+### Live confirmation
+
+```
+[Email Reader] IMAP connected to ox.livemail.co.uk as aria@arkmurus.com
+[Email Reader] INBOX opened — 1268 total, 0 unseen
+```
+
+A capability that had been dark is running. `system-status` now reports
+`smtp.user: "aria@arkmurus.com"` with no CR.
+
+### Not changed
+
+The fly secrets still carry the CR. **The code is now immune, so this is hygiene
+rather than an outage**, and re-setting them restarts aria-web — an
+operator-authorised step, and one that would put live SMTP credentials through a
+tool session for no functional gain.
+
+### Noted, not an anomaly (operator-confirmed 2026-08-18)
+
+`/api/auth/system-status` reports `anomaly: "multiple-admins"` — there are two
+admin rows (`ac***@arkmurus.com`, matching `ADMIN_EMAIL`, and
+`sp***@gmail.com`). **The operator confirms the second is legitimate.** Recorded
+here so the next session does not re-open it as an incident. Note the knock-on:
+`matchesEnv` requires BOTH that exactly one admin row exists AND that its
+email equals `envEmail`, so with two admins it is **false by construction** and says nothing
+about whether the env-named admin exists — do not read it as a mismatch.
