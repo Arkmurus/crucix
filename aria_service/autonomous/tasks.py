@@ -317,15 +317,141 @@ _MAX_RUNS_RETAINED = 50
 
 
 @fail_wire(module="tasks", gap_type="agent_cycle_failure")
+def _unprevented_ids(prediction: dict[str, Any] | None) -> list[str]:
+    """R-F4156 (C-177) — the mistake ids this forecast actively penalised.
+
+    Exactly the set `predictor.py:153` turns into an extra `likely_failure`:
+    HIGH/CRITICAL with no prevention yet. Those are the entries holding
+    `overall_confidence` down and able to trip the 0.2 BLOCK threshold, so they
+    are the only ones a clean run has earned the right to clear.
+
+    Widening this to "every surfaced mistake" would credit work that was never
+    at risk, which is how a proof-of-learning counter becomes decoration.
+
+    Capped and never-raising: it runs on the task hot path, and a bookkeeping
+    helper must not be able to fail a task.
+    """
+    try:
+        return [
+            str(m["mistake_id"])
+            for m in (prediction or {}).get("past_mistakes") or []
+            if m.get("mistake_id")
+            and m.get("severity") in ("HIGH", "CRITICAL")
+            and not m.get("prevented_count")
+        ][:10]
+    except Exception:
+        return []
+
+
+async def _credit_preventions(record: dict[str, Any]) -> None:
+    """R-F4156 (C-177) — close the learning loop.
+
+    `mistake_ledger.mark_prevented` is described by its own route as *"the
+    closed-loop proof that autonomy + learning works"*, and it had **exactly one
+    caller in the entire tree: an HTTP handler**. Nothing in ARIA's own
+    reasoning could ever call it, so `prevented_total` was pinned at 0 across
+    2,924 recorded mistakes — structurally, not for want of performance.
+
+    That is not merely a dead metric. `predictor.py:153` turns every
+    HIGH/CRITICAL mistake WITHOUT a `prevented_count` into an extra
+    `likely_failure`, which drags `overall_confidence` down; and
+    `tasks.py` BLOCKS a task outright below 0.2. Because the counter could
+    never rise, the penalty was permanent: ARIA grew monotonically more
+    pessimistic about any task type she had ever erred on, with no way to earn
+    it back. The loop compounded in the wrong direction.
+
+    **What is credited, and why it is earned rather than manufactured.** A
+    prevention is an OBSERVATION: the predictor surfaced mistake M as a risk
+    before this run, the run went ahead, and it completed cleanly. That is
+    precisely the condition predictor.py names when it says a mistake *"has not
+    yet been prevented on a subsequent run"*.
+
+    Deliberate constraints, each of which stops this becoming self-congratulation:
+
+      * **`status == "ok"` only.** A blocked, errored, timed-out or dry-run task
+        proves nothing. Crucially `blocked_by_predictor` is excluded, so the
+        predictor cannot clear a warning by refusing to act on it.
+      * **Only the ids the forecast actually surfaced**, captured at forecast
+        time — not "every open mistake", which would credit work never at risk.
+      * **Only HIGH/CRITICAL and not already prevented** — the exact set that
+        was costing confidence.
+      * **Never raises.** Bookkeeping must not be able to fail a task that
+        already succeeded.
+
+    Placed in `record_run` because it is the ONE funnel every exit path already
+    goes through — eight `record_run` call sites, one credit point. Putting it
+    beside the two success returns instead would be the whack-a-mole shape:
+    the ninth exit would silently stop crediting.
+    """
+    try:
+        if (record.get("status") or "") != "ok":
+            return
+        if record.get("dry_run"):
+            return
+        pred = record.get("predictor") or {}
+        ids = pred.get("unprevented_ids") or []
+        if not ids:
+            return
+        from ..intel import mistake_ledger as _ml
+        task_id = str(record.get("task_id") or record.get("id") or "unknown")
+        credited = 0
+        for mid in ids:
+            try:
+                await _ml.mark_prevented(
+                    mistake_id=str(mid),
+                    prevented_by=f"predictor:{task_id}",
+                    context=(
+                        f"Warned before run of {record.get('tool_used') or task_id}; "
+                        f"task completed ok without repeating the mistake class."
+                    ),
+                )
+                credited += 1
+            except Exception as _one:
+                logger.debug("[C-177] mark_prevented(%s) failed: %s", mid, _one)
+        if credited:
+            record.setdefault("predictor", {})["preventions_credited"] = credited
+            logger.info(
+                "[C-177] credited %d prevention(s) after a clean %s run",
+                credited, task_id,
+            )
+    except Exception as e:
+        logger.debug("[C-177] prevention crediting failed (non-fatal): %s", e)
+
+
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 async def record_run(record: dict[str, Any]) -> None:
-    """Push one run record onto the head of the runs list, trim the tail."""
+    """Push one run record onto the head of the runs list, trim the tail.
+
+    R-F4156 — wired. This was a public async function with no `@fail_wire` in a
+    module that uses it, and its ONE failure path only reached `logger.warning`.
+    Per §21a a console line is DARK: if run history silently stops persisting,
+    every surface built on it (autonomous history, the coder's view of its own
+    output, and now the prevention credit below) goes quietly blind, and nothing
+    tells the brain. The decorator covers an unexpected raise; the explicit
+    `wire_failure` in the except covers the failure that is actually caught,
+    which the decorator would never see.
+    """
     from ..intel import redis_store as rs
     import json as _json
+    # R-F4156 (C-177) — credit BEFORE persisting, so the stored record carries
+    # `preventions_credited` and the closed loop is auditable from history
+    # rather than only from the ledger.
+    await _credit_preventions(record)
     try:
         await rs.lpush(_RUNS_KEY, _json.dumps(record, default=str))
         await rs.ltrim(_RUNS_KEY, 0, _MAX_RUNS_RETAINED - 1)
     except Exception as e:
         logger.warning("[autonomous runs] failed to persist run record: %s", e)
+        try:
+            from ..intel.engine_wiring import wire_failure
+            wire_failure(
+                module="tasks",
+                gap_type="agent_cycle_failure",
+                detail=f"run record not persisted for {record.get('task_id') or '?'}: {e}",
+                source="tasks:record_run",
+            )
+        except Exception:
+            logger.debug("[R-F4156] record_run failure wire failed", exc_info=True)
 
 
 @fail_wire(module="tasks", gap_type="agent_cycle_failure")
@@ -1643,6 +1769,15 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 "past_mistakes": n_mistakes,
                 "degraded": prediction.get("degraded", False),
             }
+            # R-F4156 (C-177) — remember WHICH mistakes were warned about, so a
+            # clean run can be credited as a prevention in record_run().
+            #
+            # Only the HIGH/CRITICAL ones with no prevention yet: those are
+            # exactly the entries predictor.py:153 turns into an extra
+            # likely_failure, i.e. the ones actively holding confidence down and
+            # able to trip the 0.2 BLOCK threshold. Crediting anything wider
+            # would inflate the counter with mistakes that were costing nothing.
+            record["predictor"]["unprevented_ids"] = _unprevented_ids(prediction)
             if prediction.get("recommendations"):
                 record["predictor"]["recommendations"] = prediction["recommendations"][:3]
 

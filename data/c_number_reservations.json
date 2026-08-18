@@ -1990,6 +1990,18 @@
       "title": "the learning loop cannot close: mark_prevented has no internal caller and the predictor penalises forever",
       "claimed_at": "2026-08-18T15:35:12Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4156"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T20:48:42Z"
+    },
+    {
+      "c_number": "C-178",
+      "title": "lpush never migrates a legacy list blob, so every actively-written list strands its old blob forever",
+      "claimed_at": "2026-08-18T16:27:42Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

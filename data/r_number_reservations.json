@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4157,
+  "next_available": 4158,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35475,6 +35475,15 @@
       "r_number": "R-F4156",
       "title": "close the learning loop: credit a prevention when a warned-about mistake does not recur",
       "claimed_at": "2026-08-18T16:14:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4157",
+      "title": "migrate legacy list blobs on lpush so an actively-written list cannot strand",
+      "claimed_at": "2026-08-18T16:27:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

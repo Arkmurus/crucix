@@ -10813,3 +10813,51 @@ autonomy work is helping.
 **Do not "fix" this by having the route called on a timer.** That manufactures
 the proof rather than earning it, and the counter's stated purpose is to be
 evidence.
+
+### FIXED 2026-08-18 by R-F4156 — the loop can now close on evidence
+
+`record_run()` is the ONE funnel every task exit already passes through (eight
+call sites), so the credit lives there rather than beside the two success
+returns — putting it at the returns would be the whack-a-mole shape where the
+ninth exit silently stops crediting.
+
+**What is credited, and why it is earned rather than manufactured.** At forecast
+time the run remembers `unprevented_ids` — exactly the HIGH/CRITICAL entries
+with no prevention yet, i.e. the ones `predictor.py:153` turns into an extra
+`likely_failure` and which can trip the 0.2 BLOCK threshold. If the run then
+completes cleanly, each of those warnings was raised, acted through, and did not
+recur. That is precisely the condition `predictor.py` names ("has not yet been
+prevented on a subsequent run") and exactly what `mark_prevented`'s own
+docstring describes: *"When the predictor surfaces a past mistake and the new
+task avoids it, increment the prevented_count."* **The mechanism already
+existed; only the caller was missing.**
+
+Guards, each of which stops this becoming self-congratulation:
+
+* **`status == "ok"` only** — and `blocked_by_predictor` is therefore excluded,
+  which is the important one: the predictor must not be able to clear its own
+  warning by refusing to act on it. A metric that rewards avoidance measures the
+  wrong thing.
+* **Only ids the forecast actually surfaced**, captured at forecast time — not
+  "every open mistake", which would credit work that was never at risk.
+* **Not on dry runs** — a dry run never exercises the failure class.
+* **Never raises, and partial failure still credits the rest** — bookkeeping
+  must not be able to fail a task that already succeeded, and one bad id must
+  not abort the others.
+
+**A second defect fixed on the way through.** `record_run` was a public async
+function with no `@fail_wire` in a module that uses it, and its only failure
+path reached `logger.warning` alone. Per §21a that is DARK: if run history
+silently stopped persisting, every surface built on it — autonomous history, the
+coder's view of its own output, and now this credit — would go quietly blind
+with nothing reaching the brain. Now decorated AND explicitly wiring the failure
+it actually catches, which the decorator would never see.
+
+14 tests, including the four that matter most: a blocked run credits nothing, an
+errored/timeout/skipped run credits nothing, a run with no warning credits
+nothing, and a failing ledger cannot break a successful task.
+
+**Expect `prevented_total` to stay 0 until a task runs that was BOTH warned
+about and clean.** That is the metric being earned rather than switched on — do
+not "fix" a continuing zero by widening what counts.
+
