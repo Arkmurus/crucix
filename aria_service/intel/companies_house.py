@@ -26,7 +26,7 @@ free at developer.company-information.service.gov.uk. Until it is set, GB DDs ca
 gather directors / incorporation date / PSC and correctly data-starve to INSUFFICIENT.
 """
 from __future__ import annotations
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 import asyncio
 import contextvars
@@ -1708,8 +1708,18 @@ async def investigate_uk_entity(
         if not results:
             return {
                 "found": False,
+                "resolution_required": True,
                 "query": company_name,
-                "error": "No UK company found matching this name",
+                "resolution": {
+                    "query": company_name,
+                    "candidates": [],
+                    "ambiguous": True,
+                    "reasons": ["Companies House returned no matching company"],
+                },
+                "error": (
+                    "No UK company found matching this name; confirm the exact "
+                    "registered name or Companies House registration number"
+                ),
             }
         # R-F3014 — do NOT blindly take results[0]. An Overseas Entity (ROE,
         # "OE"-prefixed) named the same as the trading company ranks high in CH
@@ -1951,7 +1961,7 @@ def format_for_prompt(investigation: dict) -> str:
         listed = "; ".join(
             f"{c.get('title')} ({c.get('status')}, {c.get('company_number')})"
             for c in candidates[:4]
-        )
+        ) or "none returned"
         reasons = " ".join(str(r) for r in resolution.get("reasons") or [])
         return (
             "\n[COMPANIES HOUSE — IDENTITY RESOLUTION REQUIRED]\n"
@@ -2021,5 +2031,61 @@ def format_for_prompt(investigation: dict) -> str:
             lines.append(f"  - {s}")
 
     return "\n".join(lines)
+
+
+_RESOLUTION_REQUIRED_MARKER = "[COMPANIES HOUSE — IDENTITY RESOLUTION REQUIRED]"
+
+
+@fail_wire(module="companies_house", gap_type="api_missing")
+def enforce_resolution_response(tool_context: str, response: str) -> tuple[str, bool]:
+    """Fail closed when trusted Companies House context requires clarification.
+
+    The model may phrase ordinary answers freely, but it cannot override an identity
+    gate established by the registry resolver.  Returns ``(answer, changed)`` and is
+    a no-op unless the trusted marker emitted by :func:`format_for_prompt` is present.
+    """
+    if _RESOLUTION_REQUIRED_MARKER not in (tool_context or ""):
+        return response, False
+    try:
+        # Use the final resolver block: earlier tool output is untrusted and may
+        # contain marker-like text quoted from a document or user-controlled page.
+        block = tool_context.rsplit(_RESOLUTION_REQUIRED_MARKER, 1)[1]
+        query_match = re.search(r"I cannot safely identify '([^']+)'", block)
+        candidates_match = re.search(r"^Candidates:\s*(.+)$", block, re.MULTILINE)
+        if not candidates_match or not candidates_match.group(1).strip():
+            raise ValueError("resolution-required context has no candidates")
+        query = query_match.group(1).strip() if query_match else "the requested company"
+        candidates = candidates_match.group(1).strip()
+        if candidates == "none returned":
+            answer = (
+                f"I cannot safely identify {query}: Companies House returned no matching "
+                "company. Please confirm the exact registered name or Companies House "
+                "registration number. I will not continue due diligence on a guess."
+            )
+        else:
+            answer = (
+                f"I cannot safely identify {query} from the Companies House results. "
+                f"Candidates: {candidates}. Please confirm the Companies House registration "
+                "number. I will not continue due diligence on an inferred company."
+            )
+        wire_success(
+            module="companies_house",
+            summary="Ambiguous company answer replaced with required clarification",
+            source_id="companies_house:resolution_enforcement:R-F4144",
+        )
+        return answer, answer != response
+    except Exception as exc:
+        wire_failure(
+            module="companies_house",
+            detail=f"Malformed trusted resolution context: {exc}",
+            gap_type="resolution_enforcement_failure",
+            source="companies_house",
+        )
+        return (
+            "I cannot safely identify the requested company from the Companies House "
+            "results. Please confirm its Companies House registration number before I "
+            "continue due diligence.",
+            True,
+        )
 
 # R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

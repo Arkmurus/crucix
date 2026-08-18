@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4144,
+  "next_available": 4145,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35352,6 +35352,15 @@
       "commit_sha": "6860e2f9",
       "notes": null,
       "shipped_at": "2026-08-18T07:25:40Z"
+    },
+    {
+      "r_number": "R-F4144",
+      "title": "enforce ambiguous company clarification after synthesis",
+      "claimed_at": "2026-08-18T07:25:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

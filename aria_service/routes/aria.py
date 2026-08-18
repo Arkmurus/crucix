@@ -3583,6 +3583,9 @@ async def _aria_chat_session(
         message_for_llm = f"{question}\n\n{_wrap_tool_block(framed_context)}"
     result = await aria_chat(message_for_llm, session_id, llm, None)
     response = (result or {}).get("response") or (result or {}).get("answer") or ""
+    if tool_context:
+        from ..intel import companies_house as _ch_resolution
+        response, _ = _ch_resolution.enforce_resolution_response(tool_context, response)
     if return_context:
         return response, framed_context
     return response
@@ -12542,6 +12545,19 @@ async def chat_ep(req: ChatRequest, request: Request):
                 {"guard": "ground_truth_guard", "error": str(e)[:200]}
             )
 
+        # R-F4144 — the registry resolver's ambiguity gate is authoritative.
+        # Apply it after general prose guards, before footers, learning, and audit.
+        try:
+            from ..intel import companies_house as _ch_resolution
+            response_text, _resolution_changed = _ch_resolution.enforce_resolution_response(
+                tool_context or "", response_text,
+            )
+            if _resolution_changed:
+                result["response"] = response_text
+                result["company_resolution_enforced"] = True
+        except Exception as _resolution_error:
+            _log.error("company resolution enforcement failed: %s", _resolution_error)
+
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
         # source_verifier verdict + grounded/unverified counts) into a
@@ -13314,6 +13330,15 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 # at 8s and the whole chain at 25s so a hung guard can
                 # never block the done event.
                 _full_text = "".join(_r412_response_buf)
+                try:
+                    from ..intel import companies_house as _ch_resolution
+                    _full_text, _resolution_changed = _ch_resolution.enforce_resolution_response(
+                        tool_context or "", _full_text,
+                    )
+                    if _resolution_changed:
+                        yield f'data: {json.dumps({"type":"replace","text":_full_text})}\n\n'
+                except Exception as _resolution_error:
+                    _log.error("stream company resolution enforcement failed: %s", _resolution_error)
                 _r446_changed = False
                 try:
                     from ..intel import stream_honesty as _sh
