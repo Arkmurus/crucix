@@ -21,7 +21,8 @@ def test_pod_cycle_continues_recovered_adapter_and_persists_before_eval() -> Non
     assert 'DPO_BETA="${DPO_BETA:-0.3}"' in code
     assert 'DPO_LR="${DPO_LR:-2e-6}"' in code
     assert '--epochs 1 --beta "$DPO_BETA" --lr "$DPO_LR" --batch-size 2' in code
-    assert "--gradient-accumulation-steps 1" in code
+    assert 'DPO_GRAD_ACCUM="${DPO_GRAD_ACCUM:-1}"' in code
+    assert '--gradient-accumulation-steps "$DPO_GRAD_ACCUM"' in code
     assert "--max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit" in code
     assert '--target "http://localhost:$PORT/v1"' in code
     assert '--eval-file "$EVAL_FILE" --out "$REPORT"' in code

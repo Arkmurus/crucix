@@ -85,7 +85,7 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert 'REMOTE_BYTES=$(TSSH' in code
     assert 'state=$STATE' in code
     assert '"$STATE" = RUNNING' in code
-    state_written = code.index('echo "POD_ID=$POD_ID"')
+    state_written = code.index("write_state upload", armed)
     assert armed < state_written < uploaded
     assert "DEADLINE=$UPLOAD_DEADLINE" in code
     assert "DEADLINE=$GENERATION_DEADLINE" in code

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4139,
+  "next_available": 4141,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35303,6 +35303,24 @@
       "commit_sha": "c34bef1f",
       "notes": null,
       "shipped_at": "2026-08-18T05:52:20Z"
+    },
+    {
+      "r_number": "R-F4139",
+      "title": "repair stale DPO launcher regression guards",
+      "claimed_at": "2026-08-18T05:41:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4140",
+      "title": "deduplicated resolution curriculum coverage guard",
+      "claimed_at": "2026-08-18T05:41:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
