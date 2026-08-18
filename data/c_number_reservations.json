@@ -1978,9 +1978,12 @@
       "title": "aria_coder current_task frozen at starting up; registry advertises it as live state",
       "claimed_at": "2026-08-18T15:35:12Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4154"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T15:45:16Z"
     },
     {
       "c_number": "C-177",

@@ -241,6 +241,29 @@ class _RedisStoreAdapter:
         return await self._rs.delete(key)
 
 
+def _coder_task_label() -> str:
+    """A truthful one-line description of what the coder is doing right now.
+
+    R-F4154 (C-176). Deliberately derived from state the coder ALREADY
+    maintains rather than from a new field the loop must remember to update —
+    a status that depends on being updated is a status that goes stale, which
+    is the defect this fixes.
+
+    Never raises: the heartbeat must keep ticking even if the label cannot be
+    computed, because a missing heartbeat is read as a blackout (R-F1146) and
+    would turn a cosmetic problem into a false recovery trigger.
+    """
+    try:
+        from .self_coder import _CODER_PHASE
+        phase = (_CODER_PHASE or {}).get("phase")
+        detail = (_CODER_PHASE or {}).get("detail") or ""
+        if phase:
+            return f"{phase}: {detail}"[:120] if detail else str(phase)[:120]
+    except Exception:
+        pass
+    return "idle (between cycles)"
+
+
 async def _heartbeat_ticker() -> None:
     """Background task that ticks the coder's heartbeat every 30s.
 
@@ -336,7 +359,29 @@ async def _heartbeat_ticker() -> None:
             # Also tick the agent registry heartbeat (non-fatal if it fails)
             if _reg is not None:
                 try:
-                    await _reg.tick_heartbeat("aria_coder")
+                    # R-F4154 (C-176) — pass the LIVE task, not nothing.
+                    #
+                    # This called `tick_heartbeat("aria_coder")` with no task, and
+                    # `current_task` is written exactly once — at registration,
+                    # as the literal "starting up" — and nowhere else in the tree.
+                    # So the registry advertised "starting up" forever. Measured
+                    # live 2026-08-18: registered_at 1787063949, last_heartbeat
+                    # 1787067014 — **51 minutes of "starting up"** on a coder that
+                    # was in fact healthy (brain stats: 85 cycles, 0 failures).
+                    #
+                    # That is not cosmetic. R-F1160 registers the coder here
+                    # precisely "so other agents (gap_detector, research_engine,
+                    # Claude Code sessions) know the coder is active AND WHAT IT
+                    # IS WORKING ON", and gap claiming (`claim_gap`) is
+                    # coordinated through this same registry. A field that can
+                    # only ever hold its initial value is an absence dressed as a
+                    # measurement — and it cost real time in this very review,
+                    # where "starting up for 51 minutes" read as a hung loop.
+                    #
+                    # The registry already supported this: `tick_heartbeat`
+                    # accepts `current_task`, and `update_task` exists. Neither
+                    # was ever called.
+                    await _reg.tick_heartbeat("aria_coder", current_task=_coder_task_label())
                 except Exception:
                     pass
     except ImportError:

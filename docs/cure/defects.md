@@ -10705,3 +10705,111 @@ here so the next session does not re-open it as an incident. Note the knock-on:
 `matchesEnv` requires BOTH that exactly one admin row exists AND that its
 email equals `envEmail`, so with two admins it is **false by construction** and says nothing
 about whether the env-named admin exists — do not read it as a mismatch.
+
+## C-176 · the coder advertised "starting up" to the agent registry for its entire life (fixed, R-F4154)
+
+Found by the 360 ecosystem review, in the registry itself:
+
+```
+aria_coder | current_task: "starting up" | status: active | heartbeat_age 11.4s
+registered_at 1787063949 -> last_heartbeat 1787067014  = 3,065s
+```
+
+**51 minutes of "starting up"** — on a coder that was in fact perfectly healthy
+(`brain/stats`: `aria_coder total=85, ok=85, fail=0`).
+
+`current_task` was written exactly once, at registration, as the literal
+`"starting up"`, and **nowhere else in the tree**. The heartbeat tick passed no
+task, so the field could never hold anything else.
+
+**Not cosmetic.** R-F1160 registers the coder here precisely *"so other agents
+(gap_detector, research_engine, Claude Code sessions) know the coder is active
+and what it's working on"*, and gap claiming (`claim_gap`) is coordinated
+through this same registry. A field that can only ever hold its initial value is
+an absence dressed as a measurement — and it cost real time in the review that
+found it, where "starting up for 51 minutes" read as a hung loop and had to be
+retracted within minutes.
+
+The registry already supported the fix: `tick_heartbeat` accepts `current_task`,
+and `update_task` exists. Neither was ever called. The coder now publishes a
+phase (`scanning` / `idle` / `paused` / `error`) that the ticker reads, bounded
+and non-raising because a missing heartbeat is read as a blackout (R-F1146) and
+a broken status label must not escalate into a false recovery trigger.
+
+One of the tests had to be rewritten: the first draft counted occurrences of
+`"starting up"` in the file and failed at 4, because three were in the comments
+EXPLAINING the defect. Counting prose is not testing code; it now asserts the
+property — no live status write may pin the placeholder.
+
+---
+
+## C-177 · the learning loop cannot close — `mark_prevented` has no internal caller, and the predictor penalises forever (OPEN)
+
+**DIAGNOSIS ONLY, deliberately not fixed here.** This changes autonomy
+behaviour and deserves its own change, not a sixth item in a review turn.
+
+The single clearest answer to *"is ARIA compounding?"*, and it is no.
+
+### Measured live, 2026-08-18
+
+```
+mistake_ledger   total_entries 2,923      prevented 0
+capability_gaps  total 500 (AT CAP)       unresolved 500      resolved 0
+self/staged      exactly 1 item, auto_deployable: false, awaiting review
+aria_coder       85 cycles, 0 failures — the loop is HEALTHY and running
+```
+
+Detection is prolific and well instrumented. Conversion into change is zero.
+
+### Why `prevented` can never move
+
+`mistake_ledger.mark_prevented()` — its own docstring calls it *"the single most
+important"* signal, and the route that exposes it says *"this counter is the
+closed-loop proof that autonomy + learning works"* — has **exactly one caller in
+the entire tree**:
+
+```
+aria_service/routes/aria.py:23663      (an HTTP POST handler)
+```
+
+**Nothing in ARIA's own reasoning ever calls it.** The terminal step of the
+learning loop is reachable only from outside the system. `prevented: 0` across
+2,923 mistakes is therefore structural, not a performance problem.
+
+### And the penalty is permanent, so it compounds the WRONG way
+
+`predictor.py` is live (called from `autonomous/tasks.py:1630`,
+`chain_correlator.py:420`, `dd_orchestrator.py:15644`) and reads the ledger:
+
+```python
+past = await mistake_ledger.lookup_similar(tt, dom, limit=_MISTAKES_LOOKBACK)   # :142
+...
+if m.get("severity") in ("HIGH", "CRITICAL") and not m.get("prevented_count"):  # :153
+    # becomes an extra failure signal
+```
+
+Because `prevented_count` can never be incremented internally, **every
+high-severity mistake counts against every future forecast, forever.** ARIA
+grows monotonically more pessimistic about any task type she has ever erred on,
+with no mechanism to earn it back. That is compounding — in the wrong direction.
+
+### Why `resolved` is 0 as well
+
+`capability_gaps.resolve_gap()` has exactly one production caller,
+`self_coder.py:734`, reached only when the coder completes a fix and gets an
+R-number. The coder runs (85 clean cycles) but has produced one staged item, so
+nothing resolves — and the ledger has hit its **500-slot cap**, which means new
+gaps now displace old ones and detection itself starts degrading.
+
+### What the fix has to establish
+
+A prevention is an *observation*, not a bookkeeping call: the next run of a
+task-type that previously failed, which does NOT repeat the failure, is the
+evidence. Something on that path — most naturally the predictor, which already
+looks the mistakes up — must record it. Until then the two headline autonomy
+metrics are structurally pinned at zero and cannot be used to judge whether any
+autonomy work is helping.
+
+**Do not "fix" this by having the route called on a timer.** That manufactures
+the proof rather than earning it, and the counter's stated purpose is to be
+evidence.

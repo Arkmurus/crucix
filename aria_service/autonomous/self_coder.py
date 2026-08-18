@@ -82,6 +82,32 @@ WORKSPACE_BASE = Path(
     os.environ.get("ARIA_CODER_WORKSPACE", "/data/coder_workspace")
 )
 MAX_FIX_ATTEMPTS = 10  # R-F996: raised from 3
+#: R-F4154 (C-176) — the coder's live phase, published for the agent registry.
+#:
+#: Module-level and plain-dict on purpose: the heartbeat ticker lives in
+#: `coder_entrypoint` and runs as a SEPARATE task, so it cannot reach into the
+#: ARIACoder instance without a reference it has no other reason to hold. A
+#: module global is read-only from the ticker's side and costs one dict write
+#: per phase change on the coder's side.
+#:
+#: Before this, `current_task` was set once at registration to "starting up" and
+#: never written again — measured live at 51 minutes of "starting up" on a coder
+#: that had completed 85 healthy cycles. Other agents coordinate through this
+#: registry (`claim_gap`), so the stale label is a coordination input, not just a
+#: display string.
+_CODER_PHASE: dict[str, str] = {"phase": "starting up", "detail": ""}
+
+
+def _set_phase(phase: str, detail: str = "") -> None:
+    """Publish the current phase. Never raises — a status update must not be
+    able to break the loop it describes."""
+    try:
+        _CODER_PHASE["phase"] = str(phase)[:60]
+        _CODER_PHASE["detail"] = str(detail)[:120]
+    except Exception:
+        pass
+
+
 SCAN_INTERVAL_S = 300           # 5 minutes (R-F996: was 15)
 POST_DEPLOY_MONITOR_S = 1800    # 30 minutes
 MAX_GAPS_PER_CYCLE = 20  # R-F996: raised from 3
@@ -516,9 +542,12 @@ class ARIACoder:
                 from aria_service.autonomous.safety import is_engine_paused
                 if await is_engine_paused():
                     logger.debug("[aria_coder] engine paused — skipping cycle")
+                    _set_phase("paused", "engine pause flag set")   # R-F4154
                     await asyncio.sleep(SCAN_INTERVAL_S)
                     continue
+                _set_phase("scanning", "gap detection cycle")       # R-F4154
                 await self._one_cycle()
+                _set_phase("idle", f"cycle complete, next in {SCAN_INTERVAL_S}s")
                 # R-F1282: wire success to brain so the operator can see
                 # the coder is alive and producing results.
                 try:
@@ -547,6 +576,9 @@ class ARIACoder:
                 except Exception:
                     pass
                 logger.error("[aria_coder] cycle error: %s", e, exc_info=True)
+                _set_phase("error", str(e)[:110])   # R-F4154 — a failing coder
+                # must not read as a healthy one in the registry other agents
+                # coordinate through.
             await asyncio.sleep(SCAN_INTERVAL_S)
 
     async def _one_cycle(self) -> None:
