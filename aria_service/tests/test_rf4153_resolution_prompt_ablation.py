@@ -84,3 +84,32 @@ def test_ablation_is_pre_registered_and_cannot_authorize_promotion() -> None:
         "maximum_axis_regressions": 0,
     }
     assert manifest["promotion_authorized"] is False
+
+
+def test_pod_runner_is_evaluation_only_and_requires_watchdog() -> None:
+    runner = Path("scripts/train/pod_tooluse_prompt_ablation.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "require_watchdog" in runner
+    assert runner.count("python -m scripts.train.eval_tooluse") == 2
+    assert "--system-append-file" in runner
+    assert "sft_train" not in runner
+    assert "dpo_train" not in runner
+    assert "promotion" not in runner
+
+
+def test_host_launcher_bounds_paid_work_and_harvests_both_arms() -> None:
+    launcher = Path(
+        "scripts/train/run_tooluse_resolution_prompt_ablation_v1.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "trap release EXIT" in launcher
+    assert "host pre-arm watchdog armed" in launcher
+    assert "arm_watchdog \"$UPLOAD_DEADLINE\"" in launcher
+    assert "arm_watchdog \"$CYCLE_DEADLINE\"" in launcher
+    assert launcher.count("RSCP_PULL /workspace/eval/aria_tooluse_resolution_prompt_ablation_v1_") == 2
+    assert "baseline arm does not reproduce the registered parent" in launcher
+    assert "promotion_authorized\": False" in launcher
+    assert "sft_train" not in launcher
+    assert "dpo_train" not in launcher
