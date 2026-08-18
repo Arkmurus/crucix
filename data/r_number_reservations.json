@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4155,
+  "next_available": 4156,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35460,6 +35460,15 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F4155",
+      "title": "scope PowerShell command guard away from Bash scripts",
+      "claimed_at": "2026-08-18T15:36:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Renumbered during rebase after concurrent R-F4154 reservation was published first."
     }
   ]
 }

@@ -1242,21 +1242,24 @@ def check_powershell_safety(
     files: list[Path],
     added_lines_by_file: dict[str, set[int]] | None = None,
 ) -> list[str]:
-    """R-F2135 — Flag known PowerShell-incompatible patterns in shell scripts
-    and documentation. This is the structural guard for anti-hallucination
-    law 19: PowerShell is not bash.
+    """R-F2135/R-F4155 — Flag PowerShell-incompatible patterns where relevant.
+
+    Bash ``.sh`` files are deliberately excluded: ``curl`` and ``&&`` are valid
+    there, and replacing them with PowerShell syntax breaks Linux pod runners.
+    The guard applies to PowerShell scripts and human-facing documentation where
+    an unqualified command may be copied into the Windows development shell.
 
     Checks for:
     - curl without .exe (PowerShell aliases curl to Invoke-WebRequest)
     - double-ampersand as command separator (PowerShell uses semicolon)
 
-    Only checks .ps1, .sh, .md files. When added_lines_by_file is provided
+    Only checks .ps1 and .md files. When added_lines_by_file is provided
     (pre-commit staged mode), only ADDED lines are checked.
 
     Returns a list of issue strings (empty if all pass).
     """
     issues = []
-    check_extensions = {".ps1", ".sh", ".md"}
+    check_extensions = {".ps1", ".md"}
 
     for fp in files:
         if fp.suffix not in check_extensions:
