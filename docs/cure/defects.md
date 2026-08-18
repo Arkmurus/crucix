@@ -10328,3 +10328,87 @@ cannot silently give half-coverage.
 R-F4138's bespoke AST gate for `verify_premises` is kept. It is now partly
 redundant with the repaired repo-wide gate, and deliberately so: it carries a
 specific failure message naming the four call sites, while G4 is the general net.
+
+## C-172 · a cold `import transformers` + model load ran ON the event loop, from a stats function (fixed, R-F4143)
+
+**Found by reading the one wedge dump that survived C-170/C-171 — not by
+assuming C-166's remaining GIL contention was the culprit.** That assumption
+would have sent me to build an index; the dump said something else entirely.
+
+First, the post-fix stall state was measured rather than presumed: **1 dump in
+27 minutes** (down from 21 in a single pre-fix process), loop `max` 1151 ms
+against 33.8 s before, PSI cpu `0.00`, io `full avg300=0.11`. So the symptom had
+shrunk enormously but had NOT gone — which is precisely when it is worth reading
+the remaining one instead of guessing.
+
+### The loop thread, verbatim
+
+```
+File ".../pathlib/_local.py", line 546 in read_text
+File ".../importlib/metadata/__init__.py", line 915 in read_text
+File ".../importlib/metadata/__init__.py", line 1045 in packages_distributions
+File ".../transformers/utils/import_utils.py", line 47 in <module>
+File "<frozen importlib._bootstrap_external>", line 1023 in exec_module
+```
+
+The event loop was inside `import transformers`, in `packages_distributions()`,
+which walks **every installed distribution's metadata off disk**. Heartbeat
+stale by **5.17 s**.
+
+The app frames in the same dump gave the whole chain without inference:
+
+```
+main.py:3754            _proactive_loop
+proactive.py:854        daily_briefing_check
+reasoning_library:1301  get_stats
+reasoning_library:295   _get_embedder
+```
+
+`async def get_stats()` contained:
+
+```python
+"embedder_available": _get_embedder() is not None,
+```
+
+and `_get_embedder` does `import torch`, `from sentence_transformers import
+SentenceTransformer` (which pulls transformers) and then **loads the model**.
+Seconds of blocking work on the loop, to fill in one boolean, in a function
+whose entire job is to report numbers.
+
+**Same class as C-99** — `memory_leak_detector`'s synchronous `import torch`,
+caught the same way by a 5.25 s dump. Second instance makes it a class, not an
+incident, which is why this ships a gate rather than two one-line edits.
+
+### The gate had to be made HONEST before it could be widened
+
+Adding `_get_embedder` to the G4 denylist produced **six** hits and **four were
+false positives**: `await self._get_embedder()` against genuinely `async def`
+methods in `llm_eval_framework` and `contamination_check`. An awaited call must
+be a coroutine — awaiting a sync function is a `TypeError` — so it cannot be the
+sync-CPU-on-the-loop defect this gate exists for.
+
+Shipping those four as violations would have forced either bogus edits or an
+exemption list, and §27d is explicit that a gate which cannot distinguish is
+worse than no gate. The visitor now exempts a Call that is the **direct operand
+of `await`** — and a test proves the exemption does not leak: a bare call nested
+*inside* an awaited expression (`await asyncio.sleep(0, result=_get_embedder())`)
+is still caught, so wrapping an offender in any await cannot launder it.
+
+With that, exactly the two genuine sync sites remained, both in
+`reasoning_library`.
+
+### One of the two was redundant as well as harmful
+
+`_embed_async` pre-checked `_get_embedder() is not None` **on the loop** before
+offloading to `_embed` — while `_embed` performs the identical check on the
+first line of its own body, inside the worker thread. Deleting the pre-check
+removes the loop block without changing a single observable outcome.
+
+### Left deliberately unchanged, and flagged
+
+Offloading is the semantics-preserving fix, but the deeper oddity stands: a
+STATS call still triggers a cold model load (seconds of CPU, ~100 MB RSS) as a
+side effect of asking "is the embedder available?". Reporting only an
+ALREADY-loaded embedder would be cheaper and is arguably right, but it changes
+what the field means — an operator-visible decision, not something to slip into
+a loop-blocking fix.

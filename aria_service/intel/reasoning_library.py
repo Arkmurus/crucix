@@ -317,9 +317,19 @@ async def _embed_async(text: str) -> list[float] | None:
     thread so the FastAPI event loop is free during the GIL-blocking C call.
     Use this from any async path (find_match, add_case). Past incident
     2026-04-08: sync _embed() on the event loop starved the chat handler."""
-    embedder = _get_embedder()
-    if embedder is None:
-        return None
+    # R-F4143 (C-172) — this used to pre-check `_get_embedder() is not None`
+    # HERE, on the event loop, before offloading. That pre-check is what the
+    # docstring above was trying to protect against: `_get_embedder` does a cold
+    # `import torch`, `from sentence_transformers import SentenceTransformer`
+    # (which imports transformers) and then LOADS the model. A 5.17s wedge dump
+    # caught the loop thread mid-`import transformers`, inside
+    # `importlib.metadata.packages_distributions()` walking every installed
+    # distribution's metadata.
+    #
+    # It was also redundant: `_embed` performs the identical None check on the
+    # first line of its own body, and that body already runs in the worker
+    # thread. Deleting the pre-check removes the loop block without changing a
+    # single observable outcome — a None embedder still yields None.
     import asyncio
     return await asyncio.to_thread(_embed, text)
 
@@ -1298,7 +1308,20 @@ async def get_stats() -> dict:
         "confidence_distribution": confidence_dist,
         "born": meta.get("born"),
         "age_days": round((time.time() - meta.get("born", time.time())) / 86400, 1),
-        "embedder_available": _get_embedder() is not None,
+        # R-F4143 (C-172) — offloaded. This is THE line the 5.17s wedge dump
+        # caught: `_proactive_loop` -> `daily_briefing_check` -> `get_stats` ->
+        # `_get_embedder` -> `import transformers`, on the event loop, in a
+        # function whose whole job is to report numbers.
+        #
+        # NOTE for whoever touches this next: offloading is the semantics-
+        # preserving fix, but the deeper oddity is left deliberately unchanged —
+        # a STATS call still triggers a cold model load (seconds of CPU, ~100MB
+        # RSS) as a side effect of asking "is the embedder available?". Making
+        # it report only an ALREADY-loaded embedder would be cheaper and is
+        # arguably right, but it changes what the field means, so it is an
+        # operator-visible decision rather than something to slip into a
+        # loop-blocking fix.
+        "embedder_available": (await asyncio.to_thread(_get_embedder)) is not None,
     }
 
 

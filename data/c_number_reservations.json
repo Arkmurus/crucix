@@ -1925,9 +1925,12 @@
       "title": "cold transformers import + model load on the event loop via _get_embedder in async stats",
       "claimed_at": "2026-08-18T07:11:17Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4143"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T07:17:25Z"
     }
   ]
 }

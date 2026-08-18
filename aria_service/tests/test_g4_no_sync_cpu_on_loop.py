@@ -24,6 +24,9 @@ DENYLIST = {
     "search_knowledge",      # O(570k-fact) linear scan (knowledge.py), 2.28s live
     "search_fact_records",   # R-F4141 — same scan, programmatic entry point
     "verify_premises",       # R-F4141 — calls search_fact_records under it (C-170)
+    "_get_embedder",         # R-F4143 (C-172) — cold `import transformers` +
+                             # SentenceTransformer model load. Caught mid-import
+                             # on the loop by a 5.17s wedge dump.
     "_strip_html_to_text",   # BeautifulSoup tree-walk (crawler/fetcher.py)
     "_safe_encode",          # sentence-transformer encode (semantic_search.py)
     "_encode_edges",         # neural-memory JSON edge encode
@@ -39,6 +42,20 @@ class _Visitor(ast.NodeVisitor):
         self.path = path
         self.async_depth = 0
         self.violations: list[str] = []
+        # R-F4143 (C-172) — Calls that are the operand of `await`. An awaited
+        # call MUST be a coroutine (awaiting a sync function is a TypeError),
+        # so it cannot be the blocking-sync-CPU-on-the-loop defect this gate
+        # exists for. Without this, adding `_get_embedder` to the denylist
+        # produced FOUR false positives — `await self._get_embedder()` against
+        # genuinely `async def` methods — and a gate that cannot distinguish
+        # forces either bogus edits or an exemption list. Both are worse than
+        # no gate.
+        self._awaited: set[int] = set()
+
+    def visit_Await(self, node):
+        if isinstance(node.value, ast.Call):
+            self._awaited.add(id(node.value))
+        self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node):
         self.async_depth += 1
@@ -78,6 +95,8 @@ class _Visitor(ast.NodeVisitor):
             name = func.id
         elif isinstance(func, ast.Attribute):
             name = func.attr
+        if id(node) in self._awaited:
+            name = None          # awaited => a coroutine, not sync CPU
         if self.async_depth > 0 and name in DENYLIST:
             self.violations.append(
                 f"{self.path}:{node.lineno} inline {name}() in async context")
