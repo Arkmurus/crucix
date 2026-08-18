@@ -2923,6 +2923,31 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     # R-F1933 (M4): flush queued writes first so the list seq-counter read/INSERT
     # below stays ordered relative to the enqueued set/set_json path.
     await _flush_write_queue()
+    # R-F4157 (C-178) — MIGRATE BEFORE THE FIRST WRITE, or the legacy blob is
+    # stranded forever.
+    #
+    # `_migrate_list_if_needed` is called by lpop/ltrim/llen/lrange, but only in
+    # their FALLBACK branch — the one reached when `list_entries` has no rows
+    # for the key. `lpush` did not call it at all. So the moment a legacy
+    # JSON-blob list received its first new push, the key gained live rows,
+    # every subsequent read short-circuited on `if rows:`, and the migration
+    # became UNREACHABLE. The blob was orphaned by the very next write.
+    #
+    # The failure is self-selecting: the busier the list, the sooner it strands.
+    # Measured live on aria-intel 2026-08-18 — 55 keys carried BOTH a legacy
+    # blob and live rows, totalling **19.3 MB** of dead weight in `state`, led by
+    # `crucix:audit:log` at 14.1 MB shadowed by 50,000 live rows. The one-time
+    # migration R-F1515 designed had never run for any actively-written list.
+    #
+    # Doing it here closes the window permanently: a blob is migrated on the
+    # first push, before live rows exist, which is exactly the state
+    # `_migrate_list_if_needed` requires. It is a no-op (one indexed lookup for
+    # a `kind='list'` row) once migrated, so steady-state cost is nil.
+    try:
+        await _migrate_list_if_needed(key)
+    except Exception as _mig_e:          # never block a write on housekeeping
+        logger.debug("state_store: pre-push list migration skipped for %s: %s",
+                     key, _mig_e)
     seq_key = _list_seq_counter(key)
     # R-F1518: per-list lock to serialize counter increment + INSERT.
     # This is a fast operation (microseconds) — the lock is never held

@@ -10861,3 +10861,84 @@ nothing, and a failing ledger cannot break a successful task.
 about and clean.** That is the metric being earned rather than switched on — do
 not "fix" a continuing zero by widening what counts.
 
+## C-178 · an actively-written list stranded its legacy blob forever, and the busier the list the more certainly it happened (fixed, R-F4157)
+
+Found by investigating operator-reported state-store bloat, from the data rather
+than from the code.
+
+R-F1515 replaced the JSON-blob list (one `state` row holding the whole list)
+with a row-per-entry table, and shipped `_migrate_list_if_needed()` to convert
+legacy keys lazily "on first read", deleting the blob afterwards. It is called
+by `lpop`, `ltrim`, `llen` and `lrange` — but **only in their fallback branch**:
+
+```python
+rows = await cur.fetchall()        # SELECT ... FROM list_entries
+if rows:
+    return values[start:end]       # <-- RETURNS EARLY
+# Fallback: check legacy JSON blob
+await _migrate_list_if_needed(key) # <-- only when list_entries is EMPTY
+```
+
+**`lpush` did not call it at all.** So:
+
+1. a legacy blob sits in `state` with `kind='list'`
+2. one `lpush` lands -> the key now has rows in `list_entries`
+3. every later read short-circuits on `if rows:`
+4. the migration is **unreachable**, and the blob is dead weight forever
+
+The blob is orphaned by the very next write, and the failure is **self-selecting**:
+the more traffic a list gets, the sooner step 2 happens — so the biggest, busiest
+lists strand first and largest. The "one-time migration" had never run for any
+actively-written list.
+
+### Measured live on aria-intel, 2026-08-18
+
+```
+state rows kind='list' WITH live list_entries rows :   55 keys, 19,266,104 bytes
+state rows kind='list' with no live counterpart    :  914 keys,    126,068 bytes
+
+biggest stranded:
+  crucix:audit:log                    14,141,171   (50,000 live rows)
+  crucix:metacog:self_assessments      1,464,433   (   500 live rows)
+  crucix:metacog:codegen:proposals     1,305,664   (   100 live rows)
+  crucix:news_monitor:articles           982,469   ( 1,000 live rows)
+```
+
+**19.3 MB of provably-superseded blobs.** "Provably" is the operative word: each
+of those 55 keys has live rows in `list_entries` for the same key, so the blob is
+not the live copy.
+
+### What the same investigation RULED OUT, so nobody re-runs it
+
+* **Expired rows never reaped** — the obvious hypothesis, and wrong: 540,344
+  rows, only **3** expired-and-present totalling 21 bytes. TTL reaping works.
+* **Freelist bloat** — `page_count 153,832 x 4,096 = 630 MB`, `freelist_count
+  9,721` = 39.8 MB. A VACUUM reclaims ~40 MB, not the file.
+* **`lpush` rewriting a whole list per append** (the C-95 shape) — wrong:
+  R-F1515 made it a single INSERT, O(1). The 14 MB row is the legacy blob, not
+  the live list.
+* **Overall size is not pathological**: ~350 MB of live values across 944k rows
+  (540k `state` + 404k `list_entries`) in a 630 MB file is ordinary SQLite
+  overhead.
+
+### The fix
+
+Migrate on the FIRST push. At that moment there are no live rows yet, which is
+exactly the state `_migrate_list_if_needed` requires — so the window closes
+permanently. Once migrated it is a no-op (one indexed lookup for a `kind='list'`
+row), so steady-state cost is nil, and it is wrapped so housekeeping can never
+fail a write and drop data.
+
+Two of the tests had to be **rewritten**: the first drafts used `str.find`, and
+one matched the word "INSERT" inside lpush's own DOCSTRING while the other
+scanned a fixed character window for `try:` that the explanatory comment was
+longer than. Both were heuristics measuring prose; they are AST checks now.
+
+### NOT fixed here — the 55 keys already stranded
+
+`crucix:audit:log` is a **tamper-evident audit chain** whose blob holds entries
+from 2026-06-10 that may pre-date the live rows. Merging risks resurrecting
+trimmed history and disturbing the hash chain; deleting risks losing audit
+history that was never migrated. Under §26 that is a data decision requiring an
+archive with a manifest and operator sign-off — not something to slip into a
+code fix. **Recovering the 19.3 MB is a separate, deliberate step.**

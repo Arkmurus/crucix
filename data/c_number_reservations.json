@@ -2002,9 +2002,12 @@
       "title": "lpush never migrates a legacy list blob, so every actively-written list strands its old blob forever",
       "claimed_at": "2026-08-18T16:27:42Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4157"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T21:01:10Z"
     }
   ]
 }
