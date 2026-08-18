@@ -10171,3 +10171,80 @@ failure. R-F4136's instrument will show `entity_resolver` by name in
 `ranking_stats()`, so if it dominates that reading, C-166's fix is the one that
 pays for it. The stale "~55k facts in prod" in the docstring — off by 10x — was
 corrected at the same time.
+
+## C-170 · the premise verifier ran an O(corpus) scan ON the event loop, every chat turn (fixed, R-F4138)
+
+**Found by R-F4137's instrument, on its first useful production reading.** Not
+by inspection, not by a failing test — by the on-loop/off-loop split that was
+built two commits earlier for exactly this purpose. 8 hours on aria-intel:
+
+```
+total_calls=99  total_seconds=225.8  mean=2.28  |  ON_LOOP calls=7  seconds=10.725
+   to_thread:autonomous_research        calls=86  secs=186.55  max=5.63  onloop=0
+   to_thread:tool:corpus_ingest         calls= 3  secs= 12.01           onloop=0
+   aria_service.intel.premise_verifier  calls= 7  secs= 10.72  max=2.21  onloop=7/10.72
+   aria_service.aria_engine             calls= 1  secs=  6.84           onloop=0
+   to_thread:unattributed               calls= 1  secs=  5.49           onloop=0  (boot warmup)
+   aria_service.intel.entity_resolver   calls= 1  secs=  4.21           onloop=0
+```
+
+`premise_verifier` is the **only** caller with on-loop time, and **every one of
+its calls is on-loop**, up to **2.21s each**. That is the loop blocked outright,
+not merely contended for.
+
+### The comment that made it look safe
+
+```python
+# Sync + side-effect-free + ~0.5ms hot-path cost (regex + SQLite
+# lookup against the 24,955-row canonical cache). Never raises.
+_report = _pv.verify_premises(message)          # aria_engine.py:3538
+```
+
+**That was TRUE when R-F534 wrote it.** `verify_officeholder_premise` and
+`verify_programme_premise` later grew a `_kb.search_fact_records(q, limit=3)`
+call — the O(corpus) ranking scan — turning a 0.5 ms call into a **2.28s mean
+against 570,254 facts**, a ~4,500x drift. Nobody revisited the comment, so the
+justification for calling it synchronously outlived the fact that justified it.
+
+That is the **C-98 shape**, and it is now the third instance in this register: a
+change *somewhere else* silently voids a decision that was correct when it was
+made, and the code keeps doing exactly what it was told. C-98 (the off-host
+backup that stopped being off-host), C-95 (infinite memory making a whole-graph
+rewrite unbounded), and now a cost annotation that stopped being true.
+
+### Fixed at all four async call sites
+
+`aria_engine._build_calibrated_system_prompt` — the shared prompt builder, and
+**both chat paths reach it** (`:4305` complete, `:5224` stream), so §13 is
+satisfied by fixing it once. Verified by tracing the callers, not assumed.
+Plus `grounded_reasoner._extract_premises`, `:405`, and the one inside
+`_from_premise_verifier`, which sits in a `gather` — blocking there stalled every
+sibling evidence source too.
+
+`asyncio.to_thread`, matching the pattern `deep_researcher` already uses at four
+sites. **The scan itself is untouched: C-166 stays open** and this does not
+pretend to close it. It stops the loop being *blocked*; the GIL contention from
+`autonomous_research` (86 of 99 calls, 83% of the time) is C-166's business.
+
+### The gate is a property, not a list
+
+Curating fixed call sites is whack-a-mole — the fifth one reintroduces the
+block silently. An AST walk asserts that **no async function invokes
+`verify_premises` directly** in either module. `to_thread` passes the function
+as an ARGUMENT, so the correct form is not a Call node and is not flagged.
+Two companion tests prove the detector sees a bare async call and does NOT
+flag the wrapped form — a gate that cannot fail certifies nothing, and one that
+cannot be satisfied gets deleted.
+
+### It broke a guard, and the guard was wrong
+
+`test_rf534_wired_in_engine_pre_llm` asserted the literal string
+`"verify_premises(message)"` and so **failed on a correct fix**. A literal match
+is wrong in both directions: it would equally have passed on that text inside a
+comment. Rewritten as an AST walk over the prompt builder asserting the
+verifier is *reached* and its report *formatted* — same class as R-F3858, which
+had to be rewritten for exactly this reason — with a companion test proving the
+new guard can still fail.
+
+The two other failures in the same run (`rf2003`, `rf2286`) were checked against
+`docs/suite_baseline.json` and are pre-existing entries, not fallout.

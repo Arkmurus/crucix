@@ -3531,11 +3531,29 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "", speak
     # P_BROKER_1, P_COMPLIANCE_1) — premise verification was the missing
     # capability that drove the operator to add a new clause per attack.
     #
-    # Sync + side-effect-free + ~0.5ms hot-path cost (regex + SQLite
-    # lookup against the 24,955-row canonical cache). Never raises.
+    # Side-effect-free and never raises. It is NOT ~0.5ms, and it must not run
+    # on the event loop.
+    #
+    # R-F4138 (C-170) — this comment used to read "Sync + side-effect-free +
+    # ~0.5ms hot-path cost (regex + SQLite lookup against the 24,955-row
+    # canonical cache)", and that was TRUE when R-F534 wrote it.
+    # `verify_officeholder_premise` / `verify_programme_premise` later grew a
+    # `search_fact_records` call — the O(corpus) ranking scan — so the real cost
+    # is now **2.28s mean against 570,254 facts**. Nobody revisited the comment,
+    # so the justification for calling it synchronously outlived the fact that
+    # justified it (the C-98 shape: a change elsewhere voids a decision that was
+    # correct when made).
+    #
+    # Measured, not inferred. R-F4137's on-loop split, 8h on aria-intel:
+    #   aria_service.intel.premise_verifier  calls=7  secs=10.72  onloop=7/10.72
+    # the ONLY caller with on-loop time, every call on-loop, up to 2.21s each —
+    # the loop blocked outright, not merely contended for.
+    #
+    # This builder is shared by BOTH chat paths (:4305 complete, :5224 stream),
+    # so §13 is satisfied here rather than in two places.
     try:
         from .intel import premise_verifier as _pv
-        _report = _pv.verify_premises(message)
+        _report = await asyncio.to_thread(_pv.verify_premises, message)
         _verifier_block = _pv.format_for_system_prompt(_report)
         if _verifier_block:
             addendum_parts.append(_verifier_block)

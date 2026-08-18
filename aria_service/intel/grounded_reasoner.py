@@ -250,7 +250,10 @@ class GroundedReasoner:
         # 1. Deterministic premise verifier
         pv = await self._get_premise_verifier()
         try:
-            report = pv.verify_premises(message)
+            # R-F4138 (C-170) — verify_premises runs an O(corpus) scan
+            # (2.28s mean / 570k facts) since a search_fact_records call was
+            # added under it. Off the loop, like deep_researcher's four sites.
+            report = await asyncio.to_thread(pv.verify_premises, message)
             if report and hasattr(report, "premises"):
                 premises.extend(report.premises)
         except Exception as exc:
@@ -402,7 +405,8 @@ class GroundedReasoner:
         pv = await self._get_premise_verifier()
         if pv:
             try:
-                report = pv.verify_premises(sub_question)
+                # R-F4138 (C-170) — O(corpus) scan; must not block the loop.
+                report = await asyncio.to_thread(pv.verify_premises, sub_question)
                 if report and hasattr(report, "verdicts"):
                     for v in report.verdicts:
                         evidence.append(EvidenceItem(
@@ -498,7 +502,10 @@ class GroundedReasoner:
             if not pv:
                 return
             try:
-                report = pv.verify_premises(sub_question)
+                # R-F4138 (C-170) — O(corpus) scan; must not block the loop.
+                # This one runs inside a gather, so blocking here stalls every
+                # sibling evidence source too.
+                report = await asyncio.to_thread(pv.verify_premises, sub_question)
                 if report and hasattr(report, "verdicts"):
                     for v in report.verdicts:
                         evidence.append(EvidenceItem(

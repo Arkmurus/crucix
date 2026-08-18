@@ -1901,9 +1901,12 @@
       "title": "premise_verifier blocks the event loop: a 0.5ms sync call became 2.2s when a corpus scan was added under it",
       "claimed_at": "2026-08-18T04:55:00Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4138"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T05:32:25Z"
     }
   ]
 }

@@ -131,10 +131,65 @@ def test_rf534_still_catches_bypass_instruction() -> None:
 
 def test_rf534_wired_in_engine_pre_llm(engine_source: str) -> None:
     """The clause collapse is only safe because R-F534 fires pre-LLM.
-    Pin that wiring."""
+    Pin that wiring.
+
+    R-F4138 (C-170) — this asserted the literal string `verify_premises(message)`
+    and so **failed on a correct fix**: offloading the call to
+    `asyncio.to_thread(_pv.verify_premises, message)` kept the wiring exactly as
+    intended while changing its spelling. A literal-match guard is wrong in both
+    directions — it would also have passed on the same text inside a comment.
+    Same class as R-F3858, which had to be rewritten from a literal match to an
+    AST walk for precisely this reason.
+
+    It now asserts the PROPERTY: inside the shared pre-LLM prompt builder, the
+    verifier is reached (called inline or handed to an executor) and its report
+    is formatted into the prompt. A future refactor that keeps the wiring passes;
+    deleting the wiring still fails.
+    """
+    import ast
+
     assert "from .intel import premise_verifier" in engine_source
-    assert "verify_premises(message)" in engine_source
-    assert "format_for_system_prompt(_report)" in engine_source
+
+    tree = ast.parse(engine_source)
+    builder = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.AsyncFunctionDef)
+         and n.name == "_build_calibrated_system_prompt"),
+        None,
+    )
+    assert builder is not None, "_build_calibrated_system_prompt is gone"
+
+    names = {
+        (getattr(n, "attr", None) or getattr(n, "id", None))
+        for n in ast.walk(builder)
+        if isinstance(n, (ast.Attribute, ast.Name))
+    }
+    assert "verify_premises" in names, (
+        "R-F534 no longer fires in the pre-LLM prompt builder — the clause "
+        "collapse depends on it")
+    assert "format_for_system_prompt" in names, (
+        "the verifier report is no longer formatted into the system prompt")
+
+
+def test_rf534_wiring_guard_can_fail() -> None:
+    """A guard that cannot fail is not a guard (R-F3858). Proves the AST check
+    above actually detects removal, rather than passing on anything."""
+    import ast
+
+    src = (
+        "async def _build_calibrated_system_prompt(message):\n"
+        "    return 'no verifier here'\n"
+    )
+    tree = ast.parse(src)
+    builder = next(n for n in ast.walk(tree)
+                   if isinstance(n, ast.AsyncFunctionDef))
+    names = {
+        (getattr(n, "attr", None) or getattr(n, "id", None))
+        for n in ast.walk(builder)
+        if isinstance(n, (ast.Attribute, ast.Name))
+    }
+    assert "verify_premises" not in names, (
+        "the guard sees a verifier that is not there — it certifies nothing")
 
 
 # ── Constitution-size regression guard ──────────────────────────────────
