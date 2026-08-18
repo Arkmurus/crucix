@@ -20,3 +20,13 @@
 !lib/aria/deliveryOutcome.mjs
 !lib/observability/
 !lib/observability/errorTracker.mjs
+# Terminal exclusions prevent traversal of unreadable or heavyweight local state.
+.agent_bridge/
+.aria/
+.claude/
+.mypy_cache/
+.pytest_cache/
+.scratch/
+.venv/
+data/
+node_modules/

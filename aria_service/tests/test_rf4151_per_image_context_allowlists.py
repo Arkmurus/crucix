@@ -57,3 +57,12 @@ def test_web_and_wa_contexts_exclude_unrelated_heavy_trees() -> None:
             if ignore_file.name.startswith("Dockerfile.web") and unrelated == "public":
                 continue
             assert not _is_included(unrelated, rules)
+
+
+def test_local_state_has_terminal_exclusions_after_all_reinclusions() -> None:
+    required = {".scratch/", ".pytest_cache/", ".venv/", "data/", "node_modules/"}
+    for _, ignore_file in CASES:
+        rules = ignore_file.read_text(encoding="utf-8").splitlines()
+        assert required <= set(rules)
+        last_reinclude = max(index for index, rule in enumerate(rules) if rule.startswith("!"))
+        assert all(rules.index(rule) > last_reinclude for rule in required)
