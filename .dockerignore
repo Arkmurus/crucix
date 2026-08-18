@@ -11,12 +11,24 @@ npm-debug.log*
 .gitignore
 .github
 .omc
+# R-F4149 — bound deploy contexts to runtime inputs. These local environments,
+# agent stores, and caches are never copied by any production Dockerfile.
+.agent_bridge/
+.aria/
+.claude/
+.mypy_cache/
+.venv/
 # R-F4145 — local pytest and agent scratch trees can contain unreadable
 # directories; they are never runtime inputs and must not enter Fly contexts.
 .scratch/
 .pytest_cache/
 data/eval_reports/pytest-*/
 data/training/pytest_tmp_*/
+# Production images copy only the reservation ledger from data/. Exclude every
+# generated checkpoint, evaluation artifact, state snapshot, and training file,
+# then explicitly restore that required runtime input.
+data/*
+!data/r_number_reservations.json
 .env
 .env.*
 !.env.example
