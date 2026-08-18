@@ -50,14 +50,22 @@ from scripts.train.build_tooluse_corpus import validate_trace
 _CLASS_WORDS = 5
 
 
-def prompt_messages(trace: dict) -> list[dict]:
+def prompt_messages(trace: dict, system_append: str = "") -> list[dict]:
     """Everything up to, but excluding, the reference answer.
 
     The tool turns stay: they are the evidence the answer must be grounded in,
     and stripping them would change the task from "read this payload" to "recall
     this entity" — which is the failure mode the whole corpus exists to correct.
     """
-    return list(trace.get("messages") or [])[:-1]
+    messages = [dict(message) for message in list(trace.get("messages") or [])[:-1]]
+    policy = system_append.strip()
+    if not policy:
+        return messages
+    for message in messages:
+        if message.get("role") == "system":
+            message["content"] = f"{str(message.get('content') or '').rstrip()}\n{policy}"
+            return messages
+    return [{"role": "system", "content": policy}, *messages]
 
 
 def score_one(trace: dict, answer: object, error: str | None = None) -> dict:
@@ -139,7 +147,7 @@ def build_report(rows: list[dict]) -> dict:
 
 
 def _run_fingerprint(traces: list[dict], *, target: str, model: str,
-                     max_tokens: int) -> dict:
+                     max_tokens: int, system_append: str = "") -> dict:
     """Identity of an eval run; stale partial reports must never be resumed."""
     corpus = json.dumps(traces, ensure_ascii=False, sort_keys=True,
                         separators=(",", ":")).encode("utf-8")
@@ -148,6 +156,9 @@ def _run_fingerprint(traces: list[dict], *, target: str, model: str,
         "target": target.rstrip("/"),
         "model": model,
         "max_tokens": max_tokens,
+        "system_append_sha256": hashlib.sha256(
+            system_append.strip().encode("utf-8")
+        ).hexdigest(),
         "total": len(traces),
     }
 
@@ -217,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
     # output length, so an uncapped max_tokens makes the deadline a guess.
     ap.add_argument("--max-tokens", type=int, default=700,
                     help="cap on generated length; keeps the cycle envelope predictable")
+    ap.add_argument("--system-append-file", type=Path,
+                    help="append a pre-registered policy to the system message")
     a = ap.parse_args(argv)
 
     import httpx
@@ -228,8 +241,14 @@ def main(argv: list[str] | None = None) -> int:
         print("BLOCKED: eval set is empty — refusing to report a rate", file=sys.stderr)
         return 2
 
+    system_append = ""
+    if a.system_append_file:
+        system_append = a.system_append_file.read_text(encoding="utf-8").strip()
+        if not system_append:
+            print("BLOCKED: system append policy is empty", file=sys.stderr)
+            return 2
     run = _run_fingerprint(traces, target=a.target, model=a.model,
-                           max_tokens=a.max_tokens)
+                           max_tokens=a.max_tokens, system_append=system_append)
     rows: list[dict] = []
     if a.out.exists():
         prior = json.loads(a.out.read_text(encoding="utf-8"))
@@ -255,7 +274,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with httpx.Client() as client:                  # no-breaker: offline eval tool
         for i, t in enumerate(traces[len(rows):], len(rows) + 1):
-            ans, err = _ask(client, a.target, a.model, prompt_messages(t),
+            ans, err = _ask(client, a.target, a.model,
+                            prompt_messages(t, system_append),
                             a.api_key, a.timeout, a.max_tokens)
             row = score_one(t, ans, error=err)
             rows.append(row)

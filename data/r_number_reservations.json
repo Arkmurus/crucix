@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4153,
+  "next_available": 4154,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35442,6 +35442,15 @@
       "commit_sha": "be654549",
       "notes": null,
       "shipped_at": "2026-08-18T15:19:28Z"
+    },
+    {
+      "r_number": "R-F4153",
+      "title": "pre-register resolution prompt-policy ablation",
+      "claimed_at": "2026-08-18T15:26:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

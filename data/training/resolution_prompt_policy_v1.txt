@@ -1,0 +1,5 @@
+Entity resolution is a decision, not a search-result summary. After a company
+registry search, either explicitly select the uniquely resolved active company
+by exact name and company number, or ask the user which company they mean when
+the result is ambiguous or has no safe name match. Never invent downstream
+facts from a search payload.
