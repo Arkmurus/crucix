@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4138,
+  "next_available": 4139,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35293,6 +35293,15 @@
       "commit_sha": "62df2261",
       "notes": null,
       "shipped_at": "2026-08-17T20:53:07Z"
+    },
+    {
+      "r_number": "R-F4138",
+      "title": "offload verify_premises: four async call sites run an O(corpus) scan on the loop",
+      "claimed_at": "2026-08-18T04:55:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
