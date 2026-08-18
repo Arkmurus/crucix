@@ -7147,13 +7147,22 @@ app.get('/api/auth/system-status', (req, res) => {
   const smtpVia = smtpConfigured
     ? (dedicatedSet ? 'dedicated' : 'aria-fallback')
     : null;
+  const _eff = v => (v == null ? null : String(v).trim() || null);
   const smtpHost = smtpConfigured
-    ? (dedicatedSet
+    ? _eff(dedicatedSet
         ? process.env.EMAIL_HOST
         : (process.env.ARIA_SMTP_HOST || process.env.ARIA_EMAIL_HOST))
     : null;
+  // R-F4152 (C-175) — report the EFFECTIVE value, not the raw env var.
+  // This printed the raw value (with a trailing carriage return) while
+  // lib/auth/email.mjs was using the
+  // trimmed form and authenticating fine. During a live lockout that reading
+  // cost real time: it says the mailer is misconfigured when it is not, and it
+  // hides the module that genuinely IS reading raw (emailReader.mjs). A
+  // diagnostic that shows something other than what the code uses is worse than
+  // no diagnostic — it is confidently wrong.
   const smtpUser = smtpConfigured
-    ? (dedicatedSet ? process.env.EMAIL_USER : process.env.ARIA_EMAIL_USER)
+    ? _eff(dedicatedSet ? process.env.EMAIL_USER : process.env.ARIA_EMAIL_USER)
     : null;
   const smtpPort = smtpConfigured
     ? parseInt(
