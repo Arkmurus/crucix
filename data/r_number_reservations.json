@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4151,
+  "next_available": 4152,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35422,6 +35422,15 @@
       "commit_sha": "3627653a",
       "notes": null,
       "shipped_at": "2026-08-18T14:40:20Z"
+    },
+    {
+      "r_number": "R-F4151",
+      "title": "use per-image Docker context allowlists",
+      "claimed_at": "2026-08-18T14:41:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

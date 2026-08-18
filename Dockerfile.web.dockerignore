@@ -1,0 +1,24 @@
+# R-F4151 — web image allowlist, derived from Dockerfile.web COPY inputs.
+**
+!Dockerfile.web
+!package.json
+!package-lock.json*
+!server.mjs
+!crucix.config.mjs
+!lib/
+!lib/**
+!apis/
+!apis/**
+!middleware/
+!middleware/**
+!dashboard/
+!dashboard/inject.mjs
+!dashboard/public/
+!dashboard/public/**
+!public/
+!public/**
+!.git/
+!.git/HEAD
+!.git/refs/
+!.git/refs/**
+!.git/packed-refs*

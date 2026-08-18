@@ -1,0 +1,22 @@
+# R-F4151 — WA image allowlist, derived from Dockerfile.wa COPY inputs.
+**
+!Dockerfile.wa
+!services/
+!services/wa-listener/
+!services/wa-listener/package.json
+!services/wa-listener/package-lock.json
+!services/wa-listener/aria_wa_listener.mjs
+!services/wa-listener/wa-watchdog.mjs
+!services/wa-listener/send-retry.mjs
+!services/wa-listener/doc-resubmit.mjs
+!services/wa-listener/log-redact.mjs
+!lib/
+!lib/whatsapp/
+!lib/whatsapp/waGovernance.mjs
+!lib/whatsapp/waBinding.mjs
+!lib/whatsapp/waCapability.mjs
+!lib/aria/
+!lib/aria/complianceAudit.mjs
+!lib/aria/deliveryOutcome.mjs
+!lib/observability/
+!lib/observability/errorTracker.mjs
