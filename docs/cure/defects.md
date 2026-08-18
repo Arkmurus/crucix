@@ -9951,6 +9951,65 @@ would over-state the problem by ~6x.
 **Still OPEN.** The fix is not built, and now should not be chosen until the
 production reading says which fix it is.
 
+---
+
+### RESOLVED 2026-08-18 — the symptom is gone, and this entry’s diagnosis was wrong TWICE. Read this before reopening it.
+
+**The symptom is gone, measured live, and an index was never built.**
+
+```
+state                     wedge dumps            loop max
+pre-fix (this entry)      21 in one process      33,800 ms
+after C-170 + C-171       1 real, in 27 min       1,151.8 ms
+after C-172               0 in 25 min               297.8 ms   p95 1.4 ms
+```
+
+The final reading is the honest kind: the wedge log for the running process is
+**0 bytes**, i.e. the watchdog has not fired once. (A wedge log is created empty
+at boot and stays 0 bytes until its first dump — reading a fresh one as "no
+stalls" is only correct when you check the size, which is why it is quoted here.)
+
+### What actually fixed it — none of it was this entry's plan
+
+* **C-170 / R-F4138** — `premise_verifier` ran the O(corpus) scan ON the loop,
+  every chat turn. Found by R-F4136/R-F4137's on-loop split.
+* **C-171 / R-F4141** — the G4 vaccine matched only bare names, so it was blind
+  to every real (module-qualified) call site. Repairing it surfaced **nine** more
+  on-loop scans at once.
+* **C-172 / R-F4143** — the last residual was a cold `import transformers` +
+  model load on the loop from `reasoning_library.get_stats`. **Not ranking at
+  all.**
+
+### Both of this entry's diagnoses were wrong, and each was corrected by evidence
+
+1. *"Offload the chat path with `asyncio.to_thread`"* — wrong: `_safe_call`
+   already runs in a ThreadPoolExecutor, so the recommended fix was a no-op.
+   Corrected in the CORRECTION section above.
+2. *"The residual is GIL-held ranking"* — wrong: after the on-loop callers were
+   fixed, the remaining 5.17 s stall was a transformers import. Ranking was
+   never the residual.
+
+The recommended sublinear index was also built and **failed measurement**
+(1.1-4.5x, 597 s build — see the R-F4136 section). Three plausible plans, all
+refuted by measuring instead of assuming. That is the transferable lesson from
+C-166, and it is worth more than the fix would have been.
+
+### What is NOT fixed, stated plainly
+
+The ranking scan is **still O(corpus), ~2.3 s mean against 570k facts**. It is
+simply off the event loop now, where it contends for the GIL rather than
+blocking outright, and the duty cycle is ~0.8% of wall-clock. It remains
+self-worsening under §7.
+
+**Do not reopen this on theory.** `knowledge.ranking_stats()` on
+`GET /api/aria/knowledge` reports per-caller calls, seconds, worst case and the
+on-loop split. If ranking ever becomes the binding constraint again, that
+surface will say so with numbers — and `on_loop_calls > 0` is the reading that
+means something is blocking the loop again.
+
+Closed by R-F4138, R-F4141, R-F4143.
+
+
 
 ## C-167 · is_cacheable had a dead branch, a docstring that contradicted it, and a test that could not fail (R-F4132)
 
