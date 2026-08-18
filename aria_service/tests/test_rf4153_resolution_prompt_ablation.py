@@ -92,6 +92,7 @@ def test_pod_runner_is_evaluation_only_and_requires_watchdog() -> None:
     )
 
     assert "require_watchdog" in runner
+    assert "cd /workspace/crucix || exit 1" in runner
     assert runner.count("python -m scripts.train.eval_tooluse") == 2
     assert "--system-append-file" in runner
     assert "sft_train" not in runner

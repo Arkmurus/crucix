@@ -13,6 +13,7 @@ EVALD=/workspace/eval
 LOGS=/workspace/logs
 PORT=8888
 export HF_HOME=/workspace/.cache/huggingface
+cd /workspace/crucix || exit 1
 mkdir -p "$EVALD" "$LOGS"
 rm -f "$EVALD/_cycle_status"
 
