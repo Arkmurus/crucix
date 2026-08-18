@@ -197,7 +197,7 @@ if [ "$TRAINING_RECIPE_KIND" = tooluse_dpo_balanced_diagnostic_continuation ]; t
   PARENT_MODE=diagnostic_candidate
 fi
 case "$TRAINING_RECIPE_KIND" in
-  tooluse_dpo_continuation|tooluse_dpo_balanced_diagnostic_continuation|tooluse_dpo_balanced_accepted_continuation)
+  tooluse_dpo_continuation|tooluse_dpo_balanced_diagnostic_continuation|tooluse_dpo_balanced_accepted_continuation|tooluse_dpo_boundary_accepted_continuation)
     RECIPE_JSON=$(printf '{"kind":"%s","runner":"%s","base_model":"mistralai/Mistral-7B-Instruct-v0.3","epochs":1,"beta":%s,"learning_rate":%s,"batch_size":2,"gradient_accumulation_steps":%s,"expected_optimizer_steps":%s,"max_sequence_length":4096,"max_gradient_norm":0.3,"load_in_4bit":true,"parent_mode":"%s"}' "$TRAINING_RECIPE_KIND" "$POD_RUNNER" "$DPO_BETA" "$DPO_LR" "$DPO_GRAD_ACCUM" "$DPO_EXPECTED_UPDATES" "$PARENT_MODE")
     ;;
   tooluse_positive_sft_continuation)

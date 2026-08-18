@@ -1,0 +1,29 @@
+{
+  "complete": true,
+  "policy": "deduplicated_resolution_decision_state_coverage",
+  "source_rows": 40,
+  "curriculum_rows": 32,
+  "duplicate_subject_rows_removed": 8,
+  "unique_subjects": 32,
+  "branch_counts": {
+    "ambiguous_live": 10,
+    "dissolved_only": 2,
+    "no_match": 10,
+    "unique_live": 10
+  },
+  "minimum_branch_counts": {
+    "unique_live": 8,
+    "ambiguous_live": 8,
+    "no_match": 8,
+    "dissolved_only": 2
+  },
+  "heldout_subjects_used_for_training": false,
+  "input_sha256": {
+    "data\\training\\aria_tooluse_novel_resolution_dpo_v1.jsonl": "c5b45401db6154fafec9f6110a60382ee265d2b615fdc59f0967b18b8616968b",
+    "data\\training\\aria_tooluse_protected_positive_v1_resolution_dpo.jsonl": "03a2c86da1d7f3c006ded6c37b599bd034323edcad67ea152b64b0462d3c6681",
+    "data\\training\\aria_tooluse_resolution_branch_expansion_dpo.jsonl": "42d9d8cc0077242e1402b069db50993aec2dc6bb2c67bdf3a6569ec7a401a200"
+  },
+  "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+  "golden_sha256": "4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c",
+  "output_sha256": "5e7838aa5ee91e45f4fc05b6e7aa23b292272b01e949ad5ed93afa4c5d1a68c5"
+}
