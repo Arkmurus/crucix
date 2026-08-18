@@ -35358,18 +35358,20 @@
       "title": "enforce ambiguous company clarification after synthesis",
       "claimed_at": "2026-08-18T07:25:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:43Z"
     },
     {
       "r_number": "R-F4145",
       "title": "exclude local scratch artifacts from deploy context",
       "claimed_at": "2026-08-18T07:49:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:43Z"
     },
     {
       "r_number": "R-F4146",
@@ -35385,9 +35387,10 @@
       "title": "run deploy health suite with project interpreter",
       "claimed_at": "2026-08-18T08:14:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:44Z"
     },
     {
       "r_number": "R-F4148",
