@@ -35299,9 +35299,10 @@
       "title": "offload verify_premises: four async call sites run an O(corpus) scan on the loop",
       "claimed_at": "2026-08-18T04:55:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c34bef1f",
+      "notes": null,
+      "shipped_at": "2026-08-18T05:52:20Z"
     }
   ]
 }
