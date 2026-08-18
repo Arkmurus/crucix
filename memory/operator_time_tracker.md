@@ -2572,3 +2572,58 @@ and 83% of the time. Per-call cost is **2.28s mean** — not the 0.27-0.88s my
 synthetic predicted, nor the 1.0-1.5s C-166 originally recorded. Duty cycle is
 only ~0.78% of wall-clock, so ranking is a real but PARTIAL contributor to
 starvation — worth knowing before anyone builds an index for it.
+
+
+## Session continuation — 2026-08-18 · R-F4141 · C-171 — fixing the guard found nine at once
+
+**R-F4141 / C-171 @ 0cfe0134 (live)** — the **G4 on-loop vaccine** (R-F1910),
+built for precisely the failure class C-170 turned out to be, **has never been
+able to fire on real code**. It matched only `ast.Name`:
+
+```python
+if (self.async_depth > 0 and isinstance(func, ast.Name) and func.id in DENYLIST):
+```
+
+Nothing in this tree is written that way. Every call site is module-qualified —
+`knowledge.search_knowledge(...)`, `_kb.search_fact_records(...)` — all
+`ast.Attribute`. Its self-test hid it by proving the guard worked on a synthetic
+**bare** call: certifying the guard against a form that does not occur in the
+codebase it guards.
+
+**Nine on-loop O(corpus) scans surfaced the moment it could see** — `local_brain`,
+`memory_diagnostics`, `signal_correlator`, and six in `routes/aria.py` — each
+~2.28s against 570,254 facts. All nine offloaded.
+
+**The lesson worth keeping:** C-170 fixed ONE caller found by measurement, and
+the instrument then named the next. Chasing them one at a time would have taken
+nine deploys. Repairing the guard found all nine at once — the difference
+between fixing an instance and fixing a class.
+
+### A second defect on one of those lines
+
+`signal_correlator:874` had an **always-zero** bug: `search_knowledge` returns a
+STRING, so `len(facts) if isinstance(facts, list) else 0` was structurally 0.
+Measured on a 6-fact store: **OLD -> 0 (str), NEW -> 6 (list)**. The knowledge
+component never contributed its 0.2, silently capping coverage confidence at
+0.8. Third time an API misunderstanding has installed a silent ceiling rather
+than an error (C-169 capped resolver confidence at 0.5).
+
+### A number collision, handled at zero cost
+
+R-F4139 was reserved locally and lost the race — the peer pushed it first for
+unrelated DPO work — so I renumbered to R-F4141. It cost nothing because no
+code, filenames or citations existed yet. That is exactly why the reservation is
+pushed before the work, and the first time this session the protocol has paid
+off rather than cost a rename pass.
+
+### Verified, not assumed
+
+All 7 failures in the 1,634-test regression checked individually against
+`docs/suite_baseline.json` — every one a recorded entry. Compile COMPILE=0,
+§9 lifespan OK.
+
+### Live confirmation of the previous fix
+
+Read before this deploy: `premise_verifier` 8 calls, **0 on-loop** (C-170
+holding, was 7/7), `signal_correlator` the sole remaining blocker at 11/11.
+Exactly what the instrument predicted, which is itself a check on the instrument.
