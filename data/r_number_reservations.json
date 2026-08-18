@@ -35428,9 +35428,10 @@
       "title": "use per-image Docker context allowlists",
       "claimed_at": "2026-08-18T14:41:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e1088ce41674418a4848f3765adae7c97d447d63",
+      "notes": null,
+      "shipped_at": "2026-08-18T15:20:01Z"
     },
     {
       "r_number": "R-F4152",
