@@ -2008,6 +2008,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T21:01:10Z"
+    },
+    {
+      "c_number": "C-179",
+      "title": "DD tests read a machine-global dd_vault.db, so list_reports tests fail on a polluted box",
+      "claimed_at": "2026-08-18T21:16:16Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
