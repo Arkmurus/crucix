@@ -2520,3 +2520,55 @@ thread contends for the GIL while a scan on the loop thread blocks it outright.
 - **C-166** remains OPEN by choice. The fix is not built and should not be
   chosen until the production reading says which fix it is. That is now
   measurable rather than arguable.
+
+
+## Session continuation — 2026-08-18 · R-F4138 · C-170 — the instrument earned its keep
+
+**R-F4138 / C-170 @ c34bef1f (live)** — the premise verifier ran an O(corpus)
+scan **ON the event loop, on every chat turn**. Found by R-F4137's on-loop split
+on its first useful production reading — not by inspection, not by a test.
+
+8h on aria-intel: `premise_verifier` was the ONLY caller with on-loop time, and
+**every one of its 7 calls was on-loop**, up to **2.21s each** — the loop blocked
+outright, not merely contended for.
+
+**The comment that made it look safe** said *"Sync + side-effect-free + ~0.5ms
+hot-path cost (regex + SQLite lookup)"*. That was TRUE when R-F534 wrote it.
+`verify_officeholder_premise` / `verify_programme_premise` later grew a
+`search_fact_records` call — the O(corpus) scan — so the real cost is a **2.28s
+mean against 570,254 facts**, a ~4,500x drift. The justification for calling it
+synchronously outlived the fact that justified it: the **C-98 shape**, now the
+register's third instance.
+
+Fixed at all four async sites with `asyncio.to_thread`. §13 satisfied once,
+because both chat paths reach the same builder — traced, not assumed. **The scan
+itself is untouched; C-166 stays open** and this does not pretend to close it.
+
+### The gate is a property, not a list
+
+An AST walk asserts no async function invokes `verify_premises` directly, so a
+fifth call site cannot silently reintroduce the block. Two companion tests prove
+it detects the bare form and does NOT flag `to_thread` — a gate that cannot fail
+certifies nothing; one that cannot be satisfied gets deleted.
+
+### It broke a guard, and the guard was wrong
+
+`test_rf534_wired_in_engine_pre_llm` asserted the literal
+`"verify_premises(message)"` and **failed on a correct fix**. A literal match is
+wrong in both directions — it would equally have passed on that text inside a
+comment. Rewritten as an AST walk (the R-F3858 class), with a companion test
+proving the new guard can still fail.
+
+### Verified, not assumed
+
+All 7 suite failures reconciled: rf2003 (x2), rf2286, rf925, rf940 (x2) are
+recorded §16 baseline entries; rf795 is in §16's KNOWN-FLAKY set and passes 6/6
+standalone. None were mine.
+
+### What the reading settled about C-166
+
+Amplification **confirmed**: `to_thread:autonomous_research` is 86 of 99 calls
+and 83% of the time. Per-call cost is **2.28s mean** — not the 0.27-0.88s my
+synthetic predicted, nor the 1.0-1.5s C-166 originally recorded. Duty cycle is
+only ~0.78% of wall-clock, so ranking is a real but PARTIAL contributor to
+starvation — worth knowing before anyone builds an index for it.
