@@ -10471,3 +10471,76 @@ side effect of asking "is the embedder available?". Reporting only an
 ALREADY-loaded embedder would be cheaper and is arguably right, but it changes
 what the field means — an operator-visible decision, not something to slip into
 a loop-blocking fix.
+
+## C-173 · the G4 denylist was hand-maintained, so it only caught primitives someone remembered (fixed, R-F4146)
+
+Found by auditing the two gates I had just shipped, rather than by anything
+failing. C-171 taught the gate to SEE attribute calls; it did not fix what the
+gate was allowed to look FOR.
+
+`DENYLIST` holds **primitives** — functions heavy in their own body. But the
+defect this gate exists for arrives one level up, through a thin sync wrapper,
+and the wrapper is invisible until a human remembers to add it. **Both C-170 and
+C-172 entered exactly that way, in a single session:**
+
+* **C-170** — `verify_premises` (sync, unlisted) reached `search_fact_records`
+  two levels down. Four async call sites ran a 2.28 s scan on the loop, and it
+  took building an instrument and reading production to find.
+* **C-172** — `_get_embedder` (sync, unlisted) imported transformers and loaded
+  a model. Caught only by a 5.17 s wedge dump.
+
+Twice in one session is a class, not luck — and it is the §27d failure mode
+(*"do not hand-maintain the list"*) sitting inside the file that exists to stop
+this class recurring.
+
+### The obvious implementation was measured FIRST, and rejected
+
+Full transitive propagation over bare names, on this tree:
+
+```
+seeds 8   ->  transitively heavy: 2,195 functions
+              async call sites flagged: 16,225
+              sample: __init__, __enter__, _add, append, list, ...
+```
+
+Name-only resolution collides — any method called `append` inherits heaviness
+from any other `append` that reaches a seed. **A gate flagging 16,225 sites is
+noise, and noise gets deleted rather than obeyed.** Recorded so the next person
+does not re-derive it and conclude the whole idea is unworkable.
+
+### What survives measurement
+
+Propagate only over names that **cannot be ambiguous**: defined exactly once
+across `aria_service` (so a bare or attribute reference is unambiguous without
+import resolution), sync (`async def` awaits — it is not a sync blocker), and
+reaching the heavy set.
+
+```
+converges in 2 rounds  ->  11 derived names, 19 total  ->  0 offenders
+```
+
+Every derived name is genuinely heavy, and the point: **`verify_premises` is
+derived**, so C-170 would have been caught here rather than in production.
+`_fetch_prior_facts_sync` — a wrapper created in C-169 the same day — is derived
+too, without anyone listing it.
+
+### The trade, stated rather than hidden
+
+A heavy wrapper whose name **collides** with something else is NOT derived. That
+false negative is deliberate: the alternative was measured at 16,225 false
+positives. A conservative gate that people obey beats a complete one they delete.
+
+### Proven end to end, not just in pieces
+
+Two tests build a real three-file package in `tmp_path` — a primitive, a
+brand-new uniquely-named sync wrapper, and an async caller — and assert the
+wrapper is derived and its caller flagged **with nobody touching DENYLIST**;
+then that the same wrapper behind `asyncio.to_thread` is NOT flagged. Plus:
+`_DERIVE_MAX_NAMES = 60` as an explosion ceiling (with the 2,195 figure in the
+message, and an instruction to fix the derivation rather than raise the bound),
+a test asserting no ambiguous or dunder name is ever derived, a test verifying
+the unique-name constraint against the tree rather than trusting the
+implementation, and a fixed-point stability check.
+
+**Test-only change — no production diff, so no deploy is owed.** The gate runs
+in CI.

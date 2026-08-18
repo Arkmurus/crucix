@@ -36,10 +36,24 @@ DENYLIST = {
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]  # aria_service/
 
+#: Rounds of derivation. Measured to converge in 2 on this tree; the cap exists
+#: so a pathological cycle cannot hang the gate, not as a tuning knob.
+_DERIVE_MAX_ROUNDS = 10
+
+#: Ceiling on the DERIVED set. Not a style preference — the naive
+#: full-transitive variant derived 2,195 names, and a silent slide toward that
+#: would turn this gate into noise nobody reads. If this trips, the derivation
+#: has started resolving ambiguous names: fix the derivation, do not raise it.
+_DERIVE_MAX_NAMES = 60
+
 
 class _Visitor(ast.NodeVisitor):
-    def __init__(self, path: str):
+    def __init__(self, path: str, heavy: set[str] | None = None):
         self.path = path
+        # R-F4146 (C-173) — the EFFECTIVE set: seeds by default (so the
+        # synthetic unit tests stay hermetic and fast), the derived set when the
+        # repo-wide scan passes one in.
+        self.heavy = DENYLIST if heavy is None else heavy
         self.async_depth = 0
         self.violations: list[str] = []
         # R-F4143 (C-172) — Calls that are the operand of `await`. An awaited
@@ -97,29 +111,112 @@ class _Visitor(ast.NodeVisitor):
             name = func.attr
         if id(node) in self._awaited:
             name = None          # awaited => a coroutine, not sync CPU
-        if self.async_depth > 0 and name in DENYLIST:
+        if self.async_depth > 0 and name in self.heavy:
             self.violations.append(
                 f"{self.path}:{node.lineno} inline {name}() in async context")
         self.generic_visit(node)
 
 
-def _scan(py: pathlib.Path) -> list[str]:
+def derive_heavy_names(root: pathlib.Path = _ROOT) -> set[str]:
+    """R-F4146 (C-173) — the heavy set, DERIVED from the tree, not hand-listed.
+
+    `DENYLIST` above holds PRIMITIVES: functions that are heavy in their own
+    body. But the defect this gate exists for arrives one level up, through a
+    thin sync wrapper, and the wrapper is invisible until a human remembers to
+    add it. Both C-170 and C-172 entered exactly that way:
+
+      * C-170 — `verify_premises` (sync, unlisted) called `search_fact_records`
+        two levels down. Four async call sites ran a 2.28s scan on the loop.
+      * C-172 — `_get_embedder` (sync, unlisted) imported transformers and
+        loaded a model. Caught only by a wedge dump.
+
+    A hand-maintained list that only catches what someone remembered is the
+    §27d failure mode, and this file is supposed to be the vaccine against
+    exactly that kind of recurrence.
+
+    **The obvious version was measured first and REJECTED.** Full transitive
+    propagation over bare names derives **2,195** functions and flags **16,225**
+    async call sites — including `append()`, `list()` and `__init__`, because
+    name-only resolution collides: any method named `append` inherits heaviness
+    from any other `append` that reaches a seed. Unusable, and recorded so
+    nobody re-derives it.
+
+    What survives measurement is propagation restricted to names that cannot be
+    ambiguous:
+
+      * the name is defined **exactly once** across `aria_service`, so a bare or
+        attribute reference to it is unambiguous without import resolution;
+      * it is a **sync** `def` (an async function awaits — it is not a sync
+        blocker); and
+      * its body reaches the heavy set.
+
+    Measured on this tree: converges in **2 rounds** to **11** derived names
+    (19 total with the seeds), every one genuinely heavy, and — the point —
+    **`verify_premises` is among them**, so C-170 would have been caught here
+    rather than in production.
+
+    Conservative by construction: a heavy wrapper whose name collides with
+    something else is simply not derived. That is a known FALSE-NEGATIVE, and
+    the honest trade — the alternative measured at 16,225 false positives, and
+    a gate nobody can satisfy gets deleted rather than obeyed.
+    """
+    def_count: dict[str, int] = {}
+    sync_names: set[str] = set()
+    calls: dict[str, set[str]] = {}
+
+    for py in root.rglob("*.py"):
+        if "/tests/" in py.as_posix() or "\\tests\\" in str(py):
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            def_count[node.name] = def_count.get(node.name, 0) + 1
+            if isinstance(node, ast.FunctionDef):
+                sync_names.add(node.name)
+            bucket = calls.setdefault(node.name, set())
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    callee = (getattr(sub.func, "attr", None)
+                              or getattr(sub.func, "id", None))
+                    if callee:
+                        bucket.add(callee)
+
+    heavy = set(DENYLIST)
+    for _ in range(_DERIVE_MAX_ROUNDS):
+        grew = False
+        for name in sync_names:
+            if name in heavy or def_count.get(name) != 1 or name.startswith("__"):
+                continue
+            if calls.get(name, set()) & heavy:
+                heavy.add(name)
+                grew = True
+        if not grew:
+            break
+    return heavy
+
+
+def _scan(py: pathlib.Path, heavy: set[str] | None = None) -> list[str]:
     try:
         tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
     except SyntaxError:
         return []
-    v = _Visitor(str(py.relative_to(_ROOT.parent)))
+    v = _Visitor(str(py.relative_to(_ROOT.parent)), heavy)
     v.visit(tree)
     return v.violations
 
 
 def test_no_heavy_sync_call_on_event_loop():
     """Repo-wide: no denylisted heavy function is called inline in an async fn."""
+    heavy = derive_heavy_names()
     violations: list[str] = []
     for py in _ROOT.rglob("*.py"):
         if "/tests/" in py.as_posix() or "\\tests\\" in str(py):
             continue
-        violations.extend(_scan(py))
+        violations.extend(_scan(py, heavy))
     assert not violations, (
         "G4 regression — GIL-heavy sync call(s) on the event loop "
         "(offload via asyncio.to_thread / run_in_thread_cpu):\n  "
