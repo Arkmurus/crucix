@@ -10544,3 +10544,81 @@ implementation, and a fixed-point stability check.
 
 **Test-only change — no production diff, so no deploy is owed.** The gate runs
 in CI.
+
+## C-174 · the amplification alert fired on every long-lived process, and its landing had never been observed (fixed, R-F4148)
+
+Found by asking *"is this actually delivering what it is supposed to?"* instead
+of accepting a green unit test as the answer. Two defects, both in code I shipped
+earlier the same day.
+
+### 1. A cumulative threshold cannot detect a rate
+
+```python
+hot = (row["calls"] >= 500) or (row["seconds"] >= 120.0)
+```
+
+Both are **cumulative counters that only grow**. Given enough uptime, EVERY
+process crosses them whatever it is doing.
+
+Measured normal load on aria-intel: **~28 s of ranking per hour**, so the 120 s
+bar arrives at ~4.3 hours of uptime on entirely ordinary traffic. The live 8 h
+reading confirms it fired exactly that way:
+
+```
+total_calls=99  total_seconds=225.8  announced=True
+   to_thread:autonomous_research  calls=86  secs=186.55
+```
+
+99 calls / 225.8 s over a 28,956 s window is **0.78 % duty** — the normal rate
+this alert exists to distinguish itself FROM. Re-checked against both rules
+directly:
+
+```
+live normal load -> duty 0.78%     OLD rule fires: True    NEW rule fires: False
+```
+
+So it announced once per process and told nobody anything, into the 500-slot
+capability ledger that §28 records being filled by precisely this kind of flood.
+**A guard that always fires is as useless as one that never does, and costs
+more** — the register's most-repeated defect, inverted: a presence carrying no
+information rather than an absence read as health.
+
+**The fix is a duty cycle**: the fraction of a caller's own observed window
+spent scanning. Normal 0.78 %; a research storm doing 500 scans in half an hour
+is ~69 %. Two orders of magnitude apart, which is what makes a bar between them
+mean something. Three floors must hold together (`>=20` calls, `>=60 s`,
+`>=10 %` duty) so a young process whose first call is slow — 5 s inside 10 s is
+50 % duty — cannot trip it. `first_at` is tracked **per caller**, because a
+caller that starts an hour in must not have its duty diluted by an hour it did
+not exist. The count trigger was **removed rather than raised**: 10,000
+sub-millisecond calls total 10 s and harm nobody, so volume was never the
+signal. `duty` and `window_s` are now reported per caller, so a reader can see
+why it did or did not fire instead of reverse-engineering it.
+
+### 2. Nobody had ever seen the gap land
+
+The existing coverage monkeypatched `wire_failure` and asserted it was called
+once. **That proves the CALLER, not the SINK.** `wire_failure` dispatches
+`capability_gaps.record_gap` through `_dispatch_fire_and_forget` — a task on the
+running loop, or a daemon thread when there is none — and none of that was
+exercised. The live ledger read `ranking_amplification: 0`, which was equally
+consistent with "correctly quiet" and "silently broken".
+
+A new test drives the REAL path: nothing on it is patched except the terminal
+store write, so the real `_record_rank_call` calls the real `wire_failure`,
+which schedules the real `record_gap`, and the gap is read back out. **Proven
+falsifiable** — with the sink stubbed out, it stores nothing and the test fails.
+
+### The live half of the evidence, stated exactly
+
+The alert is designed NOT to fire on normal load, so a production sighting would
+require manufacturing a genuine 10 %-duty storm, i.e. deliberately degrading the
+service. That is not a reasonable price for confirming an alert whose sink is
+already demonstrably live: the ledger holds **50 gaps from 14 source modules**,
+five of them arriving through `fail_wire` — the same helper this code calls.
+
+So the chain is: the alert's own logic verified against real production numbers,
+its dispatch verified end to end by a falsifiable test, and its sink verified
+live from fourteen other modules. What has *not* been observed is this specific
+gap in production, and that is the correct state — it means nothing is
+amplifying.

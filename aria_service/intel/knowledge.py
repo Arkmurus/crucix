@@ -2658,11 +2658,30 @@ _rank_stats: dict[str, dict] = {}
 _rank_stats_lock = threading.Lock()
 _rank_amplification_announced = False
 
-#: Per-process thresholds at which amplification stops being normal and becomes
-#: worth a gap. Deliberately generous: the point is to catch a runaway caller,
-#: not to editorialise about ordinary traffic.
-_RANK_CALLS_ALERT = 500
-_RANK_SECONDS_ALERT = 120.0
+# R-F4148 (C-174) — the alert is a DUTY CYCLE, not a running total.
+#
+# It was `calls >= 500 or seconds >= 120.0`, and both are CUMULATIVE counters
+# that only ever grow: given enough uptime EVERY process crosses them, whatever
+# it is doing. Measured normal load is ~28s of ranking per hour, so the 120s bar
+# was reached at ~4.3 hours of uptime on completely ordinary traffic — and the
+# live 8h reading confirms it, `announced=True` at 99 calls / 225.8s, which is
+# exactly the normal rate this alert is supposed to distinguish itself FROM.
+#
+# So it fired once per process and told nobody anything, into the 500-slot
+# capability ledger that §28 records being filled by precisely this kind of
+# flood. A guard that always fires is as useless as one that never does, and
+# costs more.
+#
+# The honest measure is what FRACTION of a caller's observed window it spends
+# scanning. Live: 225.8s over 28,956s = 0.78%. A research storm doing 500 scans
+# in half an hour is ~69%. Those are two orders of magnitude apart, which is
+# what makes a threshold between them meaningful.
+#
+# All THREE must hold, so a brand-new process whose first call happens to be
+# slow (5s inside the first 10s = 50% duty) cannot trip it:
+_RANK_MIN_CALLS = 20         # sample floor — a burst is not a pattern
+_RANK_MIN_SECONDS = 60.0     # absolute floor — ignore cheap chatter
+_RANK_DUTY_ALERT = 0.10      # ~13x the measured normal 0.78%
 
 
 #: Thread/offload plumbing. Skipped IN ADDITION to cost_tracker's own list so a
@@ -2738,9 +2757,13 @@ def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
         with _rank_stats_lock:
             row = _rank_stats.get(who)
             if row is None:
+                # `first_at` is what turns a running total into a rate. Per
+                # CALLER, not per process: a caller that starts an hour in must
+                # not have its duty cycle diluted by an hour it did not exist.
                 row = {"calls": 0, "seconds": 0.0, "facts_scanned": 0,
                        "max_seconds": 0.0, "on_loop_calls": 0,
-                       "on_loop_seconds": 0.0}
+                       "on_loop_seconds": 0.0,
+                       "first_at": time.monotonic()}
                 _rank_stats[who] = row
             row["calls"] += 1
             row["seconds"] += elapsed
@@ -2750,12 +2773,17 @@ def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
                 row["on_loop_seconds"] += elapsed
             if elapsed > row["max_seconds"]:
                 row["max_seconds"] = elapsed
-            hot = (row["calls"] >= _RANK_CALLS_ALERT
-                   or row["seconds"] >= _RANK_SECONDS_ALERT)
+            window = max(time.monotonic() - row.get("first_at", 0.0), 1e-6)
+            duty = row["seconds"] / window
+            hot = (row["calls"] >= _RANK_MIN_CALLS
+                   and row["seconds"] >= _RANK_MIN_SECONDS
+                   and duty >= _RANK_DUTY_ALERT)
             announce = hot and not _rank_amplification_announced
             if announce:
                 _rank_amplification_announced = True
                 snapshot = dict(row)
+                snapshot["duty"] = duty
+                snapshot["window_s"] = window
         if not announce:
             return
         # §21a — reaches the brain ONCE PER PROCESS, not once per call. Every
@@ -2773,10 +2801,11 @@ def _record_rank_call(who: str, started: float, facts_scanned: int) -> None:
                 module="knowledge",
                 gap_type="ranking_amplification",
                 detail=(
-                    f"{who} issued {snapshot['calls']} O(corpus) knowledge "
-                    f"rankings in this process, {snapshot['seconds']:.1f}s "
-                    f"cumulative, worst {snapshot['max_seconds']:.2f}s. "
-                    "C-166: confirms amplification over per-call cost."
+                    f"{who} spent {snapshot['duty'] * 100:.1f}% of its "
+                    f"{snapshot['window_s']:.0f}s window on O(corpus) knowledge "
+                    f"ranking — {snapshot['calls']} calls, "
+                    f"{snapshot['seconds']:.1f}s, worst {snapshot['max_seconds']:.2f}s. "
+                    f"Normal measured duty is ~0.8%. C-166/C-174."
                 ),
                 source="knowledge:R-F4136",
             )
@@ -2795,6 +2824,7 @@ def ranking_stats() -> dict:
     thousands of calls is amplification; many callers with a handful each is
     per-call cost.
     """
+    _now = time.monotonic()
     with _rank_stats_lock:
         callers = {k: dict(v) for k, v in _rank_stats.items()}
     total_calls = sum(v["calls"] for v in callers.values())
@@ -2820,6 +2850,11 @@ def ranking_stats() -> dict:
                 "mean_seconds": round(v["seconds"] / v["calls"], 4) if v["calls"] else None,
                 "on_loop_calls": v.get("on_loop_calls", 0),
                 "on_loop_seconds": round(v.get("on_loop_seconds", 0.0), 3),
+                # R-F4148 (C-174) — the number the alert actually keys on, so a
+                # reader can see WHY it did or did not fire instead of
+                # reverse-engineering it from a cumulative total.
+                "duty": round(v["seconds"] / max(_now - v.get("first_at", _now), 1e-6), 4),
+                "window_s": round(max(_now - v.get("first_at", _now), 0.0), 1),
                 "facts_scanned": v["facts_scanned"]}
             for k, v in sorted(callers.items(),
                                key=lambda kv: kv[1]["seconds"], reverse=True)

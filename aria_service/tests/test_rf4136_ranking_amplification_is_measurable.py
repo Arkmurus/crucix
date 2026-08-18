@@ -136,7 +136,12 @@ def test_amplification_reaches_the_brain_ONCE_per_process(monkeypatch):
     calls: list[dict] = []
     import aria_service.intel.engine_wiring as ew
     monkeypatch.setattr(ew, "wire_failure", lambda **kw: calls.append(kw), raising=True)
-    monkeypatch.setattr(k, "_RANK_CALLS_ALERT", 3, raising=False)
+    # R-F4148 (C-174) — the trigger is now a DUTY CYCLE with three floors, not
+    # a cumulative count. Relax all three so the announcement is deterministic
+    # here; the thresholds themselves are exercised in the R-F4148 suite.
+    monkeypatch.setattr(k, "_RANK_MIN_CALLS", 3, raising=False)
+    monkeypatch.setattr(k, "_RANK_MIN_SECONDS", 0.0, raising=False)
+    monkeypatch.setattr(k, "_RANK_DUTY_ALERT", 0.0, raising=False)
     for _ in range(12):
         k._rank_knowledge_facts("sanctions", 5)
     assert len(calls) == 1, f"expected one announcement, got {len(calls)}"
@@ -153,8 +158,9 @@ def test_the_announcement_can_actually_fire_and_is_not_decorative(monkeypatch):
     calls: list[dict] = []
     import aria_service.intel.engine_wiring as ew
     monkeypatch.setattr(ew, "wire_failure", lambda **kw: calls.append(kw), raising=True)
-    monkeypatch.setattr(k, "_RANK_CALLS_ALERT", 10_000, raising=False)
-    monkeypatch.setattr(k, "_RANK_SECONDS_ALERT", 1e9, raising=False)
+    monkeypatch.setattr(k, "_RANK_MIN_CALLS", 10_000, raising=False)
+    monkeypatch.setattr(k, "_RANK_MIN_SECONDS", 1e9, raising=False)
+    monkeypatch.setattr(k, "_RANK_DUTY_ALERT", 1.0, raising=False)
     for _ in range(5):
         k._rank_knowledge_facts("sanctions", 5)
     assert calls == [], "announced without crossing any threshold"
