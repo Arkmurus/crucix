@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4152,
+  "next_available": 4153,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35427,6 +35427,15 @@
       "r_number": "R-F4151",
       "title": "use per-image Docker context allowlists",
       "claimed_at": "2026-08-18T14:41:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4152",
+      "title": "trim env reads in emailReader and report effective values in system-status",
+      "claimed_at": "2026-08-18T14:53:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -1960,6 +1960,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T08:38:44Z"
+    },
+    {
+      "c_number": "C-175",
+      "title": "CRLF-contaminated fly secrets silently disable the email reader and mislead the auth diagnostic",
+      "claimed_at": "2026-08-18T14:53:52Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
