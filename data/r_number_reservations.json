@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4148,
+  "next_available": 4149,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35384,6 +35384,15 @@
       "r_number": "R-F4147",
       "title": "run deploy health suite with project interpreter",
       "claimed_at": "2026-08-18T08:14:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4148",
+      "title": "make the ranking amplification alert rate-based and prove it lands in the real ledger",
+      "claimed_at": "2026-08-18T08:21:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

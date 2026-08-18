@@ -1948,6 +1948,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T08:09:02Z"
+    },
+    {
+      "c_number": "C-174",
+      "title": "ranking amplification alert uses a cumulative threshold, so it fires on every long-lived process",
+      "claimed_at": "2026-08-18T08:21:35Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
