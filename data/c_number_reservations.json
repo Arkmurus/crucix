@@ -1919,6 +1919,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T06:29:30Z"
+    },
+    {
+      "c_number": "C-172",
+      "title": "cold transformers import + model load on the event loop via _get_embedder in async stats",
+      "claimed_at": "2026-08-18T07:11:17Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

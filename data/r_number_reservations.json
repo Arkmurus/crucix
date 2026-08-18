@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4143,
+  "next_available": 4144,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35335,6 +35335,15 @@
       "r_number": "R-F4142",
       "title": "pin resolution DPO artifact to LF bytes",
       "claimed_at": "2026-08-18T06:23:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4143",
+      "title": "offload _get_embedder at six async call sites; add it to the G4 denylist",
+      "claimed_at": "2026-08-18T07:11:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
