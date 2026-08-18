@@ -10248,3 +10248,83 @@ new guard can still fail.
 
 The two other failures in the same run (`rf2003`, `rf2286`) were checked against
 `docs/suite_baseline.json` and are pre-existing entries, not fallout.
+
+## C-171 · the G4 on-loop vaccine matched only bare names, so it was blind to every real call site (fixed, R-F4141)
+
+Found while fixing C-170. R-F1910 built the **G4 vaccine** for exactly this
+failure class — *"no known GIL-heavy sync function may be called directly inside
+an async function"* — and it has never been able to fire on real code.
+
+```python
+if (self.async_depth > 0
+        and isinstance(func, ast.Name)      # <-- bare `fn(...)` ONLY
+        and func.id in DENYLIST):
+```
+
+**Nothing in this tree is written that way.** Every call site is
+module-qualified — `knowledge.search_knowledge(...)`,
+`_kb.search_fact_records(...)`, `_pv.verify_premises(...)` — all `ast.Attribute`,
+none `ast.Name`.
+
+Its self-test is what kept this invisible:
+`test_guard_actually_detects_a_violation` proved the guard worked using a
+synthetic **bare** call, certifying it against a form that does not occur in the
+codebase it guards. **A guard that cannot fire, plus a self-test that cannot
+notice, is the register's most-repeated defect** — and here it sat inside the
+mechanism built to prevent this very class.
+
+### What it was hiding: NINE on-loop scans
+
+With the visitor matching attributes and the denylist widened to
+`search_fact_records` and `verify_premises`, the repo-wide scan immediately
+failed with nine inline scans in async functions, each ~2.28s against 570,254
+facts:
+
+```
+aria_service\intel\local_brain.py:679
+aria_service\intel\memory_diagnostics.py:108
+aria_service\intel\signal_correlator.py:874
+aria_service\routes\aria.py:10128, 10874, 19234, 19839, 19844, 20354
+```
+
+All nine now go through `asyncio.to_thread`. Note the shape of the discovery:
+C-170 fixed ONE on-loop caller found by measurement, and the instrument then
+named `signal_correlator` as the next. Chasing them one at a time would have
+taken nine deploys. **Repairing the guard found all nine at once** — that is the
+difference between fixing an instance and fixing a class.
+
+### A second, unrelated defect on one of those lines
+
+`signal_correlator:874` carried an **always-zero** bug:
+
+```python
+facts = knowledge.search_knowledge(country)
+fact_count = len(facts) if isinstance(facts, list) else 0     # ALWAYS 0
+```
+
+`search_knowledge` returns a formatted **STRING**, never a list — its own
+docstring says so, and `routes/aria.py:10120` carries a 2026-04-21 comment about
+this exact confusion after it caused a live failure. Measured on a store with 6
+matching facts:
+
+```
+OLD line -> fact_count = 0   (type: str)
+NEW line -> fact_count = 6   (type: list)
+```
+
+So the knowledge component never contributed its 0.2, silently **capping
+coverage confidence at 0.8**, and `breakdown["knowledge_facts"]` always reported
+0. Same shape as C-169, where a wrong assumption about this module's API capped
+resolver confidence at 0.5 — the third time an API misunderstanding has
+installed a silent ceiling rather than an error.
+
+### The guard now proves it can see what it guards
+
+Three new tests: the module-qualified form IS detected; the `to_thread` form is
+NOT flagged (a gate that cannot be satisfied gets deleted rather than fixed);
+and **every** denylisted name is detectable in BOTH forms, so adding an entry
+cannot silently give half-coverage.
+
+R-F4138's bespoke AST gate for `verify_premises` is kept. It is now partly
+redundant with the repaired repo-wide gate, and deliberately so: it carries a
+specific failure message naming the four call sites, while G4 is the general net.

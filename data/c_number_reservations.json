@@ -1913,9 +1913,12 @@
       "title": "the G4 on-loop vaccine matches only bare names, so it is blind to every real call site",
       "claimed_at": "2026-08-18T06:21:29Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4141"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T06:29:30Z"
     }
   ]
 }

@@ -105,7 +105,9 @@ async def diagnose_topic(topic: str) -> dict:
     # knowledge.py
     try:
         from . import knowledge as _kn
-        ctx = _kn.search_knowledge(topic)  # sync
+        # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+        import asyncio as _aio
+        ctx = await _aio.to_thread(_kn.search_knowledge, topic)
         hits["tiers"]["knowledge"] = {"ok": True, "preview": (ctx or "")[:800]}
     except Exception as e:
         hits["tiers"]["knowledge"] = {"ok": False, "error": str(e)[:200]}

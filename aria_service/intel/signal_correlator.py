@@ -871,7 +871,27 @@ async def assess_coverage_confidence(country: str) -> dict:
 
     # 3. Knowledge facts
     try:
-        facts = knowledge.search_knowledge(country)
+        # R-F4141 (C-171) — TWO defects at this one line.
+        #
+        # 1. It ran the 2.28s O(corpus) scan ON the event loop. Measured
+        #    live by R-F4137's instrument: signal_correlator was the sole
+        #    on-loop caller after C-170 was fixed, 11 calls / 13.99s, all
+        #    on-loop, max 3.42s.
+        #
+        # 2. `search_knowledge` returns a formatted STRING, never a list
+        #    (its own docstring says so, and routes/aria.py:10120 carries a
+        #    2026-04-21 comment about exactly this confusion). So
+        #    `len(facts) if isinstance(facts, list) else 0` was
+        #    ALWAYS 0: the knowledge component of coverage confidence has
+        #    never contributed its 0.2, silently capping the score at 0.8,
+        #    and `breakdown["knowledge_facts"]` always reported 0. Same
+        #    shape as C-169, where a wrong assumption about this module's
+        #    API capped resolver confidence at 0.5.
+        #
+        # `search_fact_records` is the list-returning entry point, so the
+        # count is now real rather than structurally zero.
+        facts = await asyncio.to_thread(
+            knowledge.search_fact_records, country, 20)
         fact_count = len(facts) if isinstance(facts, list) else 0
         breakdown["knowledge_facts"] = fact_count
         score += min(fact_count / 10, 1.0) * 0.2  # max 0.2 from KB

@@ -21,7 +21,9 @@ import pathlib
 # GIL-heavy sync functions (from the wedge stacks + known encoders/parsers).
 # Calling any of these directly on the event loop is the G4 gene.
 DENYLIST = {
-    "search_knowledge",      # O(~87k-fact) linear scan (knowledge.py)
+    "search_knowledge",      # O(570k-fact) linear scan (knowledge.py), 2.28s live
+    "search_fact_records",   # R-F4141 — same scan, programmatic entry point
+    "verify_premises",       # R-F4141 — calls search_fact_records under it (C-170)
     "_strip_html_to_text",   # BeautifulSoup tree-walk (crawler/fetcher.py)
     "_safe_encode",          # sentence-transformer encode (semantic_search.py)
     "_encode_edges",         # neural-memory JSON edge encode
@@ -52,11 +54,33 @@ class _Visitor(ast.NodeVisitor):
         self.async_depth = prev
 
     def visit_Call(self, node):
+        """R-F4141 (C-171) — match `mod.fn(...)` as well as bare `fn(...)`.
+
+        This matched ONLY `ast.Name`, i.e. a bare call. **Every real call site
+        in this tree is module-qualified** — `knowledge.search_knowledge(...)`,
+        `_kb.search_fact_records(...)`, `_pv.verify_premises(...)` — all of
+        which are `ast.Attribute`. So the vaccine written to stop this exact
+        failure class was structurally blind to the codebase's own style from
+        the day it shipped, and two on-loop scans (C-170 premise_verifier,
+        signal_correlator) passed straight through it.
+
+        Worse, `test_guard_actually_detects_a_violation` proved the guard
+        worked using the BARE form — certifying it against a case that does not
+        occur in practice. A guard that cannot fire, plus a self-test that
+        cannot catch that, is the register's most-repeated defect.
+
+        Offloading is still not flagged: `to_thread(mod.fn, x)` passes the
+        function as an ARGUMENT, so it is never the `func` of a Call node.
+        """
         func = node.func
-        if (self.async_depth > 0
-                and isinstance(func, ast.Name)
-                and func.id in DENYLIST):
-            self.violations.append(f"{self.path}:{node.lineno} inline {func.id}() in async context")
+        name = None
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        if self.async_depth > 0 and name in DENYLIST:
+            self.violations.append(
+                f"{self.path}:{node.lineno} inline {name}() in async context")
         self.generic_visit(node)
 
 
@@ -104,3 +128,48 @@ def test_guard_actually_detects_a_violation():
     v2 = _Visitor("synthetic")
     v2.visit(good)
     assert not v2.violations, "guard false-flagged an offloaded call"
+
+
+def test_guard_detects_the_MODULE_QUALIFIED_form():
+    """R-F4141 (C-171) — the case that actually occurs, and the one the guard
+    was blind to for its whole life.
+
+    The test above uses a BARE `search_knowledge('x')`. Nothing in this tree is
+    written that way: every call site is `knowledge.search_knowledge(...)` or
+    `_kb.search_fact_records(...)`. So the original self-test certified the
+    guard against a form that never appears, while two real on-loop scans
+    (C-170 `premise_verifier`, and `signal_correlator`) sailed through.
+    """
+    bad = ast.parse(
+        "async def h(knowledge):\n"
+        "    return knowledge.search_knowledge('x')\n"
+    )
+    v = _Visitor("synthetic")
+    v.visit(bad)
+    assert v.violations, (
+        "guard is blind to `mod.fn(...)` — the only form this codebase uses")
+
+
+def test_guard_does_not_flag_an_offloaded_module_qualified_call():
+    """The other half. `to_thread(mod.fn, x)` passes the function as an
+    ARGUMENT, so it must not be flagged — otherwise the gate is unsatisfiable
+    and the next person deletes it rather than fixing anything."""
+    good = ast.parse(
+        "import asyncio\n"
+        "async def h(knowledge):\n"
+        "    return await asyncio.to_thread(knowledge.search_knowledge, 'x')\n"
+    )
+    v = _Visitor("synthetic")
+    v.visit(good)
+    assert not v.violations, "offloaded module-qualified call wrongly flagged"
+
+
+def test_guard_covers_every_denylisted_name_in_both_forms():
+    """Each entry must be detectable both ways, so adding a name to DENYLIST
+    cannot silently give half-coverage."""
+    for fn in sorted(DENYLIST):
+        for src in (f"async def h():\n    return {fn}('x')\n",
+                    f"async def h(m):\n    return m.{fn}('x')\n"):
+            v = _Visitor("synthetic")
+            v.visit(ast.parse(src))
+            assert v.violations, f"{fn} not detected in: {src.strip()}"

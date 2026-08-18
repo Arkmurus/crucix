@@ -10125,7 +10125,8 @@ async def _execute_tool(
             # failure on a Modirum Gespi brief. The fix is to use the
             # string verbatim — it's already human-readable and confidence-
             # tagged by search_knowledge.
-            kb_text = _kb.search_knowledge(entity)
+            # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+            kb_text = await asyncio.to_thread(_kb.search_knowledge, entity)
             if isinstance(kb_text, str) and kb_text.strip():
                 briefing_parts.append("VERIFIED KNOWLEDGE:")
                 briefing_parts.append(kb_text.strip()[:3000])
@@ -10871,7 +10872,9 @@ async def _execute_tool(
         if tool == "screen":
             # Quick screen — uses fuzzy sanctions module + KB hits for context
             r = await aria_sanctions.fuzzy_screen(intent["entity"])
-            kb_hits = knowledge_mod.search_knowledge(intent["entity"]) or ""
+            # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+            kb_hits = await asyncio.to_thread(
+                knowledge_mod.search_knowledge, intent["entity"]) or ""
             top = (r.get("matches") or [])[:3]
             # R-F2373 (M1): unavailable source → UNVERIFIED, not "no matches".
             if r.get("source_unavailable") or r.get("screened") is False:
@@ -19231,8 +19234,10 @@ async def compliance_brief_ep(request: Request):
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     # 1. Gather compliance-tagged facts from knowledge base
-    kb_compliance = knowledge.search_knowledge(
-        "sanctions export control compliance embargo ITAR EAR OFAC ECJU licence"
+    # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+    kb_compliance = await asyncio.to_thread(
+        knowledge.search_knowledge,
+        "sanctions export control compliance embargo ITAR EAR OFAC ECJU licence",
     )
 
     # 2. Get recent intel ledger signals tagged as compliance/sanctions/export
@@ -19836,12 +19841,15 @@ async def entity_investigation_ep(request: Request):
     profile_text = profile_result.get("profile", profile_result.get("error", "No profile data."))
 
     # 2. Run sanctions screening via knowledge base
-    sanctions_kb = knowledge.search_knowledge(
-        f"{entity_name} sanctions embargo designated blocked SDN OFAC EU"
+    # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+    sanctions_kb = await asyncio.to_thread(
+        knowledge.search_knowledge,
+        f"{entity_name} sanctions embargo designated blocked SDN OFAC EU",
     )
 
     # 3. Check existing intel in knowledge base
-    entity_kb = knowledge.search_knowledge(entity_name)
+    # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+    entity_kb = await asyncio.to_thread(knowledge.search_knowledge, entity_name)
 
     # 4. Check intel ledger for signals mentioning this entity
     entity_ledger = intel_ledger.query_ledger(entity_name)
@@ -20351,7 +20359,8 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
         _log.warning("Sanctions check upstream failed: %s", e)
 
     # Knowledge-base fallback — search for the entity in stored intel
-    kb_hits = knowledge.search_knowledge(name) or ""
+    # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+    kb_hits = await asyncio.to_thread(knowledge.search_knowledge, name) or ""
     kb_flagged = bool(kb_hits and re.search(r"sanction|embargo|ofac|ofsi|debarred", kb_hits, re.IGNORECASE))
     if kb_flagged:
         matches.append({

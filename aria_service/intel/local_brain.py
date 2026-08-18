@@ -676,7 +676,9 @@ async def degraded_response(message: str, reason: str = "LLM unavailable") -> di
 
     # Knowledge base lexical search
     try:
-        kb_hit = kb.search_knowledge(message)
+        # R-F4141 (C-171) — 2.28s O(corpus) scan; must not run on the loop.
+        import asyncio as _aio
+        kb_hit = await _aio.to_thread(kb.search_knowledge, message)
         if kb_hit and kb_hit.strip():
             sections.append(kb_hit[:1500])
     except Exception as e:
