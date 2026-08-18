@@ -35418,9 +35418,10 @@
       "title": "fail live health on stale service revision",
       "claimed_at": "2026-08-18T14:29:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3627653a",
+      "notes": null,
+      "shipped_at": "2026-08-18T14:40:20Z"
     }
   ]
 }
