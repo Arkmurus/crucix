@@ -35378,9 +35378,10 @@
       "title": "derive the G4 heavy set from the tree instead of hand-maintaining it",
       "claimed_at": "2026-08-18T07:57:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6b0cb0e8",
+      "notes": null,
+      "shipped_at": "2026-08-18T14:37:08Z"
     },
     {
       "r_number": "R-F4147",
