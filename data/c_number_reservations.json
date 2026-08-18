@@ -1936,6 +1936,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-18T07:17:25Z"
+    },
+    {
+      "c_number": "C-173",
+      "title": "the G4 denylist is hand-maintained, so it only catches primitives someone remembered",
+      "claimed_at": "2026-08-18T07:57:47Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
