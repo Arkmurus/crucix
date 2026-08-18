@@ -35325,9 +35325,11 @@
     {
       "r_number": "R-F4141",
       "title": "G4 gate: match attribute calls, widen denylist, fix signal_correlator on-loop scan",
-      "status": "in_progress",
+      "status": "shipped",
       "claimed_at": "2026-08-18T08:23:01",
-      "claimed_by": "claude"
+      "claimed_by": "claude",
+      "commit_sha": "0cfe0134",
+      "shipped_at": "2026-08-18T06:42:50Z"
     },
     {
       "r_number": "R-F4142",
