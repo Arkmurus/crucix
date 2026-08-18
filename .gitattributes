@@ -2,6 +2,9 @@
 # CRLF line endings break `#!/bin/bash` and every command with a trailing \r.
 *.sh text eol=lf
 
+# Hash-pinned training artifacts must have identical bytes on Windows and Linux.
+data/training/aria_tooluse_resolution_boundary_dpo_v1.jsonl text eol=lf
+
 # Windows batch files are the mirror image: cmd.exe requires CRLF. With bare LF
 # it mis-parses the file and fails with "'M' is not recognized as an internal or
 # external command" (the tail of a REM line being read as a command) — observed
