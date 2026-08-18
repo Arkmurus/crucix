@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4145,
+  "next_available": 4146,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35357,6 +35357,15 @@
       "r_number": "R-F4144",
       "title": "enforce ambiguous company clarification after synthesis",
       "claimed_at": "2026-08-18T07:25:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4145",
+      "title": "exclude local scratch artifacts from deploy context",
+      "claimed_at": "2026-08-18T07:49:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

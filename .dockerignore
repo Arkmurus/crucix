@@ -11,6 +11,9 @@ npm-debug.log*
 .gitignore
 .github
 .omc
+# R-F4145 — local pytest and agent scratch trees can contain unreadable
+# directories; they are never runtime inputs and must not enter Fly contexts.
+.scratch/
 .env
 .env.*
 !.env.example
