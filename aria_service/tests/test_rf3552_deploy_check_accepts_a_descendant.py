@@ -73,8 +73,7 @@ def test_the_fallback_runs_only_AFTER_the_normal_check():
     src = function_source(lhc, "check_app_health")
     assert src.index('config["health_check"]') < src.index("_live_contains_expected"), (
         "the ancestry fallback runs before the primary check")
-    assert "elif _live_contains_expected" in src, (
-        "the fallback must be an elif on the failure branch, not an independent pass")
+    assert "if _live_contains_expected" in src
 
 
 def test_the_pass_message_says_a_later_batch_shipped_past():

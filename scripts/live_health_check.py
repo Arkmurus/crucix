@@ -46,14 +46,12 @@ APPS = {
         "health_check": lambda d, exp: (
             isinstance(d, dict)
             and d.get("status") == "alive"
-            and bool(exp)
-            and exp in d.get("build_rev", "")
         ),
     },
     "web": {
         "url": "https://aria-web.fly.dev",
-        "health_endpoint": "/healthz",
-        "health_check": lambda d, exp: d == "ok" if isinstance(d, str) else d.get("status") == "ok",
+        "health_endpoint": "/api/health",
+        "health_check": lambda d, exp: isinstance(d, dict) and d.get("status") == "ok",
     },
     "wa": {
         "url": "https://aria-wa.fly.dev",
@@ -128,23 +126,25 @@ def check_app_health(client: httpx.Client, app_name: str, config: dict, expected
         print(f"  FAIL: {app_name}: UNREACHABLE at {health_url}")
         return False
 
-    if config["health_check"](data, expected_sha):
-        if isinstance(data, dict):
-            rev = data.get("build_rev", "?")
-            print(f"  PASS: {app_name}: alive (build_rev={rev})")
-        else:
-            print(f"  PASS: {app_name}: alive (response={data})")
+    if not config["health_check"](data, expected_sha):
+        print(f"  FAIL: {app_name}: health check FAILED — response: {str(data)[:200]}")
+        return False
+
+    rev = data.get("build_rev", "?") if isinstance(data, dict) else "?"
+    if expected_sha and expected_sha in str(rev):
+        print(f"  PASS: {app_name}: alive (build_rev={rev})")
         return True
-    elif _live_contains_expected(data, expected_sha):
+    if _live_contains_expected(data, expected_sha):
         # R-F3552 — a peer's batch shipped a DESCENDANT of this commit. The code IS
         # live; the sha simply moved past it.
-        rev = data.get("build_rev", "?") if isinstance(data, dict) else "?"
         print(f"  PASS: {app_name}: alive and CONTAINS {expected_sha} "
               f"(build_rev={rev} — a later batch shipped past this commit)")
         return True
-    else:
-        print(f"  FAIL: {app_name}: health check FAILED — response: {str(data)[:200]}")
-        return False
+    print(
+        f"  FAIL: {app_name}: alive but expected build {expected_sha} is not proven "
+        f"(build_rev={rev})"
+    )
+    return False
 
 
 def select_apps(args: list) -> "list | None":

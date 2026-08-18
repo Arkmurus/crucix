@@ -110,22 +110,23 @@ class TestCheckAppHealth:
         assert result is False
 
     def test_web_health_pass(self):
-        """Web health check passes on 'ok' response."""
+        """Web health check passes on matching revision."""
         config = APPS["web"]
+        data = {"status": "ok", "build_rev": "sha abc12345"}
 
-        with patch("scripts.live_health_check.fetch_json", return_value="ok"):
+        with patch("scripts.live_health_check.fetch_json", return_value=data):
             with httpx.Client() as client:
-                result = check_app_health(client, "web", config, "")
+                result = check_app_health(client, "web", config, "abc12345")
 
         assert result is True
 
     def test_wa_health_pass(self):
         """WA health check passes on connected status."""
         config = APPS["wa"]
-        data = {"status": "connected"}
+        data = {"status": "connected", "build_rev": "sha abc12345"}
 
         with patch("scripts.live_health_check.fetch_json", return_value=data):
             with httpx.Client() as client:
-                result = check_app_health(client, "wa", config, "")
+                result = check_app_health(client, "wa", config, "abc12345")
 
         assert result is True

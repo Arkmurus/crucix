@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4150,
+  "next_available": 4151,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35410,6 +35410,15 @@
       "commit_sha": "cd8a4766",
       "notes": null,
       "shipped_at": "2026-08-18T14:28:38Z"
+    },
+    {
+      "r_number": "R-F4150",
+      "title": "fail live health on stale service revision",
+      "claimed_at": "2026-08-18T14:29:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
