@@ -211,3 +211,41 @@ def test_END_TO_END_the_same_wrapper_offloaded_is_NOT_flagged(tmp_path):
     v = G4._Visitor("caller.py", heavy)
     v.visit(ast.parse((pkg / "caller.py").read_text(encoding="utf-8")))
     assert not v.violations, "the correctly offloaded form was flagged"
+
+
+def test_derivation_also_closes_the_NESTED_HELPER_hole(tmp_path):
+    """A hole the visitor has always had, closed as a side effect — verified,
+    not assumed.
+
+    `visit_FunctionDef` resets `async_depth` to 0, because a plain `def` run via
+    `to_thread` is legitimately off the loop. But that also blinds it to a sync
+    helper DEFINED inside an async function and then CALLED INLINE:
+
+        async def handler(q):
+            def _helper():
+                return search_knowledge(q)     # not flagged: inside a plain def
+            return _helper()                   # not flagged: _helper is unlisted
+
+    Derivation closes it for uniquely-named helpers: `_helper` reaches a seed,
+    so it becomes heavy, so the inline call in the async parent is flagged.
+
+    Checked before being claimed — the reach of a fix is exactly the kind of
+    thing that is easy to assert and cheap to verify.
+    """
+    pkg = tmp_path / "svc"
+    pkg.mkdir()
+    (pkg / "prim.py").write_text(
+        "def search_knowledge(q):\n    return 1\n", encoding="utf-8")
+    (pkg / "caller.py").write_text(
+        "from .prim import search_knowledge\n"
+        "async def handler(q):\n"
+        "    def _my_nested_unique_helper():\n"
+        "        return search_knowledge(q)\n"
+        "    return _my_nested_unique_helper()\n", encoding="utf-8")
+
+    heavy = G4.derive_heavy_names(pkg)
+    assert "_my_nested_unique_helper" in heavy, sorted(heavy)
+
+    v = G4._Visitor("caller.py", heavy)
+    v.visit(ast.parse((pkg / "caller.py").read_text(encoding="utf-8")))
+    assert v.violations, "a nested sync helper called inline is still invisible"
