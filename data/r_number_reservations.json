@@ -35714,36 +35714,40 @@
       "title": "customer UI distinguishes unavailable from empty",
       "claimed_at": "2026-08-19T21:30:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1efbc79c",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
     },
     {
       "r_number": "R-F4181",
       "title": "upgrade aria-app vulnerable frontend dependencies",
       "claimed_at": "2026-08-19T21:46:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9ad1479c",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
     },
     {
       "r_number": "R-F4182",
       "title": "make aria-app deploy use its own build context",
       "claimed_at": "2026-08-19T22:00:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d9917c85",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
     },
     {
       "r_number": "R-F4183",
       "title": "resolve aria-app deploy config inside build context",
       "claimed_at": "2026-08-19T22:10:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cc8faca0",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
     }
   ]
 }
