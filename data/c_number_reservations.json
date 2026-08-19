@@ -2137,6 +2137,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-19T14:37:52Z"
+    },
+    {
+      "c_number": "C-190",
+      "title": "attempt 0 overruns its per-call ceiling so the escalation reserve is not actually reserved",
+      "claimed_at": "2026-08-19T14:52:14Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

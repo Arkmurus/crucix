@@ -11927,3 +11927,73 @@ fails the test.
 
 Blast radius: **417 passed, 7 xfailed, 0 failed** across every file touching
 `classify_match` / `_sanctions_classify` / `derive_verified_sources`.
+
+## C-190 · OPEN — the escalation reserve is not actually reserved: attempt 0 overruns its ceiling
+
+**This is the measured cause of the C-182 residual**, captured live on
+2026-08-19 by streaming the logs rather than polling them (the buffer retains
+only minutes, and two earlier attempts to go back for it had already failed).
+
+R-F4168 reserves a slice of the caller's clock so the disable-thinking
+escalation can run. The reserve is computed correctly. It is not *enforced* —
+attempt 0 routinely runs past the per-call timeout it was handed, and eats the
+slice anyway.
+
+### The measurement
+
+```
+[R-F3629] deepseek (deepseek-v4-flash) spent its whole allowance (kind=timeout),
+          but only -0.5s of the caller's 30.0s timeout remains
+[R-F3629] deepseek (deepseek-v4-flash) spent its whole allowance (kind=timeout),
+          but only  6.9s of the caller's 60.0s timeout remains
+```
+
+Two separate failures in one capture:
+
+* **60s caller.** `_escalation_reserve` = `min(30, 60/3)` = **20s**, so attempt 0
+  is handed a **40s** ceiling and 20s should survive for the retry. Only **6.9s**
+  did — attempt 0 consumed **53.1s**, a **13-second overrun**. Below the 15s
+  floor, so the backstop refused the cure.
+* **30s caller.** `min(30, 10)` = 10s, which is under `_MIN_RETRY_SECONDS`, so
+  the reserve is correctly DECLINED (reserving a slice the guard would refuse is
+  worse than reserving none). Attempt 0 gets the full 30s — and returns at
+  **-0.5s**, i.e. past the caller's deadline outright.
+
+That also explains the `coder_llm_ep` errors that persisted after R-F4168 and
+still reported `max_tokens=16384` (attempt 0's budget): on a 120s caller,
+attempt 0's 90s ceiling overran by enough to leave under 15s.
+
+### Root cause
+
+`_one_completion` bounds the call with `httpx.AsyncClient(timeout=X)`. An httpx
+`Timeout` is **per-phase** — connect, read, write, pool — not a total-request
+deadline. A response whose phases each stay under X can still exceed X in wall
+clock, and event-loop scheduling delay adds to it. So the number the reserve
+arithmetic is built on is a hope, not a bound.
+
+### The fix, and the trap in it
+
+Wrap the attempt in a real wall-clock bound
+(`asyncio.wait_for(self._one_completion(...), timeout=_call_timeout)`) so the
+reserve is genuinely reserved.
+
+**The trap:** `asyncio.TimeoutError` is not a `ProviderError`, so it would
+escape `complete()`'s `except ProviderError` and become an UNCURABLE error —
+firing the cure even less often than today. It must be mapped to
+`ProviderError(kind="timeout")`, which R-F4168 already made curable for a
+reasoning model. Shipping the bound without the mapping is a regression, in
+exactly the shape R-F4168's own entry warns about.
+
+### Why it is recorded rather than shipped
+
+This is the LLM chain's hot path — it serves chat, DD, the self-coder and every
+autonomous loop. Eight changes shipped today, one of which (R-F4173) caused a
+live HTTP 500 that needed the R-F4174 hotfix; that happened while moving fast
+late in a long session, on a smaller surface than this one. The durable
+contribution here is the measurement, which took a live stream capture to get
+and is now written down. The change itself wants a fresh session and its own
+fixture.
+
+**Until it lands, R-F4168 helps but does not close the class**: the escalation
+demonstrably fires and cures on many calls (production logs show it recovering
+timeouts repeatedly), and demonstrably still misses when attempt 0 overruns.
