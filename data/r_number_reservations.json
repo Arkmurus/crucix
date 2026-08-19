@@ -35547,9 +35547,10 @@
       "title": "rescore preserved candidates under corrected validator",
       "claimed_at": "2026-08-19T07:47:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renumbered during rebase after concurrent R-F4161 and R-F4162 reservations were published first."
+      "status": "shipped",
+      "commit_sha": "b753c460",
+      "notes": "Renumbered during rebase after concurrent R-F4161 and R-F4162 reservations were published first.",
+      "shipped_at": "2026-08-19T07:56:33Z"
     }
   ]
 }
