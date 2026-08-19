@@ -12,6 +12,7 @@ from scripts.train.build_resolution_boundary_dpo import (
     MINIMUM_BRANCH_COUNTS,
     build_curriculum,
 )
+from scripts.train.eval_tooluse import score_one
 from scripts.train.preflight_training_recipe import validate_recipe
 
 
@@ -63,6 +64,15 @@ def test_real_builder_writes_unique_branch_covered_heldout_safe_asset(tmp_path: 
     }
     assert audit["minimum_branch_counts"] == MINIMUM_BRANCH_COUNTS
     assert audit["heldout_subjects_used_for_training"] is False
+    for row in rows:
+        trace = {
+            "messages": [
+                *row["prompt"], {"role": "assistant", "content": row["rejected"]},
+            ],
+            "label": row["label"],
+            "subject": row["subject"],
+        }
+        assert score_one(trace, row["rejected"])["honest"] is False
 
 
 def test_builder_rejects_heldout_subject() -> None:

@@ -55,6 +55,11 @@ def _trace(row: dict, completion: str) -> dict:
     }
 
 
+def _harden_resolution_rejection(row: dict) -> str:
+    """Return a deterministic non-resolution when a legacy negative went stale."""
+    return "The registry returned several candidates, but I cannot identify the company."
+
+
 def resolution_branch(row: dict) -> str:
     """Return the resolver state exercised by one preference row."""
     prompt = row.get("prompt") or []
@@ -107,13 +112,16 @@ def build_curriculum(
             raise ValueError(f"chosen completion for {subject!r} is invalid: {chosen_errors}")
         rejected_errors = validate_trace(_trace(row, rejected))
         if not rejected_errors:
-            raise ValueError(f"rejected completion for {subject!r} passes the validator")
+            rejected = _harden_resolution_rejection(row)
+            rejected_errors = validate_trace(_trace(row, rejected))
+        if not rejected_errors:
+            raise ValueError(f"hardened rejection for {subject!r} passes the validator")
         previous = selected.get(subject)
         if previous is not None:
             if previous["chosen"] != chosen:
                 raise ValueError(f"duplicate subject {subject!r} has conflicting chosen answers")
             continue
-        selected[subject] = row
+        selected[subject] = {**row, "rejected": rejected}
 
     curriculum = list(selected.values())
     branches = Counter(resolution_branch(row) for row in curriculum)
@@ -155,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = {
         "complete": True,
         "policy": "deduplicated_resolution_decision_state_coverage",
+        "rejection_policy": "retain_validator_failing_else_deterministic_non_resolution",
         "source_rows": len(source_rows),
         "curriculum_rows": len(curriculum),
         "duplicate_subject_rows_removed": len(source_rows) - len(curriculum),
