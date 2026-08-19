@@ -78,3 +78,17 @@ def test_probe_is_pre_registered_with_fixed_arms_and_fail_closed_gate() -> None:
         "maximum_axis_regressions": 0,
     }
     assert manifest["parent_adapter_sha256"] != manifest["candidate_adapter_sha256"]
+
+
+def test_pod_runner_evaluates_only_registered_arms_and_requires_watchdog() -> None:
+    runner = (ROOT / "scripts/train/pod_tooluse_lora_interpolation_v1.sh").read_text(
+        encoding="utf-8",
+    )
+    assert 'ALPHAS="${ALPHAS:-0.25 0.5 0.75}"' in runner
+    assert '[ "$ALPHAS" = "0.25 0.5 0.75" ]' in runner
+    assert "require_watchdog" in runner
+    assert "EXPECTED_ROWS" in runner
+    assert "interpolate_lora_adapters" in runner
+    assert "eval_tooluse" in runner
+    assert "sft_train" not in runner
+    assert "dpo_train" not in runner
