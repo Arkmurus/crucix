@@ -35576,9 +35576,10 @@
       "title": "refresh stale resolution DPO negatives",
       "claimed_at": "2026-08-19T09:50:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ba23b306",
+      "notes": null,
+      "shipped_at": "2026-08-19T09:55:42Z"
     }
   ]
 }
