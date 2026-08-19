@@ -1,7 +1,7 @@
 import { TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { PageHeader, EmptyState } from '@/components/page-header';
+import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, riskVariant, titleCase } from '@/lib/format';
 
@@ -15,13 +15,15 @@ interface Opportunity {
 }
 
 export default async function OpportunitiesPage() {
-  const { data } = await tryApiServer<{ opportunities?: Opportunity[] }>('/api/opportunities');
+  const { data, error } = await tryApiServer<{ opportunities?: Opportunity[] }>('/api/opportunities');
   const opps = Array.isArray(data) ? (data as Opportunity[]) : data?.opportunities ?? [];
 
   return (
     <div>
       <PageHeader title="Opportunities" description="Signal-backed market opportunities detected from the live OSINT sweep." />
-      {opps.length === 0 ? (
+      {error ? (
+        <UnavailableState title="Opportunities unavailable" />
+      ) : opps.length === 0 ? (
         <EmptyState title="No opportunities right now" hint="ARIA surfaces opportunities as the sweep correlates new signals." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

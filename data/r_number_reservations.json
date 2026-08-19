@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4180,
+  "next_available": 4181,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35708,6 +35708,15 @@
       "commit_sha": "6898d4d9",
       "notes": null,
       "shipped_at": "2026-08-19T16:20:00Z"
+    },
+    {
+      "r_number": "R-F4180",
+      "title": "customer UI distinguishes unavailable from empty",
+      "claimed_at": "2026-08-19T21:30:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

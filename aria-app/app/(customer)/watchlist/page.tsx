@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PageHeader, EmptyState } from '@/components/page-header';
+import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, fmtDate, riskVariant } from '@/lib/format';
 import { addWatchlist, removeWatchlist, rescreenWatchlist } from '@/lib/actions';
@@ -17,7 +17,7 @@ interface Entity {
 }
 
 export default async function WatchlistPage() {
-  const { data } = await tryApiServer<{ watchlist?: Entity[] }>('/api/aria/dd/watchlist');
+  const { data, error } = await tryApiServer<{ watchlist?: Entity[] }>('/api/aria/dd/watchlist');
   const entities = Array.isArray(data) ? (data as Entity[]) : data?.watchlist ?? [];
 
   return (
@@ -43,7 +43,9 @@ export default async function WatchlistPage() {
         </CardContent>
       </Card>
 
-      {entities.length === 0 ? (
+      {error ? (
+        <UnavailableState title="Watchlist unavailable" />
+      ) : entities.length === 0 ? (
         <EmptyState title="Watchlist is empty" hint="Add an entity above to start monitoring it for risk changes." />
       ) : (
         <Table>

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { FileSearch, Eye, TrendingUp, Briefcase, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { PageHeader, EmptyState } from '@/components/page-header';
+import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, fmtDate, riskVariant } from '@/lib/format';
 
@@ -30,10 +30,10 @@ export default async function DashboardPage() {
   const opps = arr<unknown>(oppsR.data, 'opportunities');
 
   const kpis = [
-    { label: 'DD Reports', value: reports.length, icon: FileSearch, href: '/reports' },
-    { label: 'Watchlist', value: watch.length, icon: Eye, href: '/watchlist' },
-    { label: 'Opportunities', value: opps.length, icon: TrendingUp, href: '/opportunities' },
-    { label: 'Active Deals', value: deals.length, icon: Briefcase, href: '/opportunities' },
+    { label: 'DD Reports', value: reports.length, unavailable: Boolean(reportsR.error), icon: FileSearch, href: '/reports' },
+    { label: 'Watchlist', value: watch.length, unavailable: Boolean(watchR.error), icon: Eye, href: '/watchlist' },
+    { label: 'Opportunities', value: opps.length, unavailable: Boolean(oppsR.error), icon: TrendingUp, href: '/opportunities' },
+    { label: 'Active Deals', value: deals.length, unavailable: Boolean(pipelineR.error), icon: Briefcase, href: '/opportunities' },
   ];
 
   const recent = reports.slice(0, 6);
@@ -51,7 +51,8 @@ export default async function DashboardPage() {
                 <CardContent className="flex items-center justify-between p-5">
                   <div>
                     <p className="text-sm text-muted-foreground">{k.label}</p>
-                    <p className="mt-1 text-3xl font-semibold">{k.value}</p>
+                    <p className="mt-1 text-3xl font-semibold">{k.unavailable ? '-' : k.value}</p>
+                    {k.unavailable ? <p className="text-xs text-amber-600">Unavailable</p> : null}
                   </div>
                   <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <Icon className="h-5 w-5" />
@@ -71,7 +72,9 @@ export default async function DashboardPage() {
           </Link>
         </CardHeader>
         <CardContent>
-          {recent.length === 0 ? (
+          {reportsR.error ? (
+            <UnavailableState title="Recent DD reports unavailable" />
+          ) : recent.length === 0 ? (
             <EmptyState title="No reports yet" hint="Run due diligence from the DD Reports page to see results here." />
           ) : (
             <ul className="divide-y">

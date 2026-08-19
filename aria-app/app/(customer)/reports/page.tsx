@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PageHeader, EmptyState } from '@/components/page-header';
+import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, fmtDate, riskVariant } from '@/lib/format';
 import { runDD } from '@/lib/actions';
@@ -19,7 +19,7 @@ interface Report {
 }
 
 export default async function ReportsPage() {
-  const { data } = await tryApiServer<{ reports?: Report[] }>('/api/aria/dd/reports?limit=100');
+  const { data, error } = await tryApiServer<{ reports?: Report[] }>('/api/aria/dd/reports?limit=100');
   const reports = Array.isArray(data) ? (data as Report[]) : data?.reports ?? [];
 
   return (
@@ -42,7 +42,9 @@ export default async function ReportsPage() {
         </CardContent>
       </Card>
 
-      {reports.length === 0 ? (
+      {error ? (
+        <UnavailableState title="DD reports unavailable" />
+      ) : reports.length === 0 ? (
         <EmptyState title="No reports yet" hint="Run a due-diligence check above to generate your first report." />
       ) : (
         <Table>

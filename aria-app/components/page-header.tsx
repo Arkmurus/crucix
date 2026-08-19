@@ -19,3 +19,15 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
     </div>
   );
 }
+
+/** A failed read is unknown, never an empty collection or a zero count. */
+export function UnavailableState({ title }: { title: string }) {
+  return (
+    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        This data couldn&apos;t be loaded, so its current state could not be verified. Try again shortly.
+      </p>
+    </div>
+  );
+}

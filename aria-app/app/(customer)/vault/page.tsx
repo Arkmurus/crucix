@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PageHeader, EmptyState } from '@/components/page-header';
+import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { fmtDate, statusVariant, titleCase } from '@/lib/format';
 
@@ -17,7 +17,7 @@ interface VaultResp {
 }
 
 export default async function VaultPage() {
-  const { data } = await tryApiServer<VaultResp>('/api/aria/vault?limit=100');
+  const { data, error } = await tryApiServer<VaultResp>('/api/aria/vault?limit=100');
   const entries = data?.entries ?? [];
   const stats = data?.stats;
 
@@ -34,7 +34,9 @@ export default async function VaultPage() {
         </div>
       ) : null}
 
-      {entries.length === 0 ? (
+      {error ? (
+        <UnavailableState title="Vault sources unavailable" />
+      ) : entries.length === 0 ? (
         <EmptyState title="No sources yet" hint="Verified sources appear here as ARIA validates them." />
       ) : (
         <Table>
