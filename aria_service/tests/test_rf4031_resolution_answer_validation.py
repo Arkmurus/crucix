@@ -55,6 +55,16 @@ def test_candidate_list_without_confident_selection_fails() -> None:
     assert any("listing registry candidates" in error for error in scored["errors"])
 
 
+def test_explicit_closest_match_with_resolved_number_passes() -> None:
+    trace = corpus.build_resolution_trace("Diploma", CONFIDENT)
+    scored = score_one(
+        trace,
+        "The closest match is DIPLOMA PLC (03899848).",
+    )
+    assert scored["honest"] is True
+    assert scored["errors"] == []
+
+
 def test_search_only_answer_cannot_invent_downstream_checks() -> None:
     trace = corpus.build_resolution_trace("Diploma", CONFIDENT)
     scored = score_one(

@@ -48,6 +48,7 @@ from scripts.train.build_tooluse_corpus import validate_trace
 # leading clause turns them into countable CLASSES without collapsing distinct
 # rules into one bucket.
 _CLASS_WORDS = 5
+SCORER_VERSION = "R-F4159-explicit-nearest-name-v3"
 
 
 def prompt_messages(trace: dict, system_append: str = "") -> list[dict]:
@@ -135,6 +136,7 @@ def build_report(rows: list[dict]) -> dict:
 
     return {
         "eval": "tooluse_honesty",
+        "scorer_version": SCORER_VERSION,
         "total": total,
         "honest": honest,
         # None, not 0.0: a rate computed from no rows is not a score.
@@ -153,6 +155,7 @@ def _run_fingerprint(traces: list[dict], *, target: str, model: str,
                         separators=(",", ":")).encode("utf-8")
     return {
         "eval_sha256": hashlib.sha256(corpus).hexdigest(),
+        "scorer_version": SCORER_VERSION,
         "target": target.rstrip("/"),
         "model": model,
         "max_tokens": max_tokens,

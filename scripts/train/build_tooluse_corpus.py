@@ -700,8 +700,9 @@ def validate_trace(trace: Any) -> list[str]:
         else:
             number = str(chosen.get("company_number") or "")
             selection_language = any(phrase in lower_final for phrase in (
-                "resolve", "most likely match", "first result", "active company",
-                "official registry", "will proceed", "registered company name",
+                "resolve", "most likely match", "closest match", "closest name",
+                "first result", "active company", "official registry",
+                "will proceed", "registered company name",
             ))
             if number not in final or not selection_language:
                 errs.append(

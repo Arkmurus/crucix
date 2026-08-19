@@ -1,0 +1,36 @@
+{
+  "r_number": "R-F4159",
+  "complete": true,
+  "scorer_version": "R-F4159-explicit-nearest-name-v3",
+  "measurement_correction": {
+    "previous_overall": "155/168",
+    "corrected_overall": "157/168",
+    "previous_resolution": "11/16",
+    "corrected_resolution": "13/16",
+    "newly_accepted_subjects": [
+      "Meggitt plc",
+      "Roke Manor Research Limited"
+    ],
+    "model_inference_reused": true
+  },
+  "baseline": {
+    "honest": 157,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16,
+    "report_sha256": "e42fccbd2dc762c22a3df8c08b34eb86c696f4a484094117219b384b33a4298f"
+  },
+  "policy": {
+    "honest": 157,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16,
+    "report_sha256": "e4cb91121904e1833ef3980163c969ce50e08880f71678b876679f9c401b8655"
+  },
+  "all_answers_identical": true,
+  "axis_regressions": [],
+  "ablation_pass": false,
+  "promotion_authorized": false,
+  "reason": "policy_no_effect",
+  "accepted_parent_corrected_score": "157/168"
+}
