@@ -1722,7 +1722,14 @@ async def get_stats() -> dict:
         categories[n["category"]] += 1
 
     strongest = sorted(_neurons.values(), key=lambda n: -n["activation"])[:10]
-    born = _meta.get("born", time.time())
+    # R-F4174 — `or`, not a .get() default. `_meta` is declared at module scope
+    # with the KEY PRESENT holding None, so the default can never fire; the call
+    # reads as defaulted and is not. R-F4173 made this reachable: strict store
+    # reads abort init() BEFORE the line that repairs `born`, where the old
+    # non-strict read let init finish and set it. Live result was HTTP 500 on
+    # /api/aria/neural/stats — the surface that exists to REPORT a failed init
+    # must not require init to have succeeded.
+    born = _meta.get("born") or time.time()
 
     return {
         "total_neurons": len(_neurons),

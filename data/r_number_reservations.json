@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4174,
+  "next_available": 4175,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35645,6 +35645,15 @@
       "r_number": "R-F4173",
       "title": "C-185 strict neural store reads so a timeout is not an empty graph",
       "claimed_at": "2026-08-19T13:37:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4174",
+      "title": "C-185 follow-up: get_stats must tolerate an unset born after an aborted init",
+      "claimed_at": "2026-08-19T14:05:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

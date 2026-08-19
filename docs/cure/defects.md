@@ -11539,6 +11539,33 @@ remaining failures are recorded `docs/suite_baseline.json` entries. Boot-path
 set: 72 passed. Whole-tree compile gate clean; `main.py` imports and `lifespan`
 is callable.
 
+### A regression THIS fix caused, found by probing my own deploy (R-F4174)
+
+`GET /api/aria/neural/stats` began returning **HTTP 500** on `cc4a05ec`, minutes
+after the same endpoint had answered 200 on the same build. The difference was
+that `_neurons` had become non-empty.
+
+`_meta` is declared at module scope as `{..., "born": None}` — the key is
+PRESENT holding None. `init()` repairs it, but the repair sits inside the try,
+*after* the store reads. Strict reads now ABORT `init()` before that line, where
+the old non-strict reader let it carry on and set `born` anyway. So this fix
+created the first path that leaves `born` as None. Then:
+
+```python
+born = _meta.get("born", time.time())   # -> None; the default cannot fire
+"age_days": round((time.time() - born) / 86400, 1)   # TypeError -> 500
+```
+
+A `.get(key, default)` default never fires for a key that exists holding None —
+it reads as defaulted and is not. Fixed with `or` rather than a `.get` default,
+plus a guard that a genuine birth date is still reported unchanged (overwriting
+it would silently reset the graph's recorded age).
+
+The lesson is the one that keeps recurring here: `get_stats()` is the surface
+that exists to REPORT a failed init, so it is precisely the function that must
+not require init to have succeeded. Found by probing the deploy, not by the
+suite.
+
 ### What must NOT be done
 
 * Do not "fix" it by widening R-F251's threshold or dropping `neural_edges` from
