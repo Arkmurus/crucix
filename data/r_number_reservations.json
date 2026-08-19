@@ -35538,9 +35538,10 @@
       "title": "session-scoped dd_vault isolation fixture so no test touches the machine-global DB",
       "claimed_at": "2026-08-19T07:52:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6a595c1e",
+      "notes": null,
+      "shipped_at": "2026-08-19T11:12:26Z"
     },
     {
       "r_number": "R-F4163",
