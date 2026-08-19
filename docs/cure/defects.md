@@ -11928,7 +11928,7 @@ fails the test.
 Blast radius: **417 passed, 7 xfailed, 0 failed** across every file touching
 `classify_match` / `_sanctions_classify` / `derive_verified_sources`.
 
-## C-190 · OPEN — the escalation reserve is not actually reserved: attempt 0 overruns its ceiling
+## C-190 · the escalation reserve was not actually reserved (fixed, R-F4179)
 
 **This is the measured cause of the C-182 residual**, captured live on
 2026-08-19 by streaming the logs rather than polling them (the buffer retains
@@ -11984,7 +11984,40 @@ firing the cure even less often than today. It must be mapped to
 reasoning model. Shipping the bound without the mapping is a regression, in
 exactly the shape R-F4168's own entry warns about.
 
-### Why it is recorded rather than shipped
+### The fix (R-F4179)
+
+`_bounded_completion()` wraps each attempt in `asyncio.wait_for` at its computed
+ceiling, so the reserve is genuinely reserved. The inner httpx timeout is KEPT —
+it still fails fast on a dead connection, and this is the outer backstop rather
+than a replacement.
+
+**The trap was cleared, and it is why this is a method rather than an inline
+wrap:** `asyncio.TimeoutError` is not a `ProviderError`, so a bare `wait_for`
+would escape `complete()`'s `except ProviderError` and become an UNCURABLE
+error — firing the escalation LESS often than doing nothing. It is mapped to
+`ProviderError(kind="timeout")`, which R-F4168 already made curable for a
+reasoning model, so a cut-off attempt 0 still reaches the cure. §21a: the
+cut-off wires a health signal, mirroring `_one_completion`'s own httpx-timeout
+branch (which cannot fire here — we cancelled it).
+
+**Verification.** `test_rf4179_attempt_zero_cannot_eat_the_reserve.py` — 5 tests,
+4 RED before. The capability test drives an attempt that overruns its ceiling and
+asserts the escalation still runs; a second asserts the retry disables thinking
+(i.e. the cut-off was recognised as the curable timeout it is, not a new
+uncurable class); a third asserts a classic model surfaces it as an honest
+`ProviderError` rather than a bare `asyncio.TimeoutError` escaping the chain; a
+fourth asserts the caller's total deadline holds while attempt 0 tries to run 5s
+over. The RED run reproduced the live defect exactly: **5.6s consumed against a
+0.9s deadline**.
+
+A guard pins the healthy path — one attempt, no retry, no added latency — because
+that is the overwhelming majority of calls. (My first draft of it reused the
+overrunning stub with `overrun=0`, which still slept the FULL ceiling, so it
+exercised the bound instead of the fast path and took 30s to fail.)
+
+LLM-chain blast radius: **217 passed, 0 failed.**
+
+### Why it was recorded before it was shipped
 
 This is the LLM chain's hot path — it serves chat, DD, the self-coder and every
 autonomous loop. Eight changes shipped today, one of which (R-F4173) caused a

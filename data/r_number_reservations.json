@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4179,
+  "next_available": 4180,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35692,6 +35692,15 @@
       "r_number": "R-F4178",
       "title": "C-191 measure corroboration similarity on suffix-normalised names",
       "claimed_at": "2026-08-19T15:00:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4179",
+      "title": "C-190 enforce the per-attempt wall clock so the escalation reserve is real",
+      "claimed_at": "2026-08-19T15:10:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

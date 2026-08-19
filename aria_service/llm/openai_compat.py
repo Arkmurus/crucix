@@ -4,6 +4,7 @@ All use the same /v1/chat/completions endpoint format.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import httpx
@@ -421,7 +422,7 @@ class OpenAICompatProvider(LLMProvider):
                 # R-F4168 -- hold the escalation slice back from attempt 0.
                 _call_timeout = max(_remaining - _reserve, _MIN_RETRY_SECONDS)
             try:
-                return await self._one_completion(
+                return await self._bounded_completion(   # R-F4179 (C-190)
                     system_prompt, user_message,
                     eff_model=_eff_model, max_tokens=_budget,
                     timeout=_call_timeout,
@@ -517,6 +518,74 @@ class OpenAICompatProvider(LLMProvider):
         if disable_thinking and _is_reasoning_model(eff_model):
             payload["thinking"] = {"type": "disabled"}
         return payload
+
+    async def _bounded_completion(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        eff_model: str | None,
+        max_tokens: int,
+        timeout: float,
+        disable_thinking: bool = False,
+    ) -> LLMResult:
+        """R-F4179 (C-190) — ONE attempt under a REAL wall-clock bound.
+
+        `_one_completion` bounds itself with `httpx.AsyncClient(timeout=X)`, and
+        an httpx `Timeout` is PER-PHASE — connect, read, write, pool — not a
+        total-request deadline. A response whose every phase stays under X can
+        still exceed X in wall clock, and event-loop scheduling delay adds to it.
+        So R-F4168's escalation reserve was arithmetic over a ceiling nothing
+        enforced, and attempt 0 ate the slice it was supposed to leave.
+
+        MEASURED live 2026-08-19, streamed from the running app:
+
+            [R-F3629] ... but only  6.9s of the caller's 60.0s timeout remains
+            [R-F3629] ... but only -0.5s of the caller's 30.0s timeout remains
+
+        On the 60s call attempt 0 was handed a 40s ceiling and consumed 53.1s —
+        a 13-second overrun that dropped the remainder under the retry floor, so
+        the cure was refused. The 30s call finished PAST the caller's deadline.
+
+        THE TRAP, and the reason this is a method rather than an inline
+        `wait_for`: `asyncio.TimeoutError` is not a `ProviderError`, so a bare
+        wrap would escape `complete()`'s `except ProviderError` and become an
+        UNCURABLE error — firing the escalation LESS often than doing nothing.
+        It is mapped to `kind="timeout"`, which R-F4168 already made curable for
+        a reasoning model, so a cut-off attempt 0 still reaches the cure.
+
+        The inner httpx timeout is deliberately KEPT: it still fails fast on a
+        dead connection, and this is the outer backstop rather than a
+        replacement.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._one_completion(
+                    system_prompt, user_message,
+                    eff_model=eff_model, max_tokens=max_tokens,
+                    timeout=timeout, disable_thinking=disable_thinking,
+                ),
+                timeout=timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            # §21a — the health signal, mirroring _one_completion's own httpx
+            # timeout branch. That branch cannot fire here: we cancelled it.
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(
+                    module=f"llm_{self.name}",
+                    detail=(f"Provider {self.name} exceeded its {timeout:.1f}s "
+                            f"wall-clock ceiling (model={eff_model})"),
+                    gap_type="llm_provider_failure",
+                    source=f"llm_{self.name}",
+                )
+            except Exception:
+                pass
+            raise ProviderError(
+                self.name,
+                f"attempt exceeded its {timeout:.1f}s wall-clock ceiling",
+                kind="timeout", retryable=True, cause=e,
+            ) from e
 
     async def _one_completion(
         self,
