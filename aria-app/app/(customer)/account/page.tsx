@@ -31,7 +31,8 @@ interface BillingMe {
 
 const TIER_ORDER = ['free', 'pro', 'proIntel'];
 
-export default async function AccountPage({ searchParams }: { searchParams: { billing?: string } }) {
+export default async function AccountPage(props: { searchParams: Promise<{ billing?: string }> }) {
+  const searchParams = await props.searchParams;
   const [meR, cfgR, bmR] = await Promise.all([
     tryApiServer<Me>('/api/auth/me'),
     tryApiServer<BillingConfig>('/api/billing/config'),

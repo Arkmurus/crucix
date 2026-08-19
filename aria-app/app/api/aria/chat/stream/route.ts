@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://aria-web.internal:3117';
 
 export async function POST(req: NextRequest) {
-  const token = cookies().get(TOKEN_COOKIE)?.value;
+  const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   const user = decodeToken(token);
   if (!token || !user) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } });

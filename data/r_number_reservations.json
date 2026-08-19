@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4181,
+  "next_available": 4182,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35713,6 +35713,15 @@
       "r_number": "R-F4180",
       "title": "customer UI distinguishes unavailable from empty",
       "claimed_at": "2026-08-19T21:30:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4181",
+      "title": "upgrade aria-app vulnerable frontend dependencies",
+      "claimed_at": "2026-08-19T21:46:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

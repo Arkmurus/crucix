@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 
 interface ReportDetail { markdown?: string; canonical_entity_id?: string; report?: { markdown?: string } }
 
-export default async function ReportDetailPage({ params }: { params: { runId: string } }) {
+export default async function ReportDetailPage(props: { params: Promise<{ runId: string }> }) {
+  const params = await props.params;
   const runId = decodeURIComponent(params.runId);
   const { data, error } = await tryApiServer<ReportDetail>(`/api/aria/dd/report/${encodeURIComponent(runId)}?format=markdown`);
   const markdown = data?.markdown || data?.report?.markdown || '';

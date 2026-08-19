@@ -12,7 +12,7 @@ function backendBase(): string {
 
 /** Server-side fetch that forwards the caller's JWT from the httpOnly cookie. */
 export async function apiServer<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const token = cookies().get(TOKEN_COOKIE)?.value;
+  const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   const res = await fetch(`${backendBase()}${path}`, {
     ...init,
     headers: {
