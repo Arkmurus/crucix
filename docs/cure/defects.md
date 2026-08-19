@@ -10985,10 +10985,15 @@ test can have — it makes the suite's verdict a function of the machine.
   merge.
 * **Class** — `dd_vault` now honours **`ARIA_DATA_DIR`**, the established idiom
   its siblings already use (`agent_contract`, `agent_registry`, `brave_distill`,
-  `brave_student`). **Production is unchanged**: the var is unset on Fly — R-F1692
-  records precisely that — so it still resolves to `/data`. What it adds is the
-  ability to point a run at a throwaway directory instead of a machine-global
-  file.
+  `brave_student`). **Production is unchanged — and measured, not inferred.**
+
+  I first wrote here that the var is "unset on Fly", quoting R-F1692's comment.
+  **That was wrong, and I had not checked.** Probed live after the deploy:
+  `ARIA_DATA_DIR = [/data]` — it IS set, to exactly the value the code
+  hardcoded. So the change is a provable no-op in production rather than a
+  fallback that happens to agree, which is stronger evidence than the claim I
+  made from the comment. Repeating a code comment as a live fact is the §22
+  failure; the fix was one command.
 
 ### Measured, not assumed — and the reason isolation is NOT yet automatic
 

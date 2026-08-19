@@ -35496,9 +35496,10 @@
       "title": "isolate the dd vault in tests so list_reports assertions are hermetic",
       "claimed_at": "2026-08-18T21:16:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c17baca9",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:22:48Z"
     }
   ]
 }

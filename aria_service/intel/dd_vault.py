@@ -41,9 +41,14 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 #
 # `ARIA_DATA_DIR` is the established idiom — `agent_contract`, `agent_registry`,
 # `brave_distill` and `brave_student` all resolve through it with a `/data`
-# fallback. PRODUCTION IS UNCHANGED: the var is unset on Fly (R-F1692 records
-# exactly that), so this still resolves to `/data`. What it adds is the ability
-# to point tests at a throwaway directory instead of a machine-global file.
+# fallback. PRODUCTION IS UNCHANGED, and that is MEASURED rather than inferred:
+# probed live 2026-08-18, `ARIA_DATA_DIR=/data` on aria-intel — the var is SET,
+# to exactly the value this line used to hardcode, so the resolved path is
+# byte-identical. (An earlier draft of this comment said "unset on Fly", quoting
+# R-F1692; that was repeating a code comment as a live fact, which §22 forbids.
+# The measured answer is better news anyway: a no-op, not a coincidence.)
+# What it adds is the ability to point tests at a throwaway directory instead of
+# a machine-global file.
 _VAULT_DIR = Path(os.getenv("ARIA_DATA_DIR") or "/data")
 _VAULT_DB = _VAULT_DIR / "dd_vault.db"
 
