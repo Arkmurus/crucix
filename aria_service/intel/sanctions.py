@@ -1138,7 +1138,14 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
     """Convert an OpenSanctions hit into ARIA's standard match shape."""
     props = raw.get("properties") or {}
     candidate_name = (props.get("name") or [raw.get("caption", "")])[0]
-    sim = _similarity(queried_name, candidate_name)
+    # R-F4178 (C-191) — measure corroboration on names stripped of legal forms
+    # and word order. The raw ratio is inflated by a shared "LTD" and deflated
+    # by re-ordered qualifiers, and `is_corroborated_match` gates BLOCKING
+    # verdicts on it. Both errors are real and were measured; see
+    # `_sanctions_classify.normalise_for_similarity`.
+    from ._sanctions_classify import normalise_for_similarity as _nfs
+    sim_raw = _similarity(queried_name, candidate_name)
+    sim = _similarity(_nfs(queried_name), _nfs(candidate_name))
     phon_match = _metaphone(queried_name) == _metaphone(candidate_name)
     score = float(raw.get("score", 0)) if raw.get("score") else max(sim, 0.7 if phon_match else 0)
 
@@ -1203,6 +1210,11 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
         "list": datasets[0] if datasets else "OpenSanctions",
         "score": round(score, 3),
         "string_similarity": round(sim, 3),
+        # R-F4178 — the raw ratio is KEPT and reported. ARIA's USP commits her to
+        # showing her work: a reader must be able to see both what was measured
+        # and what it was measured on, and an auditor must be able to reproduce
+        # the gate's decision without re-deriving the normalisation.
+        "string_similarity_raw": round(sim_raw, 3),
         "phonetic_match": phon_match,
         "topics": props.get("topics") or [],
         "countries": props.get("country") or [],

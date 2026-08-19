@@ -771,6 +771,55 @@ def _tokenize_entity_name(name: str) -> set[str]:
     }
 
 
+# ── R-F4178 (C-191) — WHAT CORROBORATION SIMILARITY SHOULD BE MEASURED ON ───
+#
+# `is_corroborated_match` gates BLOCKING verdicts on `string_similarity` against
+# `_MIN_BLOCK_SIMILARITY`. That number was a plain Levenshtein ratio over the two
+# RAW name strings, which measures the wrong thing in both directions:
+#
+#   INFLATED by a shared legal form —
+#       "BLACK ROSE SECURITY LTD" vs "BLACK SHIELD COMPANY LTD."  -> 0.520
+#     which CLEARS the blocking floor, largely on the shared "LTD." and "BLACK ".
+#     Two unrelated companies corroborated by their suffix.
+#
+#   DEFLATED by word order and qualifiers —
+#       "Modirum Gespi" vs "Modirum Defence Ltd"                  -> 0.474
+#       "Gazprom Neft Limited" vs "GAZPROM NEFT PJSC"             -> 0.650
+#     The first is UNDER the floor, so a genuine designation was recorded as an
+#     uncorroborated non-hit and `derive_verified_sources` reported it CLEAN.
+#     A false clean is the one failure ARIA's USP says it must never produce.
+#
+# Measured on the same tokens the overlap discipline already uses — corporate
+# suffixes, stopwords and geographic words stripped, order removed — the same
+# eight cases come out better or equal on all, worse on none:
+#
+#       Black Rose vs "... LTD."     0.520 -> 0.421   no longer blocks
+#       Modirum Gespi/Defence        0.474 -> 0.600   real hit recovered
+#       Rosoboronexport              0.789 -> 1.000
+#       Gazprom Neft                 0.650 -> 1.000
+#       Black Rose vs long name      0.295 -> 0.400   still demoted
+#       ADSM vs Shazand              0.172 -> 0.143   still demoted
+#
+# This corrects the MEASURE, not the threshold. Retuning `_MIN_BLOCK_SIMILARITY`
+# could only trade one error for the other; fixing what is measured moves both.
+def normalise_for_similarity(name) -> str:
+    """The form a name should be in before its similarity is measured.
+
+    Reuses `_tokenize_entity_name`, so this is ONE derivation: a stopword class
+    added there is inherited here rather than drifting into a second opinion.
+    """
+    if not isinstance(name, str):
+        name = "" if name is None else str(name)
+    tokens = _tokenize_entity_name(name)
+    if not tokens:
+        # Every token was a suffix or stopword ("Ltd", "The Company"). Two such
+        # names would both normalise to "" and score a PERFECT 1.0 — certainty
+        # manufactured out of two strings we could not read. Fall back to the
+        # raw text, which at least measures something real.
+        return name.strip().lower()
+    return " ".join(sorted(tokens))
+
+
 def _name_overlap(query: str, candidate: str) -> int:
     """Number of meaningful tokens shared between query and candidate."""
     q_tokens = _tokenize_entity_name(query)

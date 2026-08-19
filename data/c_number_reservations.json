@@ -2146,6 +2146,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-191",
+      "title": "corroboration similarity is measured on raw names so shared legal forms inflate it and word order deflates it",
+      "claimed_at": "2026-08-19T15:00:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4178"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T15:04:29Z"
     }
   ]
 }

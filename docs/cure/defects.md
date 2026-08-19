@@ -11997,3 +11997,91 @@ fixture.
 **Until it lands, R-F4168 helps but does not close the class**: the escalation
 demonstrably fires and cures on many calls (production logs show it recovering
 timeouts repeatedly), and demonstrably still misses when attempt 0 overruns.
+
+## C-191 · corroboration similarity was measured on raw names (fixed, R-F4178)
+
+**Adjudicated against the USP rather than escalated.** `DD_REPORT_CUSTOMER_REVIEW_AND_USP.md`
+states ARIA's differentiator as *"decision-grade honesty: the DD tool that never
+gives you a false clean, ties every material claim to a primary source or marks
+it unverified"*, judged by whether a compliance officer can **defend the report
+to a regulator**. Both pillars pointed at the same defect, and it was not the one
+C-186 had been framing.
+
+### The measure, not the threshold
+
+`is_corroborated_match()` gates BLOCKING verdicts on `string_similarity` against
+`_MIN_BLOCK_SIMILARITY = 0.50`. That number was a plain Levenshtein ratio over
+two RAW name strings — which measures the wrong thing in **both** directions:
+
+```
+INFLATED by a shared legal form
+  "BLACK ROSE SECURITY LTD" vs "BLACK SHIELD COMPANY LTD."   0.520  -> BLOCKS
+  Two unrelated companies corroborated by their suffix.
+
+DEFLATED by word order and qualifiers
+  "Modirum Gespi"        vs "Modirum Defence Ltd"            0.474  -> CLEAN
+  "Gazprom Neft Limited" vs "GAZPROM NEFT PJSC"              0.650
+  The first is UNDER the floor, so a genuine designation was recorded as an
+  uncorroborated non-hit — and derive_verified_sources reports that as CLEAN.
+```
+
+The second is a **false clean**, which the USP names as the one failure ARIA
+must never produce. It was live, and it predates every change in this session:
+`derive_verified_sources` has applied this gate all along.
+
+### The fix
+
+Measure on the same tokens the overlap discipline already uses — corporate
+suffixes, stopwords and geographic words stripped, order removed — via
+`normalise_for_similarity()`, which **reuses `_tokenize_entity_name`** so it is
+one derivation rather than a second opinion.
+
+```
+case                          raw     normalised
+Black Rose vs "... LTD."      0.520 -> 0.421   FIXED: no longer blocks
+Modirum "Gespi/Defence"       0.474 -> 0.600   FIXED: real hit recovered
+Rosoboronexport               0.789 -> 1.000
+Gazprom Neft                  0.650 -> 1.000
+Vladimir Putin                0.500 -> 0.500
+Black Rose vs long name       0.295 -> 0.400   (rises; both under the floor)
+ADSM vs Shazand               0.172 -> 0.143
+Modirum "Gespi Ind/Vladimir"  0.208 -> 0.188   (unchanged, still low)
+```
+
+**Every pinned case lands on the correct side of the floor; two that raw got
+wrong are corrected.** Note it is NOT monotonically better as a value — the
+Black Rose long-name pair rises — which is why the test asserts the VERDICT, not
+the value. A first draft asserted value-monotonicity, failed on exactly that
+case, and was corrected: the assertion was stronger than the property that
+matters.
+
+`string_similarity_raw` is kept and reported alongside. The USP commits ARIA to
+showing her work: an auditor must be able to see both what was measured and what
+it was measured on, without re-deriving the normalisation.
+
+**A name that is entirely suffix** ("Ltd") normalises to nothing, and two empty
+strings score a perfect 1.0 — certainty manufactured from two names we could not
+read. That falls back to the raw text, and a test pins it.
+
+### Why this, and not the C-186 framing
+
+C-186 asked whether a lone shared generic token should compel a refusal, and I
+had escalated it as a policy call. Measuring against the USP dissolved it:
+
+* *"defend to a regulator"* — "we refused because the name shares **black**" is
+  indefensible; "shares **modirum**" is defensible. So distinctiveness matters,
+  which three separate structural measures (token counts, shared-token length,
+  character-mass share, whole-string similarity) provably could not see.
+* *"never a false clean"* — reveals that the same gate was ALSO suppressing real
+  hits, which no amount of tuning the token rule would have found.
+
+Correcting the measure moves both errors at once. Retuning the threshold could
+only ever trade one for the other.
+
+### Verification
+
+`test_rf4178_corroboration_similarity_is_normalised.py` — 15 tests, all RED
+before. Covers both error directions as capability tests, the one-derivation
+property, the all-suffix fallback, verdict-correctness across every pinned case,
+and a wiring test that reads `sanctions.py` so a better measure nothing computes
+cannot pass. Sanctions/screen blast radius: **665 passed, 7 xfailed, 0 failed.**
