@@ -2080,6 +2080,18 @@
       "title": "the R-F251 boot regression guard diffs a snapshot taken on an unfinished load",
       "claimed_at": "2026-08-19T12:25:12Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4170"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T13:16:59Z"
+    },
+    {
+      "c_number": "C-185",
+      "title": "neural edges read non-strict at boot: a store timeout reads as zero edges and fires a false R-F251 regression",
+      "claimed_at": "2026-08-19T13:16:05Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

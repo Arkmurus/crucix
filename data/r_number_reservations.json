@@ -35617,9 +35617,10 @@
       "title": "C-184 do not diff a boot snapshot whose stores had not finished loading",
       "claimed_at": "2026-08-19T12:25:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9dfa8e27",
+      "notes": null,
+      "shipped_at": "2026-08-19T13:16:59Z"
     },
     {
       "r_number": "R-F4171",

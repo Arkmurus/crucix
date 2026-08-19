@@ -11401,6 +11401,14 @@ records three Phase A gates being certified by, reintroduced inside the fix for
 it. A snapshot must now carry at least one of the diffed counters to be
 comparable at all.
 
+### Scope — this closes ONE of two paths, and gate #3 is still blocked
+
+Live verification of this very fix surfaced a SECOND, independent route to the
+same false ERROR: a boot that breaks out of the readiness wait EARLY (2m26s)
+with `neural_edges` at 0, because a non-strict edge-store read cannot tell a
+timeout from an absent key. Recorded as **C-185, open**. Do not read this entry
+as "gate #3 unblocked".
+
 ### Verification
 
 `test_rf4170_boot_snapshot_comparability.py`, 11 tests. The capability test
@@ -11415,3 +11423,77 @@ Boot-path regression run: 61 passed across ten boot/lifespan files.
 Windows tempfile-teardown `PermissionError`; it is a recorded
 `docs/suite_baseline.json` entry and C-181 already documents it as
 wall-clock-budget flaky. `main.py` imports cleanly and `lifespan` is callable.
+
+## C-185 · OPEN — a boot-time edge-store read timeout reads as "zero edges", firing a false regression
+
+**Status: measured and diagnosed, NOT fixed.** Reserved and written up rather
+than rushed, because the fix lands in the neural LOAD path — the one that
+already carries the R-F371 guard after a migration race wiped 87.6% of neurons
+in 2026-05. It needs its own fixture and its own review of `_edges_dirty`
+semantics.
+
+**This is the SECOND path to a false R-F251 gate-#3 reset. C-184 closed the
+first one and does NOT cover this.** Do not read C-184 as "gate #3 unblocked".
+
+### Measured live, 2026-08-19
+
+```
+machine restarted (R-F4170 build) : 12:43:59Z
+[R-F251] STATE REGRESSION DETECTED — counters dropped >5% since previous boot:
+         neural_edges: 159198 → 0 (-100%)        at 12:46:25Z   (+2m26s)
+live, ~20 min later: /api/aria/neural/stats → loaded: True, neurons: 17743,
+                                              edges: 159254
+```
+
+Only `neural_edges` dropped — `neural_neurons` did not — so the neurons loaded
+and the edges did not. The durable store never lost anything: the edges are
+there now.
+
+### Why C-184's `stores_ready` gate did not catch it
+
+C-184 skips the diff when the readiness wait hits its 20-minute cap. This boot
+broke out of that wait **early**, at 2m26s, because `knowledge_ready` and
+`neural_ready` were both True. Those flags mean "the heavy warmup task did not
+raise" (`main.py:1323` — `"neural_memory" not in _heavy_failures`), which is not
+the same as "the graph is in memory".
+
+### Why R-F2951's per-counter guard did not catch it either
+
+R-F2951 writes the string `"loading"` for `neural_edges` when
+`nm_stats["loaded"]` is False. Two independent reasons it was True here:
+
+1. **`neural_memory._load` sets `_loaded = True` in its `except` branch**
+   (`neural_memory.py:685-687`). The flag means "we stopped trying", not "the
+   data is here" — so a failed load reports itself as loaded.
+2. **This boot did not even raise.** `_load_edges_sharded()` returned None, and
+   the fallback `await rs.get(EDGES_KEY)` returned None as well. Under the
+   R-F1 **None-on-error** contract (`redis_store.py:299-303`) a store read
+   FAILURE and an absent key are the same value — so the loader took its
+   "nothing on disk → fresh" branch and set `_edges = {}` with
+   `_edges_dirty = False`.
+
+`state_backend_read_timeouts` was live in `degraded_reasons` during exactly this
+window (10 timeouts across 10 distinct keys), which is the most likely trigger.
+
+### The root cause, and the precedent for the fix
+
+**An edge read must be able to say "I could not read", not just "there is
+nothing".** This is the same defect §1 records for `_load_regional_mastery`
+(R-F2664): a non-strict `get_json` let a slow-boot `StoreReadError` poison the
+cache, and the fix was strict-read + skip-on-deferred. The same shape applies
+here — `get_strict` for the edge blob, and on a read failure the loader must
+leave the graph UNLOADED (and say so through `loaded`) rather than adopt an
+empty edge set as fact.
+
+Data loss itself appears to be guarded: R-F371 blocks the shrink-on-persist
+path, and the live edge count is intact. The observable harm is the false ERROR,
+which resets Phase A gate #3 on any boot where an edge shard read times out.
+
+### What must NOT be done
+
+* Do not "fix" it by widening R-F251's threshold or dropping `neural_edges` from
+  `DIFFED_COUNTERS` — a genuine wipe of the edge store is exactly what that
+  counter is there to catch.
+* Do not make `stores_ready` infer completeness from the numbers (e.g. "neurons
+  > 0 but edges == 0 means partial"). That is a heuristic standing in for a fact
+  the loader already knows and simply does not report honestly.
