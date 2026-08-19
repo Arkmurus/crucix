@@ -11497,3 +11497,126 @@ which resets Phase A gate #3 on any boot where an edge shard read times out.
 * Do not make `stores_ready` infer completeness from the numbers (e.g. "neurons
   > 0 but edges == 0 means partial"). That is a heuristic standing in for a fact
   the loader already knows and simply does not report honestly.
+
+## C-186 · OPEN, P0 — a lone shared generic token produced a HARD STOP and a SAR recommendation
+
+**Found in a DELIVERED report**, not in a test: `dd_0d94ba69f415`, generated
+2026-08-19 13:19 UTC, on **Black Rose Security Limited** (UK 14244249).
+**Reproduced; diagnosed; NOT fixed — the obvious fix was implemented and
+reverted, for a reason that is itself the finding.**
+
+### What the customer received
+
+```
+RISK SIGNAL CLEARANCE : NOT CLEARED / HARD STOP
+ASSESSMENT   : "HARD STOP - BLACK ROSE SECURITY LTD triggers a mandatory
+                refusal. Do NOT proceed with the transaction."
+Recommendation: "Refuse the engagement. File SAR if reporting thresholds
+                are met."
+```
+
+The entire basis, quoted from the report:
+
+```
+Black Shield Company for General Trading LLC (score 0.85,
+topics: sanction,debarment, lists: BIS / US Trade Sanctions,
+matched_via=primary_name='BLACK SHIELD COMPANY LTD.')
+HARD_STOP • CONFIRMED • source: sanctions.screen_with_aliases:R-F3219
+```
+
+The subject is a UK security-services company (SIC 80100/80200/80300,
+incorporated 2022, positive net assets, GREEN ghost score, all three directors
+screened CLEAN). The match is a Middle East general-trading LLC on the BIS
+Entity List. After the tokenizer strips corporate suffixes and stopwords they
+share exactly **one** token:
+
+```
+BLACK ROSE SECURITY LTD               -> {black, rose, security}
+Black Shield Company for General ...  -> {black, general, shield}
+shared                                -> {"black"}
+```
+
+**The report contradicts itself.** Page 4: *"US Commerce - Bureau of Industry
+and Security Entity List — CLEAN"*. Page 1: HARD STOP on a match whose list is
+*"BIS / US Trade Sanctions"*. Both cannot be true of the same run.
+
+### Reproduced exactly
+
+```python
+classify_match({"score": 0.85, "topics": ["sanction","debarment"],
+                "lists": ["BIS / US Trade Sanctions"],
+                "name": "Black Shield Company for General Trading LLC"},
+               "BLACK ROSE SECURITY LTD")              -> 'hard_stop'
+```
+
+### Why the existing guard missed it
+
+R-F351 identified this failure class **and its cost** — its own comment reads
+*"Cost of false-positive HARD_STOP (defamation, SAR mis-filing) >> cost of
+false-negative demote-to-info"* — and chose token **LENGTH** as the proxy for
+distinctiveness: a lone shared token is demoted only when it is `< 5`
+characters (the ADSM / ARMS / CORE acronym class).
+
+`"black"` is exactly 5. So are `royal`, `crown`, `prime`, `delta`, `atlas`.
+**Length is not distinctiveness.**
+
+This is also a recurrence. `run_quarantine` still carries `dd_205e4ce82e9`,
+quarantined 2026-05-11 for a HARD_STOP false positive of this same family,
+closed with a "three-layer defence". The third layer is the one that failed
+here.
+
+### The fix that was written, and why it was REVERTED
+
+Cap severity at AMBER (not `info` — burying a possible match in a compliance
+product is the worse error) when one shared token joins two names that EACH
+still carry two or more meaningful tokens. It went green on the new fixture and
+**broke two existing tests**, one of them named *never-false-clean*:
+
+* `test_rf335_sanctions_match_path::test_rf351_long_token_single_overlap_preserved`
+* `test_dd_honesty_and_sanctions_noise_rf2361_rf2362::test_rf2362_real_name_overlap_match_survives_and_escalates`
+
+They are right. Measured, and now pinned by
+`test_the_defect_and_a_real_hit_are_structurally_IDENTICAL`:
+
+| case | shared | q tokens | c tokens | shared len |
+|---|---|---|---|---|
+| FALSE POSITIVE — Black Rose vs Black Shield | 1 | 3 | 3 | 5 |
+| MUST ESCALATE — Modirum Gespi Industries vs Vladimir Modirum | 1 | 3 | 2 | 7 |
+| MUST ESCALATE — Modirum Gespi vs Modirum Defence Ltd | 1 | 2 | 2 | 7 |
+
+Identical shape. What separates them is that `modirum` is coined and `black` is
+ubiquitous — **distinctiveness**, which no rule built on token counts, lengths
+or ratios can see. Shipping the cap would have traded a false HARD STOP for a
+downgrade of real sanctions hits.
+
+### Two candidate directions, neither shipped
+
+1. **A curated low-entropy token set**, the way R-F277 added
+   `_GEOGRAPHIC_TOKENS` after country-name overlap caused this same class.
+   Proven pattern in this module, fails safe (an unlisted word behaves exactly
+   as today) — but permanently incomplete; the next report is a different noun.
+2. **Cross-check the fuzzy verdict against the canonical per-source screen** —
+   the promising one, because it needs no judgement call and separates the
+   cases correctly. This report asserted *BIS Entity List CLEAN* and
+   hard-stopped citing BIS in the same document; that is decidable on its face.
+   A genuine Modirum/OFAC hit would show its list as HIT, not CLEAN, so the
+   rule leaves it untouched. It lives in the screen /
+   `derive_verified_sources` layer, not in `classify_match`.
+
+### Why it is escalated rather than coded
+
+Which error we prefer on the weakest class of overlap is a compliance-policy
+decision with legal exposure on both sides — an unwarranted SAR and a
+defamatory refusal on one side, a downgraded real hit on the other. CLAUDE.md
+§21e reserves exactly this for the operator. Choosing it silently inside a
+severity function would be the wrong call regardless of which way it went.
+
+### State of the fixture
+
+`test_rf4172_single_token_overlap_is_not_a_hard_stop.py` — 9 passing, 8
+`xfail(strict=True)`. The passing tests record the live behaviour, the
+structural-identity finding, and everything any fix must preserve (Modirum,
+Rosoboronexport, the two-token case, the R-F569 transliteration bypass, the
+R-F351 acronym demotion). The xfails state the intended behaviour and will fail
+loudly the moment it is fixed. Deliberately not a standing red test — a
+permanently red test carries no information and hides the next P0.

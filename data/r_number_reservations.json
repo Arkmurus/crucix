@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4172,
+  "next_available": 4173,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35631,6 +35631,15 @@
       "commit_sha": "a40a3216",
       "notes": null,
       "shipped_at": "2026-08-19T12:39:07Z"
+    },
+    {
+      "r_number": "R-F4172",
+      "title": "C-186 cap single-token sanctions overlap at AMBER",
+      "claimed_at": "2026-08-19T13:27:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
