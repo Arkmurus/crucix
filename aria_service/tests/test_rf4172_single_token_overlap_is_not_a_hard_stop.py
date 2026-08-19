@@ -55,6 +55,21 @@ shared token, both sides multi-token. What separates them is that "modirum" is
 coined and "black" is ubiquitous. That is DISTINCTIVENESS, and no rule built on
 token counts, lengths or ratios can see it.
 
+**UPDATE — R-F4177 (C-189) closed the DELIVERED case, by a third route
+neither of these described.** `is_corroborated_match()` — whose docstring reads
+"True iff `match` may drive a BLOCKING verdict" — was already enforced by
+`derive_verified_sources` and never consulted by `classify_match`. The delivered
+match carries a measured similarity of 0.4 against a declared floor of 0.50, so
+the module had already judged it uncorroborated while still hard-stopping on it.
+That separates the false positive from Modirum/Rosoboronexport where SHAPE
+cannot, because it separates on EVIDENCE.
+
+**What remains open here** is narrower and still a policy question: a lone
+shared generic token on a match carrying NO measurable similarity. R-F2840
+deliberately lets an unmeasurable match stand ("could not measure" is never
+"measured and clear"), so the corroboration gate cannot reach it. The xfails
+below cover exactly that residue.
+
 **Two candidate directions, neither shipped:**
 
 1. *A curated low-entropy token set*, the way R-F277 added `_GEOGRAPHIC_TOKENS`
@@ -88,24 +103,47 @@ from aria_service.intel import _sanctions_classify as sc
 
 
 def _match(**kw) -> dict:
+    """A match with NO `string_similarity` — i.e. one R-F4177's corroboration
+    gate cannot exclude (R-F2840: "could not measure" is never "measured and
+    clear"). This is the class C-186 is still open about.
+
+    The first draft of this file put `string_similarity: 0.4` in the base and
+    used it for the must-escalate cases too, which was unrealistic — a real
+    Rosoboronexport/ROSOBORONEKSPORT pair measures ~0.9 (R-F569.5) — and made
+    those cases fail against a correct fix. Fixture, not fix.
+    """
     base = {
         "score": 0.85,
         "topics": ["sanction", "debarment"],
         "lists": ["BIS / US Trade Sanctions"],
         "name": "Black Shield Company for General Trading LLC",
-        "string_similarity": 0.4,
     }
     base.update(kw)
     return base
 
 
+def _delivered() -> dict:
+    """The match as it reached the customer in dd_0d94ba69f415, INCLUDING its
+    measured-low similarity — which is what R-F4177 (C-189) now acts on."""
+    return _match(lists=["us_trade"], string_similarity=0.4)
+
+
 # ── THE MEASUREMENT: what the delivered report actually did ─────────────────
 
-def test_the_delivered_report_is_reproduced_exactly():
-    """Not xfailed - this PASSES today and is the evidence. It pins the live
-    behaviour so the defect cannot be quietly disputed, and it will need
-    updating by whoever fixes it (which is the point)."""
-    assert sc.classify_match(_match(), "BLACK ROSE SECURITY LTD") == "hard_stop"
+def test_the_delivered_report_is_no_longer_a_hard_stop():
+    """UPDATED BY R-F4177 (C-189), which is what this test was written to
+    prompt: it used to assert `hard_stop`, the behaviour the customer received.
+
+    C-189 did not answer C-186's policy question. It applied the module's OWN
+    blocking gate (`is_corroborated_match`, `_MIN_BLOCK_SIMILARITY = 0.50`),
+    which `derive_verified_sources` already enforced and `classify_match` did
+    not. The delivered match carries a measured similarity of 0.4, so the two
+    paths now agree instead of shipping opposite conclusions."""
+    assert sc.classify_match(_delivered(), "BLACK ROSE SECURITY LTD") == "amber"
+    vs = sc.derive_verified_sources([_delivered()], screen_succeeded=True)
+    assert not any(r.get("status") == "HIT" for r in vs.values()), (
+        "the per-source table and the severity verdict disagree again"
+    )
     # The tokenisation that produced it.
     q = sc._tokenize_entity_name("BLACK ROSE SECURITY LTD")
     c = sc._tokenize_entity_name("Black Shield Company for General Trading LLC")
@@ -190,7 +228,9 @@ def test_a_score_below_the_floor_is_still_info():
 
 # ── THE INTENDED BEHAVIOUR (xfail until the policy call is made) ────────────
 
-_REASON = ("C-186 OPEN: a lone shared generic token still compels a refusal. "
+_REASON = ("C-186 OPEN: a lone shared generic token still compels a refusal when "
+           "the match carries NO measurable similarity (R-F4177/C-189 closed the "
+           "measured-low case, not this one). "
            "The shape-based fix was reverted because it also demotes real hits "
            "(see test_the_defect_and_a_real_hit_are_structurally_IDENTICAL). "
            "Needs either a curated low-entropy token set or the canonical "
@@ -198,9 +238,11 @@ _REASON = ("C-186 OPEN: a lone shared generic token still compels a refusal. "
            "policy (SAR/defamation exposure, CLAUDE.md 21e).")
 
 
-@pytest.mark.xfail(strict=True, reason=_REASON)
-def test_the_black_rose_report_should_not_be_a_hard_stop():
-    assert sc.classify_match(_match(), "BLACK ROSE SECURITY LTD") != "hard_stop"
+def test_the_black_rose_report_is_not_a_hard_stop_anymore():
+    """Was xfail; CLOSED by R-F4177 (C-189) for THIS match, because it carries a
+    measured-low similarity. The residual class — a lone generic token on a
+    match with NO measurable similarity — is still open below."""
+    assert sc.classify_match(_delivered(), "BLACK ROSE SECURITY LTD") != "hard_stop"
 
 
 @pytest.mark.xfail(strict=True, reason=_REASON)

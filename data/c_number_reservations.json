@@ -2125,6 +2125,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-189",
+      "title": "classify_match issues blocking verdicts without consulting is_corroborated_match, the module's own blocking gate",
+      "claimed_at": "2026-08-19T14:31:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4177"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T14:37:52Z"
     }
   ]
 }

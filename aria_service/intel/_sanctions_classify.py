@@ -859,7 +859,17 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # acronym variant noise. Requiring sim≥0.50 keeps the Rosoboronexport
     # path open while closing the acronym-collision noise.
     _score = float(match.get("score") or 0.0)
-    _sim = float(match.get("string_similarity") or 0.0)
+    # R-F4177 (C-189) — a provider field that will not parse must not take the
+    # whole classification with it. `is_corroborated_match` already guards this
+    # exact field with a try/except; this sibling did not, so a non-numeric
+    # `string_similarity` raised ValueError out of the sanctions classifier.
+    # Unparseable is treated as UNMEASURABLE (0.0 here only suppresses the
+    # R-F569 bypass, which is the safe direction: it keeps the overlap
+    # discipline rather than skipping it).
+    try:
+        _sim = float(match.get("string_similarity") or 0.0)
+    except (TypeError, ValueError):
+        _sim = 0.0
     _bypass_overlap_check = _score >= 0.95 and _sim >= 0.50
     if query_name and SEVERITY_RANK[severity] >= 1 and not _bypass_overlap_check:
         candidate_name = match.get("name") or match.get("caption") or ""
@@ -873,6 +883,42 @@ def classify_match(match: dict, query_name: str = "") -> str:
             only_token = next(iter(shared))
             if len(only_token) < 5:
                 severity = "info"
+    # ── R-F4177 (C-189) — A BLOCKING VERDICT MUST PASS THE BLOCKING GATE ────
+    #
+    # `is_corroborated_match()` opens with "True iff `match` may drive a BLOCKING
+    # verdict. Deliberately strict and deliberately shared. A match that fails
+    # this is still reported — as a related-name observation, not as a
+    # designation." `derive_verified_sources` obeys it: an uncorroborated match
+    # is not counted as a HIT, so the per-source table reports CLEAN. This
+    # function — the one that actually decides `hard_stop` — never called it.
+    #
+    # MEASURED on the match in delivered report dd_0d94ba69f415 (2026-08-19):
+    #     is_corroborated_match(m)                     -> False
+    #     derive_verified_sources([m]) -> BIS Entity   -> CLEAN
+    #     classify_match(m, "BLACK ROSE SECURITY LTD") -> hard_stop
+    # The customer received both: "HARD STOP — mandatory refusal … File SAR" on
+    # page 1, "BIS Entity List — CLEAN" on page 4. Same match, same run, same
+    # module, opposite conclusions.
+    #
+    # This introduces NO new judgement and NO new number — it applies
+    # `_MIN_BLOCK_SIMILARITY`, which this module already sets and already
+    # enforces on the per-source path. It is therefore NOT an answer to the open
+    # C-186 question (should a lone shared generic token ever compel a refusal?),
+    # which is a compliance policy call with legal exposure both ways.
+    #
+    # It cannot manufacture a false clean, and that is load-bearing: R-F2840
+    # deliberately made an ABSENT similarity non-excluding ("could not measure"
+    # is never "measured and clear"). Every case the suite requires to escalate
+    # — Modirum, Rosoboronexport, Putin — carries no similarity field and passes
+    # untouched. That is why this separates the false positive from the real
+    # hits where a token-shape rule could not: it separates on EVIDENCE.
+    #
+    # Capped at AMBER rather than demoted to `info`, in the gate's own words:
+    # "still reported — as a related-name observation". Burying it would trade a
+    # false refusal for a quiet miss, which C-39 records as the worse failure.
+    if SEVERITY_RANK[severity] >= SEVERITY_RANK["red"] and not is_corroborated_match(match):
+        severity = "amber"
+
     # R-F434 (2026-05-13): brandified-hostname origin cap. When the only
     # path to this match was a hostname (`ngast.com` → `ngast`, `armesavn.com`
     # → `armesavn`) without legal-name corroboration from the crawl/registry,

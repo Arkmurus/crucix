@@ -11833,3 +11833,97 @@ the fourth change to `neural_memory` in one session, the datum is already lost
 so there is no urgency, and a load-path edit made at the end of a long session
 is precisely what the ROOT-CAUSE rule warns against. Recorded rather than
 rushed.
+
+## C-189 · a blocking verdict was issued without the module's own blocking gate (fixed, R-F4177)
+
+**This is what actually closed the delivered Black Rose case (C-186), by a route
+neither of C-186's two candidate directions described.** Found by tracing why the
+report's own per-source table said CLEAN while page 1 said HARD STOP.
+
+### The contradiction, measured on the delivered match
+
+```
+is_corroborated_match(m)                     -> False
+derive_verified_sources([m]) -> BIS Entity   -> CLEAN
+classify_match(m, "BLACK ROSE SECURITY LTD") -> hard_stop
+```
+
+Same match, same run, same module, opposite conclusions — and the customer
+received both: *"HARD STOP … mandatory refusal … File SAR"* on page 1,
+*"BIS Entity List — CLEAN"* on page 4.
+
+### The cause is a contract that one half of the module ignored
+
+`is_corroborated_match()` opens by stating exactly what it is for:
+
+> *"True iff `match` may drive a BLOCKING verdict. Deliberately strict and
+> deliberately shared. A match that fails this is still reported — as a
+> related-name observation, not as a designation."*
+
+`derive_verified_sources` obeys it: an uncorroborated match is not counted as a
+HIT. `classify_match` — the function that actually decides `hard_stop` — never
+called it. One function declares what may block; the function that blocks
+ignored it.
+
+### Why this succeeds where C-186's shape rule failed
+
+C-186 established, by measurement, that the false positive and the real hits
+have **identical token shapes** — so no rule phrased in counts, lengths or ratios
+can separate them. This one does not try. It separates on **evidence**:
+`_MIN_BLOCK_SIMILARITY = 0.50`, a threshold this module already sets and already
+enforces on the per-source path. No new judgement, no new number.
+
+It cannot manufacture a false clean, which is load-bearing. R-F2840 deliberately
+made an ABSENT similarity non-excluding — *"only a MEASURED-low similarity may
+exclude a match … 'could not measure' is never 'measured and clear'"*. Every case
+the suite requires to escalate (Modirum ×2, Rosoboronexport, Putin, Gazprom)
+carries no similarity field and passes untouched. Verified: the two
+never-false-clean guards C-186's attempt broke both pass here.
+
+Capped at **AMBER**, in the gate's own words — *"still reported … as a
+related-name observation"*. Burying it at `info` would trade a false refusal for
+a quiet miss, which C-39 records as the worse failure.
+
+### A second, pre-existing defect the fixture caught
+
+`classify_match` did `float(match.get("string_similarity") or 0.0)` with no
+guard, so a non-numeric provider value raised `ValueError` **out of the sanctions
+classifier**. `is_corroborated_match` guards the identical field with a
+try/except; its sibling did not. Now handled the same way, treating unparseable
+as unmeasurable — which only suppresses the R-F569 bypass, the safe direction.
+
+### What this does NOT close
+
+**C-186 remains open, and is narrower now**: a lone shared generic token on a
+match carrying NO measurable similarity still compels a refusal, because R-F2840
+deliberately lets an unmeasurable match stand. That residue is still a
+compliance-policy question (§21e) and still the operator's.
+
+### A defect in my own fixture, and the discipline that caught it
+
+The first C-186 fixture put `string_similarity: 0.4` in its BASE and reused it
+for the must-escalate cases. Against this fix, Modirum / Rosoboronexport / Putin
+went AMBER and looked like regressions. They were not: a real
+Rosoboronexport↔ROSOBORONEKSPORT pair measures ~0.9 (R-F569.5), so 0.4 was
+invented. **Fixture, not fix** — established by re-running the four PRE-EXISTING
+guards (78 passed) rather than by editing anything.
+
+### Verification
+
+`test_rf4177_blocking_verdict_requires_corroboration.py` — 12 tests, 4 RED
+before. Covers the delivered match, the two paths agreeing, the
+absent/unparseable-similarity escape hatches, every must-escalate case, and the
+threshold being the module's own.
+
+Also carries a **shrink-only orphan guard**: `_DEFENCE_LIST_LABELS` (which sets
+severity) and `_CANONICAL_SANCTIONS_SOURCES` (which builds the per-source table)
+disagree on **3 of 19** slugs — `cmic`, `us_trade`, `us_unverified` — each able
+to escalate while every list reports CLEAN. `us_trade` is the Black Rose one.
+They are baselined, not papered over: making the tables agree in the HIT
+direction would make an uncorroborated match look MORE credible, and
+`us_unverified` (BIS Unverified List) is a genuinely distinct list needing its
+own canonical entry — a change with report-shape consequences. A FOURTH orphan
+fails the test.
+
+Blast radius: **417 passed, 7 xfailed, 0 failed** across every file touching
+`classify_match` / `_sanctions_classify` / `derive_verified_sources`.

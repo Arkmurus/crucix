@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4175,
+  "next_available": 4178,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35660,6 +35660,33 @@
       "commit_sha": "5d3d47ba",
       "notes": null,
       "shipped_at": "2026-08-19T14:21:12Z"
+    },
+    {
+      "r_number": "R-F4175",
+      "title": "C-187 carry the resolved canonical list ids on a finding so the contradiction detector compares ids",
+      "claimed_at": "2026-08-19T14:27:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4176",
+      "title": "C-186 gate hard_stop on is_corroborated_match, the module's own blocking gate",
+      "claimed_at": "2026-08-19T14:29:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4177",
+      "title": "C-189 gate blocking severity on is_corroborated_match",
+      "claimed_at": "2026-08-19T14:31:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
