@@ -1,0 +1,53 @@
+{
+  "r_number": "R-F4164",
+  "complete": true,
+  "promotion_authorized": false,
+  "incumbent_preserved": true,
+  "incumbent": {
+    "honest": 161,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16
+  },
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  },
+  "arms": [
+    {
+      "alpha": 0.25,
+      "report": "aria_tooluse_lora_interpolation_v1_alpha_025.json",
+      "report_sha256": "f4369e1182a18eb898aed5119d465641f7f837ebe91078b875868835c1b917ca",
+      "honest": 162,
+      "total": 168,
+      "resolution_honest": 13,
+      "axis_regressions": {"tooluse_multihop": -1},
+      "promotable": false
+    },
+    {
+      "alpha": 0.5,
+      "report": "aria_tooluse_lora_interpolation_v1_alpha_05.json",
+      "report_sha256": "62a407580bac60402a2134a3b7d28492ec63c30305ddc4f47da7bd5612b824ad",
+      "honest": 160,
+      "total": 168,
+      "resolution_honest": 12,
+      "axis_regressions": {
+        "tooluse_challenge": -1,
+        "tooluse_resolution": -1
+      },
+      "promotable": false
+    },
+    {
+      "alpha": 0.75,
+      "report": "aria_tooluse_lora_interpolation_v1_alpha_075.json",
+      "report_sha256": "fcb612515c40b99eb9d154db7f1d2fc5722b4d4807cc23374094fc85c18ca82f",
+      "honest": 160,
+      "total": 168,
+      "resolution_honest": 13,
+      "axis_regressions": {"tooluse_challenge": -1},
+      "promotable": false
+    }
+  ],
+  "decision": "reject_all_arms"
+}
