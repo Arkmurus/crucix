@@ -2074,6 +2074,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-19T12:22:54Z"
+    },
+    {
+      "c_number": "C-184",
+      "title": "the R-F251 boot regression guard diffs a snapshot taken on an unfinished load",
+      "claimed_at": "2026-08-19T12:25:12Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

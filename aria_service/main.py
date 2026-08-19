@@ -2182,11 +2182,24 @@ async def lifespan(app: FastAPI):
         # them to be ready (cap ~20 min) before snapshotting — otherwise the
         # boot-state log reports misleading zeros for knowledge/neural.
         await asyncio.sleep(10)
+        # R-F4170 (C-184) — REMEMBER WHETHER THE WAIT ACTUALLY FINISHED.
+        # This loop gives up after 20 minutes. When it does, every counter
+        # below is a lower bound on itself, and R-F251's diff at the bottom of
+        # this function turned that into "STATE REGRESSION DETECTED" — an
+        # ERROR, which resets Phase A gate #3. Measured live 2026-08-19:
+        # neural_neurons 17742 -> 10378 (-41.5%) at exactly the 20-minute mark,
+        # while the graph in that same machine read loaded=True, neurons=17743.
+        # Nothing was lost. The snapshot was simply taken mid-load.
+        _stores_ready = False
         for _ in range(600):  # 600 * 2s = 20 min cap
             if getattr(app.state, "knowledge_ready", False) and getattr(app.state, "neural_ready", False):
+                _stores_ready = True
                 break
             await asyncio.sleep(2)
-        snapshot = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        snapshot = {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "stores_ready": _stores_ready,
+        }
         try:
             from .intel import knowledge as _kb
             snapshot["knowledge_facts"] = len(_kb.all_facts())
@@ -2264,7 +2277,9 @@ async def lifespan(app: FastAPI):
             )
 
         # R-F251 (2026-05-11) — regression detection. Diff this boot's
-        # snapshot against the PREVIOUS one (index 1 in the list). If any
+        # snapshot against the most recent COMPLETE previous one (R-F4170;
+        # it was "index 1" until a partially-loaded snapshot proved that a
+        # poisoned baseline can hide the very loss this looks for). If any
         # numeric counter dropped by >5%, that's silent state loss — log
         # a LOUD warning AND absorb to brain_hook so the operator
         # dashboard surfaces it. Per the infinite-memory rule a counter
@@ -2272,59 +2287,73 @@ async def lifespan(app: FastAPI):
         # needs to know BEFORE traffic resumes.
         try:
             from .intel import redis_store as _rs_diff
+            from .intel import boot_snapshot_diff as _bsd
             import json as _json_diff
-            prior_raw = await _rs_diff.lrange("crucix:aria:boot_snapshots", 1, 1)
-            if prior_raw:
+            # R-F4170 — a WINDOW, not index 1. A partial snapshot persisted by
+            # an earlier slow boot must not become a permanently low baseline:
+            # against one, a genuine loss reads as growth, so the false alarm
+            # would go on to BLIND the guard. select_baseline walks back to the
+            # most recent COMPLETE snapshot instead.
+            prior_raw = await _rs_diff.lrange("crucix:aria:boot_snapshots", 1, 49)
+            _priors: list = []
+            for _raw in (prior_raw or []):
                 try:
-                    prior = _json_diff.loads(prior_raw[0]) if isinstance(prior_raw[0], str) else prior_raw[0]
+                    _priors.append(_json_diff.loads(_raw) if isinstance(_raw, str) else _raw)
                 except Exception:
-                    prior = None
-                if isinstance(prior, dict):
-                    drops: list[str] = []
-                    for k in ("knowledge_facts", "ledger_signals", "rag_chunks",
-                              "rag_facts", "chat_audit_total", "neural_neurons",
-                              "neural_edges", "state_keys"):
-                        cur_val = snapshot.get(k)
-                        prv_val = prior.get(k)
-                        if isinstance(cur_val, (int, float)) and isinstance(prv_val, (int, float)):
-                            if prv_val > 0 and cur_val < prv_val * 0.95:
-                                drop_pct = round((1 - cur_val / prv_val) * 100, 1)
-                                drops.append(f"{k}: {prv_val} → {cur_val} (-{drop_pct}%)")
-                    if drops:
-                        logger.error(
-                            "[R-F251] STATE REGRESSION DETECTED — counters dropped >5%% "
-                            "since previous boot: %s",
-                            "; ".join(drops),
+                    continue
+            _verdict = _bsd.diff_boot_snapshots(snapshot, _priors)
+            # R-F4170 §21a — success AND failure reach the brain. Before this
+            # the skip branch was a console line only, i.e. DARK: nothing could
+            # tell that the data-loss detector had not run.
+            _bsd.record_verdict(_verdict)
+            if not _verdict["comparable"]:
+                # COULD NOT MEASURE. Never an ERROR (it would reset gate #3 for
+                # something nobody observed) and never silence (that would read
+                # as an all-clear — the absence-as-measurement shape §1 records
+                # three Phase A gates being certified by).
+                logger.warning(
+                    "[R-F251/R-F4170] boot-state regression check SKIPPED (%s) — "
+                    "stores_ready=%s. This is NOT an all-clear: the counters were "
+                    "not comparable, so no claim is made either way.",
+                    _verdict["reason"], _stores_ready,
+                )
+            else:
+                drops: list[str] = _verdict["drops"]
+                if drops:
+                    logger.error(
+                        "[R-F251] STATE REGRESSION DETECTED — counters dropped >5%% "
+                        "since previous boot: %s",
+                        "; ".join(drops),
+                    )
+                    try:
+                        from .intel import brain_hook as _bh_reg
+                        await _bh_reg.absorb(
+                            module="boot_diagnostic",
+                            summary="R-F251: state regression detected at boot",
+                            detail=(
+                                "Per the infinite-memory rule, NO counter should "
+                                "drop across restarts. The following counters fell "
+                                f"by >5% since the previous boot: {'; '.join(drops)}. "
+                                "Investigate disk volume mount, Redis fallback "
+                                "behaviour, or recent code changes BEFORE traffic "
+                                "resumes."
+                            ),
+                            success=False,
+                            gap_type="boot_state_regression",
+                            gap_detail="; ".join(drops),
                         )
-                        try:
-                            from .intel import brain_hook as _bh_reg
-                            await _bh_reg.absorb(
-                                module="boot_diagnostic",
-                                summary="R-F251: state regression detected at boot",
-                                detail=(
-                                    "Per the infinite-memory rule, NO counter should "
-                                    "drop across restarts. The following counters fell "
-                                    f"by >5% since the previous boot: {'; '.join(drops)}. "
-                                    "Investigate disk volume mount, Redis fallback "
-                                    "behaviour, or recent code changes BEFORE traffic "
-                                    "resumes."
-                                ),
-                                success=False,
-                                gap_type="boot_state_regression",
-                                gap_detail="; ".join(drops),
-                            )
-                        except Exception as _absorb_e:
-                            # R-F672 (2026-05-17): promoted from silent
-                            # pass — if brain_hook fails to record the
-                            # regression, we still want the failure
-                            # itself logged so the operator knows the
-                            # alert was generated but didn't land.
-                            logger.warning(
-                                "R-F672: brain_hook.absorb for boot_state "
-                                "regression failed (alert may not surface "
-                                "on dashboard): %s",
-                                _absorb_e,
-                            )
+                    except Exception as _absorb_e:
+                        # R-F672 (2026-05-17): promoted from silent
+                        # pass — if brain_hook fails to record the
+                        # regression, we still want the failure
+                        # itself logged so the operator knows the
+                        # alert was generated but didn't land.
+                        logger.warning(
+                            "R-F672: brain_hook.absorb for boot_state "
+                            "regression failed (alert may not surface "
+                            "on dashboard): %s",
+                            _absorb_e,
+                        )
         except Exception as _diff_err:
             logger.debug("R-F251 boot-diff failed: %s", _diff_err)
     _bg_task(asyncio.create_task(_log_boot_state(), name="log_boot_state"))

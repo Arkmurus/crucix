@@ -11325,3 +11325,93 @@ would be the very defect this entry is about. `scripts/adversarial_agent_audit.p
 asserts `rate >= 0.90` on named modules and would false-FAIL on a failure-only
 wire; it is an operator-run audit script, not a production path, and is recorded
 here rather than changed in a fix PR.
+
+## C-184 · the boot regression guard diffed a snapshot taken mid-load (fixed, R-F4170)
+
+**Found by** watching the error ledger after the C-182 deploy — i.e. by
+verifying a fix rather than by reading. Third member of the R-F2663 /
+R-F2668 / R-F2951 family: an ERROR that fires on a healthy boot, resetting
+Phase A exit gate #3 ("0 fly ERRORs / 7 days") every time the box restarts.
+
+### Measured live, 2026-08-19
+
+```
+error ledger:
+  [R-F251] STATE REGRESSION DETECTED - counters dropped >5% since previous
+  boot: neural_neurons: 17742 -> 10378 (-41.5%)
+  function: _log_boot_state   at 12:23:08Z
+
+same machine, minutes later:
+  /api/aria/neural/stats -> loaded: True, neurons: 17743, edges: 159254
+```
+
+**Nothing was lost — the graph had gained one neuron.** `_log_boot_state`
+waits for `knowledge_ready and neural_ready` before snapshotting, but gives up
+at a 20-minute cap, and the arithmetic is exact: the machine started at
+12:03:12Z and the snapshot is stamped 12:23:08Z. The cap was reached, so a 58%-
+loaded graph was compared against a complete one and the difference was
+reported as data loss.
+
+### R-F2951 met this race and fixed half of it
+
+R-F2951 emits the string `"loading"` for `neural_edges` when
+`nm_stats["loaded"]` is False, so the numeric diff skips the field. Its own
+comment states the stakes precisely — *"would reset the Phase A gate-#3 7-day
+clean streak ... on EVERY deploy (same class as R-F2663/R-F2668)"*.
+
+`neural_neurons` is read from the **same `nm_stats` dict, on the line above**,
+and got no guard. Six other counters (`knowledge_facts`, `rag_chunks`,
+`state_keys`, ...) have none either.
+
+Per-counter guards are whack-a-mole, and each one added leaves the next
+uncovered. Whether the snapshot is comparable **at all** is one fact about the
+boot, so `intel/boot_snapshot_diff.py` decides it once and `main.py` asks.
+
+### The second-order bug, which is the dangerous direction
+
+The partial snapshot is **persisted, and becomes the next boot's baseline**.
+Against a low baseline a genuine loss reads as growth — so the false positive
+does not merely cry wolf, it can go on to **blind** the detector. The diff now
+reads a window and walks back to the most recent COMPLETE snapshot rather than
+trusting index 1. A test pins it: a real 50% neuron loss must still be caught
+when a partial snapshot sits between it and the good baseline.
+
+### What was deliberately NOT done
+
+* **The guard still fires.** A boot that finished loading and genuinely lost
+  data still logs ERROR and absorbs to the brain. Silencing R-F251 would trade
+  a false alarm for a blind spot on the §7 infinite-memory invariant, which is
+  the worse trade. A test asserts every one of the eight counters can still
+  trip it (R-F3858: a guard that cannot fail is not a guard).
+* **"Could not measure" is not "clean."** The skip logs a WARNING that says so
+  in words — never silence, which would read as an all-clear, and never ERROR,
+  which is what made the gate unclosable. §1's tri-state rule.
+* **Legacy snapshots still work as baselines.** They carry no `stores_ready`
+  key and are treated as complete: they are the historical norm and almost all
+  were taken on a finished load. Treating them as unusable would silence a
+  data-loss detector for several boots — again the worse direction.
+
+### A hole my own first draft opened, caught by its own test
+
+`is_complete` read a missing `stores_ready` as "legacy, therefore complete", so
+an EMPTY dict was a valid snapshot: it matched no numeric field and returned
+`comparable=True, drops=[]`. **A snapshot that recorded nothing at all would
+have reported an all-clear** — the absence-as-measurement shape this register
+records three Phase A gates being certified by, reintroduced inside the fix for
+it. A snapshot must now carry at least one of the diffed counters to be
+comparable at all.
+
+### Verification
+
+`test_rf4170_boot_snapshot_comparability.py`, 11 tests. The capability test
+replays the measured event (10,378 vs 17,742 at `stores_ready: False`) and
+asserts no regression is reported. A wiring test reads `main.py` and asserts it
+both stamps readiness AND delegates the comparison — a pure helper nothing
+calls would be the C-27/C-183 producer-with-no-consumer defect, in a PR whose
+whole subject is that shape.
+
+Boot-path regression run: 61 passed across ten boot/lifespan files.
+`test_lifespan_smoke::test_lifespan_starts_and_shuts_down_cleanly` failed on a
+Windows tempfile-teardown `PermissionError`; it is a recorded
+`docs/suite_baseline.json` entry and C-181 already documents it as
+wall-clock-budget flaky. `main.py` imports cleanly and `lifespan` is callable.
