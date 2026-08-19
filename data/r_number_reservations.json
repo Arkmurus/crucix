@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4167,
+  "next_available": 4168,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35582,6 +35582,15 @@
       "commit_sha": "ba23b306",
       "notes": null,
       "shipped_at": "2026-08-19T09:55:42Z"
+    },
+    {
+      "r_number": "R-F4167",
+      "title": "low-weight protected DPO interpolation sweep",
+      "claimed_at": "2026-08-19T11:23:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
