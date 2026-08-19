@@ -124,6 +124,8 @@ def validate_protected_axis_evidence(
             "subject": row.get("subject"),
             "messages": list(row["prompt"]),
         }
+        if row.get("premise") is not None:
+            base["premise"] = row["premise"]
         chosen = score_one(
             {**base, "messages": base["messages"] + [
                 {"role": "assistant", "content": row["chosen"]},

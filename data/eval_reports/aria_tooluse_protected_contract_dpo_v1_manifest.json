@@ -1,0 +1,21 @@
+{
+  "r_number": "R-F4165",
+  "complete": true,
+  "policy": "measured_protected_contract_dpo_from_disjoint_preferences",
+  "rejection_policy": "retain_validator_failing_else_deterministic_contract_negative",
+  "source_rows": 85,
+  "curriculum_rows": 47,
+  "axis_counts": {
+    "tooluse_challenge": 8,
+    "tooluse_multihop": 7,
+    "tooluse_resolution": 32
+  },
+  "heldout_subjects_used_for_training": false,
+  "input_sha256": {
+    "data\\training\\aria_tooluse_resolution_boundary_dpo_v1.jsonl": "e998e1e7c77ba762ba75af55acd26df56b2c39325f43f04e51c7fa73e368532a",
+    "data\\training\\aria_tooluse_curve_v5_dpo.jsonl": "9425cb41de48d4e54522663174fd34d2fd1042bc26c8fd5466a113e848f6b2bd"
+  },
+  "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+  "golden_sha256": "4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c",
+  "output_sha256": "3c75636cfbac34acbd84351188db11bf4c1579589d24cea9e00a21952498ed1f"
+}
