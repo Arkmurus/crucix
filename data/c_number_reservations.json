@@ -2059,6 +2059,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-183",
+      "title": "ARIA introspection renders an uninformative 0.00 as a measured success rate",
+      "claimed_at": "2026-08-19T11:57:30Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

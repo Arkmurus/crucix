@@ -11239,3 +11239,89 @@ kind; and the caller's total deadline is still never doubled.
 `timeouts[0] == 90.0`, "the first attempt gets the full budget". That was not an
 invariant, it was the defect written down as an expectation. It now asserts the
 deadline minus the reserve, and says why, so it is not restored.
+
+## C-183 · the C-37 flags had no reader, so ARIA still called healthy modules 0% successful (fixed, R-F4169)
+
+**Found by** carrying forward the one item the 2026-08-18 session recorded as
+*"left open deliberately, not forgotten"*: `only_failures_recorded` marks a rate
+that carries no information, and any view that reads the rate without it
+misranks. That session noted *"it misled me; not fixed."* It is now fixed at the
+one place it was actually misleading someone.
+
+### Measured live, 2026-08-19
+
+```
+GET /api/aria/brain/stats   (aria-intel)
+
+modules                : 255
+success_rate == 0.0    :  12
+only_failures_recorded :  12    <- every one of them
+
+learning_progress 0/8     health_precompute 0/3    chat_audit_log 0/35
+llm_chain_exhausted 0/183 llm_deepseek 0/19        security_protocol 0/2
+search_engine_health 0/24 search_searxng 0/152     style_learner 0/1
+eagle_eye 0/4             local_brain 0/2          web_search._search_gdelt 0/1
+```
+
+**Every zero on that surface is uninformative.** Not most — all twelve. So
+"which modules are failing?", answered from `success_rate`, has a 100% false
+positive rate today.
+
+### The producer had no consumer, and the consumer was the one that mattered
+
+R-F3934 (C-37) and R-F3936 did the hard part: they established that a `0.0` rate
+means two different things, refused to guess which, and published
+`only_failures_recorded` / `no_measurable_signals` so a reader would not have to.
+
+`routes/aria.py::_execute_tool`, `meta_query` branch — how ARIA answers "how is
+your brain doing?" — has **three** render sites, and not one of them read a flag:
+
+* the TOP-10 table: `success={m.get('success_rate', 0):.2f}`
+* the single-module block: `success_rate: {m.get('success_rate', 0)}`
+* the `email_reader` block: same
+
+That text is built into an LLM prompt that ends **"Report these stats to the
+user EXACTLY as shown."** So the surface said "uninformative", and the sentence
+the operator received said "0% successful". C-27's producer-with-no-consumer
+shape, occurring to a producer whose entire purpose was to prevent one specific
+false claim.
+
+### The harder half: what the fix must NOT do
+
+The obvious correction — render a flagged module as "n/a, disregard" — is a
+worse error pointing the other way. `only_failures_recorded` **cannot separate**
+a failure-only wire (healthy, unmeasurable) from a module failing every call.
+C-37 says so in as many words, and `search_searxng` is the live proof: C-37
+verified it *does* call `wire_success`, so its 152/152 may be a genuine total
+outage. Suppressing it would hide one.
+
+So `brain_hook.describe_success_rate()` states **both** readings and points at
+`fail`/`total`, which do carry information. It lives beside the flags that
+produce it, so three render sites cannot drift and a fourth cannot invent its
+own reading. A module whose rate IS a measurement renders as the bare number —
+the annotation has to stay rare or it becomes noise on 243 lines.
+
+`short=True` exists for the fixed-width table, where the full sentence would
+destroy the layout and, repeated on every flagged row, flood the prompt. Same
+judgement at a different length, from one function — not a second opinion a
+caller could pick between.
+
+### Two of my own drafts were wrong, and the tests caught both
+
+* The first message read *"a failure-only wire, healthy but unmeasurable"* — the
+  word **healthy** is an assertion, inside a sentence written to avoid making
+  one. `test_a_failure_only_entry_is_NOT_declared_fine` failed on it.
+* The first version of `test_a_skip_only_entry_is_not_reported_as_a_failure`
+  banned the substring `fail`, which forbade the rendering from truthfully
+  saying *"it is not a failure either"* — a test punishing the honest sentence.
+  It now bans the affirmative forms (`failures`, `failing`, `failed`) only.
+
+### Scope, stated plainly
+
+This fixes the reader that was **demonstrably** being misled. It does **not**
+add a "top failing modules" ranking: nothing in the tree sorts modules by rate
+today (the TOP-10 sorts by `total`), and building a ranking with no consumer
+would be the very defect this entry is about. `scripts/adversarial_agent_audit.py`
+asserts `rate >= 0.90` on named modules and would false-FAIL on a failure-only
+wire; it is an operator-run audit script, not a production path, and is recorded
+here rather than changed in a fix PR.

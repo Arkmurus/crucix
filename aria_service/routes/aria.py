@@ -9892,9 +9892,13 @@ async def _execute_tool(
                     if m:
                         parts.append(f"MODULE: {requested_module}")
                         parts.append(f"  total_signals: {m.get('total', 0)}")
+                        # R-F4169 (C-183) -- via brain_hook, which owns the
+                        # C-37/R-F3936 flags. A bare 0.0 here reads as "0%
+                        # successful" for a module that may simply never wire
+                        # a success.
                         parts.append(f"  success: {m.get('success', 0)} | "
                                      f"fail: {m.get('fail', 0)} | "
-                                     f"success_rate: {m.get('success_rate', 0)}")
+                                     f"success_rate: {_bh.describe_success_rate(m)}")
                         last_h = m.get("last_signal_ago_h")
                         parts.append(f"  last_signal_ago_h: {last_h if last_h is not None else 'never'}")
                         parts.append(f"  status: {m.get('status', 'unknown')}")
@@ -9912,9 +9916,12 @@ async def _execute_tool(
                     parts.append("TOP-10 ACTIVE MODULES:")
                     for name, m in top:
                         last_h = m.get("last_signal_ago_h")
+                        # R-F4169 (C-183) -- same reading as the block above.
+                        # Measured live: 12 of 255 modules read 0.0 and every
+                        # one of them was flagged uninformative.
                         parts.append(
                             f"  {name:30s} signals={m.get('total', 0):5d} "
-                            f"success={m.get('success_rate', 0):.2f} "
+                            f"success={_bh.describe_success_rate(m, short=True)} "
                             f"last={last_h if last_h is not None else 'never'}h"
                         )
                     parts.append("")
@@ -9975,7 +9982,8 @@ async def _execute_tool(
                     parts.append(f"  total_emails_absorbed: {em_stats.get('total', 0)}")
                     last_h = em_stats.get("last_signal_ago_h")
                     parts.append(f"  last_email_absorbed_ago_h: {last_h if last_h is not None else 'never'}")
-                    parts.append(f"  success_rate: {em_stats.get('success_rate', 0)}")
+                    # R-F4169 (C-183) -- the third render site in this branch.
+                    parts.append(f"  success_rate: {_bh.describe_success_rate(em_stats)}")
                     parts.append("")
                 else:
                     parts.append("EMAIL READER (brain absorption): NO SIGNALS YET")

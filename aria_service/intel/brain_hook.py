@@ -2059,6 +2059,79 @@ _stats_cache_at: float = 0
 _stats_cache_ttl: float = 30.0
 
 
+# -- R-F4169 (C-183) -- THE ONE READING OF `success_rate` ---------------------
+#
+# R-F3934 (C-37) and R-F3936 measured that `success_rate: 0.0` means two things
+# it cannot tell apart, and published `only_failures_recorded` /
+# `no_measurable_signals` so a reader would not have to guess. Nothing read
+# them. Measured live 2026-08-19: of 255 modules, TWELVE read 0.0 and ALL
+# TWELVE carried a flag -- while `routes/aria.py::_execute_tool`'s `meta_query`
+# branch printed every one as `success=0.00` into an LLM prompt under the
+# instruction "Report these stats to the user EXACTLY as shown".
+#
+# The interpretation lives HERE, beside the flags that produce it, so the three
+# render sites cannot drift and a fourth cannot invent its own.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO: resolve the ambiguity. `only_failures_
+# recorded` cannot distinguish a failure-only WIRE (healthy, unmeasurable --
+# `llm/openai_compat.py` has no `wire_success` call at all) from a module that
+# genuinely failed every call. C-37 states this outright, and `search_searxng`
+# is the live proof: C-37 verified it DOES wire success, so its 152/152 may be
+# a real outage. Rendering it as "n/a, disregard" would hide one. Both readings
+# are stated, and the reader is pointed at fail/total, which do carry
+# information.
+def describe_success_rate(entry, *, short: bool = False) -> str:
+    """Render a module's success rate so it cannot be mistaken for a
+    measurement when it is not one.
+
+    A module whose rate IS a measurement renders as the bare number, in both
+    forms -- the annotation has to stay rare, or it becomes noise on 243 lines
+    and buries the 12 that need it.
+
+    `short=True` is for a fixed-width table, where the full explanation would
+    destroy the layout and, repeated on every flagged row, flood the prompt it
+    is written into. It is the SAME judgement at a different length, not a
+    second opinion: one function, so a caller cannot pick a softer reading.
+
+    Never raises: this renders inside ARIA's introspection answer, and a throw
+    here would replace a working answer with an error (the R-F3845 lesson).
+    """
+    if not isinstance(entry, dict):
+        return "unknown"
+    try:
+        total = int(entry.get("total", 0) or 0)
+        fail = int(entry.get("fail", 0) or 0)
+        skip = int(entry.get("skip", 0) or 0)
+        success = int(entry.get("success", 0) or 0)
+        rate = float(entry.get("success_rate", 0) or 0)
+    except (TypeError, ValueError):
+        return "unknown"
+
+    if entry.get("no_measurable_signals"):
+        # R-F3936: nothing to divide. `success_rate` fell back to 0, which is
+        # not a rate and not a failure.
+        if short:
+            return "n/a (nothing measurable yet)"
+        return (f"n/a -- nothing measurable yet: {total} signal(s), {skip} "
+                f"skipped, so there is no denominator. The 0 is a fallback, "
+                f"not a rate, and it is not a failure either")
+
+    if entry.get("only_failures_recorded"):
+        if short:
+            return f"uninformative ({success} successes in {total})"
+        # Deliberately states BOTH readings. `only_failures_recorded` cannot
+        # separate a wire that never calls wire_success from a module failing
+        # every call, and picking either one would be a fabrication -- one of
+        # them hides a live outage.
+        return (f"{rate:.2f} is NOT a measurement here: all {total} recorded "
+                f"signals are failures. Either this module never records a "
+                f"success (a failure-only wire) or it is genuinely failing "
+                f"every call. The counters cannot tell them apart -- read "
+                f"fail={fail}/total={total}")
+
+    return f"{rate:.2f}"
+
+
 @fail_wire(module="brain_hook", gap_type="engine_failure")
 async def get_stats() -> dict:
     """Return brain hook stats — per-module signal counts + health.
