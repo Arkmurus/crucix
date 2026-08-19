@@ -35448,9 +35448,10 @@
       "title": "pre-register resolution prompt-policy ablation",
       "claimed_at": "2026-08-18T15:26:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d4a339c9e4fbd96c8b3ce91ab93345d2c5a752bf",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:30:04Z"
     },
     {
       "r_number": "R-F4154",
@@ -35467,9 +35468,10 @@
       "title": "scope PowerShell command guard away from Bash scripts",
       "claimed_at": "2026-08-18T15:36:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renumbered during rebase after concurrent R-F4154 reservation was published first."
+      "status": "shipped",
+      "commit_sha": "e3dd7beb",
+      "notes": "Renumbered during rebase after concurrent R-F4154 reservation was published first.",
+      "shipped_at": "2026-08-19T07:30:04Z"
     },
     {
       "r_number": "R-F4156",
