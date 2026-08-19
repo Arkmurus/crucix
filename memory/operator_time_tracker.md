@@ -2768,3 +2768,100 @@ a SHA-256 manifest, merged below the minimum seq, verified, then reclaimed:
   passed / 42 min).
 - **C-166** stays closed: the symptom is gone (0 wedge dumps), the O(corpus) scan
   is not.
+
+## Session 2026-08-19 — the false HARD STOP: a refusal a compliance officer could not defend
+
+**R-numbers shipped: 8** — R-F4168, R-F4169, R-F4170, R-F4173, R-F4174, R-F4177,
+R-F4178, R-F4179. All ship-marked, pushed, deployed and verified live by
+`build_rev` on aria-intel (final `6898d4d9`). Plus four docs commits recording
+C-186 and C-187 (open), C-188 (open, low), and C-190's measurement before it was
+fixed.
+
+**Operator hours: not supplied → pace_ratio deliberately blank.** Agent
+wall-clock spans a long day and includes eight ~10-minute cold boots, one per
+deploy.
+
+**What it was.** Started as "finish the open items", became a delivered DD report
+that told a customer to **refuse a UK security company and file a SAR** on the
+strength of a fuzzy name match sharing one word: *black*.
+
+**The finding that matters.** I spent a long time trying to invent a
+discriminator — token counts, shared-token length, character-mass share,
+whole-string similarity — and PROVED by measurement that none could work: the
+false positive and the real hits (Modirum, Rosoboronexport) have identical token
+shapes. The answer was already written down, in the first line of a docstring in
+the same module:
+
+> `is_corroborated_match()` — *"True iff `match` may drive a BLOCKING verdict.
+> Deliberately strict and deliberately shared."*
+
+`derive_verified_sources` obeyed it. `classify_match` — the function that decides
+`hard_stop` — never called it. That is why one report asserted HARD STOP on page
+1 and "BIS Entity List — CLEAN" on page 4.
+
+**And the gate itself was measuring the wrong thing**, in both directions. Raw
+Levenshtein over company names is inflated by a shared legal form and deflated by
+word order:
+
+    "BLACK ROSE SECURITY LTD" vs "BLACK SHIELD COMPANY LTD."   0.520 -> BLOCKS
+    "Modirum Gespi"          vs "Modirum Defence Ltd"          0.474 -> CLEAN
+
+The second is a **false clean on a real designation** — the one failure the USP
+names as unacceptable — and it predated everything in this session. Measuring on
+suffix-stripped tokens fixes both. Correcting the MEASURE moved both errors;
+retuning the threshold could only have traded one for the other.
+
+**Confirmed live on a fresh run** (`dd_ae5e05cdb7c7`): same entity, same
+re-screen path, same match at score 0.855 — now `amber • PROBABLE` instead of
+`HARD_STOP • CONFIRMED`, verdict AMBER-LIGHT instead of NOT CLEARED, no refusal,
+no SAR, all ten canonical sources CLEAN and no contradiction raised. The matched
+name turned out to be the SHORT `LTD.` form at raw **0.520** — above the floor —
+so R-F4177 alone would not have caught it. **Both fixes were load-bearing.**
+
+**The operator's correction that unlocked it.** I had escalated the severity
+question as a policy call. The instruction was to derive it from the USP instead.
+`DD_REPORT_CUSTOMER_REVIEW_AND_USP.md` states the test outright — *can a
+compliance officer defend this to a regulator?* — and "we refused because the
+name shares 'black'" is indefensible where "shares 'modirum'" is not. That
+dissolved the question I had been treating as unanswerable, and its
+never-a-false-clean pillar pointed at the second defect I had not looked for.
+
+**Four defects found by verifying my own deploys, not by tests.**
+Probing the error ledger after shipping C-182 surfaced C-184; verifying C-184
+surfaced C-185; verifying C-185 surfaced a live HTTP 500 I had just caused
+(R-F4174); and streaming the logs — rather than polling them, after two failed
+attempts to go back for a line the buffer had already dropped — produced the
+measurement that closed C-190.
+
+### Where I was wrong
+
+- **A live 500 of my own making.** R-F4173's strict reads abort `init()` before
+  the line that repairs `_meta["born"]`, so `get_stats()` raised on a `.get(key,
+  default)` whose default cannot fire for a key holding `None`. Caught by
+  probing the deploy, hotfixed within the hour.
+- **"C-182 stopped the coder errors."** It did not. The class recurred twice with
+  attempt-0's signature, and my assumed cause (clock refusal) was right about the
+  branch and wrong about why — attempt 0 was OVERRUNNING its ceiling by 13s
+  because httpx timeouts are per-phase, not a deadline.
+- **My own fixtures were the problem twice.** A `string_similarity: 0.4` base
+  made Modirum/Rosoboronexport look like regressions against a correct fix; a
+  "never worse" assertion was stronger than the property that matters (the
+  verdict, not the value). Both established by re-running the PRE-EXISTING
+  guards, never by editing them.
+- **Three readings of the R-number ledger, three wrong answers** — including
+  `unpublished` reporting "all 3593 published", a clean answer to a different
+  question. Three R-numbers were sitting unshipped. The allocator's own `list`
+  was the only reliable read.
+- **A shape-based fix, written and reverted.** It broke two tests, one named
+  *never-false-clean*. They were right.
+
+### Still open
+
+- **C-186** — narrowed, no longer blocking on the operator: the residue (a lone
+  generic token on a match with NO measurable similarity) is unreachable in
+  production, because both match producers always compute it.
+- **C-187** — the screen-contradiction detector is wired, tested, and blind: it
+  prose-matches canonical names against OpenSanctions labels. Fixture written and
+  deleted when a better route appeared; it is still the right backstop.
+- **C-188** — the neural graph's recorded birth date was reset by `init()`'s own
+  repair line. Low severity; no facts, neurons or edges lost.
