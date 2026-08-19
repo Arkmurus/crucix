@@ -1559,18 +1559,24 @@
       "title": "the external ledger persisted a verdict without its evidence (R-F4094)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "imported",
-      "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved"
+      "status": "closed",
+      "r_numbers": [
+        "R-F4094"
+      ],
+      "notes": "imported from a defects.md heading (R-F3878); never reserved",
+      "closed_at": "2026-08-19T11:27:48Z"
     },
     {
       "c_number": "C-139",
       "title": "attribution skip-prefixes matched without a module boundary (R-F4095)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "imported",
-      "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved"
+      "status": "closed",
+      "r_numbers": [
+        "R-F4095"
+      ],
+      "notes": "imported from a defects.md heading (R-F3878); never reserved",
+      "closed_at": "2026-08-19T11:27:48Z"
     },
     {
       "c_number": "C-140",

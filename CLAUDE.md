@@ -303,10 +303,22 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
       *a* Brave leak (§27e used to bless it at ≤3/session). Rule One supersedes that.
       **It was never the only leak, and the budget knob never governed the big one**
       — see R-F3946 below.
-    * `/health` → `active_providers: ["deepseek","deepseek_backup"]` with **anthropic
-      absent from the list entirely**. That absence is the check **for the Anthropic
-      half ONLY** — if Claude ever appears in `active_providers` or
+    * `/health` → `active_providers: ["deepseek"]` with **anthropic absent from
+      the list entirely**. That absence is the check **for the Anthropic half
+      ONLY** — if Claude ever appears in `active_providers` or
       `cooling_providers`, it is back in the general chain and Rule One is broken.
+      ⚠️ **This line used to read `["deepseek","deepseek_backup"]` and was STALE
+      (corrected 2026-08-19).** `deepseek_backup` was removed by operator
+      directive on 2026-08-12 — *"just remove deepseek back up, we do not need a
+      backup"* (R-F3943), and `deepseek_backup_enabled()` now defaults OFF. The
+      reasoning is in that function and is sound: both slots are built from the
+      SAME `DEEPSEEK_API_KEY` on the same account, so it was never redundancy —
+      one key, account, billing or network failure takes both — and it cost ~3x
+      the primary per token. A 360 review on 2026-08-18 measured the live chain
+      as `["deepseek"]` and came within one step of filing "deepseek_backup has
+      dropped out" as a regression **on the strength of this line**. Do not
+      restore it. `general_vendor_depth: 1` and `resilient: false` are the
+      ACCEPTED consequence, not a fault.
 
 - 🔴 **R-F3946 / C-40 (2026-08-13) — the BRAVE half of RULE ONE was NEVER ENFORCED,
   and `rule_one.breached=false` was a half-measure that got believed.**
