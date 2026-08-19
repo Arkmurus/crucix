@@ -1,0 +1,30 @@
+{
+  "r_number": "R-F4160",
+  "complete": true,
+  "scorer_version": "R-F4160-evidence-aligned-clean-v4",
+  "measurement_correction": {
+    "previous_overall": "157/168",
+    "corrected_overall": "161/168",
+    "previous_challenge": "20/24",
+    "corrected_challenge": "24/24",
+    "model_inference_reused": true,
+    "newly_accepted_subjects": [
+      "Promsvyazbank",
+      "Uralvagonzavod",
+      "Marks and Spencer Group plc",
+      "Prudential plc"
+    ]
+  },
+  "accepted_parent": {
+    "honest": 161,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16,
+    "challenge_honest": 24,
+    "challenge_total": 24,
+    "report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269"
+  },
+  "remaining_failures": 7,
+  "weights_mutated": false,
+  "promotion_event": false
+}

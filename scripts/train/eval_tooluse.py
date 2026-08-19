@@ -48,7 +48,7 @@ from scripts.train.build_tooluse_corpus import validate_trace
 # leading clause turns them into countable CLASSES without collapsing distinct
 # rules into one bucket.
 _CLASS_WORDS = 5
-SCORER_VERSION = "R-F4159-explicit-nearest-name-v3"
+SCORER_VERSION = "R-F4160-evidence-aligned-clean-v4"
 
 
 def prompt_messages(trace: dict, system_append: str = "") -> list[dict]:

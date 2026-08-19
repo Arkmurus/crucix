@@ -214,6 +214,7 @@ def _norm_cite(source: object) -> str:
 # words appearing at all.
 _CLEAN_CLAIM_RE = re.compile(
     r"\b(is|are|was|were)\s+(now\s+)?(clear|clean|unsanctioned)\b"
+    r"|\b(is|are|was|were)\s+not\s+on\s+(the\s+)?(sanctions\s+)?(list|screen)\b"
     r"|\breturned no (sanctions )?matches\b"
     r"|\bno (sanctions )?(matches|hits) (were )?found\b"
     r"|\bnot sanctioned\b",
