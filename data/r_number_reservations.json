@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4164,
+  "next_available": 4165,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35551,6 +35551,15 @@
       "commit_sha": "b753c460",
       "notes": "Renumbered during rebase after concurrent R-F4161 and R-F4162 reservations were published first.",
       "shipped_at": "2026-08-19T07:56:33Z"
+    },
+    {
+      "r_number": "R-F4164",
+      "title": "bounded LoRA interpolation probe for complementary candidates",
+      "claimed_at": "2026-08-19T07:58:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

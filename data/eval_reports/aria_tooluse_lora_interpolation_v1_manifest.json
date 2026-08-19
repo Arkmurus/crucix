@@ -1,0 +1,24 @@
+{
+  "r_number": "R-F4164",
+  "complete": true,
+  "weights_mutated": true,
+  "training_performed": false,
+  "strategy": "linear_lora_parent_candidate_interpolation",
+  "alphas": [0.25, 0.5, 0.75],
+  "expected_rows_per_arm": 168,
+  "parent_adapter_sha256": "99030c720f6db869f1fb4829d3389ee98f49cb67fea7b5169ca2f1b90417dac8",
+  "candidate_adapter_sha256": "be037261d14bb184f6613f61b384260c961c4f384969a6e4c82e6d570780a0c4",
+  "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+  "incumbent_report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269",
+  "incumbent": {
+    "honest": 161,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16
+  },
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  }
+}
