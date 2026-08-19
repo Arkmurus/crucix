@@ -27,7 +27,24 @@ logger = logging.getLogger("aria.dd_vault")
 from .engine_wiring import wire_success, wire_failure
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
-_VAULT_DIR = Path("/data")
+# R-F4158 (C-179) — honour ARIA_DATA_DIR, like every sibling store.
+#
+# This hardcoded `Path("/data")`, which on a Windows dev box resolves to
+# `C:\data\dd_vault.db` — a file OUTSIDE the repo, shared by every test run on
+# the machine and never cleaned. `list_reports` reconciles against this vault on
+# every read (R-F1973/R-F2485/R-F2652), so DD list tests silently merged whatever
+# earlier runs had left there. Measured 2026-08-18: six residual fixture rows
+# (`Risky Business SARL`, `dd_test_red`, ...) turned
+# `test_rf2407_dd_rerun_unnamed` red on this box while it stayed green in CI,
+# and the §16 baseline could not see it because the baseline machine's copy
+# happened to be empty.
+#
+# `ARIA_DATA_DIR` is the established idiom — `agent_contract`, `agent_registry`,
+# `brave_distill` and `brave_student` all resolve through it with a `/data`
+# fallback. PRODUCTION IS UNCHANGED: the var is unset on Fly (R-F1692 records
+# exactly that), so this still resolves to `/data`. What it adds is the ability
+# to point tests at a throwaway directory instead of a machine-global file.
+_VAULT_DIR = Path(os.getenv("ARIA_DATA_DIR") or "/data")
 _VAULT_DB = _VAULT_DIR / "dd_vault.db"
 
 _CREATE_SQL = """

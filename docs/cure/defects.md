@@ -10942,3 +10942,66 @@ trimmed history and disturbing the hash chain; deleting risks losing audit
 history that was never migrated. Under §26 that is a data decision requiring an
 archive with a manifest and operator sign-off — not something to slip into a
 code fix. **Recovering the 19.3 MB is a separate, deliberate step.**
+
+## C-179 · DD list tests read a MACHINE-GLOBAL vault database (fixed, R-F4158)
+
+Found while clearing the one suite failure that was NOT in the §16 baseline —
+which is exactly why it mattered: a red test carries no information, and this
+one was red for a reason nothing in the repo could explain.
+
+`test_rf2407_dd_rerun_unnamed` stubbed `redis_store.get_json`/`set_json` and
+nothing else. But `list_reports` was later taught (R-F1973 / R-F2485 / R-F2652)
+to reconcile the volatile index against the **durable DD vault on every read** —
+a separate SQLite file that `dd_vault` hardcoded as `Path("/data")`, i.e.
+`C:\data\dd_vault.db` on a Windows dev box: **outside the repo, shared by every
+test run on the machine, and never cleaned.**
+
+So the test merged whatever earlier runs had left there. Measured 2026-08-18 —
+six residual fixture rows:
+
+```
+Risky Business SARL     | dd_test_red
+Clean Corp Ltd          | dd_test_green
+Sanctioned Entity Ltd   | dd_test_hardstop
+Acme Ltd                | dd_new
+```
+
+and the assertion on `reports[0]` picked up **Risky Business SARL** instead of
+the seeded row.
+
+### The production code was never wrong
+
+Proven before changing anything — with the vault stubbed empty, the same call
+returns `Acme Ltd`. The R-F2407 repair works exactly as designed. What failed
+was a test depending on the state of a database it never created: green on a
+clean box, red on a used one, and **invisible to the §16 baseline because the
+baseline machine's copy happened to be empty**. That is the worst property a
+test can have — it makes the suite's verdict a function of the machine.
+
+### Two fixes, one instance and one class
+
+* **Instance** — the test now stubs `get_vault`, the idiom the other DD tests
+  already use (`test_rf2097_dd_vault_ownership`). It simply predated the vault
+  merge.
+* **Class** — `dd_vault` now honours **`ARIA_DATA_DIR`**, the established idiom
+  its siblings already use (`agent_contract`, `agent_registry`, `brave_distill`,
+  `brave_student`). **Production is unchanged**: the var is unset on Fly — R-F1692
+  records precisely that — so it still resolves to `/data`. What it adds is the
+  ability to point a run at a throwaway directory instead of a machine-global
+  file.
+
+### Measured, not assumed — and the reason isolation is NOT yet automatic
+
+Running the DD/vault selection with `ARIA_DATA_DIR` pointed at a temp directory
+gives **11 failed / 1389 passed — identical to without it**, so the override is
+behaviourally neutral and those 11 are pre-existing and unrelated.
+
+It is tempting to go further and set `ARIA_DATA_DIR` for the whole suite from
+`conftest`, the way the R-F3449 ContextVar leak was "fixed at the class rather
+than per test". **Deliberately not done here.** That variable is shared with
+`agent_registry`, `agent_contract` and the brave stores, all of which read it at
+IMPORT time — so setting it suite-wide relocates their databases too. The
+measurement above covers the DD selection only; making it automatic needs a
+full-suite measurement first, and inventing that at the end of a long session is
+how the next defect gets written. The capability is in place; switching it on is
+a separate, evidenced step.
