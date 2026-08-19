@@ -2228,6 +2228,20 @@ async def lifespan(app: FastAPI):
             from .intel import neural_memory as _nm
             if hasattr(_nm, "get_stats"):
                 nm_stats = await _nm.get_stats()
+                # R-F4173 (C-185) — a store read FAILURE leaves the graph
+                # UNLOADED, not empty, and R-F2951's `loaded` flag cannot say
+                # so (init() sets it True on its except branch too). Measured
+                # 2026-08-19: neural_edges 159198 -> 0 was reported as a -100%
+                # regression on a graph that had lost nothing. Fold it into
+                # C-184's comparability gate so NEITHER neural counter is
+                # diffed against a complete baseline.
+                #
+                # `is False` deliberately: an older module that does not publish
+                # the key returns None, and an absent fact must not be read as
+                # a failure.
+                if nm_stats.get("load_complete") is False:
+                    _stores_ready = False
+                    snapshot["stores_ready"] = False
                 snapshot["neural_neurons"] = nm_stats.get("total_neurons", "n/a")
                 # R-F2951 — the neural graph loads via an async incremental boot
                 # warmup (~10 min), so an early-boot get_stats reads total_edges=0

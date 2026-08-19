@@ -37,6 +37,12 @@ from collections import defaultdict
 from typing import Any, Optional
 
 from . import redis_store as rs
+# R-F4173 (C-185) — bind the exception CLASS directly rather than reaching for
+# it through the `rs` module attribute at raise/except time. Tests (and any
+# future caller) swap the `rs` module object wholesale, and an attribute lookup
+# on the swapped object turns that into an AttributeError inside the boot path.
+# The class itself never moves.
+from .redis_store import StoreReadError
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.neural")
@@ -146,6 +152,21 @@ _neurons: dict[str, dict] = {}       # id → neuron
 _edges: dict[str, dict[str, float]] = defaultdict(dict)  # from_id → {to_id: weight}
 _meta: dict = {"total_neurons": 0, "total_edges": 0, "total_activations": 0, "born": None}
 _loaded = False
+
+# ── R-F4173 (C-185) — "LOADED" MEANT "WE STOPPED TRYING" ────────────────────
+#
+# `_loaded` is set True on the success path AND in init()'s except branch, so it
+# cannot answer "is the graph actually here?". R-F2951's boot guard reads it and
+# was therefore blind on 2026-08-19, when a store read TIMEOUT during boot made
+# init() adopt an empty edge set: `_loaded` True, `total_edges` 0, and R-F251
+# reported `neural_edges: 159198 -> 0 (-100%)` on a graph that had lost nothing
+# (the same process read 159,254 edges twenty minutes later).
+#
+# `_load_complete` is the honest one: True ONLY when every store read for the
+# graph succeeded. `_loaded` keeps its existing meaning for the callers that
+# use it as an "init has run" latch (e.g. detect_conflict), so this adds a fact
+# rather than changing one.
+_load_complete = False
 
 # R-F1932 (G4 tail): inverted indices so _find_neuron + recall()'s seed scan are
 # O(matching neurons), not O(all neurons). _neurons grows forever (infinite memory),
@@ -447,7 +468,10 @@ async def _save_neurons_sharded(neurons: dict) -> dict:
 async def _load_neurons_sharded() -> dict | None:
     """Read the sharded neurons set. Returns None if the meta key is
     absent (signals: fall back to legacy NEURONS_KEY)."""
-    meta_raw = await rs.get(NEURONS_SHARD_META_KEY)
+    # R-F4173 — STRICT. The non-strict reader collapses a store-layer failure
+    # and an absent key into the same None (the R-F1 contract), so a timeout
+    # here read as "there is no sharded form" and fell through to an empty load.
+    meta_raw = await rs.get_strict(NEURONS_SHARD_META_KEY)
     if not meta_raw:
         return None
     try:
@@ -461,8 +485,14 @@ async def _load_neurons_sharded() -> dict | None:
         return None
     keys = [NEURONS_SHARD_KEY_FMT.format(i=i) for i in range(n_shards)]
     raws = await asyncio.gather(
-        *(rs.get(k) for k in keys), return_exceptions=True,
+        *(rs.get_strict(k) for k in keys), return_exceptions=True,
     )
+    # R-F4173 — a store FAILURE is not "no sharded form". Falling back to the
+    # legacy key after the store has already refused us is how an empty graph
+    # gets adopted as fact; propagate instead.
+    for _r in raws:
+        if isinstance(_r, StoreReadError):
+            raise _r
     if any(isinstance(r, Exception) or r is None for r in raws):
         return None  # partial set — caller falls back to legacy
     # R-F2176: offload the json decode + merge off the event loop (same loop-stall
@@ -567,7 +597,8 @@ async def _load_edges_sharded() -> dict | None:
     """Read the sharded edges set, merging all shards. Returns None when the meta
     key is absent or the shard set is incomplete (→ caller falls back to the
     legacy single EDGES_KEY blob)."""
-    meta_raw = await rs.get(EDGES_SHARD_META_KEY)
+    # R-F4173 — STRICT; see _load_neurons_sharded.
+    meta_raw = await rs.get_strict(EDGES_SHARD_META_KEY)
     if not meta_raw:
         return None
     try:
@@ -580,7 +611,13 @@ async def _load_edges_sharded() -> dict | None:
     if n_shards <= 0:
         return None
     keys = [EDGES_SHARD_KEY_FMT.format(i=i) for i in range(n_shards)]
-    raws = await asyncio.gather(*(rs.get(k) for k in keys), return_exceptions=True)
+    raws = await asyncio.gather(*(rs.get_strict(k) for k in keys),
+                                return_exceptions=True)
+    # R-F4173 — see _load_neurons_sharded: propagate a store failure rather
+    # than silently degrading to the legacy path.
+    for _r in raws:
+        if isinstance(_r, StoreReadError):
+            raise _r
     if any(isinstance(r, Exception) for r in raws):
         return None  # partial set — fall back to legacy
     # R-F2176: offload the CPU-bound gzip-decompress + json decode + merge to a
@@ -630,12 +667,14 @@ async def _peek_neurons_disk_count() -> int:
 @fail_wire(module="neural_memory", gap_type="embedder_failure")
 async def init() -> None:
     global _neurons, _edges, _meta, _loaded, _edges_dirty, _edges_sharded_initialized
+    global _load_complete
+    _load_complete = False
     try:
         # R-F699: prefer sharded read; fall back to legacy NEURONS_KEY
         # if sharded meta absent or shard set is incomplete.
         neurons_raw = await _load_neurons_sharded()
         if neurons_raw is None:
-            neurons_raw = await rs.get_json(NEURONS_KEY)
+            neurons_raw = await rs.get_json_strict(NEURONS_KEY)   # R-F4173
         # R-F2082: prefer the sharded edges read; fall back to the legacy single
         # EDGES_KEY blob (gzipped or raw) which the first persist then migrates
         # to shards. _decode_edges handles the GZ1: prefix on the legacy blob.
@@ -644,10 +683,10 @@ async def init() -> None:
             edges_raw = sharded_edges
             _loaded_from_shards = True
         else:
-            edges_value = await rs.get(EDGES_KEY)
+            edges_value = await rs.get_strict(EDGES_KEY)          # R-F4173
             edges_raw = _decode_edges(edges_value)
             _loaded_from_shards = False
-        meta_raw = await rs.get_json(NEURAL_META_KEY)
+        meta_raw = await rs.get_json_strict(NEURAL_META_KEY)      # R-F4173
 
         if neurons_raw and isinstance(neurons_raw, dict):
             _neurons = neurons_raw
@@ -678,13 +717,39 @@ async def init() -> None:
             _edges_sharded_initialized = False
 
         _loaded = True
+        # R-F4173 — every store read for the graph succeeded. This is the ONLY
+        # place it is set True; a genuinely absent key still reaches here, so a
+        # fresh volume boots clean.
+        _load_complete = True
         logger.info("Neural memory loaded: %d neurons, %d edge groups (R-F442 edges_dirty=%s)",
                      len(_neurons), len(_edges), _edges_dirty)
         # R-F1512: boot-time cold-edges sweep for existing oversized neurons
         _offload_sweep_all()
+    except StoreReadError as e:
+        # R-F4173 — THE STORE REFUSED US. Distinct from a genuinely empty
+        # store: we know nothing about the graph, so we must not let anything
+        # downstream read the empty in-memory copy as a measurement. `_loaded`
+        # keeps its "init has run" meaning; `_load_complete` stays False.
+        logger.warning(
+            "[R-F4173] neural memory init could not READ the store (%s) — the "
+            "graph is UNLOADED, not empty. Boot-state counters from this "
+            "process are not comparable.", e,
+        )
+        _loaded = True
+        _load_complete = False
+        try:
+            wire_failure(
+                module="neural_memory",
+                detail=f"store read failed during init: {e}",
+                gap_type="engine_failure",
+                source="neural_memory:init",
+            )
+        except Exception:
+            pass
     except Exception as e:
         logger.warning("Neural memory init failed: %s", e)
         _loaded = True
+        _load_complete = False   # R-F4173
 
 
 async def _persist() -> None:
@@ -1646,6 +1711,10 @@ async def get_stats() -> dict:
             # boot state-regression detector (R-F251) must not read this 0 as a
             # -100% neural_edges regression (which resets the Phase A gate-#3 streak).
             "loaded": _loaded,
+            # R-F4173 (C-185) — the honest one: True only when every store read
+            # succeeded. `loaded` alone cannot distinguish an empty graph from
+            # an unreadable one.
+            "load_complete": _load_complete,
         }
 
     categories = defaultdict(int)
@@ -1674,6 +1743,7 @@ async def get_stats() -> dict:
         "born": born,
         "age_days": round((time.time() - born) / 86400, 1),
         "loaded": _loaded,  # R-F2951 — graph fully loaded (see the not-loaded branch above)
+        "load_complete": _load_complete,   # R-F4173 (C-185)
     }
 
 

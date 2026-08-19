@@ -43,6 +43,12 @@ class _FakeRS:
     async def get(self, k):
         return self._d.get(k)
 
+    # R-F4173 (C-185) — the loader now reads the graph STRICTLY, so a store
+    # failure raises instead of returning None. This fake never simulates a
+    # store failure, so get_strict mirrors get exactly.
+    async def get_strict(self, k):
+        return self._d.get(k)
+
 
 def _encode_edges(d: dict) -> str:
     """Encode an edge dict the way _decode_edges expects (GZ1: + b64(gzip(json)))."""

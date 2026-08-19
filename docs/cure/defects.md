@@ -11424,16 +11424,14 @@ Windows tempfile-teardown `PermissionError`; it is a recorded
 `docs/suite_baseline.json` entry and C-181 already documents it as
 wall-clock-budget flaky. `main.py` imports cleanly and `lifespan` is callable.
 
-## C-185 · OPEN — a boot-time edge-store read timeout reads as "zero edges", firing a false regression
+## C-185 · a boot-time store read timeout was adopted as "zero edges" (fixed, R-F4173)
 
-**Status: measured and diagnosed, NOT fixed.** Reserved and written up rather
-than rushed, because the fix lands in the neural LOAD path — the one that
-already carries the R-F371 guard after a migration race wiped 87.6% of neurons
-in 2026-05. It needs its own fixture and its own review of `_edges_dirty`
-semantics.
+**FIXED by R-F4173** (this entry was written first as OPEN, deliberately, rather
+than rushing a change into the neural LOAD path — the one that already carries
+the R-F371 guard after a migration race wiped 87.6% of neurons in 2026-05).
 
-**This is the SECOND path to a false R-F251 gate-#3 reset. C-184 closed the
-first one and does NOT cover this.** Do not read C-184 as "gate #3 unblocked".
+This was the SECOND path to a false R-F251 gate-#3 reset; C-184 closed the first
+and did not cover this one.
 
 ### Measured live, 2026-08-19
 
@@ -11488,6 +11486,58 @@ empty edge set as fact.
 Data loss itself appears to be guarded: R-F371 blocks the shrink-on-persist
 path, and the live edge count is intact. The observable harm is the false ERROR,
 which resets Phase A gate #3 on any boot where an edge shard read times out.
+
+### The fix (R-F4173)
+
+The R-F2664 pattern, exactly as the precedent above predicted:
+
+* **Strict reads.** `init()`, `_load_neurons_sharded` and `_load_edges_sharded`
+  now read through `get_strict` / `get_json_strict`, so a store-layer failure
+  RAISES instead of returning `None`. A genuinely absent key still returns
+  `None` and still yields a clean fresh start — a first boot on an empty volume
+  has to work, and turning "no data yet" into an error would be the opposite
+  defect. A test pins that.
+* **A shard read failure no longer degrades to the legacy path.** Falling back
+  to `EDGES_KEY` after the store has already refused us is precisely how the
+  empty set got adopted as fact; a `StoreReadError` in the shard gather is
+  re-raised.
+* **`load_complete`, an honest flag.** `_loaded` keeps its "init has run"
+  meaning (`detect_conflict` and R-F2951 depend on it), so this ADDS a fact
+  rather than changing one. `_load_complete` is set True in exactly one place —
+  the clean path — and `get_stats()` publishes it in both of its return
+  branches.
+* **Wired into C-184's gate.** `_log_boot_state` folds it into `stores_ready`,
+  so NEITHER neural counter is diffed against a complete baseline when the load
+  did not complete. Read as `is False`, so an older module that does not publish
+  the key is not read as a failure — absence is not evidence.
+* **§21a**: the read failure reaches the brain (`wire_failure`,
+  `gap_type=engine_failure`), not just the console.
+
+### One defect in the fix, caught by its own tests
+
+The first draft wrote `isinstance(_r, rs.StoreReadError)` and
+`except rs.StoreReadError`, reaching for the exception class through the `rs`
+module attribute. Four tests swap the whole `rs` module object for a fake, so
+that lookup raised `AttributeError` **inside the boot path** — converting a
+handled store failure into an unhandled crash. The class is now bound directly
+at import. A fragile reference that only fails when something else is swapped is
+the kind that survives review.
+
+### Verification
+
+`test_rf4173_neural_store_read_failure_is_not_an_empty_graph.py` — 6 tests, all
+RED before. The capability test replays the live shape (neurons read fine, edge
+store read fails) and asserts the load is not reported complete; guards cover
+the fresh-volume case, a successful load, and that the failure is observable
+end-to-end rather than through a stub that would pass either way. A wiring test
+reads `main.py`, so a flag with no consumer cannot pass.
+
+Blast radius (50 files touching neural memory): **16 newly-failing → 0**. All
+ten were fake stores lacking `get_strict`; each fake now mirrors the real
+contract rather than being blanket-aliased, with a comment saying why. The 6
+remaining failures are recorded `docs/suite_baseline.json` entries. Boot-path
+set: 72 passed. Whole-tree compile gate clean; `main.py` imports and `lifespan`
+is callable.
 
 ### What must NOT be done
 

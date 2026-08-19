@@ -83,6 +83,11 @@ def _patched(nm, storage_fns):
     stack.enter_context(patch.object(nm.rs, "_client", None))
     stack.enter_context(patch.object(nm.rs, "get", side_effect=fake_get))
     stack.enter_context(patch.object(nm.rs, "set", side_effect=fake_set))
+    # R-F4173 (C-185) — the loader now reads the graph STRICTLY, so a store
+    # failure raises instead of returning None. This fake never simulates a
+    # store failure, so the strict readers mirror the plain ones exactly.
+    stack.enter_context(patch.object(nm.rs, "get_strict", side_effect=fake_get))
+    stack.enter_context(patch.object(nm.rs, "get_json_strict", side_effect=fake_get_json))
     stack.enter_context(patch.object(nm.rs, "get_json", side_effect=fake_get_json))
     stack.enter_context(patch.object(nm.rs, "set_json", side_effect=fake_set_json))
     return stack

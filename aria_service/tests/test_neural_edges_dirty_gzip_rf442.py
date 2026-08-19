@@ -88,6 +88,12 @@ def _patched(nm, mocks):
         patch.object(nm.rs, "_client", None),
         patch.object(nm.rs, "get", side_effect=mocks["get"]),
         patch.object(nm.rs, "set", side_effect=mocks["set"]),
+        # R-F4173 (C-185) — the loader now reads the graph STRICTLY, so a
+        # store failure raises instead of returning None. These fakes never
+        # simulate a store failure, so the strict readers mirror the plain
+        # ones exactly and this test's intent is unchanged.
+        patch.object(nm.rs, "get_strict", side_effect=mocks["get"]),
+        patch.object(nm.rs, "get_json_strict", side_effect=mocks["get_json"]),
         patch.object(nm.rs, "get_json", side_effect=mocks["get_json"]),
         patch.object(nm.rs, "set_json", side_effect=mocks["set_json"]),
     ]

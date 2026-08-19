@@ -2092,9 +2092,12 @@
       "title": "neural edges read non-strict at boot: a store timeout reads as zero edges and fires a false R-F251 regression",
       "claimed_at": "2026-08-19T13:16:05Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4173"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T13:52:13Z"
     },
     {
       "c_number": "C-186",
