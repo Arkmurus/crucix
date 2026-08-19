@@ -11143,3 +11143,99 @@ The fixture introduces **zero** new failures. The DD/vault selection shows the
 same 11 pre-existing failures with and without it, and the corrected isolation
 tests pass both alone and in-suite. Test-only change — no production diff, so no
 deploy is owed.
+
+## C-182 · the reasoning cure existed and a guard sized for the OLD cure refused it (fixed, R-F4168)
+
+**Found by** probing Phase A exit gate #3 on the live server, 2026-08-19 — not by
+a test, and not by reading. Gate #3 ("0 fly ERRORs / 7 days") has never closed;
+this is why.
+
+```
+GET /api/aria/health/error-streak   (aria-intel, build_rev c17baca9)
+
+last_error.message : "[coder/llm] llm.complete failed: [deepseek] reasoning
+                      consumed the token budget (model=deepseek-v4-flash,
+                      finish_reason=length, reasoning=68349 chars,
+                      max_tokens=16384) - no answer was produced."
+last_error.function: coder_llm_ep
+clean_since        : 1787134789   (1.3h before the probe)
+level_breakdown_7d : {log:warning: 197, log:error: 3}
+ledger_saturated   : true — 200-slot ring holding only ~4.2h of history
+```
+
+Three ERRORs in ~4.2 hours is **~18 a day**, every one of them resetting the
+7-day streak. The gate was structurally unclosable, and the two prior fixes in
+this class (R-F2663, R-F2668) had already removed the *false* resets — so what
+remained was a real, repeating application failure.
+
+### Which branch raised it is PROVEN by arithmetic, not inferred
+
+`sovereign_llm.DEFAULT_MAX_TOKENS` is 8192, so
+`_floor_completion_budget(flash, 8192, attempt=0)` = 8192 + 8192 headroom =
+**16384** — exactly the number the live error carries. A completed attempt 1
+would be `min(8192 + 16384, 32768)` = **24576**, which it does not. The error
+object is therefore attempt 0's. At attempt 0 the old `_curable` test was True
+(kind matched, attempt 0, 16384 < 32768), so `if not _curable: raise` cannot be
+the raiser. **The only other statement in `complete()` that re-raises attempt
+0's error is the R-F3629 deadline refusal.** The escalation was refused on the
+clock, every time. The fixture reproduces it byte-for-byte, including the log
+line `only 0.0s of the caller's 120.0s timeout remains`.
+
+### The premise expired somewhere else — the C-98 shape
+
+R-F3629 refuses the escalation under `_MIN_RETRY_SECONDS` (15s) because *"a
+larger budget takes LONGER to generate, so a retry squeezed into the last
+moments is the least likely of all to succeed."* That was **true of the retry as
+it then was**: double the tokens.
+
+R-F3979 (C-68) then replaced the retry with `thinking: {"type": "disabled"}` and
+MEASURED it at **13.9s against the baseline's 79.2s**. The escalation became the
+*fast* path — and nothing revisited the guard that was sized for the slow one.
+R-F3979's own docstring even names it *"the guard that made attempts=1
+permanent"*, and left it standing. This is C-98 exactly: a change elsewhere
+voided a mechanism's reason to exist and the code kept obeying it for months.
+
+Compounding it, attempt 0 was handed the **whole** deadline, so any turn that
+deliberates to its token cap leaves nothing behind and the refusal is *certain*,
+not probable. The two halves compose into a cure that can never run.
+
+### The fix, and the trap it had to clear first
+
+A slice of the caller's clock is now **reserved** for the escalation:
+`min(30s, timeout/3)`, and **zero** when that slice would fall below the
+escalation's own 15s admission floor — reserving less than the floor would
+shorten attempt 0 for a retry the guard then refuses, which is worse than
+reserving nothing. Zero for a classic model too: no thinking to disable means no
+escalation to reserve for. The caller's **total** deadline is unchanged, which is
+R-F3629's actual invariant (`timeout` is a contract the chain sizes its
+per-provider budget from); "attempt 0 gets everything" never was.
+
+**The trap was recorded before this was attempted and is the reason it had not
+been.** Shortening attempt 0 makes it end on the CLOCK where it used to end on
+the TOKEN CAP — converting a curable `reasoning_truncated` into an uncurable
+`timeout`, so the cure would fire *less* often than doing nothing. So a
+**reasoning model's attempt-0 timeout is now curable too**: same cause (it
+deliberated past what it was given), same cure (stop it deliberating). Gated on
+the model, because a classic model's retry would be byte-identical. Reserving
+clock without this half is a regression, not a fix.
+
+**Third stale premise, same root, removed:** `_budget <
+_REASONING_MAX_COMPLETION_TOKENS` refused the retry at the ceiling because
+"nothing would change about the request". Since R-F3979 the retry also turns
+thinking off — a material change at *every* budget, and the only lever ever
+measured to work (a 4,743-char answer at `max_tokens=1024` where the baseline
+produced none). A caller at or above 24,576 tokens could never reach the cure.
+
+### What the fixture pins
+
+`test_rf4168_escalation_reserve.py`, 8 tests, RED before / GREEN after (5 of 8
+failed before the fix). Beyond the capability test that replays the production
+call, three guards exist so the fix cannot be "simplified" back into the defect:
+a classic model keeps its whole clock and is never retried on timeout; a
+deadline too short to split is not carved up and surfaces the original error
+kind; and the caller's total deadline is still never doubled.
+
+`test_rf3629_context_window_and_retry_deadline.py` had one assertion updated —
+`timeouts[0] == 90.0`, "the first attempt gets the full budget". That was not an
+invariant, it was the defect written down as an expectation. It now asserts the
+deadline minus the reserve, and says why, so it is not restored.

@@ -190,6 +190,54 @@ KIND_REASONING_TRUNCATED = "reasoning_truncated"
 # squeezed into the last moments is the least likely of all to succeed.
 _MIN_RETRY_SECONDS = 15.0
 
+# -- R-F4168 (C-182) -- THE GUARD OUTLIVED THE RETRY IT WAS SIZED FOR --------
+#
+# R-F3629 refuses the escalation under `_MIN_RETRY_SECONDS` because "a larger
+# budget takes LONGER to generate". True of the retry AS IT THEN WAS: double the
+# tokens. R-F3979 replaced it with `thinking: {"type": "disabled"}` and MEASURED
+# the same prompt at 13.9s against the baseline 79.2s -- the escalation became
+# the FAST path, and nothing revisited the guard. Same shape as C-98: a change
+# somewhere else voided a mechanism premise and the code kept obeying it.
+#
+# Compounding it, attempt 0 was handed the WHOLE deadline, so a turn that
+# deliberates to its token cap leaves nothing and the refusal is CERTAIN.
+# Measured live 2026-08-19: the self-coder /coder/llm calls raised
+# `reasoning consumed the token budget (max_tokens=16384)` -- attempt 0 budget
+# for `sovereign_llm.DEFAULT_MAX_TOKENS` (8192 + 8192 headroom); a completed
+# attempt 1 would report 24576. ~18 ERRORs/day, each one resetting Phase A exit
+# gate #3, with the cure sitting one branch away and never once running.
+#
+# So a slice of the caller clock is RESERVED for the escalation. The caller
+# TOTAL deadline is unchanged -- that, not "attempt 0 gets everything", is the
+# R-F3629 invariant: `timeout` is a contract the chain sizes its per-provider
+# budget from.
+_ESCALATION_RESERVE_S = 30.0
+
+# ...but never more than a third of the clock. On a short deadline, carving out
+# a fixed 30s would starve the attempt that usually succeeds.
+_MAX_RESERVE_FRACTION = 1.0 / 3.0
+
+
+def _escalation_reserve(model: str | None, timeout: float) -> float:
+    """Seconds of `timeout` held back so the escalation can actually run.
+
+    Zero for a classic model: it has no thinking to disable, so there is no
+    escalation to reserve for and shortening its single attempt is pure loss.
+
+    Zero when the slice would come out below `_MIN_RETRY_SECONDS`: the guard
+    would then refuse the retry anyway, so attempt 0 would have been cut for a
+    cure that cannot be admitted. Reserving less than the floor is worse than
+    reserving nothing.
+    """
+    if not _is_reasoning_model(model):
+        return 0.0
+    try:
+        t = float(timeout)
+    except (TypeError, ValueError):
+        return 0.0
+    reserve = min(_ESCALATION_RESERVE_S, t * _MAX_RESERVE_FRACTION)
+    return reserve if reserve >= _MIN_RETRY_SECONDS else 0.0
+
 
 def _is_reasoning_model(model: str | None) -> bool:
     """True when `model` spends part of max_tokens on reasoning before content."""
@@ -335,7 +383,13 @@ class OpenAICompatProvider(LLMProvider):
         # Only ever read on attempt 1, which is reachable only via the except
         # branch that sets it. Initialised anyway so a future edit to the loop
         # cannot turn a provider failure into a NameError.
-        _last_truncation: ProviderError | None = None
+        # R-F4168 -- renamed away from the old truncation-only name: a
+        # reasoning model's attempt-0 TIMEOUT is curable too, so this no
+        # longer holds only truncations.
+        _last_curable: ProviderError | None = None
+        # R-F4168 -- computed once, from the caller's DECLARED budget rather than
+        # from what is left, so attempt 0 cannot be shortened twice.
+        _reserve = _escalation_reserve(_eff_model, timeout)
         for _attempt in (0, 1):
             _budget = self._resolve_completion_budget(
                 _eff_model, max_tokens, attempt=_attempt,
@@ -346,19 +400,31 @@ class OpenAICompatProvider(LLMProvider):
                 # _PROVIDER_MIN_BUDGET reasoning: a call that cannot finish is
                 # worse than an honest failure, because it burns the deadline
                 # and still returns nothing.
-                if _remaining < _MIN_RETRY_SECONDS and _last_truncation is not None:
+                #
+                # R-F4168 -- this is now a BACKSTOP, not the normal path. With a
+                # reserve held back it should not fire at all; it still can when
+                # the reserve was declined (a deadline too short to split) or
+                # when attempt 0 overran the ceiling it was handed.
+                if _remaining < _MIN_RETRY_SECONDS and _last_curable is not None:
                     logger.warning(
-                        "[R-F3629] %s (%s) reasoned past its budget, but only "
-                        "%.1fs of the caller's %.1fs timeout remains — failing "
-                        "honestly rather than starting a call that cannot finish.",
-                        self.name, _eff_model, _remaining, timeout,
+                        "[R-F3629] %s (%s) spent its whole allowance (kind=%s), "
+                        "but only %.1fs of the caller's %.1fs timeout remains "
+                        "— failing honestly rather than starting a call that "
+                        "cannot finish.",
+                        self.name, _eff_model,
+                        getattr(_last_curable, "kind", "unknown"),
+                        _remaining, timeout,
                     )
-                    raise _last_truncation
+                    raise _last_curable
+                _call_timeout = max(_remaining, _MIN_RETRY_SECONDS)
+            else:
+                # R-F4168 -- hold the escalation slice back from attempt 0.
+                _call_timeout = max(_remaining - _reserve, _MIN_RETRY_SECONDS)
             try:
                 return await self._one_completion(
                     system_prompt, user_message,
                     eff_model=_eff_model, max_tokens=_budget,
-                    timeout=max(_remaining, _MIN_RETRY_SECONDS),
+                    timeout=_call_timeout,
                     # R-F3979 (C-68) — the escalation rung DISABLES THINKING.
                     # Doubling the budget alone feeds the failure: measured
                     # against the live key, the same prompt at max_tokens=8192
@@ -371,21 +437,43 @@ class OpenAICompatProvider(LLMProvider):
                     disable_thinking=(_attempt > 0),
                 )
             except ProviderError as e:
-                _curable = (
-                    getattr(e, "kind", "") == KIND_REASONING_TRUNCATED
-                    and _attempt == 0
-                    # A second call is pointless once the ceiling is already the
-                    # budget — nothing would change about the request.
-                    and _budget < _REASONING_MAX_COMPLETION_TOKENS
+                _kind = getattr(e, "kind", "")
+                _curable = _attempt == 0 and (
+                    _kind == KIND_REASONING_TRUNCATED
+                    # R-F4168 -- AND the same failure arriving by the other door.
+                    # Reserving clock (above) makes attempt 0 end on the CLOCK
+                    # where it used to end on the TOKEN CAP. Cause and cure are
+                    # identical -- it deliberated past what it was given, and the
+                    # escalation stops it deliberating -- so leaving a timeout
+                    # uncurable would fire the cure LESS often than reserving
+                    # nothing at all. Gated on the model: a classic model has no
+                    # thinking to disable, so its retry would be byte-identical.
+                    or (_kind == "timeout" and _is_reasoning_model(_eff_model))
                 )
+                # R-F4168 -- the ceiling test that used to sit here
+                # (`_budget < _REASONING_MAX_COMPLETION_TOKENS`) is GONE. It read
+                # "nothing would change about the request", which stopped being
+                # true when R-F3979 made the retry also turn thinking OFF -- a
+                # change at every budget, and the only lever ever MEASURED to
+                # work (4,743-char answer at max_tokens=1024 where the baseline
+                # produced none).
                 if not _curable:
                     raise
-                _last_truncation = e
+                _last_curable = e
+                # R-F4168 -- report WHICH allowance ran out. This line used to
+                # say "spent its N-token budget reasoning" unconditionally; with
+                # a timeout now curable that would name the wrong cause, which
+                # is how a reader ends up chasing the wrong fix (cf. the
+                # OpenSanctions rate_limit-vs-quota confusion, C-39/§18).
+                _spent = ("its %d-token budget" % _budget
+                          if _kind == KIND_REASONING_TRUNCATED
+                          else "its %.1fs of clock" % _call_timeout)
                 logger.warning(
-                    "[R-F3627/R-F3979] %s (%s) spent its %d-token budget reasoning; "
-                    "retrying ONCE with thinking DISABLED + doubled answer room "
+                    "[R-F3627/R-F3979/R-F4168] %s (%s) spent %s deliberating; "
+                    "retrying ONCE with thinking DISABLED at a %d-token budget "
                     "(%.1fs of %.1fs left). %s",
-                    self.name, _eff_model, _budget,
+                    self.name, _eff_model, _spent,
+                    self._resolve_completion_budget(_eff_model, max_tokens, attempt=1),
                     _deadline - time.monotonic(), timeout, e,
                 )
         # Unreachable: the loop either returns or raises on the final attempt.

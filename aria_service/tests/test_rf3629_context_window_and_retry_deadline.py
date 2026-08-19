@@ -182,7 +182,20 @@ def test_the_retry_does_not_double_the_callers_timeout(monkeypatch):
 
     timeouts = seen["timeouts"]
     assert len(timeouts) == 2, f"expected exactly 2 attempts, got {len(timeouts)}"
-    assert timeouts[0] == pytest.approx(90.0), "the first attempt gets the full budget"
+    # R-F4168 (C-182) — this line used to read `== 90.0`, "the first attempt gets
+    # the full budget". That allocation was not an invariant, it was the DEFECT:
+    # giving attempt 0 the whole deadline meant a turn that deliberates to its
+    # token cap always left less than _MIN_RETRY_SECONDS, so the guard below
+    # refused the escalation EVERY time. Measured in production 2026-08-19 as
+    # ~18 ERRORs/day out of /coder/llm, each resetting Phase A gate #3.
+    # The escalation now has a reserved slice (min(30s, timeout/3) = 30s here).
+    # Do not "restore" the full budget — that re-closes the cure.
+    reserve = oc._escalation_reserve("deepseek-v4-pro", 90.0)
+    assert reserve == pytest.approx(30.0)
+    assert timeouts[0] == pytest.approx(90.0 - reserve), (
+        f"attempt 0 was handed {timeouts[0]}s; it must get the caller's deadline "
+        f"MINUS the slice reserved for the escalation"
+    )
     # NB these are per-call CEILINGS, not elapsed durations — summing them is
     # meaningless (an earlier draft of this test asserted on the sum and failed
     # against correct behaviour). The two properties that actually matter:

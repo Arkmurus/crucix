@@ -2050,6 +2050,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-19T11:11:04Z"
+    },
+    {
+      "c_number": "C-182",
+      "title": "reasoning escalation refused by a clock guard written for the old budget-doubling retry",
+      "claimed_at": "2026-08-19T11:41:25Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

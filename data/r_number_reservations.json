@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4168,
+  "next_available": 4169,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35587,6 +35587,15 @@
       "r_number": "R-F4167",
       "title": "low-weight protected DPO interpolation sweep",
       "claimed_at": "2026-08-19T11:23:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4168",
+      "title": "C-182 reserve clock for the disable-thinking escalation",
+      "claimed_at": "2026-08-19T11:41:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
