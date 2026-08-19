@@ -35567,9 +35567,10 @@
       "title": "protected contract DPO from alpha025 frontier",
       "claimed_at": "2026-08-19T09:40:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "baae0399877316eb329ead882d4d525df7fcfc30",
+      "notes": null,
+      "shipped_at": "2026-08-19T10:51:26Z"
     },
     {
       "r_number": "R-F4166",
