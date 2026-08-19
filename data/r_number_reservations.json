@@ -35508,9 +35508,10 @@
       "title": "accept explicit closest-match entity resolution in scorer",
       "claimed_at": "2026-08-19T07:32:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e0db144c",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:37:28Z"
     }
   ]
 }
