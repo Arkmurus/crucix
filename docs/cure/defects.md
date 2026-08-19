@@ -11789,3 +11789,47 @@ judgement**. A HARD STOP whose own report says the cited list is CLEAN is
 decidable on its face, whichever way the severity question is eventually
 settled. Fixing C-187 is the cheapest available protection against the
 false-refusal class, and it is currently providing none.
+
+## C-188 · OPEN — the neural graph's birth date is reset by init's own repair line
+
+**Observed while live-verifying R-F4174**, on aria-intel build `5d3d47ba`:
+
+```
+/api/aria/neural/stats -> loaded True, load_complete True,
+                          neurons 17773, edges 160834, age_days 0.0
+```
+
+A graph holding 17,773 neurons and 160,834 edges is not zero days old. Its
+recorded `born` has been reset to today.
+
+**Mechanism.** `neural_memory.init()` repairs a falsy birth date
+unconditionally:
+
+```python
+if not _meta.get("born"):
+    _meta["born"] = time.time()
+```
+
+`_meta` is declared at module scope holding `"born": None`. The R-F4173 aborted
+init left it that way, `_persist()` then wrote `_meta` back to the store with a
+null `born`, and the next boot's repair line stamped **today** onto a
+years-old graph.
+
+**Severity: low, and stated plainly so it is not overweighted.** `born` feeds
+`age_days` on a stats surface. No facts, neurons or edges were lost — the
+counts above are intact and slightly higher than the pre-incident readings
+(17,743 / 159,254). This is a lost datum, not lost memory, and it does not
+touch the §7 infinite-memory guarantee.
+
+**Root cause is the repair's premise.** "Falsy born" is treated as "this is a
+fresh graph", which is only true when the graph is ALSO empty. On a populated
+graph a falsy `born` means the datum was lost, and overwriting it with `now()`
+destroys the evidence of that rather than recording it.
+
+The candidate fix is to condition the repair on the graph actually being fresh
+(`not _neurons and not _edges`), and otherwise leave `born` unset and say so —
+an unknown birth date is honest; a fabricated one is not. Not shipped: this is
+the fourth change to `neural_memory` in one session, the datum is already lost
+so there is no urgency, and a load-path edit made at the end of a long session
+is precisely what the ROOT-CAUSE rule warns against. Recorded rather than
+rushed.

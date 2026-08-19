@@ -35646,18 +35646,20 @@
       "title": "C-185 strict neural store reads so a timeout is not an empty graph",
       "claimed_at": "2026-08-19T13:37:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cc4a05ec",
+      "notes": null,
+      "shipped_at": "2026-08-19T14:21:11Z"
     },
     {
       "r_number": "R-F4174",
       "title": "C-185 follow-up: get_stats must tolerate an unset born after an aborted init",
       "claimed_at": "2026-08-19T14:05:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5d3d47ba",
+      "notes": null,
+      "shipped_at": "2026-08-19T14:21:12Z"
     }
   ]
 }

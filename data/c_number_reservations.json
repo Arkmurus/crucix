@@ -2116,6 +2116,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-188",
+      "title": "the neural graph birth date is reset whenever init repairs a falsy born on a populated graph",
+      "claimed_at": "2026-08-19T14:21:19Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
