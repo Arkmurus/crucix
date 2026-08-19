@@ -2107,6 +2107,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-187",
+      "title": "the screen-contradiction detector is wired but blind: it prose-matches canonical names against OpenSanctions labels",
+      "claimed_at": "2026-08-19T13:56:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

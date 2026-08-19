@@ -11670,3 +11670,95 @@ Rosoboronexport, the two-token case, the R-F569 transliteration bypass, the
 R-F351 acronym demotion). The xfails state the intended behaviour and will fail
 loudly the moment it is fixed. Deliberately not a standing red test — a
 permanently red test carries no information and hides the next P0.
+
+## C-187 · OPEN — the screen-contradiction detector is wired, tested, and blind
+
+**Found while auditing the Black Rose report (C-186).** `dd_0d94ba69f415`
+shipped a HARD STOP citing *"BIS / US Trade Sanctions"* on page 1 and
+*"US Commerce - Bureau of Industry and Security Entity List — CLEAN"* on page 4.
+A detector for exactly that shape **already exists, is already wired, and said
+nothing.**
+
+`detect_screen_contradictions()` was written on 2026-08-03 after the identical
+failure in `dd_29368fbb8b3d` (OFAC SDN HARD_STOP beside "OFAC SDN — CLEAN"),
+caused by the same R-F3219 registered-name re-screen. It is called from
+`dd_orchestrator.py:3499`. It has its own test file.
+
+### Measured, with the production data shape
+
+```python
+detect_screen_contradictions(
+    [{"severity": "hard_stop",
+      "source":   "sanctions.screen_with_aliases:R-F3219",
+      "detail":   "Black Shield Company for General Trading LLC (score 0.85, "
+                  "topics: sanction,debarment, lists: BIS / US Trade Sanctions, "
+                  "matched_via=primary_name='BLACK SHIELD COMPANY LTD.')"}],
+    {k: {"status": "CLEAN"} for k in _CANONICAL_SANCTIONS_SOURCES},
+)  ->  []          # zero contradictions
+```
+
+The mechanism is exact. The detector tokenises each CLEAN list's canonical key
+and requires **every** token to appear in the finding's `source + detail`:
+
+```
+"BIS Entity List" -> ['bis', 'entity', 'list']
+   bis    in haystack -> True     ("lists: BIS / US Trade Sanctions")
+   list   in haystack -> True     ("lists:")
+   entity in haystack -> False    <- the whole check fails here
+```
+
+The finding carries the **OpenSanctions dataset label** ("BIS / US Trade
+Sanctions"); the registry key is the **canonical name** ("BIS Entity List").
+Two names for one list, and the guard demands the canonical wording verbatim.
+
+### Why the test did not catch it
+
+`test_screen_contradiction_is_detected.py` builds its finding as
+`"OFAC SDN match: D.G.D. INVESTMENTS LTD."` — a string that literally contains
+the canonical key. Real findings never look like that; they carry the
+`lists:` value from the match record. **The guard was certified against a
+string shape production does not produce**, which is why it has passed
+continuously while being unable to fire.
+
+Same family as R-F3791 (a guard whose universe went empty and therefore always
+certified) and C-39 (a claim re-derived beside the registry that already held
+the answer).
+
+### The registry already holds the bridge, and the detector ignores it
+
+`_CANONICAL_SANCTIONS_SOURCES` maps each canonical name to the OpenSanctions
+slugs that identify it:
+
+```python
+"BIS Entity List": ("US Commerce — Bureau of Industry and Security Entity List",
+                    ["bis_entity", "us_bis_entity", "us_bis"]),
+```
+
+`classify_match` uses exactly this registry (via `_defence_list_hits`) to decide
+that the match was BIS at all — i.e. **the severity and the contradiction check
+disagree about which list the finding is on, while deriving it from the same
+data.** The detector re-invented prose matching instead of reusing the one
+mapping.
+
+### The real fix is structural, which is why it is not shipped here
+
+Slug matching alone is not sufficient — the finding's `detail` says "BIS / US
+Trade Sanctions", which is neither the canonical name nor a slug. By the time
+the detector runs, the finding has been flattened to `source` + `detail`
+strings and the structured `lists`/`datasets` identity that drove the severity
+decision is **gone**. Recovering it by parsing prose would be a fourth naming
+convention layered on the three that already disagree.
+
+The correct change is to carry the resolved canonical source id on the finding
+when the severity is decided, and have the detector compare ids — one
+derivation, the C-39 shape. That touches finding construction in
+`dd_orchestrator`, so it needs its own R-number, fixture and review rather than
+being appended to an unrelated fix.
+
+### Why this matters beyond tidiness
+
+This is the mechanism that would have caught C-186 **without any policy
+judgement**. A HARD STOP whose own report says the cited list is CLEAN is
+decidable on its face, whichever way the severity question is eventually
+settled. Fixing C-187 is the cheapest available protection against the
+false-refusal class, and it is currently providing none.
