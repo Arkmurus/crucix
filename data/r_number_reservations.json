@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4182,
+  "next_available": 4183,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35722,6 +35722,15 @@
       "r_number": "R-F4181",
       "title": "upgrade aria-app vulnerable frontend dependencies",
       "claimed_at": "2026-08-19T21:46:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4182",
+      "title": "make aria-app deploy use its own build context",
+      "claimed_at": "2026-08-19T22:00:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

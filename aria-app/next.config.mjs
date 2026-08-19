@@ -19,12 +19,13 @@ const nextConfig = {
     // REBUILD: as each page is rebuilt on the boilerplate to parity, move it from here
     // to `afterFiles` (or remove its beforeFiles entry) so aria-app serves the NEW page
     // and everything else keeps proxying to aria-web (strangler migration).
-    // Proxy EVERYTHING to aria-web EXCEPT /preview/* and Next's own /_next assets, so
+    // Proxy EVERYTHING to aria-web EXCEPT /preview/*, the app-owned commit-verifiable
+    // health endpoint, and Next's own /_next assets, so
     // new boilerplate-grade pages can be reviewed live at intel.arkmurus.com/preview/*
     // while the full old platform stays the default everywhere else.
     return {
       beforeFiles: [
-        { source: '/:path((?!preview/|preview$|_next/).*)', destination: `${BACKEND_URL}/:path` },
+        { source: '/:path((?!preview/|preview$|health/app$|_next/).*)', destination: `${BACKEND_URL}/:path` },
       ],
       afterFiles: [],
       fallback: [],

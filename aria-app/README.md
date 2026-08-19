@@ -1,6 +1,6 @@
 # aria-app
 
-ARIA's web frontend — **Next.js 14 (App Router) + shadcn/ui + Tailwind**. Frontend only:
+ARIA's web frontend — **Next.js 15 (App Router) + shadcn/ui + Tailwind**. Frontend only:
 it consumes the existing backend contracts and introduces **no new persistence** (CLAUDE.md §6).
 
 - `/api/*` → `server.mjs` (auth, billing, OSINT/pipeline data)
@@ -29,7 +29,8 @@ npm run dev                        # http://localhost:3200
 ## Deploy (fly app `aria-app`)
 
 ```bash
-flyctl deploy --config aria-app/fly.app.toml
+flyctl deploy aria-app --config aria-app/fly.app.toml \
+  --build-arg ARIA_BUILD_GIT_SHA=$(git rev-parse HEAD)
 flyctl secrets set BACKEND_URL=http://aria-web.internal:3117 \
   NEXT_PUBLIC_BACKEND_URL=https://intel.arkmurus.com -a aria-app
 ```
