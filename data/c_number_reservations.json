@@ -2032,6 +2032,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-19T07:51:10Z"
+    },
+    {
+      "c_number": "C-181",
+      "title": "tests share a machine-global dd_vault singleton; isolate it at the class level",
+      "claimed_at": "2026-08-19T07:52:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

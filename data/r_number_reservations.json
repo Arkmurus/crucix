@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4162,
+  "next_available": 4163,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35532,6 +35532,15 @@
       "commit_sha": "d9de9f33",
       "notes": null,
       "shipped_at": "2026-08-19T07:51:10Z"
+    },
+    {
+      "r_number": "R-F4162",
+      "title": "session-scoped dd_vault isolation fixture so no test touches the machine-global DB",
+      "claimed_at": "2026-08-19T07:52:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
