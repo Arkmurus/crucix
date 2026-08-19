@@ -35626,9 +35626,10 @@
       "title": "evaluation-only low-stock pod gate",
       "claimed_at": "2026-08-19T12:28:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a40a3216",
+      "notes": null,
+      "shipped_at": "2026-08-19T12:39:07Z"
     }
   ]
 }
