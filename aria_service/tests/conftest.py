@@ -253,3 +253,59 @@ def _reset_circuit_breakers():
             except Exception:
                 pass
     yield
+
+
+# ── R-F4162 (C-181) — the DD vault is a MACHINE-GLOBAL file; isolate it ─────────
+#
+# `dd_vault` resolves its database to `${ARIA_DATA_DIR:-/data}/dd_vault.db`. On a
+# dev box that is `C:\data\dd_vault.db` (or `/data/dd_vault.db` on Linux) —
+# OUTSIDE the repo, shared by every test run on the machine, and never cleaned.
+#
+# `dd_orchestrator.list_reports` reconciles the volatile index against that vault
+# on EVERY read (R-F1973 / R-F2485 / R-F2652), so any DD list test silently
+# merges whatever earlier runs left behind. Measured 2026-08-18: six residual
+# fixture rows (`Risky Business SARL`, `dd_test_red`, ...) turned
+# `test_rf2407_dd_rerun_unnamed` red on this box while it stayed green in CI —
+# and the §16 baseline could not see it, because the baseline machine's copy
+# happened to be empty. A suite whose verdict depends on the machine's history
+# is not a suite.
+#
+# C-179 fixed that one test by stubbing `get_vault`. This is the class fix, in
+# the spirit of the R-F3449 note above: "fixed at the class rather than per
+# test".
+#
+# WHY NOT SET `ARIA_DATA_DIR`. That variable is shared with `agent_registry`,
+# `agent_contract`, `brave_distill` and `brave_student`, all of which read it at
+# IMPORT time — setting it suite-wide would relocate their databases too, a far
+# larger blast radius than the problem. Patching the vault's own module globals
+# touches exactly the store at fault.
+#
+# SESSION-scoped, not per-test, deliberately: tests that write in one test and
+# read in another within a run keep working exactly as before. What changes is
+# that the file is a throwaway created per run, so nothing leaks between runs or
+# out onto the machine. The singleton is reset because `get_vault()` caches one
+# (`_vault_instance`), so repointing the path alone would hand back a handle to
+# the old database.
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_dd_vault(tmp_path_factory):
+    try:
+        from aria_service.intel import dd_vault
+    except Exception:
+        yield
+        return
+
+    tmp = tmp_path_factory.mktemp("dd_vault")
+    orig_db = getattr(dd_vault, "_VAULT_DB", None)
+    orig_dir = getattr(dd_vault, "_VAULT_DIR", None)
+    orig_instance = getattr(dd_vault, "_vault_instance", None)
+    try:
+        dd_vault._VAULT_DIR = tmp
+        dd_vault._VAULT_DB = tmp / "dd_vault.db"
+        dd_vault._vault_instance = None      # get_vault() caches; force a rebuild
+        yield
+    finally:
+        if orig_db is not None:
+            dd_vault._VAULT_DB = orig_db
+        if orig_dir is not None:
+            dd_vault._VAULT_DIR = orig_dir
+        dd_vault._vault_instance = orig_instance

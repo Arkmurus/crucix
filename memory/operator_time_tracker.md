@@ -2695,3 +2695,76 @@ Each was found by an instrument, not by inspection, and each fix widened the net
 rather than patching the instance: measure -> read the evidence -> fix the guard
 -> the guard finds the rest. C-171 alone surfaced nine sites that nine separate
 deploys would otherwise have chased one at a time.
+
+
+## Session continuation — 2026-08-18/19 · 360 ecosystem review · C-176..C-181
+
+Operator asked for a 360 review of the whole ecosystem, then for the two items I
+had flagged as needing their decision. Everything below was measured before it
+was believed.
+
+### The headline: she observes brilliantly and converted almost nothing
+
+```
+brain signals   104,777 across 221 modules
+mistakes         2,923 recorded          prevented 0
+capability gaps    500 (AT THE CAP)      resolved  0
+coder cycles        85, zero failures    1 staged fix, awaiting review
+```
+
+**C-177 / R-F4156** — `mark_prevented`, whose own route calls it *"the
+closed-loop proof that autonomy + learning works"*, had **one caller in the tree:
+an HTTP handler**. Nothing in ARIA's reasoning could ever call it, so
+`prevented: 0` was structural. Worse, `predictor.py:153` permanently penalises
+every unprevented HIGH/CRITICAL mistake and `tasks.py` BLOCKS below 0.2 — so the
+loop compounded in the WRONG direction. Now credited from `record_run()`, the one
+funnel all eight task exits pass through, and a BLOCKED run credits nothing (the
+predictor must not clear its own warning by refusing to act).
+
+### The state-store investigation
+
+**C-178 / R-F4157** — `lpush` never triggered the legacy-list migration, and the
+read paths only reach it when `list_entries` is empty. So the first push created
+live rows, every later read short-circuited, and the blob stranded **forever**.
+Self-selecting: the busier the list, the sooner and larger the orphan.
+
+Ruled out first, and recorded: expired rows never reaped (3 rows, 21 bytes),
+freelist bloat (39.8 MB of 630 MB), and `lpush` rewriting whole lists (the C-95
+shape — wrong since R-F1515). The store is not pathological: ~350 MB of live
+values across 944k rows.
+
+**C-180 / R-F4161** — after C-178, production reclaimed **17.5 MB by itself**;
+the 14.1 MB `crucix:audit:log` blob migrated on its next push. The residue was
+not bytes but ACCESS: `lrange` returns early on live rows, so **1,720 entries
+were unreachable through the public API**, including `mistake_ledger:by_sig:*`
+and `self_metrics:*` — inputs to the loop C-177 had just repaired. Archived with
+a SHA-256 manifest, merged below the minimum seq, verified, then reclaimed:
+38/38 keys, 0 skipped, 1,725,057 bytes, 0 archives failing re-hash.
+
+### Errors I made and caught
+
+- **A `sort_keys=True` in my overlap analysis** reported 100/100 entries unique.
+  That was the comparison, not the data — and shipping it would have merged a
+  duplicate of every live row. A test now pins the encoding.
+- **"deepseek_backup dropped out"** — no: deliberately removed by operator
+  directive (R-F3943). §17 still documents it as healthy, which invites a
+  restore.
+- **"100% failure modules"** — `only_failures_recorded=True`; failure-only wires.
+- **"Coder stuck 51 minutes"** — a frozen label (C-176), not a stuck loop.
+- **"All outbound email is dead"** — I tested the RAW env values; the auth mailer
+  already trims. Retracted within minutes.
+- **"ARIA_DATA_DIR is unset on Fly"** — quoted from a code comment. Measured: it
+  IS set, to `/data`. The conclusion got stronger, but I had asserted it.
+- **Two tests using `str.find`** matched a docstring and a comment rather than
+  code. Both are AST checks now.
+- **`record_case(report_id=...)`** — the parameter is `latest_report_id`. Caught
+  by §3b before running.
+
+### Still open
+
+- **C-181** — session-scoped DD vault isolation. Written, with its own property
+  tests; the full-suite before/after diff is the evidence it needs before being
+  switched on, and that measurement is in flight (BEFORE: 121 failed / 16,008
+  passed / 42 min).
+- **C-166** stays closed: the symptom is gone (0 wedge dumps), the O(corpus) scan
+  is not.

@@ -11075,3 +11075,71 @@ live health after: operational, degraded [], state_backend green / 0 timeouts,
 The 914 remaining `kind='list'` rows (126,068 bytes) have **no** live
 counterpart, so they are not stranded — the ordinary lazy migration owns them,
 and this tool deliberately leaves them alone. A test pins that.
+
+## C-181 · the DD vault is a machine-global file shared by every test run (fixed, R-F4162)
+
+The class fix behind C-179, and the one the operator authorised on condition of a
+full-suite measurement first. That measurement is the reason this entry is worth
+reading.
+
+`dd_vault` resolves to `${ARIA_DATA_DIR:-/data}/dd_vault.db` — on a dev box
+`C:\data\dd_vault.db`, OUTSIDE the repo, shared by every run on the machine and
+never cleaned. `list_reports` reconciles against it on EVERY read, so any DD list
+test merges whatever earlier runs left behind. **A suite whose verdict depends on
+the machine's history is not a suite.**
+
+Session-scoped autouse fixture in `conftest.py`, in the spirit of the R-F3449
+note there ("fixed at the class rather than per test"). It resets
+`_vault_instance` as well as the path, because `get_vault()` caches a singleton
+and repointing the path alone would hand back a handle to the old database.
+
+**Why not set `ARIA_DATA_DIR`.** It is shared with `agent_registry`,
+`agent_contract`, `brave_distill` and `brave_student`, all of which read it at
+IMPORT time — setting it suite-wide relocates their databases too. Patching the
+vault's own module globals touches exactly the store at fault.
+
+### The full-suite diff, and what it caught
+
+```
+BEFORE: 119 failed / 16,010 passed   (45m15s)
+AFTER : 121 failed / 16,012 passed   (45m18s)
+FIXED  (0)
+NEWLY FAILING (2)
+```
+
+**One of the two was MY OWN TEST, and the diff is the only reason it was
+caught.** `test_the_isolated_vault_starts_empty_of_foreign_rows` asserted the
+isolated vault contains no rows named `Risky Business SARL` etc. But the fixture
+is SESSION-scoped, so other DD tests legitimately write those exact fixture
+names during the run. It passed alone and failed in-suite — asserting something
+isolation never promised. Replaced with the property that IS the goal and cannot
+be satisfied by accident: the in-use path is not the machine-global one, and the
+cached handle does not point there either.
+
+The path test was rewritten too: it checked for `"tmp"` in the path string,
+which passes for any directory that happens to be named tmp-something and fails
+for a perfectly good isolated path that is not. It now asserts inequality with
+the resolved default.
+
+### The other new failure was NOT the fixture — established by mechanism
+
+`test_lifespan_smoke::test_lifespan_starts_and_shuts_down_cleanly`:
+
+* it is **already a recorded §16 baseline failure**, so it fails on some runs;
+* it **passes standalone** with the fixture active;
+* the DD+vault+lifespan subset with the fixture **does not fail it**;
+* **`main.py` never imports `dd_vault`** — the boot path cannot reach anything
+  this fixture patches; and
+* its own docstring (R-F3459) records that it runs boot in a SUBPROCESS against
+  a wall-clock budget and *"had only ever passed because boot usually finishes
+  inside 120s"*.
+
+A timing-sensitive boot test with no import path to the change. Attributing it to
+the fixture would have been correlation; the absent import is causation.
+
+### Result
+
+The fixture introduces **zero** new failures. The DD/vault selection shows the
+same 11 pre-existing failures with and without it, and the corrected isolation
+tests pass both alone and in-suite. Test-only change — no production diff, so no
+deploy is owed.

@@ -2038,9 +2038,12 @@
       "title": "tests share a machine-global dd_vault singleton; isolate it at the class level",
       "claimed_at": "2026-08-19T07:52:46Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4162"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T11:11:04Z"
     }
   ]
 }
