@@ -35557,9 +35557,10 @@
       "title": "bounded LoRA interpolation probe for complementary candidates",
       "claimed_at": "2026-08-19T07:58:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "09cae6a7694aea7c1ec47f18d9b786832f7da0bf",
+      "notes": null,
+      "shipped_at": "2026-08-19T09:36:48Z"
     }
   ]
 }
