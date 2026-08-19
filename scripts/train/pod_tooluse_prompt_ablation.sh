@@ -8,6 +8,7 @@ EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"
 POLICY_FILE="${POLICY_FILE:-/workspace/datasets/resolution_prompt_policy_v1.txt}"
 EXPECTED_ROWS="${EXPECTED_ROWS:-168}"
 EXPECTED_POLICY_SHA256="${EXPECTED_POLICY_SHA256:?need EXPECTED_POLICY_SHA256}"
+EXPECTED_EFFECTIVE_POLICY_SHA256="${EXPECTED_EFFECTIVE_POLICY_SHA256:?need EXPECTED_EFFECTIVE_POLICY_SHA256}"
 SCRIPTS=/workspace/crucix/scripts/train
 EVALD=/workspace/eval
 LOGS=/workspace/logs
@@ -74,7 +75,7 @@ python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \
   --out "$EVALD/aria_tooluse_resolution_prompt_ablation_v1_policy.json" \
   2>&1 | tee "$LOGS/prompt_ablation_policy.log" || fail "policy arm failed"
 
-python - "$EVALD" "$EXPECTED_ROWS" "$EXPECTED_POLICY_SHA256" <<'PY' \
+python - "$EVALD" "$EXPECTED_ROWS" "$EXPECTED_EFFECTIVE_POLICY_SHA256" <<'PY' \
   || fail "complete paired-report proof failed"
 import json, sys
 from pathlib import Path

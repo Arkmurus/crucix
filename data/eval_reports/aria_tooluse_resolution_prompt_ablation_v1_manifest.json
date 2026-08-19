@@ -6,6 +6,7 @@
   "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
   "baseline_report_sha256": "0c132d6a19f587960072bd8e423c9c9170595ce999c97f58c6113a3c66a4ac63",
   "policy_sha256": "ffd7cfa7480d3a7d1115570144aff811f12ce8cb96a23bce181dc930b5f5ba32",
+  "effective_policy_sha256": "4bdaeb620bd05890a4206c46fc32819b49b2123e3f80ae624dc5cfabf850483f",
   "expected_rows": 168,
   "baseline": {
     "honest": 155,

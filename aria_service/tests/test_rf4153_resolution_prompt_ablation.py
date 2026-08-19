@@ -76,6 +76,9 @@ def test_ablation_is_pre_registered_and_cannot_authorize_promotion() -> None:
     policy = Path("data/training/resolution_prompt_policy_v1.txt").read_bytes()
 
     assert hashlib.sha256(policy).hexdigest() == manifest["policy_sha256"]
+    assert hashlib.sha256(policy.decode("utf-8").strip().encode("utf-8")).hexdigest() == (
+        manifest["effective_policy_sha256"]
+    )
     assert manifest["weights_mutated"] is False
     assert manifest["expected_rows"] == 168
     assert manifest["success_gate"] == {
@@ -115,3 +118,27 @@ def test_host_launcher_bounds_paid_work_and_harvests_both_arms() -> None:
     assert "promotion_authorized\": False" in launcher
     assert "sft_train" not in launcher
     assert "dpo_train" not in launcher
+
+
+def test_harvested_ablation_verdict_is_grounded_and_non_promotable() -> None:
+    root = Path("data/eval_reports")
+    baseline_path = root / "aria_tooluse_resolution_prompt_ablation_v1_baseline.json"
+    policy_path = root / "aria_tooluse_resolution_prompt_ablation_v1_policy.json"
+    verdict = json.loads((
+        root / "aria_tooluse_resolution_prompt_ablation_v1_verdict.json"
+    ).read_text(encoding="utf-8"))
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+
+    assert hashlib.sha256(baseline_path.read_bytes()).hexdigest() == (
+        verdict["baseline"]["report_sha256"]
+    )
+    assert hashlib.sha256(policy_path.read_bytes()).hexdigest() == (
+        verdict["policy"]["report_sha256"]
+    )
+    assert baseline["complete"] is policy["complete"] is True
+    assert baseline["total"] == policy["total"] == 168
+    assert baseline["rows"] == policy["rows"]
+    assert verdict["all_answers_identical"] is True
+    assert verdict["ablation_pass"] is False
+    assert verdict["promotion_authorized"] is False

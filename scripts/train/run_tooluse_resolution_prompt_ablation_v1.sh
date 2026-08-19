@@ -50,6 +50,7 @@ ADAPTER_DIR=$(tar -tzf "$ADAPTER" | awk -F/ '/\/adapter_config.json$/ { print $1
 case "$ADAPTER_DIR" in ""|*/*|*".."*) log "FATAL unsafe adapter directory"; exit 1;; esac
 EXPECTED_ROWS=$("$PYBIN" -c "import json;print(json.load(open('$MANIFEST'))['expected_rows'])")
 POLICY_SHA=$(sha "$POLICY")
+EFFECTIVE_POLICY_SHA=$("$PYBIN" -c "import hashlib,pathlib; print(hashlib.sha256(pathlib.Path('$POLICY').read_text(encoding='utf-8').strip().encode('utf-8')).hexdigest())")
 ADAPTER_SHA=$(sha "$ADAPTER")
 EVAL_SHA=$(sha "$EVAL")
 KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
@@ -148,7 +149,7 @@ TSSH -p "$PORT" root@"$HOST" \
 arm_watchdog "$CYCLE_DEADLINE" _prompt_cycle_watch.log || { log "FATAL cycle watchdog"; exit 1; }
 printf 'POD_ID=%s\nHOST=%s\nPORT=%s\nPHASE=evaluating\n' "$POD_ID" "$HOST" "$PORT" > "$STATE_FILE"
 TSSH -p "$PORT" root@"$HOST" \
-  "ADAPTER='/workspace/checkpoints/$ADAPTER_DIR' EXPECTED_ROWS=$EXPECTED_ROWS EXPECTED_POLICY_SHA256='$POLICY_SHA' setsid nohup bash /workspace/pod_tooluse_prompt_ablation.sh >/workspace/logs/prompt_ablation_cycle.log 2>&1 </dev/null & echo STARTED" \
+  "ADAPTER='/workspace/checkpoints/$ADAPTER_DIR' EXPECTED_ROWS=$EXPECTED_ROWS EXPECTED_POLICY_SHA256='$POLICY_SHA' EXPECTED_EFFECTIVE_POLICY_SHA256='$EFFECTIVE_POLICY_SHA' setsid nohup bash /workspace/pod_tooluse_prompt_ablation.sh >/workspace/logs/prompt_ablation_cycle.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || { log "FATAL cycle start"; exit 1; }
 
 log "paired evaluation started"
