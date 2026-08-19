@@ -1,5 +1,5 @@
 # Fly config for aria-app (Next.js frontend).
-# Deploy: flyctl deploy aria-app --config aria-app/fly.app.toml --build-arg ARIA_BUILD_GIT_SHA=<sha>
+# Deploy: flyctl deploy aria-app --config fly.app.toml --build-arg ARIA_BUILD_GIT_SHA=<sha>
 # Stateless — no volume (state lives in server.mjs + the brain). No secrets required:
 # /api/* is proxied to the backend over the 6PN address baked at build (BACKEND_URL).
 app = "aria-app"

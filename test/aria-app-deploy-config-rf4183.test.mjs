@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('R-F4182: deploy contract uses aria-app context and exposes the exact build', () => {
+test('R-F4183: deploy config resolves inside the aria-app context', () => {
   const readme = read('aria-app/README.md');
   const fly = read('aria-app/fly.app.toml');
   const dockerfile = read('aria-app/Dockerfile.app');
