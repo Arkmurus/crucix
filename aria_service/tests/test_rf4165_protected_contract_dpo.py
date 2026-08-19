@@ -1,6 +1,7 @@
 """R-F4165 capability tests for protected-contract DPO composition."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -116,3 +117,38 @@ def test_frontier_recipe_is_bounded_to_one_complete_epoch() -> None:
     assert "tooluse_dpo_protected_frontier_continuation" in launcher
     assert "aria_tooluse_lora_interpolation_v1_alpha_025.tgz" in launcher
     assert "HELDOUT_BASELINE_LOCAL" in launcher
+
+
+def test_complete_failed_candidate_report_cannot_authorize_promotion() -> None:
+    report_dir = ROOT / "data/eval_reports"
+    verdict = json.loads((
+        report_dir / "aria_tooluse_protected_contract_dpo_v1_verdict.json"
+    ).read_text(encoding="utf-8"))
+    parent_raw = (report_dir / verdict["parent"]["report"]).read_bytes()
+    candidate_raw = (report_dir / verdict["candidate"]["report"]).read_bytes()
+    parent = json.loads(parent_raw.decode("utf-8"))
+    candidate = json.loads(candidate_raw.decode("utf-8"))
+    parent_axes = {row["label"]: row["honest"] for row in parent["per_axis"]}
+    candidate_axes = {row["label"]: row["honest"] for row in candidate["per_axis"]}
+    regressions = {
+        label: score - parent_axes[label]
+        for label, score in candidate_axes.items()
+        if score < parent_axes[label]
+    }
+    improvements = {
+        label: score - parent_axes[label]
+        for label, score in candidate_axes.items()
+        if score > parent_axes[label]
+    }
+
+    assert parent["complete"] is candidate["complete"] is True
+    assert parent["total"] == candidate["total"] == 168
+    assert hashlib.sha256(parent_raw).hexdigest() == verdict["parent"]["report_sha256"]
+    assert hashlib.sha256(candidate_raw).hexdigest() == verdict["candidate"]["report_sha256"]
+    assert candidate["honest"] - parent["honest"] == verdict["gate"]["gain"] == -3
+    assert regressions == verdict["candidate"]["axis_regressions"]
+    assert improvements == verdict["candidate"]["axis_improvements"]
+    assert len(regressions) > verdict["gate"]["maximum_axis_regressions"]
+    assert verdict["promotion_authorized"] is False
+    assert verdict["incumbent_preserved"] is True
+    assert verdict["frontier_preserved"] is True
