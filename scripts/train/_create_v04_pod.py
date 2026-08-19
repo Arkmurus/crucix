@@ -33,18 +33,22 @@ GPUS = (
         "NVIDIA A100-SXM4-80GB"]
 )
 
-_STOCK_RANK = {"High": 0, "Medium": 1}
+_STOCK_RANK = {"High": 0, "Medium": 1, "Low": 2}
+_STABLE_STOCK = frozenset({"High", "Medium"})
 
 
-def select_secure_gpus(inventory: list[dict], max_hourly_price: float) -> list[str]:
-    """Return approved High/Medium secure GPUs within the hourly price ceiling."""
+def select_secure_gpus(
+    inventory: list[dict], max_hourly_price: float, *,
+    allowed_stock: frozenset[str] = _STABLE_STOCK,
+) -> list[str]:
+    """Return approved secure GPUs in allowed stock within the price ceiling."""
     selected = []
     for row in inventory:
         gpu_id = str(row.get("id") or "")
         price = row.get("lowestPrice") or {}
         stock = price.get("stockStatus")
         hourly = price.get("uninterruptablePrice")
-        if gpu_id not in GPUS or stock not in _STOCK_RANK or hourly is None:
+        if gpu_id not in GPUS or stock not in allowed_stock or hourly is None:
             continue
         if float(hourly) <= max_hourly_price:
             selected.append((_STOCK_RANK[stock], float(hourly), gpu_id))
@@ -124,10 +128,22 @@ def create_pod_graphql(
 def create_pod(api_key: str, public_key: str) -> str:
     """Create one pod or raise with the provider's bounded rejection detail."""
     max_hourly_price = float(os.getenv("ARIA_MAX_GPU_HOURLY_USD", "1.60"))
-    available_gpus = select_secure_gpus(query_secure_inventory(api_key), max_hourly_price)
+    evaluation_only = os.getenv("ARIA_EVALUATION_ONLY", "0") == "1"
+    allow_low_stock = os.getenv("ARIA_ALLOW_LOW_STOCK", "0") == "1"
+    if allow_low_stock and not evaluation_only:
+        raise RuntimeError("Low stock requires ARIA_EVALUATION_ONLY=1")
+    allowed_stock = (
+        frozenset({"High", "Medium", "Low"}) if allow_low_stock else _STABLE_STOCK
+    )
+    available_gpus = select_secure_gpus(
+        query_secure_inventory(api_key), max_hourly_price,
+        allowed_stock=allowed_stock,
+    )
     if not available_gpus:
+        stock_label = "High/Medium/Low" if allow_low_stock else "High/Medium"
         raise RuntimeError(
-            f"inventory: no approved High/Medium secure GPU at or below ${max_hourly_price:.2f}/hour"
+            f"inventory: no approved {stock_label} secure GPU at or below "
+            f"${max_hourly_price:.2f}/hour"
         )
     container_disk_gb = int(os.getenv("ARIA_POD_DISK_GB", "120"))
     create_api = os.getenv("ARIA_POD_CREATE_API", "rest").strip().lower()

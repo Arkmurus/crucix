@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4170,
+  "next_available": 4172,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35611,6 +35611,24 @@
       "commit_sha": "dd650c6a",
       "notes": null,
       "shipped_at": "2026-08-19T12:22:53Z"
+    },
+    {
+      "r_number": "R-F4170",
+      "title": "C-184 do not diff a boot snapshot whose stores had not finished loading",
+      "claimed_at": "2026-08-19T12:25:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4171",
+      "title": "evaluation-only low-stock pod gate",
+      "claimed_at": "2026-08-19T12:28:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
