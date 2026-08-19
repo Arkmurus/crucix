@@ -35518,9 +35518,10 @@
       "title": "recognize evidence-aligned not-on-list clean verdicts",
       "claimed_at": "2026-08-19T07:40:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c110a704",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:42:52Z"
     }
   ]
 }
