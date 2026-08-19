@@ -2026,9 +2026,12 @@
       "title": "1720 entries in 38 stranded list blobs are unreachable via lrange; reconcile them back",
       "claimed_at": "2026-08-19T07:44:34Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4161"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T07:51:10Z"
     }
   ]
 }

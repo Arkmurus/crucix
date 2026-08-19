@@ -11010,3 +11010,68 @@ measurement above covers the DD selection only; making it automatic needs a
 full-suite measurement first, and inventing that at the end of a long session is
 how the next defect gets written. The capability is in place; switching it on is
 a separate, evidenced step.
+
+## C-180 · 1,720 entries in 38 stranded list blobs were UNREACHABLE (fixed, R-F4161)
+
+The follow-on the operator authorised after C-178. What made it worth doing was
+not the bytes.
+
+### C-178 had already reclaimed most of the volume — by itself
+
+Re-measured after that deploy:
+
+```
+kind='list' rows : 969 keys, 19,392,172 bytes   ->  952 keys, 1,851,125 bytes
+superseded       :  55 keys, 19,266,104 bytes   ->   38 keys, 1,725,057 bytes
+crucix:audit:log : 14,141,171-byte blob         ->  GONE (migrated), 50,000 live rows
+```
+
+**17.5 MB reclaimed with no intervention** — the audit blob migrated on its next
+push, exactly as R-F4157 intended, and the data moved rather than being deleted.
+What remained were lists receiving **no further pushes**, so nothing ever
+triggered their migration.
+
+### The remaining 38 were an ACCESS defect, not a storage one
+
+`lrange` returns early when live rows exist, so a blob-only entry cannot be
+reached through the public API at all. The residue was therefore **1,720
+silently invisible records**, including `mistake_ledger:by_sig:*` (dedup and
+lookup inputs) and `self_metrics:by_domain|by_axis:*` — rollup inputs the
+predictor reads, i.e. inputs to the very learning loop C-177 had just repaired.
+
+### A measurement error caught before it did damage
+
+The first overlap pass encoded blob entries with `json.dumps(..., sort_keys=True)`
+and reported 100 of 100 entries "unique" for several keys. That was the
+comparison, not the data: `_migrate_list_if_needed` writes
+`json.dumps(val, default=str)` with key order preserved. Had the tool shipped
+with that encoding it would have merged a **duplicate of every live row**. There
+is now a test pinning the encoding for exactly this reason.
+
+### The reclamation
+
+`scripts/admin/reconcile_stranded_lists.py`, dry-run by default, in an order
+that never varies: archive the blob verbatim with a SHA-256 manifest → verify by
+read-back and re-hash → merge only the MISSING entries at seqs BELOW the current
+minimum (blob index 0 is newest, so order is preserved; negative seqs are safe —
+`ORDER BY seq DESC` still sorts, `lpush` uses `MAX(seq)+1`, and nothing in
+state_store assumes `seq > 0`) → verify the row count grew by exactly the number
+merged → **only then** delete the legacy row. Per §26, nothing is deleted that
+has not been archived, verified, and superseded by rows proven present.
+
+### Result, verified independently of the tool's own report
+
+```
+reconciled 38 / 38 keys, 0 skipped, 1,725,057 bytes reclaimed
+still stranded                         : 0 keys, 0 bytes
+crucix:aria:deal_pipeline:history      : 578 rows = 184 live + 394 merged
+  seq range 184 .. -393, descending=True   (ordering preserved)
+  legacy blob                          : gone
+archive: 38 keys, 1,720 entries, 0 failing re-hash  (every blob recoverable)
+live health after: operational, degraded [], state_backend green / 0 timeouts,
+                   loop p95 1.2ms, autonomy L3 running / 98 tasks
+```
+
+The 914 remaining `kind='list'` rows (126,068 bytes) have **no** live
+counterpart, so they are not stranded — the ordinary lazy migration owns them,
+and this tool deliberately leaves them alone. A test pins that.

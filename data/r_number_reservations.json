@@ -35528,9 +35528,10 @@
       "title": "archive-and-reconcile stranded legacy list blobs so their entries become reachable",
       "claimed_at": "2026-08-19T07:44:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d9de9f33",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:51:10Z"
     }
   ]
 }
