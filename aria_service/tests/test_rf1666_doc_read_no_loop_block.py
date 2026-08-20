@@ -17,6 +17,7 @@ import inspect
 import pytest
 
 from aria_service.intel import document_reader as dr
+from ._env_probe import requires_module
 
 
 # ── Source guard: the async vision fns must not call fitz inline ─────────────
@@ -50,9 +51,8 @@ def test_sync_fitz_helpers_exist():
 # ── Behavioural: the loop stays responsive during a real vision extraction ───
 
 @pytest.mark.asyncio
+@requires_module("fitz")
 async def test_vision_pdf_does_not_block_event_loop():
-    if not getattr(dr, "PYMUPDF_AVAILABLE", False):
-        pytest.skip("PyMuPDF not installed in this env")
     import fitz  # type: ignore
     import tempfile, os
 

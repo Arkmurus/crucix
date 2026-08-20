@@ -202,6 +202,21 @@ def is_enabled() -> bool:
     return bool(_ENABLED and _pool is not None and not _pool_broken)
 
 
+def get_status() -> dict[str, bool | str]:
+    """Return process-local offload state for live diagnostics.
+
+    The pool exists only inside the serving process, so an external Python
+    interpreter cannot truthfully probe it by importing this module.
+    """
+    return {
+        "configured": _ENABLED,
+        "pool_started": _pool is not None,
+        "pool_broken": _pool_broken,
+        "enabled": is_enabled(),
+        "model": _MODEL_NAME,
+    }
+
+
 def encode(text_or_texts, *, normalize: bool = True):
     """Encode in the worker process. Returns the embedding(s) (ndarray) or
     raises OffloadUnavailable so the caller falls back in-process."""

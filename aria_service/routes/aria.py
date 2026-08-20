@@ -26981,6 +26981,17 @@ async def health_perf_ep():
     except Exception as _hbe:
         _log.debug("health/perf heartbeat read failed: %s", _hbe)
 
+    # R-F4208 — process-local embedding-offload truth. Importing
+    # encode_offload from a separate SSH interpreter creates a fresh module and
+    # falsely reports an unstarted pool. Expose the serving process's own state
+    # so operators can distinguish disabled, never-started, and broken.
+    embedding_offload: dict = {}
+    try:
+        from ..intel import encode_offload as _eo4208
+        embedding_offload = _eo4208.get_status()
+    except Exception as _eoe:
+        _log.debug("health/perf embedding_offload read failed: %s", _eoe)
+
     return {
         "build_rev": base.get("build_rev"),
         "status": base.get("status"),
@@ -26993,6 +27004,7 @@ async def health_perf_ep():
         "autonomy": autonomy_state,
         "brain_queue": brain_queue,  # R-F2507 durable ingest-queue depth/age/DLQ
         "heartbeat": heartbeat_stats,  # R-F2519 event-loop stall count/worst/last
+        "embedding_offload": embedding_offload,  # R-F4208 serving-process state
         "llm_providers": providers,
         # R-F400: counts + retention policy. ARIA's tool dispatch (R-F399)
         # will quote these directly when asked introspective questions.
@@ -27008,7 +27020,8 @@ async def health_perf_ep():
         # tells her how to quote the response in self-assessments.
         # R-F400: schema bumped to rf400.v1 (inventory + retention added).
         # R-F974: schema bumped to rf974.v1 (cross_tier added).
-        "_schema_version": "rf974.v1",
+        # R-F4208: schema bumped to rf4208.v1 (embedding_offload added).
+        "_schema_version": "rf4208.v1",
     }
 
 

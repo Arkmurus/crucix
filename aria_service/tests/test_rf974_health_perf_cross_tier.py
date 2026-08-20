@@ -30,8 +30,8 @@ def _perf_block() -> str:
 
 def test_rf974_schema_version_bumped():
     block = _perf_block()
-    assert '"_schema_version": "rf974.v1"' in block, (
-        "R-F974 regression: schema version did not bump to rf974.v1, so "
+    assert '"_schema_version": "rf4208.v1"' in block, (
+        "R-F974/F4208 regression: schema version did not bump to rf4208.v1, so "
         "consumers won't know the cross_tier field exists."
     )
 
@@ -75,4 +75,4 @@ def test_rf974_endpoint_returns_cross_tier_key():
     assert set(ct.keys()) >= {
         "node_sweep", "whatsapp_messages_captured", "cross_tier_signals"
     }
-    assert out.get("_schema_version") == "rf974.v1"
+    assert out.get("_schema_version") == "rf4208.v1"

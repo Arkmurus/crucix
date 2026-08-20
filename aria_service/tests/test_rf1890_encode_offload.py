@@ -15,6 +15,7 @@ import pytest
 
 import aria_service.intel.encode_offload as eo
 import aria_service.intel.semantic_search as ss
+from ._env_probe import requires_module
 
 
 # ── routing / fallback (fast, no model) ──────────────────────────────────────
@@ -68,16 +69,14 @@ def test_safe_encode_skips_offload_for_unknown_kwargs(monkeypatch):
 
 
 # ── real separate-process integration (slow; skipped without the model) ───────
+@requires_module("sentence_transformers")
 def test_real_offload_encodes_in_separate_process_and_matches_inprocess():
-    try:
-        from sentence_transformers import SentenceTransformer  # noqa: F401
-    except Exception:
-        pytest.skip("sentence-transformers not installed")
-
     eo.start(warmup=True)
-    if not eo.is_enabled():
-        pytest.skip("offload pool unavailable in this environment")
     try:
+        assert eo.is_enabled(), (
+            "sentence-transformers is installed but the encode offload pool did "
+            "not start; this is a product failure, not an environment skip"
+        )
         vec = eo.encode("a defence procurement contract", normalize=True)
         assert hasattr(vec, "shape") and vec.shape[-1] == 384  # MiniLM dim
 
