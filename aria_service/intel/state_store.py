@@ -110,15 +110,17 @@ _conn = None  # aiosqlite.Connection — lazy init (compound ops: hset, lpush, e
 _read_conn = None  # R-F1449: separate read connection, never touched by _reconnect()
 # R-F2242: read-connection POOL. A SINGLE aiosqlite read connection serializes
 # ALL key-value reads (get/get_json/scan) on one background thread, so a burst of
-# concurrent reads — the dashboard 24-panel refresh, the self-diagnostic probes
+# concurrent point reads — the dashboard 24-panel refresh, the self-diagnostic probes
 # (capability_card/pending_actions/coverage_heatmap ReadTimeouts), WA→brain
 # fetches (R-F1515 "brain fetch FAILED after 3 attempts") — queues behind one
 # another. A small pool (each connection its own thread) lets those reads run
-# truly concurrently on the shared-cpu-4x box. WAL supports N readers + 1 writer
-# safely; the writer stays the separate _conn queue (R-F1449/R-F1541), untouched.
+# truly concurrently on the shared-cpu-4x box. R-F4211 reserves its final member
+# for scans so bulk work cannot occupy every point-read worker. WAL supports N
+# readers + 1 writer safely; the writer stays the separate _conn queue
+# (R-F1449/R-F1541), untouched.
 # _read_conn is kept as pool member [0] so existing close()/reconnect refs hold.
 _read_pool: list = []
-_read_pool_rr = 0  # round-robin cursor
+_read_pool_rr = 0  # round-robin cursor across latency-critical point-read lanes
 _READ_POOL_SIZE = max(1, int(os.getenv("ARIA_STATE_READ_POOL_SIZE", "3")))
 
 # R-F2754 — superseded-connection reaper. _reconnect() (write) and
@@ -1807,7 +1809,7 @@ async def backfill_cold(*, page_size: int = 500, sleep_s: float = 0.2,
             while True:
                 # Read a page from HOT via the READ pool (own threads) — the hot
                 # WRITER thread is never touched, so live writes are unaffected.
-                rconn = _get_read_conn()
+                rconn = _get_scan_read_conn()
                 if rconn is None:
                     _backfill_state["error"] = "hot read conn unavailable"
                     break
@@ -1886,7 +1888,7 @@ async def reconcile_cold(sample_n: int = 50) -> dict:
         return {"ok": False, "error": "hot connection unavailable"}
     if not await ensure_cold_open():
         return {"ok": False, "error": "cold store unavailable"}
-    hot = _get_read_conn()
+    hot = _get_scan_read_conn()
     cold = _cold_read_conn if _cold_read_conn is not None else _cold_conn
     prefixes: dict = {}
     all_match = True
@@ -1976,7 +1978,7 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
     _globs = [p + "*" for p in _COLD_KEY_PREFIXES]
     try:
         while True:
-            rconn = _get_read_conn()
+            rconn = _get_scan_read_conn()
             if rconn is None:
                 break
             cur = await asyncio.wait_for(rconn.execute(
@@ -2094,19 +2096,27 @@ async def _configure_read_conn(conn) -> None:
 
 
 def _get_read_conn() -> Any:
-    """R-F1449/R-F2242: return a read connection from the pool (round-robin).
+    """R-F1449/R-F2242/R-F4211: return a point-read connection.
 
     Read connections are NEVER touched by _reconnect(), so a write-side reset
     cannot kill concurrent reads. Under WAL mode, reads see a consistent snapshot
-    without blocking the writer. R-F2242: round-robins over _read_pool so a burst
-    of concurrent reads spreads across N connection-threads instead of serializing
-    on one. Falls back to _read_conn / _conn during early boot before the pool is
-    built (graceful degradation).
+    without blocking the writer. R-F4211 reserves the final pool member for bulk
+    scans when at least two members exist, so long scans cannot occupy every
+    aiosqlite worker and starve indexed ``get`` calls. A one-member pool retains
+    the legacy shared-lane fallback.
     """
     global _read_pool_rr
     if _read_pool:
-        _read_pool_rr = (_read_pool_rr + 1) % len(_read_pool)
+        point_lane_count = max(1, len(_read_pool) - 1)
+        _read_pool_rr = (_read_pool_rr + 1) % point_lane_count
         return _read_pool[_read_pool_rr]
+    return _read_conn if _read_conn is not None else _conn
+
+
+def _get_scan_read_conn() -> Any:
+    """Return the bulk-scan lane, isolated from point reads when possible."""
+    if len(_read_pool) >= 2:
+        return _read_pool[-1]
     return _read_conn if _read_conn is not None else _conn
 
 
@@ -3633,7 +3643,7 @@ async def hincrby(key: str, field: str, amount: int = 1, *, critical: bool = Fal
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     # R-F1871 — read-after-write consistency + use the dedicated READ connection,
     # mirroring _row(): flush the R-F1541 write queue (so set()->scan() sees its
-    # own writes) and read via _get_read_conn() (R-F1449) instead of the write
+    # own writes) and read via the bulk lane instead of the write
     # `_conn`. The old scan_keys read `_conn` WITHOUT flushing, so it could miss
     # freshly-queued writes (latent bug, masked in prod where writes are drained).
     try:
@@ -3644,7 +3654,7 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
             await _flush_cold_queue()
     except Exception:
         pass
-    conn = _get_read_conn()
+    conn = _get_scan_read_conn()
     if conn is None:
         return []
     # R-F1871 — push the pattern's LITERAL PREFIX into SQL so we don't fetch the
@@ -3714,7 +3724,7 @@ async def scan_keys_strict(pattern: str, count: int = 200) -> list[str]:
     the result then cannot tell "nothing matched" from "the scan did not run", and
     publishes the first while meaning the second. Mirrors the `get_strict` contract.
     """
-    conn = _get_read_conn()
+    conn = _get_scan_read_conn()
     if conn is None:
         raise StateReadError("state_store: no read connection for SCAN")
     try:
@@ -3751,7 +3761,7 @@ async def scan_keys_null_ttl(pattern: str, count: int = 500) -> list[str]:
             await _flush_cold_queue()
     except Exception:
         pass
-    conn = _get_read_conn()
+    conn = _get_scan_read_conn()
     if conn is None:
         return []
 
@@ -3805,7 +3815,7 @@ async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
             await _flush_cold_queue()
     except Exception:
         pass
-    conn = _get_read_conn()
+    conn = _get_scan_read_conn()
     if conn is None:
         return []
     _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)

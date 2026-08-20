@@ -48,9 +48,41 @@ class TestReadPool:
         assert _ss._read_conn is _ss._read_pool[0], "_read_conn stays as pool[0]"
 
     @pytest.mark.asyncio
-    async def test_get_read_conn_round_robins_across_all_members(self):
+    async def test_point_reads_exclude_the_reserved_scan_lane(self):
         seen = {id(_ss._get_read_conn()) for _ in range(9)}
-        assert len(seen) == 3, "round-robin must spread reads across all 3 members"
+        assert seen == {id(c) for c in _ss._read_pool[:-1]}
+        assert _ss._get_scan_read_conn() is _ss._read_pool[-1]
+
+    @pytest.mark.asyncio
+    async def test_real_get_survives_a_blocked_real_scan(self):
+        """R-F4211 capability: a bulk scan cannot blind an indexed point read."""
+        await _ss.set_key("rf4211_live", "still-readable")
+        await _ss._flush_write_queue()
+
+        scan_started = asyncio.Event()
+        release_scan = asyncio.Event()
+        real_scan_conn = _ss._read_pool[-1]
+
+        class _BlockedScanLane:
+            async def execute(self, *args, **kwargs):
+                scan_started.set()
+                await release_scan.wait()
+                return await real_scan_conn.execute(*args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(real_scan_conn, name)
+
+        _ss._read_pool[-1] = _BlockedScanLane()
+        scan_task = asyncio.create_task(_ss.scan_keys("rf4211_*"))
+        try:
+            await asyncio.wait_for(scan_started.wait(), timeout=1.0)
+            value = await asyncio.wait_for(_ss.get("rf4211_live"), timeout=1.0)
+        finally:
+            release_scan.set()
+            await scan_task
+            _ss._read_pool[-1] = real_scan_conn
+
+        assert value == "still-readable"
 
     @pytest.mark.asyncio
     async def test_every_member_has_busy_timeout_pragma(self):
