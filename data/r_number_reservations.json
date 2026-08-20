@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4189,
+  "next_available": 4190,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35798,6 +35798,15 @@
       "commit_sha": "c1ff630e",
       "notes": null,
       "shipped_at": "2026-08-20T06:44:29Z"
+    },
+    {
+      "r_number": "R-F4189",
+      "title": "promote watchlist with observable mutations",
+      "claimed_at": "2026-08-20T06:48:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

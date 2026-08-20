@@ -12,7 +12,7 @@ import { decodeToken, roleAllows, TOKEN_COOKIE, type Role } from '@/lib/auth';
 // prefix here so the new page is auth-gated again.
 const ADMIN_PREFIXES: string[] = [];
 const SUPPORT_PREFIXES: string[] = [];
-const CUSTOMER_PREFIXES: string[] = ['/dashboard', '/reports'];
+const CUSTOMER_PREFIXES: string[] = ['/dashboard', '/reports', '/watchlist'];
 
 function matchPrefix(pathname: string, list: string[]): boolean {
   return list.some((p) => pathname === p || pathname.startsWith(p + '/'));

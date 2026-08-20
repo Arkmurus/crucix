@@ -1,13 +1,10 @@
-import { Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
+import { AddWatchlistForm, RemoveWatchlistForm, RescreenWatchlistForm } from '@/components/watchlist-actions';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, fmtDate, riskVariant } from '@/lib/format';
-import { addWatchlist, removeWatchlist, rescreenWatchlist } from '@/lib/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,25 +18,14 @@ export default async function WatchlistPage() {
   const entities = Array.isArray(data) ? (data as Entity[]) : data?.watchlist ?? [];
 
   return (
-    <div>
+    <div data-aria-surface="next-customer-watchlist">
       <PageHeader title="Watchlist" description="Entities ARIA monitors for risk changes.">
-        <form action={rescreenWatchlist}>
-          <Button type="submit" variant="outline" className="gap-2">
-            <RefreshCw className="h-4 w-4" /> Re-screen all
-          </Button>
-        </form>
+        <RescreenWatchlistForm />
       </PageHeader>
 
       <Card className="mb-6">
         <CardContent className="p-4">
-          <form action={addWatchlist} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Input name="name" placeholder="Entity or company name…" className="sm:max-w-xs" required />
-            <Input name="entity_type" placeholder="Type (optional)" className="sm:max-w-[10rem]" />
-            <Input name="jurisdiction" placeholder="Jurisdiction (optional)" className="sm:max-w-[12rem]" />
-            <Button type="submit" className="gap-2">
-              <Plus className="h-4 w-4" /> Add to watchlist
-            </Button>
-          </form>
+          <AddWatchlistForm />
         </CardContent>
       </Card>
 
@@ -71,12 +57,7 @@ export default async function WatchlistPage() {
                   <TableCell className="text-muted-foreground">{fmtDate(pickFirst(e.last_checked, e.added_at))}</TableCell>
                   <TableCell>
                     {name ? (
-                      <form action={removeWatchlist}>
-                        <input type="hidden" name="name" value={name} />
-                        <button type="submit" className="text-muted-foreground hover:text-destructive" aria-label={`Remove ${name}`}>
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </form>
+                      <RemoveWatchlistForm name={name} />
                     ) : null}
                   </TableCell>
                 </TableRow>

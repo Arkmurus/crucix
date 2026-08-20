@@ -9,6 +9,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiServer } from '@/lib/api';
 import { submitDD, type DDSubmissionState } from '@/lib/dd-submission';
+import { performWatchlistMutation, type WatchlistMutationState } from '@/lib/watchlist-mutation';
 
 // ── DD ───────────────────────────────────────────────────────────────────────
 export async function runDD(_previousState: DDSubmissionState, formData: FormData): Promise<DDSubmissionState> {
@@ -25,28 +26,37 @@ export async function runDD(_previousState: DDSubmissionState, formData: FormDat
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────
-export async function addWatchlist(formData: FormData) {
-  const name = String(formData.get('name') || '').trim();
-  if (!name) return;
-  const entity_type = String(formData.get('entity_type') || '').trim() || undefined;
-  const jurisdiction = String(formData.get('jurisdiction') || '').trim() || undefined;
-  await apiServer('/api/aria/dd/watchlist', {
-    method: 'POST',
-    body: JSON.stringify({ name, entity_type, jurisdiction }),
-  }).catch(() => {});
-  revalidatePath('/watchlist');
+export async function addWatchlist(
+  _previousState: WatchlistMutationState,
+  formData: FormData,
+): Promise<WatchlistMutationState> {
+  const result = await performWatchlistMutation(apiServer, 'add', {
+    name: String(formData.get('name') || ''),
+    entityType: String(formData.get('entity_type') || ''),
+    jurisdiction: String(formData.get('jurisdiction') || ''),
+  });
+  if (result.status === 'success') revalidatePath('/watchlist');
+  return result;
 }
 
-export async function removeWatchlist(formData: FormData) {
-  const name = String(formData.get('name') || '').trim();
-  if (!name) return;
-  await apiServer(`/api/aria/dd/watchlist/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch(() => {});
-  revalidatePath('/watchlist');
+export async function removeWatchlist(
+  _previousState: WatchlistMutationState,
+  formData: FormData,
+): Promise<WatchlistMutationState> {
+  const result = await performWatchlistMutation(apiServer, 'remove', {
+    name: String(formData.get('name') || ''),
+  });
+  if (result.status === 'success') revalidatePath('/watchlist');
+  return result;
 }
 
-export async function rescreenWatchlist() {
-  await apiServer('/api/aria/dd/watchlist/rescreen', { method: 'POST', body: '{}' }).catch(() => {});
-  revalidatePath('/watchlist');
+export async function rescreenWatchlist(
+  _previousState: WatchlistMutationState,
+  _formData: FormData,
+): Promise<WatchlistMutationState> {
+  const result = await performWatchlistMutation(apiServer, 'rescreen');
+  if (result.status === 'success') revalidatePath('/watchlist');
+  return result;
 }
 
 // ── Billing ───────────────────────────────────────────────────────────────────
