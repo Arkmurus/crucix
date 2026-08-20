@@ -3919,6 +3919,7 @@ app.post('/api/aria/knowledge/fact', requireAdmin, async (req, res) => {  // R-F
       res.json({ ok: true, message: 'Fact stored' });
     } catch (e) { res.status(500).json({ error: e.message }); }
   }});
+});
 
 // R-F2048 — the Agent Signup Vault is the CONTROLLED data-point-site catalogue.
 // Adding/editing/removing sites is restricted to the ARIA admin/dev team. The
@@ -3959,7 +3960,6 @@ app.post('/api/aria/user/sources', requireAuth, (req, res) => {
 app.delete('/api/aria/user/sources/:siteId', requireAuth, (req, res) => {
   const p = new URLSearchParams(); p.set('user_id', req.user?.userId || '');
   ariaProxy(req, res, `/api/aria/user/sources/${encodeURIComponent(req.params.siteId)}?${p.toString()}`, { method: 'DELETE' });
-});
 });
 
 app.get('/api/aria/ledger', requireAuth, async (req, res) => {

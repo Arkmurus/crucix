@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4192,
+  "next_available": 4193,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35828,6 +35828,15 @@
       "commit_sha": "9763e542",
       "notes": null,
       "shipped_at": "2026-08-20T08:11:51Z"
+    },
+    {
+      "r_number": "R-F4192",
+      "title": "register tenant source routes at boot",
+      "claimed_at": "2026-08-20T08:22:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
