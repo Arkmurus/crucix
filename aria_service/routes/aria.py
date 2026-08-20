@@ -767,6 +767,77 @@ class LearningRequest(BaseModel):
 def get_llm(request: Request):
     return request.app.state.llm_provider
 
+
+def _llm_serving_state(request: Request) -> dict:
+    """Return whether the live provider can serve a general request now.
+
+    Initialisation alone is insufficient: a fallback object can exist while
+    every general provider is cooling or the chain has just been exhausted.
+    """
+    try:
+        provider = get_llm(request)
+    except (AttributeError, RuntimeError):
+        provider = None
+    if provider is None:
+        return {"ready": False, "reason": "warming_up", "retry_after_s": 5}
+
+    get_health = getattr(provider, "get_health", None)
+    if not callable(get_health):
+        configured = bool(getattr(provider, "is_configured", True))
+        return {
+            "ready": configured,
+            "reason": "ready" if configured else "llm_unavailable",
+            "retry_after_s": 0 if configured else 60,
+        }
+    try:
+        health = get_health() or {}
+    except Exception as exc:
+        return {
+            "ready": False,
+            "reason": "llm_health_unavailable",
+            "retry_after_s": 30,
+            "detail": str(exc)[:160],
+        }
+    if health.get("resilient") is not True:
+        return {
+            "ready": False,
+            "reason": (
+                "llm_unavailable"
+                if "resilient" in health else "llm_health_unavailable"
+            ),
+            "retry_after_s": 60,
+            "cooling_providers": list(health.get("cooling_providers") or []),
+            "last_exhaustion_age_s": health.get("last_exhaustion_age_s"),
+        }
+    return {"ready": True, "reason": "ready", "retry_after_s": 0}
+
+
+def _require_llm_ready(request: Request) -> None:
+    """Fast-fail chat when its real general-provider chain cannot serve."""
+    state = _llm_serving_state(request)
+    if state["ready"]:
+        return
+    warming = state["reason"] == "warming_up"
+    retry_after = int(state.get("retry_after_s") or 30)
+    message = (
+        "ARIA is starting up — the model and retrieval are warming up. "
+        "Please retry in a few seconds."
+        if warming else
+        "ARIA's general model capacity is currently unavailable. The request "
+        "was not accepted; retry later or ask the operator to restore provider capacity."
+    )
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": state["reason"],
+            "message": message,
+            "retry_after_s": retry_after,
+            "cooling_providers": state.get("cooling_providers", []),
+        },
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 @fail_wire(module="aria", gap_type="engine_failure")
 def get_intel_data(request: Request):
     return getattr(request.app.state, "current_data", None)
@@ -11104,23 +11175,14 @@ async def chat_ep(req: ChatRequest, request: Request):
     # R-F2814 (Stage A, R-F2813) — READINESS fast-fail, placed BEFORE the async_mode
     # branch below so we never register a background job that cannot run either.
     # During the ~10-min warmup after a restart/deploy, app.state.llm_provider is
-    # still None (it inits in the background, main.py:1704). Entering the pipeline —
+    # still None (it inits in the background, main.py:1704). A later provider
+    # outage can also leave a fully initialised fallback object with no member
+    # able to serve. Entering the pipeline in either state —
     # or enqueuing an async job that re-runs this handler — would HANG until the
     # client's poll/timeout budget elapsed (the 15-min WA hang, the recurring "ARIA
-    # keeps breaking"). Fail fast with an honest 503 "warming up" for BOTH sync and
-    # async callers so the surface can say "starting up, retry shortly" not dead air.
-    if get_llm(request) is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "warming_up",
-                "message": ("ARIA is starting up — the model and retrieval are "
-                            "warming up (this happens right after an update). "
-                            "Please retry in a few seconds."),
-                "retry_after_s": 5,
-            },
-            headers={"Retry-After": "5"},
-        )
+    # keeps breaking"). Fail fast with an honest readiness 503 for BOTH sync and
+    # async callers so the surface reports warmup versus exhausted capacity.
+    _require_llm_ready(request)
 
     # ── R-F916 — ASYNC job mode ──────────────────────────────────────────────
     # A URL-bearing question triggers a fresh crawl (multi-page) + narrative
@@ -12909,19 +12971,8 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     # R-F2814 (Stage A, R-F2813) — READINESS fast-fail, MIRRORED from chat_ep per
     # §13 (chat_stream is a subset-fork of chat; every guard must live on both) and
     # placed at the TOP (before quota / trivial short-circuit / pipeline) so a
-    # warming brain streams an honest 503 instead of hanging the SSE connection.
-    if get_llm(request) is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "warming_up",
-                "message": ("ARIA is starting up — the model and retrieval are "
-                            "warming up (this happens right after an update). "
-                            "Please retry in a few seconds."),
-                "retry_after_s": 5,
-            },
-            headers={"Retry-After": "5"},
-        )
+    # unready brain returns an honest 503 instead of hanging the SSE connection.
+    _require_llm_ready(request)
 
     # H3: same per-user quota check as chat_ep. Enforced BEFORE the
     # StreamingResponse is returned so the client gets a clean 429
@@ -26281,8 +26332,9 @@ def health_ready_ep(request: Request):
     honest "warming, retry shortly" and blue-green deploy can gate LB cutover on
     a machine actually being ready.
 
-    READY (200) iff the LLM provider is initialised — the ONE hard dependency for
-    producing a chat answer. Deliberately NOT gated on the knowledge/neural graphs:
+    READY (200) iff the LLM provider is initialised AND its live general chain can
+    serve now — the hard dependency for producing a chat answer. Deliberately NOT
+    gated on the knowledge/neural graphs:
     both the fast lane and grounded chat degrade gracefully without them by design
     (R-F2201, lean web workers), so gating on them would hold traffic from a brain
     that can in fact answer. rag/knowledge/neural readiness are reported as
@@ -26293,7 +26345,8 @@ def health_ready_ep(request: Request):
     probe itself hang. All reads are cheap in-process getattr — no DB, no await.
     """
     st = getattr(request.app, "state", None)
-    llm_ready = getattr(st, "llm_provider", None) is not None
+    llm_state = _llm_serving_state(request)
+    llm_ready = bool(llm_state["ready"])
     try:
         from ..main import ARIA_BUILD_REV as _build_rev
     except Exception:
@@ -26301,6 +26354,7 @@ def health_ready_ep(request: Request):
     body = {
         "ready": llm_ready,
         "llm_ready": llm_ready,
+        "llm_reason": llm_state["reason"],
         # informational — NOT gates (see docstring)
         "rag_ready": bool(getattr(st, "rag_ready", False)),
         "knowledge_ready": bool(getattr(st, "knowledge_ready", False)),

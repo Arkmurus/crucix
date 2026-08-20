@@ -3771,16 +3771,15 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
       try {
         lastErr = (await r.text()).slice(0, 300);
       } catch {/* swallow */}
-      // R-F2814 (Stage A, R-F2813) — RELAY the readiness "warming up" 503 verbatim.
-      // When aria-intel is mid-warmup after a restart it returns 503 {error:'warming_up'}.
-      // Pass it through honestly (same reasoning as the 401/403 relay above: a
-      // definitive upstream state, not an outage) so the client can show "ARIA is
-      // starting up, retry shortly" instead of the generic "service unavailable"
-      // fallback masking a transient warmup as a hard outage.
-      if (r.status === 503 && lastErr.includes('warming_up')) {
-        console.warn(`[ARIA proxy] ${path} → fly.io warming up (readiness 503 relayed)`);
+      // R-F2814/R-F4209 — RELAY definitive readiness 503 states verbatim.
+      // Warmup and an exhausted general-provider chain have different remedies.
+      // Pass either through honestly (same reasoning as the 401/403 relay above:
+      // both are definitive upstream states) rather than masking them behind the
+      // generic service-offline fallback.
+      if (r.status === 503 && (lastErr.includes('warming_up') || lastErr.includes('llm_unavailable') || lastErr.includes('llm_health_unavailable'))) {
+        console.warn(`[ARIA proxy] ${path} → fly.io not ready (readiness 503 relayed)`);
         try { return res.status(503).json(JSON.parse(lastErr)); }
-        catch { return res.status(503).json({ error: 'warming_up', message: 'ARIA is starting up — retry shortly.' }); }
+        catch { return res.status(503).json({ error: 'llm_unavailable', message: 'ARIA model capacity is unavailable — retry later.' }); }
       }
       console.warn(
         `[ARIA proxy] ${path} → fly.io HTTP ${r.status} bearer=${hasBearer} body=${lastErr}`,

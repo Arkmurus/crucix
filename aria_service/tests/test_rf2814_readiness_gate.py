@@ -39,6 +39,33 @@ def _build_app():
     return app
 
 
+class _ExhaustedChain:
+    """Real readiness shape emitted by FallbackProvider.get_health()."""
+
+    is_configured = True
+
+    def get_health(self):
+        return {
+            "resilient": False,
+            "active_providers": [],
+            "cooling_providers": [
+                {"name": "deepseek", "reason": "billing", "seconds_remaining": 3600}
+            ],
+            "last_exhaustion_age_s": 10.0,
+        }
+
+
+class _UnknownHealthChain:
+    is_configured = True
+
+    def get_health(self):
+        return {}
+
+
+class _BareUnconfiguredProvider:
+    is_configured = False
+
+
 # ── /health/ready ────────────────────────────────────────────────────────────
 
 def test_health_ready_503_while_llm_none():
@@ -62,6 +89,35 @@ def test_health_ready_200_when_llm_set():
     body = r.json()
     assert body["ready"] is True and body["llm_ready"] is True
     assert body["rag_ready"] is True
+
+
+def test_health_ready_503_when_initialised_chain_is_exhausted():
+    """An object in app.state is not readiness when no provider can serve."""
+    app = _build_app()
+    app.state.llm_provider = _ExhaustedChain()
+    with TestClient(app) as client:
+        r = client.get("/api/aria/health/ready")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["ready"] is False
+    assert body["llm_ready"] is False
+    assert body["llm_reason"] == "llm_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("provider", "reason"),
+    [
+        (_UnknownHealthChain(), "llm_health_unavailable"),
+        (_BareUnconfiguredProvider(), "llm_unavailable"),
+    ],
+)
+def test_health_ready_fails_closed_when_provider_cannot_prove_service(provider, reason):
+    app = _build_app()
+    app.state.llm_provider = provider
+    with TestClient(app) as client:
+        r = client.get("/api/aria/health/ready")
+    assert r.status_code == 503
+    assert r.json()["llm_reason"] == reason
 
 
 def test_health_ready_not_gated_on_heavy_graphs():
@@ -119,6 +175,31 @@ def test_chat_async_mode_also_fast_503_when_warming():
     assert r.json()["detail"]["error"] == "warming_up"
 
 
+def test_chat_fast_503_when_initialised_chain_is_exhausted():
+    """Drive the real chat entry point; dead capacity must accept no job."""
+    app = _build_app()
+    app.state.llm_provider = _ExhaustedChain()
+    with TestClient(app) as client:
+        r = client.post("/api/aria/chat", json={"message": "analyse this"})
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert detail["error"] == "llm_unavailable"
+    assert detail["cooling_providers"][0]["reason"] == "billing"
+    assert r.headers["Retry-After"] == "60"
+
+
+def test_chat_async_accepts_no_job_when_chain_is_exhausted():
+    app = _build_app()
+    app.state.llm_provider = _ExhaustedChain()
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/aria/chat",
+            json={"message": "analyse this", "async_mode": True},
+        )
+    assert r.status_code == 503
+    assert r.json()["detail"]["error"] == "llm_unavailable"
+
+
 # ── POST /chat/stream fast-503 (§13 mirror) ──────────────────────────────────
 
 def test_chat_stream_fast_503_warming_when_llm_none():
@@ -128,3 +209,12 @@ def test_chat_stream_fast_503_warming_when_llm_none():
         r = client.post("/api/aria/chat/stream", json={"message": "hello"})
     assert r.status_code == 503, f"§13: stream must mirror chat's warming-503, got {r.status_code}"
     assert r.json()["detail"]["error"] == "warming_up"
+
+
+def test_chat_stream_fast_503_when_chain_is_exhausted():
+    app = _build_app()
+    app.state.llm_provider = _ExhaustedChain()
+    with TestClient(app) as client:
+        r = client.post("/api/aria/chat/stream", json={"message": "analyse this"})
+    assert r.status_code == 503
+    assert r.json()["detail"]["error"] == "llm_unavailable"
