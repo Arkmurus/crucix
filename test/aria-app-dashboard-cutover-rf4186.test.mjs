@@ -16,7 +16,7 @@ test('R-F4186: dashboard is native while every unpromoted route retains rollback
   const proxy = rewrites.beforeFiles[0];
 
   assert.equal(matchesRewrite(proxy.source, '/dashboard'), false);
-  assert.equal(matchesRewrite(proxy.source, '/opportunities'), true);
+  assert.equal(matchesRewrite(proxy.source, '/vault'), true);
   assert.equal(matchesRewrite(proxy.source, '/api/aria/dd/reports'), true);
   assert.equal(matchesRewrite(proxy.source, '/api/opportunities'), true);
 });

@@ -18,7 +18,7 @@ test('R-F4188: report list and detail are native while unrelated routes retain r
 
   assert.equal(matchesRewrite(proxy.source, '/reports'), false);
   assert.equal(matchesRewrite(proxy.source, '/reports/dd_123'), false);
-  assert.equal(matchesRewrite(proxy.source, '/opportunities'), true);
+  assert.equal(matchesRewrite(proxy.source, '/vault'), true);
   assert.equal(matchesRewrite(proxy.source, '/api/aria/dd/reports'), true);
 });
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4190,
+  "next_available": 4191,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35808,6 +35808,15 @@
       "commit_sha": "e149d8a8",
       "notes": null,
       "shipped_at": "2026-08-20T07:28:32Z"
+    },
+    {
+      "r_number": "R-F4190",
+      "title": "promote evidence-safe opportunities route",
+      "claimed_at": "2026-08-20T07:30:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

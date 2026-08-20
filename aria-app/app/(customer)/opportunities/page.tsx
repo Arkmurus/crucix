@@ -4,22 +4,16 @@ import { Badge } from '@/components/ui/badge';
 import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
 import { tryApiServer } from '@/lib/api';
 import { pickFirst, riskVariant, titleCase } from '@/lib/format';
+import { normalizeOpportunities } from '@/lib/opportunities';
 
 export const dynamic = 'force-dynamic';
 
-interface Opportunity {
-  market?: string; score?: number; tier?: string; complianceStatus?: string;
-  type?: string; notes?: string; summary?: string; explorerSignals?: number;
-  conflict?: { events?: number; fatalities?: number };
-  procurementNeeds?: unknown[]; sources?: { url?: string; title?: string; type?: string }[];
-}
-
 export default async function OpportunitiesPage() {
-  const { data, error } = await tryApiServer<{ opportunities?: Opportunity[] }>('/api/opportunities');
-  const opps = Array.isArray(data) ? (data as Opportunity[]) : data?.opportunities ?? [];
+  const { data, error } = await tryApiServer('/api/opportunities');
+  const opps = normalizeOpportunities(data);
 
   return (
-    <div>
+    <div data-aria-surface="next-customer-opportunities">
       <PageHeader title="Opportunities" description="Signal-backed market opportunities detected from the live OSINT sweep." />
       {error ? (
         <UnavailableState title="Opportunities unavailable" />
@@ -49,11 +43,11 @@ export default async function OpportunitiesPage() {
                     {o.conflict?.events ? <span>{o.conflict.events} conflict events</span> : null}
                     {Array.isArray(o.procurementNeeds) && o.procurementNeeds.length ? <span>{o.procurementNeeds.length} procurement needs</span> : null}
                   </div>
-                  {Array.isArray(o.sources) && o.sources.length ? (
+                  {o.sources.length ? (
                     <div className="flex flex-wrap gap-2 pt-1">
                       {o.sources.slice(0, 4).map((s, j) =>
                         s.url ? (
-                          <a key={j} href={s.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
+                          <a key={j} href={s.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-xs text-primary hover:underline">
                             {s.title || s.type || 'source'}
                           </a>
                         ) : null,

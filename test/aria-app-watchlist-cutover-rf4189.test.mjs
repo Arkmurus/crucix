@@ -28,7 +28,7 @@ test('R-F4189: all real watchlist mutation branches are explicit', async () => {
 test('R-F4189: watchlist is native, role-gated, and visibly wired', async () => {
   const proxy = (await nextConfig.rewrites()).beforeFiles[0];
   assert.equal(matches(proxy.source, '/watchlist'), false);
-  assert.equal(matches(proxy.source, '/opportunities'), true);
+  assert.equal(matches(proxy.source, '/vault'), true);
   assert.match(read('aria-app/middleware.ts'), /CUSTOMER_PREFIXES[^;]*['"]\/watchlist['"]/s);
   assert.match(read('aria-app/app/(customer)/watchlist/page.tsx'), /data-aria-surface="next-customer-watchlist"/);
   assert.match(read('aria-app/components/watchlist-actions.tsx'), /role="status"/);
