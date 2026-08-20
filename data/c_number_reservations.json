@@ -2104,9 +2104,12 @@
       "title": "a single shared generic token produced a false HARD STOP with a SAR recommendation",
       "claimed_at": "2026-08-19T13:27:42Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4172"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-20T10:33:07Z"
     },
     {
       "c_number": "C-187",
