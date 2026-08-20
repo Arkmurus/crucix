@@ -35754,9 +35754,10 @@
       "title": "promote sign-in through a tested strangler boundary",
       "claimed_at": "2026-08-19T22:25:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8918d21d",
+      "notes": null,
+      "shipped_at": "2026-08-20T05:44:02Z"
     }
   ]
 }
