@@ -291,8 +291,10 @@ SIDECAR_MIN_INTERVAL_S = max(3600.0, 4.0 * COMPACT_MAX_AGE_S)
 #: written by the debounced flusher, so the hot path never does file I/O (the
 #: same reason `_save` only ever set a flag before).
 _pending_journal: list[tuple[str, dict]] = []
-#: True when the next flush MUST write a full snapshot. Starts True so the
-#: first flush of a process establishes a base the journal can build on.
+#: True when the next flush MUST write a full snapshot. Starts True for a
+#: genuinely empty store, then `_load` clears it after proving that a canonical
+#: snapshot exists. A process restart is not a structural mutation and must not
+#: rewrite the whole graph merely to establish the base it just loaded.
 _needs_compaction: bool = True
 _last_compaction_at: float | None = None
 #: Bookkeeping records (accessCount / last_seen_at) awaiting persistence,
@@ -1515,7 +1517,7 @@ async def _load() -> dict:
     """Hydrate the cache once. Order: disk → legacy Redis blob (one-shot
     migration) → empty default. Subsequent calls hit the in-memory
     cache without I/O."""
-    global _cache
+    global _cache, _needs_compaction
     if _cache is not None:
         return _cache
 
@@ -1530,6 +1532,14 @@ async def _load() -> dict:
         # what makes the cheap flush path safe.
         data = _replay_journal(data)
         _cache = data
+        # R-F4211 — the disk snapshot is already the canonical base. The
+        # journal contains every additive mutation after that base and was just
+        # replayed, so forcing a process-local "first compaction" adds no
+        # durability. In production it rewrote ~411 MB plus the sidecar during
+        # cold boot and saturated the same volume as aria_state.db. Structural
+        # mutations, undeclared saves, journal bounds and final shutdown still
+        # set/consume `_needs_compaction` through their existing gates.
+        _needs_compaction = False
         logger.info(
             "knowledge: loaded %d facts from disk (%s)",
             len(_cache.get("facts", [])), _DISK_PATH,
@@ -1557,6 +1567,7 @@ async def _load() -> dict:
         try:
             await asyncio.to_thread(_write_to_disk_atomic, _cache)
             logger.info("knowledge: sharded Redis → disk migration complete")
+            _needs_compaction = False
         except Exception as e:
             logger.error("knowledge: sharded migration to disk failed: %s", e)
         _ensure_flusher()
@@ -1576,6 +1587,7 @@ async def _load() -> dict:
         try:
             await asyncio.to_thread(_write_to_disk_atomic, _cache)
             logger.info("knowledge: legacy Redis → disk migration complete")
+            _needs_compaction = False
         except Exception as e:
             logger.error("knowledge: legacy migration to disk failed: %s", e)
         _ensure_flusher()

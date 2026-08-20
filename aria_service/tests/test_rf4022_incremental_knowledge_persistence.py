@@ -37,6 +37,8 @@ THE CONTRACT THESE TESTS PIN.
   6. Replay is idempotent and upserts by id — a record present in BOTH the
      snapshot and the journal must not duplicate, because compaction and
      journal-append legitimately race.
+  7. Restarting from a valid snapshot must not trigger an unconditional
+     whole-graph boot compaction; a genuinely empty store still creates one.
 """
 import asyncio
 import json
@@ -146,6 +148,47 @@ async def test_additive_flush_does_not_rewrite_the_whole_snapshot(monkeypatch):
         "O(graph) — this is the 39,000x write amplification that saturates "
         "the volume and starves the event loop."
     )
+
+
+@pytest.mark.asyncio
+async def test_restart_from_snapshot_does_not_force_boot_compaction(monkeypatch):
+    """Drive the real load -> mutation -> flush path from a process restart."""
+    knowledge._cache = _seed()
+    await _compact_now()
+
+    # A new process starts with the conservative module default. Loading the
+    # proven snapshot must refine that state before the first post-boot write.
+    knowledge._cache = None
+    knowledge._needs_compaction = True
+    await knowledge._load()
+    calls = _count_full_rewrites(monkeypatch)
+
+    new = {"id": "post-restart", "topic": "boot",
+           "content": "first mutation after restart",
+           "confidence": "CONFIRMED", "accessCount": 0}
+    knowledge._cache["facts"].insert(0, new)
+    await knowledge._save(record=new, kind="fact")
+    await knowledge._flush_to_disk()
+
+    assert calls == [], (
+        "R-F4211: loading an existing snapshot still forced the unconditional "
+        "cold-boot full rewrite that saturates aria_state.db's volume"
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_store_still_establishes_first_snapshot(monkeypatch):
+    """The boot optimisation must not weaken first-write durability."""
+    await knowledge._load()
+    calls = _count_full_rewrites(monkeypatch)
+
+    first = {"id": "first", "topic": "boot", "content": "first durable fact",
+             "confidence": "CONFIRMED", "accessCount": 0}
+    knowledge._cache["facts"].append(first)
+    await knowledge._save(record=first, kind="fact")
+    await knowledge._flush_to_disk()
+
+    assert calls == [1], "a truly empty store must establish a canonical snapshot"
 
 
 # ── 2. durability is NOT weakened by the fast path (§7) ─────────────────────
