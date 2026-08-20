@@ -38,7 +38,12 @@ function elements(ids) {
     resetBadge() {},
   };
   vm.createContext(context);
-  vm.runInContext(`${extract('loadHealth', 'loadMode')}; this.run = loadHealth;`, context);
+  const healthHelpers = html.slice(
+    html.indexOf('function _coreCompositionRow'),
+    html.indexOf('function metricRow'),
+  );
+  assert.match(healthHelpers, /function _coreCompositionRow/, 'health helpers must be extractable');
+  vm.runInContext(`${healthHelpers}${extract('loadHealth', 'loadMode')}; this.run = loadHealth;`, context);
   await context.run();
 
   assert.match(els['infra-metrics'].innerHTML, /State Store Read:Unavailable:bad/);

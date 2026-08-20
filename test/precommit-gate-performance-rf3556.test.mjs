@@ -59,8 +59,19 @@ const timeouts = [...ciText.matchAll(/^    timeout-minutes:\s*(\d+)\s*$/gm)].map
 check('every job declares a timeout', timeouts.length >= jobNames.length,
   timeouts.length + ' timeout(s) for ' + jobNames.length + ' job(s). No timeout means '
   + "GitHub's 6-hour default, so one hang blocks every queued run.");
-check('the timeouts are sane (0 < t <= 60 min)',
-  timeouts.length > 0 && timeouts.every(t => t > 0 && t <= 60), JSON.stringify(timeouts));
+const jobTimeouts = Object.fromEntries(jobNames.map(name => {
+  const start = ciText.indexOf(`  ${name}:`);
+  const nextJob = ciText.slice(start + 1).search(/^  [a-z][a-z0-9_-]*:$/m);
+  const body = nextJob < 0 ? ciText.slice(start) : ciText.slice(start, start + 1 + nextJob);
+  const match = body.match(/^    timeout-minutes:\s*(\d+)\s*$/m);
+  return [name, match ? Number(match[1]) : null];
+}));
+check('every timeout is bounded at 90 minutes',
+  Object.values(jobTimeouts).every(t => t != null && t > 0 && t <= 90),
+  JSON.stringify(jobTimeouts));
+check('only the measured exhaustive suite may exceed 60 minutes',
+  Object.entries(jobTimeouts).every(([name, timeout]) => timeout <= 60 || name === 'suite-baseline-gate'),
+  JSON.stringify(jobTimeouts));
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

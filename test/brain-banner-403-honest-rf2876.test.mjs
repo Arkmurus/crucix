@@ -39,7 +39,10 @@ const HTML = readFileSync(new URL('../public/aria-brain.html', import.meta.url),
 
 /** Source with comments stripped — a guard must never fire on its own docs. */
 const CODE = HTML
-  .replace(/\/\*[\s\S]*?\*\//g, '')
+  // Only remove standalone block comments. Route documentation contains text
+  // such as `/autonomous/*`; a generic block-comment regex treats that path as
+  // an opener and erases live code through the next unrelated terminator.
+  .replace(/^\s*\/\*[\s\S]*?^\s*\*\/\s*$/gm, '')
   .split(/\r?\n/)
   .filter((l) => !l.trim().startsWith('//'))
   .join('\n');

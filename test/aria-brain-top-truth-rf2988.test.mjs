@@ -29,6 +29,9 @@ function baseContext(payload, ids) {
       scoreClass: () => 'neutral',
       metricRow: (label, value) => `${label}:${value}`,
       resetBadge: (id, label) => { elements[id].textContent = label; },
+      _ageLabel: () => '',
+      _ageHours: () => 0,
+      _sinceBoot: () => '',
     },
   };
 }
@@ -43,7 +46,12 @@ const health = baseContext(
   ['health-badge', 'infra-metrics', 'quality-metrics'],
 );
 vm.createContext(health.context);
-vm.runInContext(`${extract('loadHealth', 'loadMode')}; this.run = loadHealth;`, health.context);
+const healthHelpers = html.slice(
+  html.indexOf('function _coreCompositionRow'),
+  html.indexOf('function metricRow'),
+);
+assert.match(healthHelpers, /function _coreCompositionRow/, 'health helpers must be extractable');
+vm.runInContext(`${healthHelpers}${extract('loadHealth', 'loadMode')}; this.run = loadHealth;`, health.context);
 await health.context.run();
 assert.equal(health.elements['health-badge'].textContent, 'ECOSYSTEM: DEGRADED');
 

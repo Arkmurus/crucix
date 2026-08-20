@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4193,
+  "next_available": 4194,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35838,6 +35838,15 @@
       "commit_sha": "e95a46b5",
       "notes": null,
       "shipped_at": "2026-08-20T08:32:54Z"
+    },
+    {
+      "r_number": "R-F4193",
+      "title": "restore full web test reliability",
+      "claimed_at": "2026-08-20T08:39:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

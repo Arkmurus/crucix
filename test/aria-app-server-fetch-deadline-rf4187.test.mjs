@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import test from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 
 import { fetchWithDeadline } from '../aria-app/lib/fetch-deadline.ts';
+import { allowLoopbackNetwork, blockRealNetwork } from './helpers/net_guard.mjs';
+
+beforeEach(() => allowLoopbackNetwork());
+afterEach(() => blockRealNetwork());
 
 test('R-F4187: the real backend fetch aborts a server that never responds', async () => {
   const server = createServer(() => {});
