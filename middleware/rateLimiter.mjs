@@ -287,9 +287,9 @@ export function applySecurityHeaders(app) {
   // policy instead. Rationale, and why hashing beats a nonce or externalising
   // 29 files, is in lib/http/cspHashes.mjs.
   //
-  // Computed at BOOT from the files about to be served: the browser hashes exact
-  // bytes, and these HTML files are CRLF on a Windows checkout but LF in the
-  // Linux image, so any checked-in hash list would be wrong in production.
+  // Computed at BOOT from the files about to be served. cspHashes mirrors the
+  // HTML parser's CRLF/CR-to-LF preprocessing before hashing, which is required
+  // for Windows-authored pages to execute under the resulting browser policy.
   //
   // FAIL-OPEN, deliberately. Hashes and 'unsafe-inline' are mutually exclusive —
   // once one hash is present the browser ignores 'unsafe-inline' — so a scan

@@ -9,11 +9,9 @@
 // production. Coverage is the property under test, and it is asserted for every
 // block in every served file, not sampled.
 //
-// The second hazard is byte-exactness. The browser hashes the exact bytes
-// between `>` and `</script>`, so line endings count. These HTML files are CRLF
-// on a Windows checkout and LF in the Linux image (no `*.html` rule in
-// .gitattributes), which is why the hashes are computed at BOOT and why this
-// test hardcodes none of them — a pinned hash would pass here and blank the site.
+// The second hazard is HTML-parser preprocessing. Browsers normalise CRLF and
+// bare CR to LF before CSP hashes inline script text. Hashing raw Windows bytes
+// creates a policy that looks complete but blocks every affected script.
 //
 // Run: node --test test/csp-inline-script-hashes-rf3840.test.mjs
 
@@ -106,19 +104,19 @@ describe('R-F3840 every inline script in every served page is covered', () => {
   });
 });
 
-describe('R-F3840 the hash is byte-exact', () => {
-  it('CRLF and LF bodies hash DIFFERENTLY — the reason boot-time scanning exists', () => {
+describe('R-F3840 the hash mirrors browser HTML preprocessing', () => {
+  it('CRLF, bare CR, and LF bodies hash identically', () => {
     const lf = sha256Source('var a = 1;\nvar b = 2;\n');
     const crlf = sha256Source('var a = 1;\r\nvar b = 2;\r\n');
-    assert.notEqual(lf, crlf,
-      'if these matched, a checked-in hash list would be safe — they do not, so '
-      + 'the scan MUST run in the environment that serves the file');
+    const cr = sha256Source('var a = 1;\rvar b = 2;\r');
+    assert.equal(crlf, lf, 'the HTML parser converts CRLF to LF before CSP hashing');
+    assert.equal(cr, lf, 'the HTML parser converts bare CR to LF before CSP hashing');
   });
 
   it('matches an independently computed sha256 of the exact bytes', () => {
     const body = "console.log('héllo');\r\n";   // multi-byte char + CRLF
     const expected = "'sha256-" + createHash('sha256')
-      .update(Buffer.from(body, 'latin1')).digest('base64') + "'";
+      .update(Buffer.from(body.replace(/\r\n?/g, '\n'), 'latin1')).digest('base64') + "'";
     assert.equal(sha256Source(body), expected);
   });
 

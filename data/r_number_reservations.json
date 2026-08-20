@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4198,
+  "next_available": 4199,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35892,6 +35892,15 @@
       "commit_sha": "6f27e3eec4b6e993089951c4bccf003b6b48cf44",
       "notes": null,
       "shipped_at": "2026-08-20T10:46:55Z"
+    },
+    {
+      "r_number": "R-F4198",
+      "title": "restore CSP-safe backend sign-in submission",
+      "claimed_at": "2026-08-20T10:51:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

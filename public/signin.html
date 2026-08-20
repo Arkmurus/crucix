@@ -78,7 +78,9 @@
 
       <!-- Audit fix 2026-05-09: wrap in <form> for password-manager auto-fill,
            native Enter-to-submit, and "save password" prompts. -->
-      <form id="signin-form" autocomplete="on">
+      <!-- R-F4198: POST is the fail-safe. JavaScript prevents native submission,
+           but credentials must never enter the URL if script execution breaks. -->
+      <form id="signin-form" method="post" action="/api/auth/login" autocomplete="on">
         <div id="step-credentials">
           <div class="sc-field">
             <label for="email">Email address</label>
