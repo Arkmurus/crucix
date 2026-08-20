@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4203,
+  "next_available": 4204,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35942,6 +35942,15 @@
       "commit_sha": "86814e37",
       "notes": null,
       "shipped_at": "2026-08-20T13:38:58Z"
+    },
+    {
+      "r_number": "R-F4203",
+      "title": "Close live DD truthfulness and refresh gaps",
+      "claimed_at": "2026-08-20T13:49:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

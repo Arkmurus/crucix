@@ -270,6 +270,8 @@ def canonical_entity_id_from_report(report: Any) -> str | None:
 def resolve_version_chain(
     canonical_id: str | None,
     index_entries: list[dict],
+    *,
+    current_run_id: str | None = None,
 ) -> tuple[int, str | None]:
     """Given the current canonical_entity_id and the existing report
     index (newest-first list of dicts), return
@@ -283,6 +285,7 @@ def resolve_version_chain(
     matching = [
         e for e in index_entries
         if e.get("canonical_entity_id") == canonical_id
+        and (not current_run_id or e.get("run_id") != current_run_id)
     ]
     if not matching:
         return 1, None

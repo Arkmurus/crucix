@@ -8709,8 +8709,15 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # its stack and returning {}), the report can still name the stage that
             # consumed the budget instead of only "did not complete within 300s".
             _dr_progress: dict = {}
+            _original_name = str(target.get("name") or target.get("entity") or "").strip()
+            _registration = str(report.identity.registration_number or "").strip()
+            _research_topic = name
+            if _registration:
+                _research_topic += f" company number {_registration}"
+            if _original_name and _original_name.casefold() != name.casefold():
+                _research_topic += f" formerly or supplied as {_original_name}"
             dr = await _bounded_dd_op(deep_researcher.investigate(
-                llm, name, depth=dr_depth, investigate_people=_dd_people,
+                llm, _research_topic, depth=dr_depth, investigate_people=_dd_people,
                 seed_people=_seed or None, deadline_s=_dr_deadline,
                 progress=_dr_progress),
                 _dr_op_budget, report.digital, "deep research", default={},
@@ -8790,25 +8797,18 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 source="deep_researcher.investigate_person",
                                 confidence="ASSESSED",
                             ))
-                # If investigate surfaced its own findings, merge them in.
-                for f in (synth.get("key_findings") or [])[:5]:
-                    if isinstance(f, str):
-                        report.digital.findings.append(Finding(
-                            severity="info",
-                            title=_truncate_on_boundary(f, 200),
-                            source="deep_researcher.investigate",
-                            confidence="ASSESSED",
-                        ))
-                # R-F4200 — synthesis is an interpretation layer, not the evidence
-                # store. A live Vigilo DEEP run retained 28 source-linked facts but
-                # hit its cooperative deadline before synthesis; this consumer read
-                # only synthesis.key_findings and therefore published none of those
-                # facts. Preserve a bounded, deduplicated evidence fallback whenever
-                # synthesis produced no findings. Raw facts remain explicitly
-                # UNVERIFIED and informational: they improve depth without silently
-                # turning an article-analysis claim into an assessed risk conclusion.
-                if not (synth.get("key_findings") or []):
-                    report.digital.findings.extend(_retained_research_findings(dr))
+                # R-F4203 — synthesis prose without a source URL is not DD evidence.
+                # The live KGHW run promoted unrelated KGH Investments and an academic
+                # handbook because five polished strings were treated as ASSESSED
+                # findings. Render only source-linked retained facts, still explicitly
+                # UNVERIFIED; synthesis remains available as internal diagnostics.
+                report.digital.findings.extend(
+                    _retained_research_findings(
+                        dr,
+                        subject_names=[name, _original_name],
+                        registration_number=_registration,
+                    )
+                )
         except Exception as e:
             # ── R-F3296 — AN ERROR HANDLER MUST NOT DISCARD WHERE THE ERROR WAS ──
             #
@@ -11304,7 +11304,7 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
         _has_dirs = bool(report.identity.directors)
         _has_inc = bool(report.identity.incorporation_date)
         _data_starved = not (_has_dirs or (_has_reg_status and _has_inc))
-        if getattr(report, "confidence_gate_triggered", False) or _data_starved:
+        if _data_starved:
             _gate_reasons = getattr(report, "confidence_gate_reasons", []) or []
             if not _gate_reasons and _data_starved:
                 _missing_sub = []
@@ -11418,22 +11418,34 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                     f"not a substantive amber risk finding. "
                     f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}{_rf409_suffix}"
                 )
+            _already_deep = str(getattr(report, "orchestrator_mode", "") or "").lower() == "deep"
             report.recommendation = (
-                "Re-run the DD in DEEP mode (or supply jurisdiction / "
-                "registration number / website hints) before treating "
-                "this as 'can proceed'. The current run did not exercise "
-                "the layers that produce the registry / director / press "
-                "evidence needed for a real classification."
+                "Supply the missing identity hints (jurisdiction, registration number, "
+                "website, or known officer) and re-run; this DEEP run already exercised "
+                "the available layers, so repeating it unchanged is not a remedy."
+                if _already_deep else
+                "Re-run the DD in DEEP mode (or supply jurisdiction / registration number "
+                "/ website hints) before treating this as 'can proceed'."
             )
             report.next_actions = [
-                "Re-run with mode=deep (or include the word 'deep' / "
-                "'comprehensive' / 'full DD' in the request)",
+                ("Do not repeat this DEEP run unchanged — supply the missing identity hints"
+                 if _already_deep else
+                 "Re-run with mode=deep (or request a comprehensive / full DD)"),
                 "Supply jurisdiction_iso2 if known",
                 "Supply a website URL if not already provided — this "
                 "unlocks the link-tree investigation path",
                 "Resolve each data gap listed below; gate will lift once "
                 "registry data + directors + incorporation date are present",
             ]
+        elif getattr(report, "confidence_gate_triggered", False):
+            # R-F4203 — a confidence gate can be triggered by unresolved coverage
+            # even when the registry DID identify the legal entity. Do not reuse the
+            # limited-registry narrative in that case: a dissolved registration is a
+            # confirmed adverse status, not an unconfirmed identity.
+            _bluf = compose_decision_bluf(report.decision_readiness, name)
+            report.bottom_line = _bluf["bottom_line"]
+            report.recommendation = _bluf["recommendation"]
+            report.next_actions = _bluf["next_actions"]
         else:
             report.bottom_line = (
                 f"🟡 AMBER — {name} can proceed with enhanced due diligence. "
@@ -11582,7 +11594,7 @@ async def _persist_report(report: ARKDDReport) -> None:
             existing_index = await rs.get_json(REPORT_INDEX_KEY) or []
             if canonical_id:
                 version_number, previous_run_id = _ver.resolve_version_chain(
-                    canonical_id, existing_index,
+                    canonical_id, existing_index, current_run_id=report.run_id,
                 )
             _explicit_previous = (_lineage.get("previous_run_id") or (report.target.get("previous_run_id") if isinstance(report.target, dict) else None) or "").strip()
             if canonical_id and _explicit_previous and not previous_run_id:
@@ -13262,13 +13274,21 @@ def _truncate_on_boundary(text: str, limit: int = 300) -> str:
     return (window[:cut] if cut > 0 else window).rstrip(" ,;:-") + " …"
 
 
-def _retained_research_findings(result: dict, *, limit: int = 5) -> list[Finding]:
+def _retained_research_findings(
+    result: dict,
+    *,
+    limit: int = 5,
+    subject_names: list[str] | None = None,
+    registration_number: str = "",
+) -> list[Finding]:
     """Convert source-linked retained facts into honest fallback findings.
 
-    This path is used only when deep research returned no synthesis findings.
     Article-analysis facts are leads, not adjudicated conclusions, so they remain
     informational and UNVERIFIED regardless of their upstream confidence label.
-    Facts without a source URL are excluded because the reader could not audit them.
+    Facts without a source URL are excluded because the reader could not audit them;
+    when identity hints are supplied, facts must also name the subject or its
+    registration number. This is the customer evidence surface even when an internal
+    synthesis exists, because unsourced synthesis prose cannot support a DD claim.
     """
     if not isinstance(result, dict) or limit <= 0:
         return []
@@ -13284,6 +13304,17 @@ def _retained_research_findings(result: dict, *, limit: int = 5) -> list[Finding
         ).strip()
         if not content or not source_url.lower().startswith(("http://", "https://")):
             continue
+        if subject_names or registration_number:
+            _haystack = content.casefold()
+            _name_token_sets = [
+                _distinctive_tokens(str(n or "")) for n in (subject_names or [])
+            ]
+            _name_token_sets = [tokens for tokens in _name_token_sets if tokens]
+            _haystack_tokens = _distinctive_tokens(content)
+            _reg = str(registration_number or "").strip().casefold()
+            if (not any(tokens <= _haystack_tokens for tokens in _name_token_sets)
+                    and not (_reg and _reg in _haystack)):
+                continue
         upstream = str(fact.get("confidence") or "ASSESSED").upper()
         candidates.append((confidence_rank.get(upstream, 5), index, fact, content, source_url))
 
@@ -14190,6 +14221,10 @@ def _invalidate_stale_report_render(body: dict, *, reason: str) -> None:
     """
     if body.get("rendered"):
         body.pop("rendered", None)
+        body["rendered_invalidated_reason"] = reason
+    synthesis = body.get("synthesis")
+    if isinstance(synthesis, dict) and synthesis.get("rendered_markdown"):
+        synthesis.pop("rendered_markdown", None)
         body["rendered_invalidated_reason"] = reason
 
 
