@@ -1,0 +1,8 @@
+POD_ID=ydfgy06ik7fzca
+HOST=69.30.85.129
+PORT=22019
+PHASE=harvest_capacity_blocked
+CURRENT_ARM=unknown_terminal_state
+WATCHDOG_DEADLINE_SECONDS=14400
+PROVIDER_STATUS=EXITED
+LAST_START_ERROR=not_enough_free_gpus_on_host

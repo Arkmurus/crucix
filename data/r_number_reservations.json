@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4197,
+  "next_available": 4198,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35882,6 +35882,15 @@
       "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
       "notes": null,
       "shipped_at": "2026-08-20T10:12:13Z"
+    },
+    {
+      "r_number": "R-F4197",
+      "title": "add immutable RunPod interpolation resume and harvest",
+      "claimed_at": "2026-08-20T10:35:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
