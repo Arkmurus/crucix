@@ -140,12 +140,12 @@ async def test_a_successful_rebuild_still_reaps_the_old_pool(tmp_path, monkeypat
         ss, "_reap_old_conns",
         lambda *conns: (reaped.extend(conns), real_reap(*conns))[1])
 
-    await ss._ensure_read_conn()                    # builds a pool of 2
-    assert len(ss._read_pool) == 2
+    await ss._ensure_read_conn()                    # two point lanes + one scan lane
+    assert len(ss._read_pool) == 3
     first_pool = list(ss._read_pool)
 
     await ss._ensure_read_conn()                    # rebuild — supersedes them
-    assert len(ss._read_pool) == 2
+    assert len(ss._read_pool) == 3
     assert ss._read_pool != first_pool, "the rebuild did not replace the pool"
 
     for conn in first_pool:
@@ -290,7 +290,7 @@ def test_expected_counts_the_whole_process_not_just_state_store():
     the real size."""
     from aria_service.intel import state_store as ss
 
-    assert ss.connection_gauge()["expected"] == ss._READ_POOL_SIZE + 1 + 2 + 6
+    assert ss.connection_gauge()["expected"] == ss._READ_POOL_SIZE + 1 + 1 + 2 + 6
 
 
 def test_the_gauge_survives_the_redis_store_worker_patch():

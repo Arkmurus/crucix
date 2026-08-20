@@ -63,10 +63,10 @@ class TestConnReaper:
     @pytest.mark.asyncio
     async def test_ensure_read_conn_closes_old_pool_not_leak(self):
         old_pool = list(_ss._read_pool)
-        assert len(old_pool) == 3
+        assert len(old_pool) == _ss._READ_POOL_SIZE + 1
         await _ss._ensure_read_conn()          # rebuilds the pool
         new_pool = list(_ss._read_pool)
-        assert len(new_pool) == 3
+        assert len(new_pool) == _ss._READ_POOL_SIZE + 1
         assert all(o is not n for o in old_pool for n in new_pool), "pool must be rebuilt"
         # the detached reaps close the OLD pool
         await asyncio.gather(*list(_ss._reap_tasks))
@@ -87,8 +87,8 @@ class TestConnReaper:
         for _ in range(8):
             await _ss._ensure_read_conn()
             await asyncio.gather(*list(_ss._reap_tasks))
-        # After reaping, the live pool is still exactly _READ_POOL_SIZE.
-        assert len(_ss._read_pool) == 3
+        # After reaping, all point lanes plus the dedicated scan lane remain.
+        assert len(_ss._read_pool) == _ss._READ_POOL_SIZE + 1
         # And every previously-super­seded conn was closed — verify by driving a
         # read on the current pool (proves the store is healthy post-churn).
         await _ss.set_key("rf2754_k", "v")

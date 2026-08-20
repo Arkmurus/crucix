@@ -44,13 +44,14 @@ class TestReadPool:
 
     @pytest.mark.asyncio
     async def test_pool_opens_n_connections(self):
-        assert len(_ss._read_pool) == 3, "pool should hold _READ_POOL_SIZE connections"
+        assert len(_ss._read_pool) == 4, "pool should hold point lanes plus one scan lane"
         assert _ss._read_conn is _ss._read_pool[0], "_read_conn stays as pool[0]"
 
     @pytest.mark.asyncio
     async def test_point_reads_exclude_the_reserved_scan_lane(self):
         seen = {id(_ss._get_read_conn()) for _ in range(9)}
         assert seen == {id(c) for c in _ss._read_pool[:-1]}
+        assert len(seen) == _ss._READ_POOL_SIZE
         assert _ss._get_scan_read_conn() is _ss._read_pool[-1]
 
     @pytest.mark.asyncio

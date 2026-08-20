@@ -121,6 +121,8 @@ _read_conn = None  # R-F1449: separate read connection, never touched by _reconn
 # _read_conn is kept as pool member [0] so existing close()/reconnect refs hold.
 _read_pool: list = []
 _read_pool_rr = 0  # round-robin cursor across latency-critical point-read lanes
+# Number of latency-critical point lanes. R-F4211 opens one additional scan lane;
+# the setting therefore keeps its established meaning/capacity for point reads.
 _READ_POOL_SIZE = max(1, int(os.getenv("ARIA_STATE_READ_POOL_SIZE", "3")))
 
 # R-F2754 — superseded-connection reaper. _reconnect() (write) and
@@ -1466,14 +1468,14 @@ async def connect(db_path: str | None = None) -> bool:
         # lifespan BEFORE this connect) so it is off the connect critical path.
         _conn = await asyncio.wait_for(
             aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
-        # R-F1449/R-F2242: open the READ-connection POOL (_READ_POOL_SIZE
-        # connections, each its own aiosqlite thread) so concurrent reads run in
+        # R-F1449/R-F2242/R-F4211: open _READ_POOL_SIZE point connections plus
+        # one dedicated scan connection, each with its own aiosqlite thread, so reads run in
         # parallel instead of serializing on one thread. PRAGMAs go through the
         # shared _configure_read_conn helper (R-F2132: busy_timeout BEFORE
         # journal_mode — the boot-deadlock guard). _read_conn stays as pool[0] so
         # the existing close()/reconnect references keep working.
         _read_pool = []
-        for _ in range(_READ_POOL_SIZE):
+        for _ in range(_READ_POOL_SIZE + 1):
             _rc = await asyncio.wait_for(
                 aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
             await _configure_read_conn(_rc)
@@ -2139,7 +2141,7 @@ async def _ensure_read_conn() -> None:
         # the shared helper (R-F2132 boot-deadlock guard).
         _old_pool = list(_read_pool)  # R-F2754: capture BEFORE swap to reap after
         new_pool = []
-        for _ in range(_READ_POOL_SIZE):
+        for _ in range(_READ_POOL_SIZE + 1):
             _rc = await aiosqlite.connect(str(_DB_PATH))
             # R-F3251 — TRACK IT BEFORE CONFIGURING. `_configure_read_conn` runs
             # PRAGMAs, so it can raise on a stressed store; appending afterwards
@@ -3922,7 +3924,7 @@ def connection_gauge() -> dict:
     _WORKER_THREAD_NAMES = ("_connection_worker_thread", "_patched_worker")
     workers = sum(1 for t in _th.enumerate()
                   if t.is_alive() and any(n in t.name for n in _WORKER_THREAD_NAMES))
-    expected = _READ_POOL_SIZE + 1 + 2 + 6
+    expected = _READ_POOL_SIZE + 1 + 1 + 2 + 6
     return {
         "workers": workers,
         "stuck_reaps": len(_reap_tasks),
