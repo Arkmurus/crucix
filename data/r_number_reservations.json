@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4186,
+  "next_available": 4188,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35768,6 +35768,24 @@
       "commit_sha": "ed908e5b",
       "notes": null,
       "shipped_at": "2026-08-20T05:55:40Z"
+    },
+    {
+      "r_number": "R-F4186",
+      "title": "promote customer dashboard without admin-only dependencies",
+      "claimed_at": "2026-08-20T05:58:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4187",
+      "title": "bound aria-app backend reads with cancellation",
+      "claimed_at": "2026-08-20T06:08:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

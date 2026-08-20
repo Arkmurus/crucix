@@ -5,6 +5,7 @@
 
 import { cookies } from 'next/headers';
 import { TOKEN_COOKIE } from './auth';
+import { fetchWithDeadline } from './fetch-deadline';
 
 function backendBase(): string {
   return process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3117';
@@ -13,7 +14,7 @@ function backendBase(): string {
 /** Server-side fetch that forwards the caller's JWT from the httpOnly cookie. */
 export async function apiServer<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const token = (await cookies()).get(TOKEN_COOKIE)?.value;
-  const res = await fetch(`${backendBase()}${path}`, {
+  const res = await fetchWithDeadline(`${backendBase()}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',

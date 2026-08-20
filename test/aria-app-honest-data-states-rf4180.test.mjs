@@ -29,8 +29,6 @@ assert.match(dashboard, /reportsR\.error/,
   'dashboard report count must retain its independent API error');
 assert.match(dashboard, /watchR\.error/,
   'dashboard watchlist count must retain its independent API error');
-assert.match(dashboard, /pipelineR\.error/,
-  'dashboard pipeline count must retain its independent API error');
 assert.match(dashboard, /oppsR\.error/,
   'dashboard opportunities count must retain its independent API error');
 assert.match(dashboard, /value:\s*[^,]+,\s*unavailable:/,

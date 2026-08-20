@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FileSearch, Eye, TrendingUp, Briefcase, ArrowRight } from 'lucide-react';
+import { FileSearch, Eye, TrendingUp, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
@@ -17,29 +17,26 @@ function arr<T>(v: unknown, key: string): T[] {
 }
 
 export default async function DashboardPage() {
-  const [reportsR, watchR, pipelineR, oppsR] = await Promise.all([
+  const [reportsR, watchR, oppsR] = await Promise.all([
     tryApiServer<{ reports?: Report[] }>('/api/aria/dd/reports?limit=100'),
     tryApiServer<{ watchlist?: unknown[] }>('/api/aria/dd/watchlist'),
-    tryApiServer<unknown[]>('/api/bd-intelligence/pipeline'),
     tryApiServer<{ opportunities?: unknown[] }>('/api/opportunities'),
   ]);
 
   const reports = arr<Report>(reportsR.data, 'reports');
   const watch = arr<unknown>(watchR.data, 'watchlist');
-  const deals = arr<unknown>(pipelineR.data, 'pipeline');
   const opps = arr<unknown>(oppsR.data, 'opportunities');
 
   const kpis = [
     { label: 'DD Reports', value: reports.length, unavailable: Boolean(reportsR.error), icon: FileSearch, href: '/reports' },
     { label: 'Watchlist', value: watch.length, unavailable: Boolean(watchR.error), icon: Eye, href: '/watchlist' },
     { label: 'Opportunities', value: opps.length, unavailable: Boolean(oppsR.error), icon: TrendingUp, href: '/opportunities' },
-    { label: 'Active Deals', value: deals.length, unavailable: Boolean(pipelineR.error), icon: Briefcase, href: '/opportunities' },
   ];
 
   const recent = reports.slice(0, 6);
 
   return (
-    <div>
+    <div data-aria-surface="next-customer-dashboard">
       <PageHeader title="Dashboard" description="Your due-diligence, intelligence and opportunities at a glance." />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
