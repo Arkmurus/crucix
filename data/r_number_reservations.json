@@ -35998,9 +35998,10 @@
       "title": "Harden heavy capability dependency probes",
       "claimed_at": "2026-08-20T15:02:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "36c76f69",
+      "notes": null,
+      "shipped_at": "2026-08-20T15:18:01Z"
     }
   ]
 }
