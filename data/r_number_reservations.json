@@ -35834,9 +35834,10 @@
       "title": "register tenant source routes at boot",
       "claimed_at": "2026-08-20T08:22:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e95a46b5",
+      "notes": null,
+      "shipped_at": "2026-08-20T08:32:54Z"
     }
   ]
 }
