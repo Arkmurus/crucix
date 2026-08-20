@@ -35764,9 +35764,10 @@
       "title": "restore two-factor authentication in native sign-in",
       "claimed_at": "2026-08-20T05:49:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ed908e5b",
+      "notes": null,
+      "shipped_at": "2026-08-20T05:55:40Z"
     }
   ]
 }
