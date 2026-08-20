@@ -1527,6 +1527,10 @@ async def lifespan(app: FastAPI):
         """Everything that was between the heavy graph warmup and the yield,
         now running in a background task so the server starts immediately."""
         nonlocal _crawler_stop_event, _crawler_task  # R-F2448: share with shutdown cleanup
+        # R-F4211: reconciliation and search-index seeding exercise the shared
+        # state/database tiers. Sequence this non-critical work behind graph
+        # hydration; HTTP is already serving at this point.
+        await _await_heavy_graph_ready(app)
         # ---- R-F1891 - recover orphaned async jobs after a restart --------
         try:
             from .routes.aria import recover_orphaned_jobs as _recover_jobs
@@ -3482,7 +3486,12 @@ async def lifespan(app: FastAPI):
     # cache and serves /health), so it runs on every role — not a singleton.
     async def _health_precompute_loop():
         from .routes.aria import health_check_ep as _hc, health_perf_ep as _hp
-        await asyncio.sleep(10)   # let infra (redis/rag) come up so the first warm is real
+        # R-F4211: the first aggregation reads brain stats, neuron metadata,
+        # error history, and DD cursors. Live release 3032 proved that firing it
+        # at T+10 overlapped 612k-fact hydration, timed out state reads, and then
+        # amplified contention by recording a capability gap. Endpoints remain
+        # available; only their proactive cache warmer waits for settled state.
+        await _await_heavy_graph_ready(app)
         while True:
             for _name, _fn in (("health", _hc), ("health_perf", _hp)):
                 try:

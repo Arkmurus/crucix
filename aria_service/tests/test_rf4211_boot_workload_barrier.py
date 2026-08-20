@@ -27,6 +27,8 @@ def test_every_boot_stampede_source_waits_on_the_shared_barrier():
     """Pin the complete wiring so a future edit cannot bypass the barrier."""
     source = function_source(main, "lifespan")
     gated_functions = (
+        "_boot_continuation",
+        "_health_precompute_loop",
         "_bootstrap_autonomous_engine_bg",
         "_seed_bg",
         "_seed_knowledge_bg",
