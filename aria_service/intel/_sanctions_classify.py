@@ -17,7 +17,7 @@ Usage:
     # result = {"worst_severity": "amber", "summary": "...", "per_match": [...]}
 """
 from __future__ import annotations
-from .engine_wiring import wire_failure
+from .engine_wiring import wired
 
 
 # Topic → severity. Anything NOT in this map defaults to "info".
@@ -700,6 +700,30 @@ _STOPWORDS: set[str] = {
     "a", "an", "with", "or", "new", "old",
 }
 
+# R-F4172 / C-186 — common modifiers that are too low-distinctiveness to be
+# the sole identity evidence for a mandatory refusal. Unlike stopwords these
+# remain visible in names and summaries; they only cap a would-be BLOCKING
+# verdict at AMBER when no similarity measurement exists. This is deliberately
+# conservative and additive: an unknown token keeps the established behaviour,
+# while distinctive single-token identities such as "modirum" remain blocking.
+_LOW_DISTINCTIVENESS_IDENTITY_TOKENS: frozenset[str] = frozenset({
+    "atlas",
+    "black",
+    "crown",
+    "delta",
+    "prime",
+    "royal",
+})
+
+
+def _similarity_is_measured(match: dict) -> bool:
+    """Return whether ``string_similarity`` contains a numeric measurement."""
+    raw_similarity = match.get("string_similarity")
+    try:
+        return raw_similarity is not None and float(raw_similarity) >= 0.0
+    except (TypeError, ValueError):
+        return False
+
 # R-F277 (2026-05-11) — geographic / country tokens. Two entities sharing
 # a country name in their corporate name is NOT evidence of relationship
 # (both legally registered there, that's all). Pre-R-F277 a query like
@@ -849,6 +873,11 @@ def _name_overlap(query: str, candidate: str) -> int:
     return len(q_tokens & c_tokens)
 
 
+@wired(
+    module="_sanctions_classify",
+    summary="Classify sanctions match",
+    gap_type="engine_failure",
+)
 def classify_match(match: dict, query_name: str = "") -> str:
     """Classify one match into 'info' | 'amber' | 'red' | 'hard_stop'.
 
@@ -954,6 +983,21 @@ def classify_match(match: dict, query_name: str = "") -> str:
             only_token = next(iter(shared))
             if len(only_token) < 5:
                 severity = "info"
+            else:
+                low_distinctiveness_only = (
+                    only_token in _LOW_DISTINCTIVENESS_IDENTITY_TOKENS
+                    and len(q_tokens) >= 2
+                    and len(c_tokens) >= 2
+                )
+                if (
+                    low_distinctiveness_only
+                    and not _similarity_is_measured(match)
+                    and SEVERITY_RANK[severity] >= SEVERITY_RANK["red"]
+                ):
+                    # R-F4172: an absent measurement is not evidence of a match.
+                    # Preserve the candidate for human review at AMBER, but do not
+                    # let one common modifier alone compel refusal or SAR language.
+                    severity = "amber"
     # ── R-F4177 (C-189) — A BLOCKING VERDICT MUST PASS THE BLOCKING GATE ────
     #
     # `is_corroborated_match()` opens with "True iff `match` may drive a BLOCKING
@@ -1016,14 +1060,6 @@ def classify_match(match: dict, query_name: str = "") -> str:
         and SEVERITY_RANK[severity] > SEVERITY_RANK["amber"]
     ):
         severity = "amber"
-    # R-F996 — wire to brain
-    from .engine_wiring import wire_success, wire_failure
-    wire_success(
-        module="_sanctions_classify",
-        summary="Classify Match",
-        source_id="_sanctions_classify:R-F996",
-    )
-
     return severity
 
 
@@ -1111,6 +1147,18 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             for source_id, (_label, slugs) in _CANONICAL_SANCTIONS_SOURCES.items()
             if any(slug in _ds_text for slug in slugs)
         })
+        _query_tokens = _tokenize_entity_name(query_name) if query_name else set()
+        _candidate_tokens = _tokenize_entity_name(candidate_name) if query_name else set()
+        _shared_tokens = _query_tokens & _candidate_tokens
+        low_distinctiveness_capped = bool(
+            final_severity == "amber"
+            and topic_severity in {"red", "hard_stop"}
+            and len(_shared_tokens) == 1
+            and next(iter(_shared_tokens)) in _LOW_DISTINCTIVENESS_IDENTITY_TOKENS
+            and len(_query_tokens) >= 2
+            and len(_candidate_tokens) >= 2
+            and not _similarity_is_measured(m)
+        )
         # R-F434: detect brandified-hostname cap separately from token-
         # overlap demotion so the operator can see which gate fired.
         # A match is "hostname-capped" when the origin tag is set and there
@@ -1139,6 +1187,7 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "noise_filtered": is_noise,  # R-F2362: was_demoted OR zero-overlap noise
             "brandified_hostname_capped": hostname_capped,  # R-F434
             "brandified_stem": m.get("_brandified_stem") or "",  # R-F434
+            "low_distinctiveness_capped": low_distinctiveness_capped,
             # R-F335 (2026-05-11): match-path transparency for operator
             # verification. Without these the operator can't tell HOW the
             # query reached the sanctioned candidate (was it primary name,

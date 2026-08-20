@@ -1,4 +1,4 @@
-"""C-186 (OPEN) - a single shared generic token produced a HARD STOP with a SAR
+"""C-186 - a single shared generic token produced a HARD STOP with a SAR
 recommendation against a live UK company.
 
 **Found in a DELIVERED DD report**, `dd_0d94ba69f415`, generated 2026-08-19
@@ -86,20 +86,22 @@ below cover exactly that residue.
    the rule leaves it alone. It lives in the screen/`derive_verified_sources`
    layer rather than here.
 
-**The severity policy itself is an operator decision** (CLAUDE.md section 21e:
-legal exposure - SAR filing and defamation - is escalated, not coded). Which
-error we prefer on the weakest class of overlap is not Claude's call to make
-silently.
+**The severity policy itself was an operator decision** because it carries SAR
+and defamation exposure. The operator's explicit instruction to pursue the
+remaining work resolved that disposition in favour of the conservative AMBER
+boundary below; it was not inferred silently.
 
-The `xfail(strict=True)` markers below are deliberate: they state the intended
-behaviour, they are not a standing red test, and they will FAIL LOUDLY the
-moment someone fixes this - which is the prompt to delete the marker.
+R-F4172 implements the conservative policy choice: a curated common token may
+not be the sole identity evidence for refusal when similarity is unmeasured.
+The candidate remains visible at AMBER; unknown and distinctive tokens retain
+the established never-false-clean behaviour.
 """
 from __future__ import annotations
 
 import pytest
 
 from aria_service.intel import _sanctions_classify as sc
+from aria_service.intel import engine_wiring
 
 
 def _match(**kw) -> dict:
@@ -152,6 +154,8 @@ def test_the_delivered_report_is_no_longer_a_hard_stop():
         "the shared token is exactly 5 chars, which is why R-F351's <5 rule "
         "did not fire"
     )
+    aggregate = sc.classify_matches([_delivered()], "BLACK ROSE SECURITY LTD")
+    assert aggregate["per_match"][0]["low_distinctiveness_capped"] is False
 
 
 def test_the_defect_and_a_real_hit_are_structurally_IDENTICAL():
@@ -226,16 +230,7 @@ def test_a_score_below_the_floor_is_still_info():
                              "BLACK ROSE SECURITY LTD") == "info"
 
 
-# ── THE INTENDED BEHAVIOUR (xfail until the policy call is made) ────────────
-
-_REASON = ("C-186 OPEN: a lone shared generic token still compels a refusal when "
-           "the match carries NO measurable similarity (R-F4177/C-189 closed the "
-           "measured-low case, not this one). "
-           "The shape-based fix was reverted because it also demotes real hits "
-           "(see test_the_defect_and_a_real_hit_are_structurally_IDENTICAL). "
-           "Needs either a curated low-entropy token set or the canonical "
-           "per-source cross-check, plus an operator decision on severity "
-           "policy (SAR/defamation exposure, CLAUDE.md 21e).")
+# ── THE R-F4172 POLICY BOUNDARY ─────────────────────────────────────────────
 
 
 def test_the_black_rose_report_is_not_a_hard_stop_anymore():
@@ -245,7 +240,6 @@ def test_the_black_rose_report_is_not_a_hard_stop_anymore():
     assert sc.classify_match(_delivered(), "BLACK ROSE SECURITY LTD") != "hard_stop"
 
 
-@pytest.mark.xfail(strict=True, reason=_REASON)
 @pytest.mark.parametrize("word", ["black", "royal", "crown", "prime",
                                   "delta", "atlas"])
 def test_a_lone_generic_token_should_not_compel_a_refusal(word):
@@ -256,14 +250,68 @@ def test_a_lone_generic_token_should_not_compel_a_refusal(word):
     query, candidate = f"{word} Rose Security Ltd", f"{word} Shield Petrochemical Industries"
     assert len(sc._tokenize_entity_name(query)
                & sc._tokenize_entity_name(candidate)) == 1
-    assert sc.classify_match(_match(name=candidate), query) != "hard_stop"
+    assert sc.classify_match(_match(name=candidate), query) == "amber"
 
 
-@pytest.mark.xfail(strict=True, reason=_REASON)
 def test_a_hard_stop_should_not_cite_a_list_the_screen_called_CLEAN():
     """Candidate direction 2, stated as an executable expectation. The report
     asserted "BIS Entity List - CLEAN" and hard-stopped citing BIS in the same
     document; that is decidable without any policy judgement."""
     verdict = sc.classify_match(_match(lists=["BIS / US Trade Sanctions"]),
                                 "BLACK ROSE SECURITY LTD")
-    assert verdict != "hard_stop"
+    assert verdict == "amber"
+
+
+def test_capability_unmeasured_generic_overlap_cannot_drive_refusal():
+    """Drive the aggregate used by DD and prove the customer-visible tier."""
+    result = sc.classify_matches(
+        [_match(lists=["us_trade"])],
+        query_name="BLACK ROSE SECURITY LTD",
+    )
+
+    assert result["worst_severity"] == "amber"
+    assert result["blocking_source_ids"] == []
+    assert result["per_match"][0]["severity"] == "amber"
+    assert result["per_match"][0]["noise_filtered"] is True
+    assert result["per_match"][0]["low_distinctiveness_capped"] is True
+
+
+def test_unknown_single_token_keeps_never_false_clean_policy():
+    """The curated set must not silently generalise to distinctive names."""
+    assert sc.classify_match(
+        _match(name="Aurelium Defence Industries"),
+        "Aurelium Security Ltd",
+    ) == "hard_stop"
+
+
+def test_malformed_similarity_is_unmeasurable_not_corroboration():
+    assert sc.classify_match(
+        _match(name="Black Shield Industries", string_similarity="unknown"),
+        "Black Rose Security Ltd",
+    ) == "amber"
+
+
+def test_common_token_as_the_whole_name_keeps_escalating():
+    assert sc.classify_match(
+        _match(name="Black", score=0.9),
+        "Black",
+    ) == "hard_stop"
+
+
+def test_classifier_failure_reaches_brain_wiring(monkeypatch):
+    class BrokenMatch(dict):
+        def get(self, *args, **kwargs):
+            raise RuntimeError("corrupt provider match")
+
+    failures = []
+    monkeypatch.setattr(
+        engine_wiring,
+        "wire_failure",
+        lambda **kwargs: failures.append(kwargs),
+    )
+
+    with pytest.raises(RuntimeError, match="corrupt provider match"):
+        sc.classify_match(BrokenMatch(), "Black Rose Security Ltd")
+
+    assert failures and failures[0]["module"] == "_sanctions_classify"
+    assert "corrupt provider match" in failures[0]["detail"]
