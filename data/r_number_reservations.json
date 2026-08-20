@@ -35918,27 +35918,30 @@
       "title": "Preserve retained DD research without synthesis",
       "claimed_at": "2026-08-20T12:14:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a1e3a747",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:57Z"
     },
     {
       "r_number": "R-F4201",
       "title": "Prevent prior reads starving repeat DD",
       "claimed_at": "2026-08-20T12:41:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "de4c18d2",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:58Z"
     },
     {
       "r_number": "R-F4202",
       "title": "Carry retained DD facts across hard cancellation",
       "claimed_at": "2026-08-20T13:22:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "86814e37",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:58Z"
     }
   ]
 }
