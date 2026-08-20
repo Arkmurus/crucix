@@ -2038,7 +2038,7 @@ async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
                     if not loc:
                         break
                     nxt = str(httpx.URL(cur).join(loc))
-                    _ok, _why = _sec.validate_url(nxt)
+                    _ok, _why = await _sec.validate_url_async(nxt)
                     if not _ok:
                         logger.warning("[news_monitor] blocked unsafe redirect for %s: %s -> %s (%s)",
                                        source_name, cur[:80], nxt[:80], _why)
@@ -2511,7 +2511,7 @@ async def poll_feeds(
     else:
         # R-F2046 — also poll admin-curated vault feed sites (no category filter
         # applies to them; they ride the same loop below).
-        sources = sources + _get_vault_feed_sources()
+        sources = sources + await asyncio.to_thread(_get_vault_feed_sources)
 
     total_fetched = 0
     total_new = 0

@@ -105,10 +105,10 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
     falls back to full render only when needed.
     """
     import asyncio as _asyncio
-    from .security import sanitise_url
+    from .security import sanitise_url_async
     from .researcher import extract_structured_html_async
 
-    url = sanitise_url(url)
+    url = await sanitise_url_async(url)
     if not url:
         return "", []
 

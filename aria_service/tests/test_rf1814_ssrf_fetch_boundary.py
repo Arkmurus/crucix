@@ -13,8 +13,10 @@ Capability test drives the REAL helpers: safe_get blocks internal/loopback/metad
 non-http + internal redirects (and never fetches them), allows public; _resolve_source
 rejects an arbitrary local file and accepts a tempdir file.
 """
+import asyncio
 import os
 import tempfile
+import time
 
 import pytest
 
@@ -58,6 +60,15 @@ async def test_safe_get_allows_public():
 
 
 @pytest.mark.asyncio
+async def test_async_url_verdict_preserves_ssrf_policy():
+    """The async public facade allows public literals and blocks metadata IPs."""
+    assert await us.is_safe_url_async("https://93.184.216.34/report") == (True, "")
+    ok, reason = await us.is_safe_url_async("http://169.254.169.254/latest/meta")
+    assert not ok
+    assert "link_local" in reason
+
+
+@pytest.mark.asyncio
 async def test_safe_get_revalidates_redirect_to_internal():
     # public host 302-redirects to a metadata/internal IP — must block at the hop.
     redirect = _Resp(302, {"location": "http://169.254.169.254/"}, url="http://93.184.216.34/")
@@ -66,6 +77,32 @@ async def test_safe_get_revalidates_redirect_to_internal():
         await us.safe_get(c, "http://93.184.216.34/")
     assert "ssrf_blocked" in str(e.value)
     assert c.calls == ["http://93.184.216.34/"]  # fetched once, then blocked the redirect
+
+
+@pytest.mark.asyncio
+async def test_safe_get_dns_miss_never_blocks_event_loop(monkeypatch):
+    """A real safe_get cache miss resolves off-loop and still allows public IPs."""
+    us._DNS_CACHE.clear()
+
+    def _slow_public_resolution(host, port, *args, **kwargs):
+        time.sleep(0.1)
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(us.socket, "getaddrinfo", _slow_public_resolution)
+    c = _FakeClient([_Resp(200, url="https://slow-safe.example.com/")])
+    task = asyncio.create_task(us.safe_get(c, "https://slow-safe.example.com/"))
+    loop = asyncio.get_running_loop()
+    last = loop.time()
+    max_gap = 0.0
+    while not task.done():
+        await asyncio.sleep(0)
+        now = loop.time()
+        max_gap = max(max_gap, now - last)
+        last = now
+
+    response = await task
+    assert response.status_code == 200
+    assert max_gap < 0.05, f"DNS blocked the event loop for {max_gap:.3f}s"
 
 
 @pytest.mark.asyncio

@@ -296,8 +296,8 @@ async def _fetch(url: str, client: httpx.AsyncClient) -> str | None:
     runs before the HTTP call — see intel/url_safety.py for the
     blocked-destination list (loopback, RFC1918, fly-private, internal
     TLDs, credential URLs)."""
-    from ..intel.url_safety import is_safe_url
-    ok, reason = is_safe_url(url)
+    from ..intel.url_safety import is_safe_url_async
+    ok, reason = await is_safe_url_async(url)
     if not ok:
         logger.warning("[spider] refusing unsafe URL fetch: %s (%s)", url, reason)
         return None

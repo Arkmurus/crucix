@@ -70,7 +70,7 @@ async def detect_content_type(url: str, timeout: float = 8.0) -> dict:
     # it (DNS-resolved) and disable redirect-following so a HEAD/stream probe cannot
     # reach an internal host. This mirrors the safe_get posture used by fetch_pdf.
     from . import url_safety as _us
-    _ok_ct, _reason_ct = _us.is_safe_url(url)
+    _ok_ct, _reason_ct = await _us.is_safe_url_async(url)
     if not _ok_ct:
         out["error"] = f"ssrf_blocked:{_reason_ct}"
         return out
@@ -586,7 +586,7 @@ async def fetch_with_fallbacks(
     # headless fallback (which would otherwise navigate to an internal host).
     # Per-hop redirect revalidation is additionally enforced by safe_get below.
     from . import url_safety as _us_entry
-    _ok_entry, _reason_entry = _us_entry.is_safe_url(url)
+    _ok_entry, _reason_entry = await _us_entry.is_safe_url_async(url)
     if not _ok_entry:
         result["error"] = f"ssrf_blocked:{_reason_entry}"
         result["source"] = "blocked_unsafe_url"

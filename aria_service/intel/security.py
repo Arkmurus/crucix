@@ -18,6 +18,7 @@ intelligence gathering activities.
 from __future__ import annotations
 from .engine_wiring import wire_failure
 
+import asyncio
 import ipaddress
 import logging
 import os
@@ -94,9 +95,9 @@ _ALLOW_SCRIPT_EXTENSIONS = os.getenv("ARIA_ALLOW_SCRIPT_EXTENSIONS", "0") == "1"
 # unresolvable host burns the resolver timeout before raising, and a crawler
 # retrying dead domains pays that again for every URL — on the event loop.
 #
-# validate_url is sync with 23 call sites, so making it async would ripple across
-# the tree instead of fixing anything. Cache the lookup instead, with NEGATIVE
-# entries as well as positive ones since the failures are the expensive case.
+# The sync API remains for non-async callers. Production coroutines use the async
+# wrappers below so a cache miss cannot block the serving loop; the cache still
+# avoids repeated positive and negative lookups.
 #
 # What is cached is the VERDICT, never a bare "this host is fine" — a cache that
 # forgot why it said yes would be an SSRF bypass.
@@ -247,6 +248,11 @@ def validate_url(url: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+async def validate_url_async(url: str) -> tuple[bool, str]:
+    """Validate a URL without running DNS resolution on the serving loop."""
+    return await asyncio.to_thread(validate_url, url)
+
+
 # Hosts + path prefixes that always require authentication. Fetching these
 # returns the login page (200 OK after redirect), which then gets ingested.
 _AUTH_REQUIRED_URL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
@@ -347,6 +353,11 @@ def sanitise_url(url: str) -> str | None:
             logger.warning("Blocked URL: %s — %s", url[:100], reason)
         return None
     return url.strip()
+
+
+async def sanitise_url_async(url: str) -> str | None:
+    """Sanitise a URL without running DNS resolution on the serving loop."""
+    return await asyncio.to_thread(sanitise_url, url)
 
 
 # ── Content Security ─────────────────────────────────────────────────────────

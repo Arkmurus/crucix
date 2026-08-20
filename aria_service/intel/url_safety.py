@@ -47,6 +47,7 @@ Usage
 from __future__ import annotations
 from .engine_wiring import wire_failure
 
+import asyncio
 import ipaddress
 import logging
 import socket
@@ -220,6 +221,11 @@ def is_safe_url(url: str) -> tuple[bool, str]:
     return (True, "")
 
 
+async def is_safe_url_async(url: str) -> tuple[bool, str]:
+    """Validate a fetch target without resolving DNS on the serving loop."""
+    return await asyncio.to_thread(is_safe_url, url)
+
+
 def assert_safe_url(url: str) -> None:
     """Raises ValueError if the URL is unsafe. Use in contexts where
     the caller would prefer to crash-early rather than log-and-skip."""
@@ -239,7 +245,7 @@ async def safe_get(client, url, *, max_redirects: int = 3, **kwargs):
     import httpx as _httpx
     cur = url
     for _ in range(max_redirects + 1):
-        ok, reason = is_safe_url(cur)
+        ok, reason = await is_safe_url_async(cur)
         if not ok:
             raise ValueError(f"ssrf_blocked:{reason}")
         kwargs["follow_redirects"] = False

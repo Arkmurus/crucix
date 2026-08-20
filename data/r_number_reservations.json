@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4212,
+  "next_available": 4213,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36025,6 +36025,15 @@
       "r_number": "R-F4211",
       "title": "Isolate state point reads from bulk scans",
       "claimed_at": "2026-08-20T15:45:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4212",
+      "title": "Offload SSRF DNS resolution from serving loop",
+      "claimed_at": "2026-08-20T16:47:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

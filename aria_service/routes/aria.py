@@ -29613,7 +29613,7 @@ def _normalise_vault_source_url(url: str) -> str:
     return f"{host}{path}" + (f"?{query}" if query else "")
 
 
-def _validate_manual_source_research(metadata: Any) -> str | None:
+async def _validate_manual_source_research(metadata: Any) -> str | None:
     """Return a precise admission error when a manual source lacks research."""
     from urllib.parse import urlparse
 
@@ -29647,7 +29647,7 @@ def _validate_manual_source_research(metadata: Any) -> str | None:
         return "evidence URLs must cover at least two independent domains"
     from ..intel import security as _sec
     for evidence_url in evidence:
-        ok, why = _sec.validate_url(evidence_url)
+        ok, why = await _sec.validate_url_async(evidence_url)
         if not ok:
             return f"unsafe evidence URL: {why}"
     return None
@@ -29777,11 +29777,11 @@ async def vault_record_ep(request: Request) -> dict:
     contract = _vault_ingestion_contract(site_type)
     if not site_id or not site_name or not site_url or not agent_id:
         return {"success": False, "error": "site_id, site_name, site_url and agent_id are required"}
-    ok, why = _sec.validate_url(site_url)
+    ok, why = await _sec.validate_url_async(site_url)
     if not ok:
         return {"success": False, "error": f"unsafe URL: {why}"}
     if agent_id == "admin_manual":
-        research_error = _validate_manual_source_research(body.get("metadata"))
+        research_error = await _validate_manual_source_research(body.get("metadata"))
         if research_error:
             return {
                 "success": False,
@@ -29936,7 +29936,7 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
         return {"success": False, "error": "source details are too long"}
     if site_type not in ("rss", "website"):
         return {"success": False, "error": "site_type must be 'rss' or 'website'"}
-    ok, why = _sec.validate_url(url)
+    ok, why = await _sec.validate_url_async(url)
     if not ok:
         return {"success": False, "error": f"unsafe URL: {why}"}
     owner = f"user:{user_id}"

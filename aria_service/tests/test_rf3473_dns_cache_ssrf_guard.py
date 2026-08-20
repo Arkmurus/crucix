@@ -16,21 +16,22 @@ and it is SLOWEST exactly when it fails: an unresolvable host burns the resolver
 timeout before raising. A crawler retrying dead domains pays that repeatedly, on
 the loop.
 
-``validate_url`` is sync with 23 call sites, so converting it to async would
-ripple across the tree rather than fix anything. The surgical fix is to stop
-performing the same lookup over and over: a bounded TTL cache, with NEGATIVE
-entries as well as positive ones, since the failures are the expensive case.
+The sync API remains for non-async callers, while production coroutines use an
+off-loop async facade. A bounded TTL cache, including negative entries, avoids
+repeating the expensive lookup.
 
 The cache must not become an SSRF bypass, so the private-range verdict is what is
 cached — never a bare "this host is fine".
 """
-from __future__ import annotations
-
+import asyncio
+import threading
 import time
 
 import pytest
 
 from aria_service.intel import security
+from aria_service.intel import researcher
+from aria_service.intel import url_safety
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +71,90 @@ class TestResolveIsCached:
         for _ in range(5):
             security.validate_url("https://dead-domain-xyz.example/a")
         assert calls["n"] == 1, f"resolved {calls['n']} times; negative cache missed"
+
+    @pytest.mark.asyncio
+    async def test_async_validation_keeps_slow_dns_off_serving_loop(self, monkeypatch):
+        """Drive the real public validator while a resolver call is blocked."""
+        event_loop_thread = threading.get_ident()
+        resolver_threads: list[int] = []
+
+        def _slow_resolution(host, port, *args, **kwargs):
+            resolver_threads.append(threading.get_ident())
+            time.sleep(0.1)
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(security.socket, "getaddrinfo", _slow_resolution)
+        task = asyncio.create_task(
+            security.validate_url_async("https://slow-dns.example.com/a")
+        )
+        ticks = 0
+        while not task.done():
+            ticks += 1
+            await asyncio.sleep(0)
+        ok, reason = await task
+
+        assert ok, reason
+        assert ticks > 1, "slow DNS blocked the serving event loop"
+        assert resolver_threads and all(
+            tid != event_loop_thread for tid in resolver_threads
+        ), "getaddrinfo ran on the serving event-loop thread"
+
+    @pytest.mark.asyncio
+    async def test_async_sanitiser_returns_safe_url_and_blocks_private_host(self, monkeypatch):
+        """The public async sanitiser preserves both allow and refusal outcomes."""
+        monkeypatch.setattr(
+            security.socket,
+            "getaddrinfo",
+            lambda *args, **kwargs: [(2, 1, 6, "", ("93.184.216.34", 0))],
+        )
+        assert await security.sanitise_url_async("https://safe.example.com/a") == (
+            "https://safe.example.com/a"
+        )
+        assert await security.sanitise_url_async("http://127.0.0.1/private") is None
+
+    @pytest.mark.asyncio
+    async def test_live_stall_path_extract_url_text_keeps_dns_off_loop(self, monkeypatch):
+        """The production stack's real extractor stays responsive on DNS miss."""
+        def _slow_resolution(host, port, *args, **kwargs):
+            time.sleep(0.1)
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        class _Response:
+            status_code = 200
+            text = (
+                "<html><head><title>Verified source</title></head><body>"
+                + "Grounded public-source evidence. " * 20
+                + "</body></html>"
+            )
+
+        class _Client:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+        async def _safe_get(client, url, **kwargs):
+            return _Response()
+
+        monkeypatch.setattr(security.socket, "getaddrinfo", _slow_resolution)
+        monkeypatch.setattr(researcher.httpx, "AsyncClient", _Client)
+        monkeypatch.setattr(url_safety, "safe_get", _safe_get)
+
+        task = asyncio.create_task(
+            researcher.extract_url_text("https://slow-extractor.example.com/report")
+        )
+        ticks = 0
+        while not task.done():
+            ticks += 1
+            await asyncio.sleep(0)
+        result = await task
+
+        assert result["extraction_ok"] is True
+        assert ticks > 1, "extract_url_text blocked the serving loop during DNS"
 
     def test_distinct_hosts_are_resolved_separately(self, monkeypatch):
         seen: list[str] = []

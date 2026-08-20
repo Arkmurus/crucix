@@ -1146,7 +1146,7 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     if timeout <= 0:
         timeout = float(os.getenv("ARIA_FETCH_TIMEOUT", "30.0"))
     from .security import (
-        sanitise_url, scan_content, strip_dangerous_content, is_internal_ref,
+        sanitise_url_async, scan_content, strip_dangerous_content, is_internal_ref,
     )
     # R-F3355 — ARIA's OWN memory reaches this fetcher. `_web_search` maps every
     # SearchResult into the pipeline as `"link": r.url` (researcher.py:1632)
@@ -1163,7 +1163,7 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     # is still processed, just not pointlessly fetched.
     if is_internal_ref(url):
         return ""
-    url = sanitise_url(url)
+    url = await sanitise_url_async(url)
     if not url:
         return ""
 
@@ -1176,7 +1176,7 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     html = ""
     try:
         # R-F1851 (DD stage 2) — SSRF guard. `url` is a discovered/user-supplied page
-        # URL; sanitise_url is parse-time only (no DNS), so route through safe_get
+        # URL; sanitisation includes DNS, then safe_get revalidates every redirect
         # which DNS-resolves the host and revalidates every redirect hop (raw
         # follow_redirects=True could open-redirect to an internal service).
         from . import url_safety as _us
@@ -3291,8 +3291,8 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
     # top-level deep-extraction entry so one guard covers the homepage,
     # the re-fetch for raw HTML (line ~1627), and the derived
     # internal-link crawl later.
-    from .url_safety import is_safe_url as _safe_url
-    _ok, _reason = _safe_url(url)
+    from .url_safety import is_safe_url_async as _safe_url
+    _ok, _reason = await _safe_url(url)
     if not _ok:
         logger.warning("extract_url_deep blocked unsafe URL %r: %s", url, _reason)
         return {
@@ -3312,8 +3312,8 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
     # Step 2: parse homepage for high-value internal links
     # Re-fetch the raw HTML so we can scan the hrefs (extract_url_text
     # only returns the cleaned text, not the original markup)
-    from .security import sanitise_url
-    sanitised = sanitise_url(url)
+    from .security import sanitise_url_async
+    sanitised = await sanitise_url_async(url)
     raw_html = ""
     if sanitised:
         try:
@@ -3500,15 +3500,15 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     On any error returns `extraction_ok=False` so callers can tell the
     LLM "the fetch failed — refuse per clause 9".
     """
-    from .security import sanitise_url
-    url = sanitise_url(url)
+    from .security import sanitise_url_async
+    url = await sanitise_url_async(url)
     if not url:
         return {"url": url, "extraction_ok": False, "error": "invalid url", "text": ""}
 
     # SSRF guard — see url_safety.py. Applied AFTER sanitise_url
     # (which handles URL-encoding / normalisation) and BEFORE any fetch.
-    from .url_safety import is_safe_url as _safe_url
-    _ok, _reason = _safe_url(url)
+    from .url_safety import is_safe_url_async as _safe_url
+    _ok, _reason = await _safe_url(url)
     if not _ok:
         logger.warning("extract_url_text blocked unsafe URL %r: %s", url, _reason)
         return {"url": url, "extraction_ok": False,
@@ -3518,7 +3518,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     html = ""
     try:
         # R-F1851 (DD stage 2) — SSRF guard. `url` is a discovered/user-supplied page
-        # URL; sanitise_url is parse-time only (no DNS), so route through safe_get
+        # URL; sanitisation includes DNS, then safe_get revalidates every redirect
         # which DNS-resolves the host and revalidates every redirect hop (raw
         # follow_redirects=True could open-redirect to an internal service).
         from . import url_safety as _us

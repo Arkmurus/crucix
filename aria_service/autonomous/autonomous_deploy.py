@@ -317,8 +317,8 @@ class WebhookNotifier:
         # internal services) would turn deploy notifications into an SSRF that
         # leaks operational state in the payload. Validate before POSTing.
         try:
-            from ..intel.url_safety import is_safe_url
-            ok, reason = is_safe_url(self.webhook_url)
+            from ..intel.url_safety import is_safe_url_async
+            ok, reason = await is_safe_url_async(self.webhook_url)
             if not ok:
                 logger.warning("[webhook] refusing unsafe webhook_url: %s", reason)
                 return
