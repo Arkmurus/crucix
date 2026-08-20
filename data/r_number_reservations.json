@@ -35908,9 +35908,10 @@
       "title": "DD reliance grading and identity match integrity",
       "claimed_at": "2026-08-20T11:11:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "83764298",
+      "notes": null,
+      "shipped_at": "2026-08-20T11:36:02Z"
     }
   ]
 }
