@@ -35958,9 +35958,10 @@
       "title": "Fix deep-research URL intent routing",
       "claimed_at": "2026-08-20T14:26:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f9ce788",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:39:38Z"
     }
   ]
 }
