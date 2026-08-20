@@ -2080,6 +2080,7 @@ async def _run_identity_person(
                 detail=classified["summary"],
                 source="sanctions.person_screen",
                 confidence="CONFIRMED",
+                sanctions_source_ids=classified.get("blocking_source_ids") or [],
             ))
             hard_stop = True
         elif worst == "red":
@@ -2089,6 +2090,7 @@ async def _run_identity_person(
                 detail=classified["summary"],
                 source="sanctions.person_screen",
                 confidence="PROBABLE",
+                sanctions_source_ids=classified.get("blocking_source_ids") or [],
             ))
         elif worst == "amber":
             report.identity.findings.append(Finding(
@@ -3461,6 +3463,7 @@ async def _rescreen_under_registered_name(
             ),
             source="sanctions.screen_with_aliases:R-F3219",
             confidence="PROBABLE" if _worst != "hard_stop" else "CONFIRMED",
+            sanctions_source_ids=classified.get("blocking_source_ids") or [],
         ))
         return _worst == "hard_stop"
 
@@ -5824,6 +5827,7 @@ async def _run_identity(
                 detail=classified["summary"],
                 source="sanctions.screen_with_aliases",
                 confidence="CONFIRMED",
+                sanctions_source_ids=classified.get("blocking_source_ids") or [],
             ))
             hard_stop = True
         elif classified["worst_severity"] == "red":
@@ -5833,6 +5837,7 @@ async def _run_identity(
                 detail=classified["summary"],
                 source="sanctions.screen_with_aliases",
                 confidence="PROBABLE",
+                sanctions_source_ids=classified.get("blocking_source_ids") or [],
             ))
         elif classified["worst_severity"] == "amber":
             report.identity.findings.append(Finding(

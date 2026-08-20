@@ -22,6 +22,11 @@ from aria_service.intel import r_number_registry as reg
 
 
 def main() -> int:
+    # R-F4196 — Windows PowerShell may expose a cp1252 stdout even though the
+    # UTF-8 ledger legitimately contains arrows and em dashes. Reporting must
+    # not crash halfway through an audit because one title is unrepresentable.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     p = argparse.ArgumentParser(description="R-number reservation log (R-F540)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -42,6 +47,15 @@ def main() -> int:
 
     s_list = sub.add_parser("list", help="list reservations")
     s_list.add_argument("--status", default=None, choices=["in_progress", "shipped", "abandoned"])
+
+    s_stale = sub.add_parser(
+        "stale",
+        help="report old in-progress claims for evidence-based review",
+    )
+    s_stale.add_argument("--days", type=int, default=14,
+                         help="age threshold in whole days (default: 14)")
+    s_stale.add_argument("--limit", type=int, default=25,
+                         help="maximum entries to print (default: 25)")
 
     # R-F3095 — §2 says "mark shipped at push"; nothing enforced it, and 372
     # in_progress entries with no SHA accumulated. Git cannot forget, so reconcile
@@ -76,6 +90,24 @@ def main() -> int:
     elif args.cmd == "list":
         rs = reg.list_reservations(status_filter=args.status)
         print(json.dumps(rs, indent=2))
+    elif args.cmd == "stale":
+        if args.limit < 1:
+            p.error("--limit must be positive")
+        stale = reg.stale_reservations(args.days)
+        if not stale:
+            print(f"OK — no in-progress reservation is older than {args.days} day(s).")
+            return 0
+        print(
+            f"STALE — {len(stale)} in-progress reservation(s) are older than "
+            f"{args.days} day(s). Review against commits, tests, and live probes; "
+            "age alone never closes work."
+        )
+        for entry in stale[:args.limit]:
+            age = "UNKNOWN" if entry["age_days"] is None else str(entry["age_days"])
+            print(f"  {entry['r_number']}  age_days={age}  {entry['title']}")
+        if len(stale) > args.limit:
+            print(f"  ... {len(stale) - args.limit} more (raise --limit to inspect)")
+        return 1
     elif args.cmd == "unpublished":
         res = reg.unpublished_claims(ref=args.ref)
         if not res["readable"]:

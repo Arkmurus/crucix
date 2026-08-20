@@ -842,6 +842,53 @@ def list_reservations(
     return rs
 
 
+def stale_reservations(
+    max_age_days: int = 14,
+    *,
+    path: Path | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Return unresolved reservations older than ``max_age_days``.
+
+    This is deliberately read-only. Age is evidence that a claim needs review,
+    never evidence that its engineering work shipped or can be abandoned.
+    Unparseable timestamps are included with ``age_days=None`` so malformed
+    ledger state fails visible instead of disappearing from the audit.
+    """
+    if max_age_days < 0:
+        raise ValueError("max_age_days must be non-negative")
+    observed_at = now or datetime.now(timezone.utc)
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    stale: list[dict[str, Any]] = []
+    for reservation in list_reservations(status_filter="in_progress", path=path):
+        claimed_raw = str(reservation.get("claimed_at") or "").strip()
+        age_days: int | None = None
+        try:
+            claimed_at = datetime.fromisoformat(claimed_raw.replace("Z", "+00:00"))
+            if claimed_at.tzinfo is None:
+                claimed_at = claimed_at.replace(tzinfo=timezone.utc)
+            age_days = max(0, (observed_at - claimed_at).days)
+        except (TypeError, ValueError):
+            pass
+        if age_days is None or age_days > max_age_days:
+            stale.append({
+                "r_number": reservation.get("r_number"),
+                "title": reservation.get("title"),
+                "claimed_at": claimed_raw or None,
+                "claimed_by": reservation.get("claimed_by"),
+                "age_days": age_days,
+            })
+    return sorted(
+        stale,
+        key=lambda item: (
+            item["age_days"] is not None,
+            -(item["age_days"] or 0),
+            str(item["r_number"]),
+        ),
+    )
+
+
 def peek_next(*, path: Path | None = None, repo_root: Path | None = None) -> str:
     """Return the next R-number that would be assigned, without claiming.
 

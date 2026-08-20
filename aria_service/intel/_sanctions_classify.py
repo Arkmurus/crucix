@@ -193,6 +193,10 @@ _CANONICAL_SANCTIONS_SOURCES: dict[str, tuple[str, list[str]]] = {
         "US Commerce — Military End User List",
         ["us_mil_end_user", "us_meu"],
     ),
+    "US Trade CSL": (
+        "US Commerce — Consolidated Screening List",
+        ["us_trade"],
+    ),
     "UK OFSI / HMT": (
         "HM Treasury Office of Financial Sanctions Implementation",
         ["gb_hmt", "ofsi", "gb_fcdo"],
@@ -525,6 +529,24 @@ def detect_screen_contradictions(findings, verified_sources) -> list[dict]:
             continue
         source = str(get("source") or "")
         detail = str(get("detail") or get("title") or "")
+        source_ids = {
+            str(source_id).strip().casefold()
+            for source_id in (get("sanctions_source_ids") or [])
+            if str(source_id).strip()
+        }
+        structured_hits = clean & source_ids
+        if structured_hits:
+            for canonical in sorted(structured_hits):
+                out.append({
+                    "list": canonical,
+                    "finding": detail[:300],
+                    "severity": sev,
+                })
+            continue
+        if source_ids:
+            # Structured provenance is authoritative. Falling back to prose
+            # when ids are present would reintroduce a second, drifting answer.
+            continue
         # Match the finding's source/detail against each list reported CLEAN.
         # Compared on tokens rather than substrings so "OFAC SDN" matches
         # "sources.ofac_sdn" without "sdn" alone matching an unrelated list.
@@ -1031,6 +1053,7 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "per_match": [],
             "total_matches": 0,
             "noise_filtered": 0,
+            "blocking_source_ids": [],
         }
 
     per_match: list[dict] = []
@@ -1082,6 +1105,12 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             noise_filtered += 1
         _ds = m.get("lists") or m.get("datasets") or []
         _list_labels = [label for _, _, label in _defence_list_hits(_ds)]
+        _ds_text = " ".join(str(dataset).casefold() for dataset in _ds)
+        _canonical_source_ids = sorted({
+            source_id
+            for source_id, (_label, slugs) in _CANONICAL_SANCTIONS_SOURCES.items()
+            if any(slug in _ds_text for slug in slugs)
+        })
         # R-F434: detect brandified-hostname cap separately from token-
         # overlap demotion so the operator can see which gate fired.
         # A match is "hostname-capped" when the origin tag is set and there
@@ -1104,6 +1133,7 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "topics":   m.get("topics") or [],
             "datasets": _ds,
             "list_labels": _list_labels,  # R-F55: human-readable list names
+            "canonical_source_ids": _canonical_source_ids,
             "severity": final_severity,
             "token_overlap": overlap,
             "noise_filtered": is_noise,  # R-F2362: was_demoted OR zero-overlap noise
@@ -1188,6 +1218,13 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         "per_match": per_match,
         "total_matches": len(per_match),
         "noise_filtered": noise_filtered,
+        "blocking_source_ids": sorted({
+            source_id
+            for match in per_match
+            if not match.get("noise_filtered")
+            and SEVERITY_RANK[match["severity"]] >= SEVERITY_RANK["red"]
+            for source_id in match.get("canonical_source_ids", [])
+        }),
     }
 
 # R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

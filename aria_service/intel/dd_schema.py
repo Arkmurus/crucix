@@ -268,6 +268,11 @@ class Finding:
     # R-5005: list of source identifiers backing this finding. Default
     # empty list; __post_init__ populates from `source` for legacy callers.
     sources: list[str] = field(default_factory=list)
+    # R-F4175 — canonical sanctions-source identities that drove a blocking
+    # finding. These are decision provenance, not citation origins (`sources`).
+    # Keeping them structured lets the re-screen contradiction guard compare
+    # identities instead of trying to recover list names from rendered prose.
+    sanctions_source_ids: list[str] = field(default_factory=list)
     # R-5005: whether the gate downgraded the original confidence.
     # Set by __post_init__; renderers can surface this so operator
     # sees that a stronger tag was demoted (not just a weak tag from

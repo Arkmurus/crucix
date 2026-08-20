@@ -120,16 +120,17 @@ class TestCompaniesHousePscReverse:
 class TestSanctionsRelationshipEnrichment:
     def test_enrich_attaches_inherited_risk(self, monkeypatch):
         from aria_service.intel import sanctions as s
+        from aria_service.intel.sanctions import _SourceQuery
 
         async def fake_search(query: str, limit: int = 5):
             if "ivan" in query.lower():
-                return [{
+                return _SourceQuery([{
                     "id": "Q12345",
                     "properties": {"name": ["Ivan Ivanov"], "topics": ["sanction"]},
                     "datasets": ["eu_fsf", "ofac_sdn"],
                     "caption": "Ivan Ivanov",
-                }]
-            return []
+                }], True, "ok")
+            return _SourceQuery([], True, "ok")
 
         monkeypatch.setattr(s, "_opensanctions_search", fake_search)
         screen = {

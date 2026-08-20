@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4194,
+  "next_available": 4197,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35675,9 +35675,11 @@
       "title": "C-186 gate hard_stop on is_corroborated_match, the module's own blocking gate",
       "claimed_at": "2026-08-19T14:29:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-08-20T09:03:35Z",
+      "abandon_reason": "Superseded by R-F4177, which shipped the same is_corroborated_match blocking gate at commit 6ee31038."
     },
     {
       "r_number": "R-F4177",
@@ -35848,6 +35850,33 @@
       "commit_sha": "654a9043",
       "notes": null,
       "shipped_at": "2026-08-20T08:48:50Z"
+    },
+    {
+      "r_number": "R-F4194",
+      "title": "isolate sanctions coverage announcement latch in tests",
+      "claimed_at": "2026-08-20T09:02:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4195",
+      "title": "align sanctions relationship tests with source query contract",
+      "claimed_at": "2026-08-20T09:12:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4196",
+      "title": "add evidence-safe stale reservation audit",
+      "claimed_at": "2026-08-20T09:15:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

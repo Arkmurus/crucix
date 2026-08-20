@@ -42,7 +42,7 @@ def _hit(*_a, **_k):
 
 
 @pytest.mark.asyncio
-async def test_fuzzy_screen_source_down_never_reads_as_full_coverage_clean():
+async def test_fuzzy_screen_source_down_never_reads_as_full_coverage_clean(monkeypatch):
     """OpenSanctions down → the result must NOT present as a full-coverage pass.
 
     R-F4048 (C-107) — THIS TEST PINNED A SUPERSEDED CONTRACT AND HAD BEEN RED
@@ -62,8 +62,11 @@ async def test_fuzzy_screen_source_down_never_reads_as_full_coverage_clean():
     mean deleting the floor, i.e. taking screening dark whenever OpenSanctions
     is unavailable.
     """
+    monkeypatch.setattr(sanctions, "_COVERAGE_DEGRADED_ANNOUNCED", False)
     with patch.object(sanctions, "_opensanctions_match", AsyncMock(side_effect=_down)), \
          patch.object(sanctions, "_opensanctions_search", AsyncMock(side_effect=_down)), \
+         patch("aria_service.intel.sanctions_canonical.lookup.check_sanctions",
+               return_value={"verdict": "CLEAR", "matches": []}), \
          patch.object(sanctions, "wire_failure", MagicMock()) as wf:
         r = await sanctions.fuzzy_screen("Vladimir Testovich Putin")
 
