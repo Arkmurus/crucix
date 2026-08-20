@@ -2,68 +2,63 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PageHeader, EmptyState, UnavailableState } from '@/components/page-header';
+import { AddSourceForm, RemoveSourceForm } from '@/components/source-vault-actions';
 import { tryApiServer } from '@/lib/api';
 import { fmtDate, statusVariant, titleCase } from '@/lib/format';
+import { normalizeUserSources } from '@/lib/source-vault';
 
 export const dynamic = 'force-dynamic';
 
-interface VaultEntry {
-  site_name?: string; site_id?: string; site_url?: string; agent_id?: string;
-  status?: string; created_at?: string; updated_at?: string; last_verified_at?: string;
-}
-interface VaultResp {
-  entries?: VaultEntry[];
-  stats?: { total?: number; by_status?: Record<string, number>; stale_unverified?: number };
-}
-
 export default async function VaultPage() {
-  const { data, error } = await tryApiServer<VaultResp>('/api/aria/vault?limit=100');
-  const entries = data?.entries ?? [];
-  const stats = data?.stats;
+  const { data, error } = await tryApiServer('/api/aria/user/sources');
+  const entries = normalizeUserSources(data);
+  const verified = entries.filter((entry) => entry.status === 'verified').length;
+  const pending = entries.filter((entry) => entry.status === 'pending').length;
 
   return (
-    <div>
-      <PageHeader title="Vault" description="Verified intelligence sources backing ARIA's findings." />
+    <div data-aria-surface="next-customer-vault">
+      <PageHeader title="My Sources" description="Public intelligence sources you have asked ARIA to monitor." />
 
-      {stats ? (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total sources" value={stats.total ?? entries.length} />
-          <StatCard label="Verified" value={stats.by_status?.verified ?? 0} variant="success" />
-          <StatCard label="Needs operator" value={stats.by_status?.needs_operator ?? 0} variant="warning" />
-          <StatCard label="Stale" value={stats.stale_unverified ?? 0} variant="muted" />
-        </div>
-      ) : null}
+      {!error ? <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard label="Your sources" value={entries.length} />
+        <StatCard label="Verified" value={verified} variant="success" />
+        <StatCard label="Pending verification" value={pending} variant="warning" />
+      </div> : null}
+
+      <Card className="mb-6"><CardContent className="p-4"><AddSourceForm /></CardContent></Card>
 
       {error ? (
         <UnavailableState title="Vault sources unavailable" />
       ) : entries.length === 0 ? (
-        <EmptyState title="No sources yet" hint="Verified sources appear here as ARIA validates them." />
+        <EmptyState title="No sources yet" hint="Add a public RSS feed or website above to start monitoring it." />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Source</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Agent</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Verified</TableHead>
               <TableHead>Updated</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {entries.map((e, i) => (
-              <TableRow key={e.site_id || i}>
+              <TableRow key={e.siteId || i}>
                 <TableCell>
-                  <div className="font-medium">{e.site_name || e.site_id || 'Source'}</div>
-                  {e.site_url ? (
-                    <a href={e.site_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
-                      {e.site_url}
+                  <div className="font-medium">{e.name}</div>
+                  {e.url ? (
+                    <a href={e.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-xs text-primary hover:underline">
+                      {e.url}
                     </a>
                   ) : null}
                 </TableCell>
                 <TableCell>{e.status ? <Badge variant={statusVariant(e.status)}>{titleCase(e.status)}</Badge> : '—'}</TableCell>
-                <TableCell className="text-muted-foreground">{e.agent_id || '—'}</TableCell>
-                <TableCell className="text-muted-foreground">{fmtDate(e.last_verified_at)}</TableCell>
-                <TableCell className="text-muted-foreground">{fmtDate(e.updated_at || e.created_at)}</TableCell>
+                <TableCell className="text-muted-foreground">{titleCase(e.siteType) || '—'}</TableCell>
+                <TableCell className="text-muted-foreground">{fmtDate(e.lastVerifiedAt)}</TableCell>
+                <TableCell className="text-muted-foreground">{fmtDate(e.updatedAt || e.createdAt)}</TableCell>
+                <TableCell><RemoveSourceForm siteId={e.siteId} name={e.name} /></TableCell>
               </TableRow>
             ))}
           </TableBody>

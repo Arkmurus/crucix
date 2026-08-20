@@ -46,8 +46,8 @@ function isLocalHostname(hostname: string): boolean {
 }
 
 /** Accept only credential-free HTTP(S) links from sweep-derived opportunity data. */
-export function safeOpportunityUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
+export function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 2048) return null;
   try {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || isLocalHostname(url.hostname)) return null;
@@ -83,7 +83,7 @@ export function normalizeOpportunities(raw: unknown): Opportunity[] {
         sources: sources.flatMap((source) => {
           if (!source || typeof source !== 'object') return [];
           const record = source as Record<string, unknown>;
-          const url = safeOpportunityUrl(record.url);
+          const url = safeExternalUrl(record.url);
           return url ? [{ title: text(record.title, 160), url, type: text(record.type, 80) }] : [];
         }).slice(0, 4),
       };

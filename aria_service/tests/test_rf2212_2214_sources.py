@@ -87,7 +87,7 @@ class _FakeClient:
     async def __aexit__(self, *a):
         return False
 
-    async def get(self, url, headers=None):
+    async def get(self, url, headers=None, **kwargs):
         return _FakeResp(self._code, self._text)
 
 
@@ -105,6 +105,7 @@ async def _add(monkeypatch, code, text):
     fv = _FakeVault()
     monkeypatch.setattr("aria_service.intel.agent_signup_vault.get_vault", lambda: fv)
     monkeypatch.setattr("aria_service.intel.security.validate_url", lambda u: (True, "OK"))
+    monkeypatch.setattr("aria_service.intel.url_safety.is_safe_url", lambda u: (True, ""))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _FakeClient(code, text))
     req = _FakeReq({"name": "T", "url": "https://example.com/feed.xml", "site_type": "rss"})
     out = await A.user_sources_add_ep(req, user_id="tuser")
@@ -140,6 +141,29 @@ async def test_rf2213_probe_exception_does_not_block_add(monkeypatch):
     out = await A.user_sources_add_ep(req, user_id="tuser")
     assert out["success"] is True          # probe failure NEVER blocks the add
     assert out["verified"] is False        # but it is honestly "pending"
+
+
+async def test_rf4191_user_source_probe_uses_redirect_safe_fetch(monkeypatch):
+    import httpx
+    from aria_service.routes import aria as A
+    from aria_service.intel import url_safety
+    fv = _FakeVault()
+    calls = []
+    monkeypatch.setattr("aria_service.intel.agent_signup_vault.get_vault", lambda: fv)
+    monkeypatch.setattr("aria_service.intel.security.validate_url", lambda u: (True, "OK"))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _FakeClient(200, "ok"))
+
+    async def _safe_get(client, url, **kwargs):
+        calls.append((url, kwargs))
+        return _FakeResp(200, "ok")
+
+    monkeypatch.setattr(url_safety, "safe_get", _safe_get)
+    out = await A.user_sources_add_ep(
+        _FakeReq({"name": "T", "url": "https://example.com/feed.xml", "site_type": "rss"}),
+        user_id="tuser",
+    )
+    assert out["success"] is True
+    assert calls and calls[0][1]["max_redirects"] == 0
 
 
 # ── R-F2214 — §21a wiring of silent source failures ──────────────────────────

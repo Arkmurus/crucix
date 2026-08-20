@@ -29881,6 +29881,8 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
     notes = (body.get("notes") or "").strip()
     if not name or not url:
         return {"success": False, "error": "name and url are required"}
+    if len(name) > 160 or len(url) > 2048 or len(notes) > 1000:
+        return {"success": False, "error": "source details are too long"}
     if site_type not in ("rss", "website"):
         return {"success": False, "error": "site_type must be 'rss' or 'website'"}
     ok, why = _sec.validate_url(url)
@@ -29925,8 +29927,14 @@ async def user_sources_add_ep(request: Request, user_id: str = "") -> dict:
     note_extra = ""
     try:
         import httpx as _httpx
+        from ..intel import url_safety as _url_safety
         async with _httpx.AsyncClient(timeout=10.0, follow_redirects=False) as _pc:
-            _pr = await _pc.get(url, headers={"User-Agent": "Crucix/1.0 (+source-verify)"})
+            _pr = await _url_safety.safe_get(
+                _pc,
+                url,
+                max_redirects=0,
+                headers={"User-Agent": "Crucix/1.0 (+source-verify)"},
+            )
         if 200 <= _pr.status_code < 300 and (_pr.text or "").strip():
             status = "verified"
         else:

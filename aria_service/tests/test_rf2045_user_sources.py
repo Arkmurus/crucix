@@ -34,6 +34,12 @@ def test_add_rejects_bad_type(monkeypatch):
     r = asyncio.run(R.user_sources_add_ep(FakeReq({"name": "X", "url": "https://x.com", "site_type": "api"}), user_id="U1"))
     assert r["success"] is False
 
+def test_add_rejects_oversized_input(monkeypatch):
+    v = _vault(); monkeypatch.setattr(asv, "get_vault", lambda: v)
+    r = asyncio.run(R.user_sources_add_ep(FakeReq({"name": "X" * 161, "url": "https://x.com", "site_type": "rss"}), user_id="U1"))
+    assert r["success"] is False and "too long" in r["error"]
+    v.record.assert_not_called()
+
 def test_add_rejects_unsafe_url(monkeypatch):
     monkeypatch.setattr(asv, "get_vault", lambda: _vault())
     r = asyncio.run(R.user_sources_add_ep(FakeReq({"name": "X", "url": "http://169.254.169.254/latest/meta-data", "site_type": "rss"}), user_id="U1"))

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4191,
+  "next_available": 4192,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35818,6 +35818,15 @@
       "commit_sha": "12f5ab6f",
       "notes": null,
       "shipped_at": "2026-08-20T07:44:24Z"
+    },
+    {
+      "r_number": "R-F4191",
+      "title": "cut over tenant-scoped source vault",
+      "claimed_at": "2026-08-20T07:46:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -10,6 +10,7 @@ import { redirect } from 'next/navigation';
 import { apiServer } from '@/lib/api';
 import { submitDD, type DDSubmissionState } from '@/lib/dd-submission';
 import { performWatchlistMutation, type WatchlistMutationState } from '@/lib/watchlist-mutation';
+import { performSourceMutation, type SourceMutationState } from '@/lib/source-vault';
 
 // ── DD ───────────────────────────────────────────────────────────────────────
 export async function runDD(_previousState: DDSubmissionState, formData: FormData): Promise<DDSubmissionState> {
@@ -56,6 +57,32 @@ export async function rescreenWatchlist(
 ): Promise<WatchlistMutationState> {
   const result = await performWatchlistMutation(apiServer, 'rescreen');
   if (result.status === 'success') revalidatePath('/watchlist');
+  return result;
+}
+
+// ── Customer sources ─────────────────────────────────────────────────────────
+export async function addUserSource(
+  _previousState: SourceMutationState,
+  formData: FormData,
+): Promise<SourceMutationState> {
+  const result = await performSourceMutation(apiServer, 'add', {
+    name: String(formData.get('name') || ''),
+    url: String(formData.get('url') || ''),
+    siteType: String(formData.get('site_type') || ''),
+    notes: String(formData.get('notes') || ''),
+  });
+  if (result.status === 'success') revalidatePath('/vault');
+  return result;
+}
+
+export async function removeUserSource(
+  _previousState: SourceMutationState,
+  formData: FormData,
+): Promise<SourceMutationState> {
+  const result = await performSourceMutation(apiServer, 'remove', {
+    siteId: String(formData.get('site_id') || ''),
+  });
+  if (result.status === 'success') revalidatePath('/vault');
   return result;
 }
 

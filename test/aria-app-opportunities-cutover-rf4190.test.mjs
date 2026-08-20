@@ -33,7 +33,7 @@ test('R-F4190: opportunities normalize untrusted backend data at one boundary', 
 test('R-F4190: opportunities are native, customer-gated, observable, and enabled', async () => {
   const proxy = (await nextConfig.rewrites()).beforeFiles[0];
   assert.equal(matches(proxy.source, '/opportunities'), false);
-  assert.equal(matches(proxy.source, '/vault'), true);
+  assert.equal(matches(proxy.source, '/chat'), true);
   assert.equal(matches(proxy.source, '/api/opportunities'), true);
 
   const middleware = read('aria-app/middleware.ts');
