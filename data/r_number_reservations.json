@@ -35888,9 +35888,10 @@
       "title": "add immutable RunPod interpolation resume and harvest",
       "claimed_at": "2026-08-20T10:35:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f27e3eec4b6e993089951c4bccf003b6b48cf44",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:46:55Z"
     }
   ]
 }
