@@ -7044,7 +7044,7 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
                         if _identity_confirmed else
                         "Watchlist candidate matched on NAME ALONE during the UBO walk; "
                         "no secondary identifier confirms it is the same person. This is "
-                        "a lead to verify and does not affect the risk classification. "
+                        "a lead to verify and does not affect the risk classification"
                     )
                     report.network.findings.append(Finding(
                         severity="amber" if _identity_confirmed else "info",
@@ -7056,7 +7056,7 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
                             + f"(hop {_p.get('hop', '?')})"
                         ),
                         detail=(
-                            f"{_match_context}from "
+                            f"{_match_context} from "
                             f"{_p.get('parent_entity', report.identity.entity_name)}. "
                             f"{_p.get('summary', '')[:240]}"
                         ),
@@ -8790,6 +8790,16 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             source="deep_researcher.investigate",
                             confidence="ASSESSED",
                         ))
+                # R-F4200 — synthesis is an interpretation layer, not the evidence
+                # store. A live Vigilo DEEP run retained 28 source-linked facts but
+                # hit its cooperative deadline before synthesis; this consumer read
+                # only synthesis.key_findings and therefore published none of those
+                # facts. Preserve a bounded, deduplicated evidence fallback whenever
+                # synthesis produced no findings. Raw facts remain explicitly
+                # UNVERIFIED and informational: they improve depth without silently
+                # turning an article-analysis claim into an assessed risk conclusion.
+                if not (synth.get("key_findings") or []):
+                    report.digital.findings.extend(_retained_research_findings(dr))
         except Exception as e:
             # ── R-F3296 — AN ERROR HANDLER MUST NOT DISCARD WHERE THE ERROR WAS ──
             #
@@ -13241,6 +13251,56 @@ def _truncate_on_boundary(text: str, limit: int = 300) -> str:
         return window[:cut + 1] + " …"
     cut = window.rfind(" ")
     return (window[:cut] if cut > 0 else window).rstrip(" ,;:-") + " …"
+
+
+def _retained_research_findings(result: dict, *, limit: int = 5) -> list[Finding]:
+    """Convert source-linked retained facts into honest fallback findings.
+
+    This path is used only when deep research returned no synthesis findings.
+    Article-analysis facts are leads, not adjudicated conclusions, so they remain
+    informational and UNVERIFIED regardless of their upstream confidence label.
+    Facts without a source URL are excluded because the reader could not audit them.
+    """
+    if not isinstance(result, dict) or limit <= 0:
+        return []
+    candidates: list[tuple[int, int, dict, str, str]] = []
+    confidence_rank = {"CONFIRMED": 0, "PROBABLE": 1, "ASSESSED": 2,
+                       "UNCERTAIN": 3, "SPECULATIVE": 4}
+    for index, fact in enumerate(result.get("facts") or []):
+        if not isinstance(fact, dict):
+            continue
+        content = " ".join(str(fact.get("content") or "").split())
+        source_url = str(
+            fact.get("source_url") or fact.get("url") or fact.get("link") or ""
+        ).strip()
+        if not content or not source_url.lower().startswith(("http://", "https://")):
+            continue
+        upstream = str(fact.get("confidence") or "ASSESSED").upper()
+        candidates.append((confidence_rank.get(upstream, 5), index, fact, content, source_url))
+
+    findings: list[Finding] = []
+    seen: set[str] = set()
+    for _, _, fact, content, source_url in sorted(candidates):
+        key = " ".join(content.lower().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        topic = " ".join(str(fact.get("topic") or "Research lead").split())
+        upstream = str(fact.get("confidence") or "ASSESSED").upper()
+        findings.append(Finding(
+            severity="info",
+            title=_truncate_on_boundary(f"Retained research lead: {content}", 200),
+            detail=(
+                f"Topic: {topic}. Upstream article-analysis confidence: {upstream}. "
+                "Deep-research synthesis did not complete; verify this claim against "
+                "the cited source before relying on it."
+            ),
+            source=source_url,
+            confidence="UNVERIFIED",
+        ))
+        if len(findings) >= limit:
+            break
+    return findings
 
 
 def _adverse_item_url(f) -> str:

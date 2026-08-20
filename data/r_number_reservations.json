@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4200,
+  "next_available": 4201,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35912,6 +35912,15 @@
       "commit_sha": "83764298",
       "notes": null,
       "shipped_at": "2026-08-20T11:36:02Z"
+    },
+    {
+      "r_number": "R-F4200",
+      "title": "Preserve retained DD research without synthesis",
+      "claimed_at": "2026-08-20T12:14:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
