@@ -35774,18 +35774,20 @@
       "title": "promote customer dashboard without admin-only dependencies",
       "claimed_at": "2026-08-20T05:58:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a7656d93",
+      "notes": null,
+      "shipped_at": "2026-08-20T06:21:31Z"
     },
     {
       "r_number": "R-F4187",
       "title": "bound aria-app backend reads with cancellation",
       "claimed_at": "2026-08-20T06:08:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a7656d93",
+      "notes": null,
+      "shipped_at": "2026-08-20T06:21:36Z"
     }
   ]
 }
