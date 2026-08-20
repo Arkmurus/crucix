@@ -35814,9 +35814,10 @@
       "title": "promote evidence-safe opportunities route",
       "claimed_at": "2026-08-20T07:30:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "12f5ab6f",
+      "notes": null,
+      "shipped_at": "2026-08-20T07:44:24Z"
     }
   ]
 }
