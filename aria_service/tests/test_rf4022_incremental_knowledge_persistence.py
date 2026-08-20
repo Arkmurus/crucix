@@ -191,6 +191,47 @@ async def test_empty_store_still_establishes_first_snapshot(monkeypatch):
     assert calls == [1], "a truly empty store must establish a canonical snapshot"
 
 
+@pytest.mark.asyncio
+async def test_restart_builds_indices_before_first_store_fact(monkeypatch):
+    """The real load -> store path must not rebuild the corpus on the loop."""
+    knowledge._cache = _seed(20_000)
+    await _compact_now()
+    knowledge._cache = None
+    knowledge._indexed_cache_id = 0
+    knowledge._index_count = -1
+
+    ticks = 0
+    loading = True
+
+    async def heartbeat():
+        nonlocal ticks
+        while loading:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    beat = asyncio.create_task(heartbeat())
+    try:
+        await knowledge._load()
+    finally:
+        loading = False
+        await beat
+
+    assert ticks >= 4, "cold index hydration did not yield to the event loop"
+    assert knowledge._index_count == len(knowledge._cache["facts"])
+
+    def _forbid_sync_rebuild(_db):
+        raise AssertionError("first post-boot store_fact rebuilt the full index inline")
+
+    monkeypatch.setattr(knowledge, "_rebuild_indices", _forbid_sync_rebuild)
+    result = await knowledge.store_fact(
+        "post boot capability",
+        "This sufficiently detailed fact proves the first live mutation uses the hydrated index.",
+        source="user",
+        skip_semantic_index=True,
+    )
+    assert result["action"] == "created"
+
+
 # ── 2. durability is NOT weakened by the fast path (§7) ─────────────────────
 
 @pytest.mark.asyncio

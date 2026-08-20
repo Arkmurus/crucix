@@ -93,7 +93,8 @@ _cache: dict[str, list] | None = None
 # at p95=120-190s, and a major event-loop wedge contributor (the Python-level
 # 87k-dict iteration holds the GIL even when run in a thread). Knowledge is
 # append-mostly (§7 never deletes), so these indices are maintained
-# incrementally: rebuilt once when the cache (re)loads or its length drifts
+# incrementally: rebuilt cooperatively when the cache (re)loads or synchronously
+# only if its length later drifts
 # (out-of-band append), updated on each new-fact insert. Lookups become O(1) /
 # O(facts-in-this-one-topic) and run INLINE — no to_thread, so no interleave
 # window either (the dedup→mutate sequence is now atomic on the loop).
@@ -1531,6 +1532,7 @@ async def _load() -> dict:
         # compaction; everything since then is in the journal. Replaying is
         # what makes the cheap flush path safe.
         data = _replay_journal(data)
+        await _rebuild_indices_incremental(data)
         _cache = data
         # R-F4211 — the disk snapshot is already the canonical base. The
         # journal contains every additive mutation after that base and was just
@@ -1559,6 +1561,7 @@ async def _load() -> dict:
         # R-F4022 — a journal can outlive a lost snapshot file; replaying it
         # here is a genuine recovery, and it is idempotent when it is not.
         _cache = _replay_journal(sharded)
+        await _rebuild_indices_incremental(_cache)
         logger.warning(
             "knowledge: hydrated from R-F334 sharded Redis snapshot "
             "(%d facts) — migrating to disk %s",
@@ -1579,6 +1582,7 @@ async def _load() -> dict:
     legacy = _decode_snapshot(raw)
     if legacy:
         _cache = _replay_journal(legacy)   # R-F4022 — see above
+        await _rebuild_indices_incremental(_cache)
         logger.warning(
             "knowledge: hydrated from legacy Redis blob (%d facts) — "
             "migrating to disk %s + will write shards on next flush",
@@ -1599,6 +1603,7 @@ async def _load() -> dict:
     _cache = _replay_journal(
         {"facts": [], "queries": [], "learnings": [], "version": 1}
     )
+    await _rebuild_indices_incremental(_cache)
     _ensure_flusher()
     return _cache
 
@@ -1939,6 +1944,33 @@ def _rebuild_indices(db: dict) -> None:
         ch, sd = f.get("content_hash"), f.get("source_domain")
         if ch and sd:
             ci.setdefault(_index_key_content(ch, sd), f)  # first seen = newest wins
+    _topic_index, _content_index = ti, ci
+    _index_count = len(facts)
+    _indexed_cache_id = id(db)
+
+
+async def _rebuild_indices_incremental(db: dict, chunk: int = 5000) -> None:
+    """Build cold dedup indices without monopolising the serving event loop.
+
+    R-F4211: production's first post-boot ``store_fact`` rebuilt indices over
+    610k facts synchronously on the event loop. The live heartbeat captured
+    this exact stack during the state-read timeout burst. Build into private
+    maps while hydrating instead, yield at bounded intervals, and publish all
+    four globals atomically so readers never observe a partial index.
+    """
+    global _topic_index, _content_index, _index_count, _indexed_cache_id
+    facts = db.get("facts", []) if db else []
+    ti: dict[str, list] = {}
+    ci: dict[str, dict] = {}
+    for i, fact in enumerate(facts):
+        topic = (fact.get("topic") or "").strip().lower()
+        if topic:
+            ti.setdefault(topic, []).append(fact)
+        content_hash, source_domain = fact.get("content_hash"), fact.get("source_domain")
+        if content_hash and source_domain:
+            ci.setdefault(_index_key_content(content_hash, source_domain), fact)
+        if (i + 1) % max(1, chunk) == 0:
+            await asyncio.sleep(0)
     _topic_index, _content_index = ti, ci
     _index_count = len(facts)
     _indexed_cache_id = id(db)
