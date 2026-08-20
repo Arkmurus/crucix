@@ -995,6 +995,13 @@ _HEAVY_PREWARM_MODULES: tuple[str, ...] = (
 )
 
 
+async def _await_heavy_graph_ready(app: FastAPI) -> None:
+    """Wait until boot graph hydration finishes before starting heavy agents."""
+    ready = getattr(app.state, "heavy_graph_ready", None)
+    if ready is not None:
+        await ready.wait()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
@@ -1260,6 +1267,7 @@ async def lifespan(app: FastAPI):
     # INTO the warmup — it must run AFTER the graphs are in RAM.
     app.state.knowledge_ready = False
     app.state.neural_ready = False
+    app.state.heavy_graph_ready = asyncio.Event()
 
     async def _warmup_heavy_graphs():
         # R-F2201 — LEAN WEB WORKERS. A 'web' role process (R-F2174 election)
@@ -1279,6 +1287,7 @@ async def lifespan(app: FastAPI):
                 "[R-F2201] LEAN WEB WORKER — heavy graph warmup SKIPPED "
                 "(serves via shared RAG + LLM; engine holds the full graphs). "
                 "Saves the per-worker in-memory knowledge+neural footprint.")
+            app.state.heavy_graph_ready.set()
             return
         # R-F2663 — this warmup is a DETACHED background task (created below); it
         # blocks nothing, so it must NOT inherit _run_boot_inits' aggressive 5s
@@ -1342,6 +1351,7 @@ async def lifespan(app: FastAPI):
             "[R-F2122] heavy graph warmup complete — knowledge_ready=%s neural_ready=%s",
             app.state.knowledge_ready, app.state.neural_ready,
         )
+        app.state.heavy_graph_ready.set()
 
     _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
 
@@ -4078,6 +4088,7 @@ async def lifespan(app: FastAPI):
     # (set ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery to WhatsApp /
     # intel ledger). See aria_service/autonomous/AUTONOMOUS_ENGINE.md.
     async def _bootstrap_autonomous_engine_bg():
+        await _await_heavy_graph_ready(app)
         try:
             from .autonomous import engine as autonomous_engine
             # Hydrate the in-process runtime-override cache BEFORE checking
@@ -4173,6 +4184,7 @@ async def lifespan(app: FastAPI):
     try:
         from .intel import defence_source_seed
         async def _seed_bg():
+            await _await_heavy_graph_ready(app)
             try:
                 result = await defence_source_seed.seed_web_atlas(
                     skip_if_populated=True,
@@ -4360,7 +4372,7 @@ async def lifespan(app: FastAPI):
     app.state.run_knowledge_seed = run_knowledge_seed
 
     async def _seed_knowledge_bg():
-        await asyncio.sleep(25)  # Wait for RAG + sentence-transformers
+        await _await_heavy_graph_ready(app)
         force = (_os.getenv("ARIA_FORCE_RESEED", "") or "").strip().lower() in ("1", "true", "yes", "on")
         try:
             await run_knowledge_seed(force=force)
@@ -4385,6 +4397,7 @@ async def lifespan(app: FastAPI):
         logger.info("[R-F2073] ARIA-Coder SKIPPED (ARIA_ROLE=%s)", _aria_role())
     else:
         async def _start_aria_coder_bg():
+            await _await_heavy_graph_ready(app)
             try:
                 from .autonomous.coder_entrypoint import start_aria_coder
                 _coder_tasks = await start_aria_coder(app.state)
@@ -4431,6 +4444,7 @@ async def lifespan(app: FastAPI):
     else:
         async def _start_web_integrity_bg():
             nonlocal web_integrity_agent
+            await _await_heavy_graph_ready(app)
             try:
                 from .intel.web_integrity_agent import WebIntegrityAgent, WEB_ENDPOINTS, _WEB_ENDPOINTS_PUBLIC
                 from .intel import brain_hook as _bh_wia
