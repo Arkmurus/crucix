@@ -88,7 +88,7 @@ def test_rf450_stream_footer_arrives_before_done_via_endpoint(monkeypatch):
     # Mock aria_chat_stream to emit a fake LLM response with a
     # confidence tag so the footer builder has something to work with.
     async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
-                                persona="", keep_history=None):
+                                persona="", speaker_name="", keep_history=None):
         # NOTE: confidence_footer.build_footer returns "" for replies
         # < 80 chars (don't decorate short answers). Pad the fake LLM
         # stream above that floor so the footer logic actually fires —
@@ -160,7 +160,7 @@ def test_rf450_stream_done_emitted_exactly_once(monkeypatch):
     """The deferred-done logic must emit `done` exactly once — not
     zero times (client hang), not twice (double-close)."""
     async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
-                                persona="", keep_history=None):
+                                persona="", speaker_name="", keep_history=None):
         yield {"type": "chunk", "text": "Reply with no tags."}
         yield {"type": "done", "session_id": session_id}
 
@@ -194,7 +194,7 @@ def test_rf450_stream_synthetic_done_when_chat_stream_omits_one(monkeypatch):
     the orchestrator must synthesise one so SSE clients don't hang.
     Pin the fallback path."""
     async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
-                                persona="", keep_history=None):
+                                persona="", speaker_name="", keep_history=None):
         yield {"type": "chunk", "text": "No done coming."}
         # Intentionally no done event
 
@@ -251,7 +251,7 @@ def test_rf3339_the_stream_doubles_match_the_real_signature():
     # The doubles are defined inside their tests, so check the shared shape:
     # every parameter the real function exposes must be one a double accepts.
     expected = {"message", "session_id", "llm", "intel_data", "user_id",
-                "persona", "keep_history"}
+                "persona", "speaker_name", "keep_history"}
     missing = set(real) - expected
     assert not missing, (
         f"aria_chat_stream grew {sorted(missing)}. Add it to the _fake_chat_stream "

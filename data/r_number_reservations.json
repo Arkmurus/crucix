@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4209,
+  "next_available": 4211,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36002,6 +36002,24 @@
       "commit_sha": "36c76f69",
       "notes": null,
       "shipped_at": "2026-08-20T15:18:01Z"
+    },
+    {
+      "r_number": "R-F4209",
+      "title": "Fail readiness closed on exhausted LLM chain",
+      "claimed_at": "2026-08-20T15:25:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4210",
+      "title": "Repair stream capability double signature drift",
+      "claimed_at": "2026-08-20T15:27:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
