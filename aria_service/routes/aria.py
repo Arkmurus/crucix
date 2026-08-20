@@ -5965,6 +5965,7 @@ _INVESTIGATE_KW = re.compile(
     r"look\s+into|looking\s+into|"
     r"dig\s+into|digging\s+into|"
     r"find\s+out\s+about|"
+    r"find\s+(?:information|details|data)\s+(?:on|about)|"
     r"deep[\-\s]?dive|do\s+a\s+deep\s+dive|"
     # Natural phrasings users type instead of "investigate" — all should
     # fire deep_research when combined with a URL. Past incident
@@ -5979,6 +5980,9 @@ _INVESTIGATE_KW = re.compile(
     r"information\s+(?:on|about)|"
     r"details?\s+(?:on|about)|"
     r"describe\s+(?:this|that|the)?|"
+    r"analy[sz]e|"
+    r"check\s+out|"
+    r"look\s+(?:at|up)|"
     r"explore|exploring|"
     r"due\s+diligence|"
     r"DD\s+(?:on|of)|"
@@ -7875,28 +7879,6 @@ def _detect_tool_intent(message: str) -> dict | None:
     weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
     country_match   = _COUNTRY_RE_TOOL.search(msg)
 
-    # R-F1168 -- URL-based routing: when a URL is present AND the user is
-    # asking for research/investigation, prefer crawl_website over
-    # deep_research. Catches cases where the LLM might choose wrong.
-    _RESEARCH_URL_KW = re.compile(
-        r"\b(?:research|investigate|look\s+(?:into|at|up)|"
-        r"find\s+(?:out\s+)?(?:about|information|details|data)|"
-        r"tell\s+me\s+(?:about|more)|"
-        r"what\s+(?:is|can\s+you\s+tell\s+me\s+about)|"
-        r"who\s+is|analyse|analyze|check\s+(?:out|this)|"
-        r"crawl|spider|scrape|read|extract)\b",
-        re.IGNORECASE,
-    )
-    if url and _RESEARCH_URL_KW.search(msg) and not has_screen and not has_fuzzy:
-        return {
-            "tool": "crawl_website",
-            "url": url,
-            "context": msg,
-            "_reason": "url_research_request",
-        }
-
-
-
     # ── Officeholder questions auto-trigger investigate ──
     # "Who is the current defence minister of Ghana" → fire investigate
     # immediately so the LLM has fresh web data. Without this, the LLM
@@ -8100,11 +8082,13 @@ def _detect_tool_intent(message: str) -> dict | None:
             r"\b("
             r"investigate|investigation|investigations|investigating|"
             r"research|researching|researches|"
-            r"crawl|check|screen|"
+            r"crawl|check\s+out|check|screen|"
             r"look\s+into|looking\s+into|"
             r"dig\s+into|digging\s+into|"
             r"find\s+out\s+about|"
+            r"find\s+(?:information|details|data)\s+(?:on|about)|"
             r"tell\s+me\s+about|tell\s+me\s+everything\s+about|"
+            r"analy[sz]e|look\s+(?:at|up)|"
             r"profile|profiling|"
             r"due\s+diligence|background\s+check|"
             r"explore|exploring"

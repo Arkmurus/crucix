@@ -483,13 +483,6 @@ def test_listener_context_strip():
     assert _strip_listener_context(weird) == "just the actual question"
 
 
-@pytest.mark.xfail(
-    reason="R-F1436: _detect_tool_intent routes 'investigate <company> <URL>' to "
-    "crawl_website instead of deep_research — a real intent-routing regression "
-    "tracked as a capability gap for proper (non-rushed) investigation. Marked "
-    "xfail so CI stops emitting failure emails on every push; remove when fixed.",
-    strict=False,
-)
 def test_intent_detector_handles_generic_placeholder_with_url():
     """Past incident 2026-04-09 19:18 — DUMA Engineering: the user said
     'investigate this company and it is people https://duma-engineering.com'
@@ -535,6 +528,24 @@ def test_intent_detector_handles_generic_placeholder_with_url():
     assert intent3 is not None
     assert "modirum" in intent3["entity"].lower()
 
+    # The investigation fix must not weaken the explicit crawl command.
+    crawl = _detect_tool_intent("Aria, crawl https://example.com")
+    assert crawl is not None
+    assert crawl["tool"] == "crawl"
+    assert crawl["url"] == "https://example.com"
+
+    # Research synonyms formerly consumed by the conflicting URL shortcut
+    # must retain off-site deep-research semantics after that shortcut is removed.
+    for phrase in (
+        "Aria, analyse https://example.com",
+        "Aria, check out https://example.com",
+        "Aria, find information about https://example.com",
+    ):
+        synonym = _detect_tool_intent(phrase)
+        assert synonym is not None, f"failed to route: {phrase!r}"
+        assert synonym["tool"] == "deep_research"
+        assert "example" in synonym["entity"].lower()
+
 
 def test_intent_detector_strips_url_trailing_punctuation():
     """Live incident 2026-04-20 08:18 UTC — user typed a URL followed by
@@ -561,13 +572,6 @@ def test_intent_detector_strips_url_trailing_punctuation():
     )
 
 
-@pytest.mark.xfail(
-    reason="R-F1436: _detect_tool_intent routes 'investigate <company> <URL>' to "
-    "crawl_website instead of deep_research — a real intent-routing regression "
-    "tracked as a capability gap for proper (non-rushed) investigation. Marked "
-    "xfail so CI stops emitting failure emails on every push; remove when fixed.",
-    strict=False,
-)
 def test_intent_detector_rejects_conversational_entity_noise():
     """Past incident 2026-04-20 — GSA / Global Secur Alliance: user asked
     'Aria, Arkmurus, we are part of https://www.globalsecuralliance.com,
