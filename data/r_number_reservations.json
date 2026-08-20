@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4205,
+  "next_available": 4206,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35962,6 +35962,15 @@
       "commit_sha": "2f9ce788",
       "notes": null,
       "shipped_at": "2026-08-20T14:39:38Z"
+    },
+    {
+      "r_number": "R-F4205",
+      "title": "Ban tolerated pytest regressions",
+      "claimed_at": "2026-08-20T14:40:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

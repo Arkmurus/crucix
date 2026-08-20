@@ -23,10 +23,12 @@ Exit codes:
     2  — R-number missing test file
     3  — R-number not in reservation log
     4  — internal error
+    5  — tolerated pytest xfail marker found
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -208,6 +210,57 @@ def _test_text(f: Path) -> str:
     return _TEST_TEXT_CACHE[f]
 
 
+def _tolerated_xfails(files: list[Path] | None = None) -> list[tuple[Path, int]]:
+    """Return executable pytest xfail markers; known regressions must fail normally."""
+    findings: list[tuple[Path, int]] = []
+    for path in files if files is not None else _all_test_files():
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, SyntaxError):
+            continue
+        pytest_aliases = {"pytest"}
+        xfail_aliases: set[str] = set()
+        mark_aliases: set[str] = set()
+        for imported in ast.walk(tree):
+            if isinstance(imported, ast.Import):
+                pytest_aliases.update(
+                    alias.asname or alias.name
+                    for alias in imported.names if alias.name == "pytest"
+                )
+            elif isinstance(imported, ast.ImportFrom) and imported.module == "pytest":
+                for alias in imported.names:
+                    local_name = alias.asname or alias.name
+                    if alias.name == "xfail":
+                        xfail_aliases.add(local_name)
+                    elif alias.name == "mark":
+                        mark_aliases.add(local_name)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Call, ast.Attribute)):
+                continue
+            func = node.func if isinstance(node, ast.Call) else node
+            if isinstance(func, ast.Name) and func.id in xfail_aliases:
+                finding = (path, node.lineno)
+                if finding not in findings:
+                    findings.append(finding)
+                continue
+            if not isinstance(func, ast.Attribute) or func.attr != "xfail":
+                continue
+            owner = func.value
+            direct = isinstance(owner, ast.Name) and owner.id in pytest_aliases
+            marked = (
+                isinstance(owner, ast.Attribute)
+                and owner.attr == "mark"
+                and isinstance(owner.value, ast.Name)
+                and owner.value.id in pytest_aliases
+            )
+            imported_mark = isinstance(owner, ast.Name) and owner.id in mark_aliases
+            if direct or marked or imported_mark:
+                finding = (path, node.lineno)
+                if finding not in findings:
+                    findings.append(finding)
+    return findings
+
+
 def _run_pytest(fast: bool) -> int:
     """Return pytest exit code. fast=True restricts to import + smoke."""
     if fast:
@@ -268,6 +321,23 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    # R-F4205 — an xfail is a product gap reclassified as green. The exact
+    # R-F1436 intent regressions survived for months because the fast push suite
+    # printed "2 xfailed" and still exited zero. Reject executable xfail markers
+    # across the entire Python test tree even when --fast runs only a subset.
+    tolerated_xfails = _tolerated_xfails()
+    if tolerated_xfails:
+        details = "\n  ".join(
+            f"{path.relative_to(_REPO)}:{line}" for path, line in tolerated_xfails
+        )
+        print(
+            "\n[R-F559] FAIL — tolerated pytest xfail markers are forbidden:\n  "
+            + details
+            + "\n\nFix the regression or make the environmental precondition an explicit skip.",
+            file=sys.stderr,
+        )
+        return 5
 
     # ── 3. Validate each R-number is in the registry ──────────────────
     registry = _registry_r_numbers()

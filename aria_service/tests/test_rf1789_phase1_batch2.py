@@ -7,8 +7,8 @@ brain on any unhandled exception.
 Generic proof: for each module, pick a module-level public function that has a
 REQUIRED argument, call it with no args (TypeError raised inside the wrapper's
 try, before the body executes — no side effects), and assert a gap of the
-module's registered gap_type lands. A module with no required-arg function is
-xfail-marked so it is visible, not silently skipped.
+module's registered gap_type lands. A module with no force-failable function is
+a test failure because its wiring contract has become untestable.
 """
 import asyncio
 import importlib
@@ -91,8 +91,10 @@ def test_batch2_module_fail_wire_records_gap(module_name):
     mod = importlib.import_module(f"aria_service.intel.{module_name}")
     expected = wh.get_gap_type(module_name)
     name, fn, args = _pick_forcefail(mod)
-    if fn is None:
-        pytest.xfail(f"{module_name}: no force-failable fn (all accept *args/**kwargs)")
+    assert fn is not None, (
+        f"{module_name}: no force-failable wired function; add a deterministic "
+        "failure-path capability fixture"
+    )
 
     async def _run():
         recorded = []
