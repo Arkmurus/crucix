@@ -35968,9 +35968,10 @@
       "title": "Ban tolerated pytest regressions",
       "claimed_at": "2026-08-20T14:40:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ec425e4",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:47:02Z"
     }
   ]
 }
