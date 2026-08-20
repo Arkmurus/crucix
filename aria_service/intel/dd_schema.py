@@ -84,7 +84,7 @@ class EntityType(str, Enum):
 #: data gaps (R-F3456), and the provenance/ambiguity/vintage/evidence fixes
 #: (R-F3460..R-F3463). A report issued before that batch was decided under different
 #: rules, and saying so is the entire point of pinning it.
-DD_VERDICT_LOGIC_VERSION = "2026.07.30"
+DD_VERDICT_LOGIC_VERSION = "2026.08.20"
 
 #: R-F3546 — the POLICY BUNDLE, and why one version number was not enough.
 #:
@@ -109,7 +109,7 @@ DD_VERDICT_LOGIC_VERSION = "2026.07.30"
 #: in one of its parts.
 DD_POLICY_BUNDLE = {
     "verdict_logic": DD_VERDICT_LOGIC_VERSION,
-    "evidence_standard": "R-F3474",       # the four-axis contract
+    "evidence_standard": "R-F4199",       # reliance metrics + ordered-section gate
     "adverse_media_templates": "R-F3516",  # coverage counted from RESULTS, not queries
     "ownership_walk": "R-F3542",           # anchored PSC hops; directors are not owners
 }
@@ -1762,6 +1762,33 @@ def _sv_section(key, title, icon, section, highlights, *, kind="standard", evide
     }
 
 
+def _export_control_assessed(export_control: dict) -> bool:
+    """Return whether a product/end-use export-control assessment actually ran.
+
+    Applicable sanctions regimes describe jurisdictional coverage; they do not
+    classify goods, technology, destination, end use, or end user.  Explicit
+    NOT ASSESSED output therefore remains unanswered even when a recommendation
+    string exists solely to explain the missing transaction inputs.
+    """
+    if not isinstance(export_control, dict) or not export_control:
+        return False
+    evidence = " ".join(
+        str(export_control.get(key) or "")
+        for key in ("status", "recommendation", "classification")
+    ).casefold()
+    if any(marker in evidence for marker in (
+        "not assessed", "not_assessed", "not classified", "insufficient input",
+    )):
+        return False
+    return bool(
+        export_control.get("classification")
+        or export_control.get("findings")
+        or export_control.get("assessment")
+        or export_control.get("recommendation")
+        or export_control.get("assessed") is True
+    )
+
+
 def _quality_metrics(r: dict) -> dict:
     """Extract evidence-depth metrics from a persisted DD report dict."""
     ident = (r or {}).get("identity") or {}
@@ -1837,12 +1864,7 @@ def _quality_metrics(r: dict) -> dict:
         or sanctions_screen.get("screened") is False
     )
     export_control = comp.get("export_control") or {}
-    export_checked = bool(
-        export_control.get("recommendation")
-        or export_control.get("classification")
-        or export_control.get("findings")
-        or comp.get("sanctions_regimes")
-    )
+    export_checked = _export_control_assessed(export_control)
     # A supplied registration number is only an identifier, not authority. Treat
     # identity as authority-backed only when an independent source confirmed
     # registry substance or a sanctions source was actually verified.
@@ -1907,6 +1929,10 @@ def _quality_metrics(r: dict) -> dict:
         "citations_checked": citations_checked,
         "citations_grounded": citations_grounded,
         "citation_grounding_rate": citation_rate,
+        "claim_grounded_rate": ver.get("grounded_rate"),
+        "unverified_claim_count": int(ver.get("unverified_claim_count") or 0),
+        "independent_corroboration_rate": ver.get("independent_corroboration_rate"),
+        "material_claim_count": len(ver.get("triangulated_claims") or []),
         "adverse_media_run": adverse_run,
         "adverse_media_templates_run": adverse_templates_run,
         "adverse_media_templates_searched": adverse_templates_searched,  # R-F2791
@@ -1914,6 +1940,10 @@ def _quality_metrics(r: dict) -> dict:
         "adverse_media_findings": adverse_findings,
         "adverse_media_skipped": adverse_skipped,
         "has_search_degradation_gap": _quality_has_search_gap(r),
+        "has_undelivered_ordered_section": any(
+            "ordered section not delivered" in str(g).casefold()
+            for g in ((r or {}).get("data_gaps_summary") or [])
+        ),
         "registry_substance_present": registry_substance,
         "identity_authority_present": identity_authority,
         "sanctions_source_unavailable": sanctions_unavailable,
@@ -2049,6 +2079,15 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
         and citation_rate < 0.8
     )
     citation_rate_text = f"{citation_rate:.0%}" if isinstance(citation_rate, (int, float)) else "unknown"
+    claim_rate = metrics["claim_grounded_rate"]
+    claim_count = metrics["material_claim_count"]
+    corroboration_rate = metrics["independent_corroboration_rate"]
+    enough_claims = claim_count >= 3
+    claim_rate_text = f"{claim_rate:.0%}" if isinstance(claim_rate, (int, float)) else "unknown"
+    corroboration_text = (
+        f"{corroboration_rate:.0%}"
+        if isinstance(corroboration_rate, (int, float)) else "unknown"
+    )
     candidates = [
         (metrics["press_total"] < 8, 20,
          f"only {metrics['press_total']} cited press/source item(s)"),
@@ -2087,10 +2126,19 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
          "no citation was checked against its source — the grounding step never ran"),
         (low_citation_rate, 15,
          f"citation grounding rate below 80% ({citation_rate_text})"),
+        (enough_claims and isinstance(claim_rate, (int, float)) and claim_rate < 0.8,
+         20, f"material-claim grounding below 80% ({claim_rate_text})"),
+        (enough_claims and metrics["unverified_claim_count"] > 0,
+         15, f"{metrics['unverified_claim_count']} material claim(s) remain unverified"),
+        (enough_claims and isinstance(corroboration_rate, (int, float))
+         and corroboration_rate < 0.5,
+         15, f"independent corroboration below 50% ({corroboration_text})"),
         (metrics["adverse_media_skipped"], 15,
          "structured adverse-media deep search did not run"),
         (metrics["has_search_degradation_gap"], 20,
          "report contains explicit search/coverage degradation gaps"),
+        (metrics["has_undelivered_ordered_section"], 25,
+         "an operator-ordered DD section was not delivered"),
         (metrics["confidence_gate_triggered"], 25,
          "confidence gate triggered — evidence is insufficient for Grade A"),
     ]
@@ -2160,9 +2208,13 @@ def _dd_quality_assessment(r: dict) -> dict:
             "min_cited_sources": 8,
             "min_reputable_sources": 5,
             "min_citation_grounding_rate": 0.8,
+            "min_material_claim_grounding_rate": 0.8,
+            "min_independent_corroboration_rate": 0.5,
+            "requires_zero_unverified_material_claims": True,
+            "requires_all_ordered_sections_delivered": True,
             "requires_identity_authority": True,
             "requires_fresh_sanctions_source": True,
-            "requires_export_control_or_sanctions_regime_check": True,
+            "requires_export_control_assessment": True,
             "requires_adverse_media_search": True,
             "requires_confidence_gate_clear": True,
         },
@@ -2886,12 +2938,7 @@ def _dd_decision_readiness(r: dict) -> dict:
         sanctions.get("source_unavailable") or sanctions.get("error")
     )
     export_control = _mapping(comp.get("export_control"))
-    export_checked = bool(
-        export_control.get("recommendation")
-        or export_control.get("classification")
-        or export_control.get("findings")
-        or comp.get("sanctions_regimes")
-    )
+    export_checked = _export_control_assessed(export_control)
     sanctions_export_ok = sanctions_verified and export_checked
 
     # R-F2791 — mirror the quality-metric rule exactly, so the scorecard cannot

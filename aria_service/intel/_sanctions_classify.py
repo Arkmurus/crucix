@@ -1063,6 +1063,19 @@ def classify_match(match: dict, query_name: str = "") -> str:
     return severity
 
 
+def match_has_secondary_identity(match: dict) -> bool:
+    """Return whether a watchlist match is anchored beyond a name string.
+
+    Primary-name, alias, and fuzzy-name paths establish textual similarity only.
+    They cannot identify a natural person without a DOB, document, nationality,
+    address, or another explicit non-name match path.
+    """
+    if not isinstance(match, dict):
+        return False
+    field = str(match.get("match_field") or "").strip().casefold()
+    return field not in {"", "primary_name", "alias", "weak_match", "name"}
+
+
 def classify_matches(matches: list[dict], query_name: str = "") -> dict:
     """Classify a set of sanctions matches.
 

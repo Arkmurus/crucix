@@ -26,6 +26,7 @@ INFO, labelled an unconfirmed name match, and barred from moving the verdict.
 import inspect
 
 from aria_service.intel import dd_orchestrator as ddo
+from aria_service.intel import _sanctions_classify as sanctions_classify
 
 # R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
 # AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
@@ -53,10 +54,10 @@ def test_rf3130_name_only_match_cannot_keep_its_severity():
 def test_rf3130_identification_requires_more_than_a_name():
     """primary_name / alias / weak_match are all NAME matching. Only a genuine
     secondary identifier counts as an identification."""
-    code = _code()
+    code = inspect.getsource(sanctions_classify.match_has_secondary_identity)
     for weak in ("primary_name", "alias", "weak_match"):
         assert weak in code, f"{weak} must be treated as name-only"
-    assert "_identified = any(" in code
+    assert "match_field" in code
 
 
 def test_rf3130_a_real_identification_keeps_its_severity():

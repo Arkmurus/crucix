@@ -666,7 +666,10 @@ async def walk_ubo_chain(
         AND each new person gets screened (already cached in
         OpenSanctions; minimal extra cost)
     """
-    from ._sanctions_classify import classify_matches as _cm
+    from ._sanctions_classify import (
+        classify_matches as _cm,
+        match_has_secondary_identity as _has_secondary_identity,
+    )
 
     # Graph state — keyed by (name+jurisdiction+reg_num) tuple
     seen_keys: set[str] = set()
@@ -831,15 +834,19 @@ async def walk_ubo_chain(
                     if matches:
                         classified = _cm(matches, query_name=oname)
                         severity = classified["worst_severity"]
+                        identified = any(
+                            _has_secondary_identity(match) for match in matches
+                        )
                         if severity in ("amber", "red", "hard_stop"):
                             entry = {
                                 "name":     oname,
                                 "hop":      hop + 1,
-                                "severity": severity,
+                                "severity": severity if identified else "info",
                                 "summary":  classified["summary"][:300],
                                 "parent_entity": current["name"],
+                                "identity_confirmed": identified,
                             }
-                            if severity == "amber":
+                            if severity == "amber" or not identified:
                                 pep_in_chain.append(entry)
                             else:
                                 sanctioned_in_chain.append(entry)

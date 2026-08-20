@@ -7038,19 +7038,30 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
                     ))
                 # PEP-in-chain → amber findings
                 for _p in (ubo_result.get("pep_in_chain") or [])[:5]:
+                    _identity_confirmed = bool(_p.get("identity_confirmed"))
+                    _match_context = (
+                        "PEP / adverse-media identity match discovered via UBO walk "
+                        if _identity_confirmed else
+                        "Watchlist candidate matched on NAME ALONE during the UBO walk; "
+                        "no secondary identifier confirms it is the same person. This is "
+                        "a lead to verify and does not affect the risk classification. "
+                    )
                     report.network.findings.append(Finding(
-                        severity="amber",
+                        severity="amber" if _identity_confirmed else "info",
                         title=(
-                            f"UBO chain PEP: {_p.get('name', '?')} "
-                            f"(hop {_p.get('hop', '?')})"
+                            (f"UBO chain PEP: {_p.get('name', '?')} "
+                             if _identity_confirmed else
+                             f"UBO chain watchlist name match — identity NOT confirmed: "
+                             f"{_p.get('name', '?')} ")
+                            + f"(hop {_p.get('hop', '?')})"
                         ),
                         detail=(
-                            f"PEP / adverse-media match discovered via UBO walk "
-                            f"from {_p.get('parent_entity', report.identity.entity_name)}. "
+                            f"{_match_context}from "
+                            f"{_p.get('parent_entity', report.identity.entity_name)}. "
                             f"{_p.get('summary', '')[:240]}"
                         ),
                         source="network_walker.walk_ubo_chain",
-                        confidence="ASSESSED",
+                        confidence="ASSESSED" if _identity_confirmed else "UNVERIFIED",
                     ))
                 # Coverage gaps → data_gaps (operator-actionable: tells them
                 # which jurisdictions ARIA can't yet walk)
@@ -8775,7 +8786,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                     if isinstance(f, str):
                         report.digital.findings.append(Finding(
                             severity="info",
-                            title=f[:200],
+                            title=_truncate_on_boundary(f, 200),
                             source="deep_researcher.investigate",
                             confidence="ASSESSED",
                         ))
@@ -9251,6 +9262,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         from . import sanctions as _sanc_p
                         from ._sanctions_classify import (
                             classify_matches as _cm_p,
+                            match_has_secondary_identity as _has_secondary_identity_p,
                             SEVERITY_RANK as _sr_p,
                         )
                         _extracted_persons_screened: list[dict] = []
@@ -9345,9 +9357,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             # A match carrying a REAL secondary identifier keeps its
                             # severity: that is an identification, not a coincidence.
                             _identified = any(
-                                str((_m or {}).get("match_field") or "").strip().lower()
-                                not in ("", "primary_name", "alias", "weak_match", "name")
-                                for _m in _matches if isinstance(_m, dict)
+                                _has_secondary_identity_p(_m) for _m in _matches
                             )
                             _eff_worst = _worst if _identified else "info"
                             if _sr_p.get(_eff_worst, 0) >= _sr_p["amber"] or not _identified:
@@ -14175,6 +14185,21 @@ def _coverage_clause(readiness: dict) -> str:
             f"({readiness.get('completion_pct', 0)}%)")
 
 
+def _refresh_report_decision_readiness(report: ARKDDReport) -> dict:
+    """Synchronise an in-flight report after late evidence/gap mutations."""
+    from .dd_schema import _dd_decision_readiness
+
+    readiness = _dd_decision_readiness(report.as_dict())
+    report.decision_readiness = readiness
+    name = report.identity.entity_name or report.target.get("name") or "subject"
+    bluf = compose_decision_bluf(readiness, name)
+    report.next_actions = bluf["next_actions"]
+    if str(report.risk_classification or "").upper() == "GREEN":
+        report.bottom_line = bluf["bottom_line"]
+        report.recommendation = bluf["recommendation"]
+    return readiness
+
+
 def _refresh_persisted_decision_readiness(body: dict) -> dict:
     """Refresh readiness and a GREEN report's wording after a follow-up merge.
 
@@ -16835,6 +16860,11 @@ async def _orchestrate_dd_impl(
                 len(_std_assessment["elections_unfulfilled"]), report.run_id,
                 [e.get("question_id") for e in _std_assessment["elections_unfulfilled"]],
             )
+            # R-F4199 — readiness/BLUF were composed before the DD Standard ran.
+            # Refresh after adding ordered-section gaps or the persisted report keeps
+            # a stale Grade-A scorecard and "standard commercial process" action
+            # beside an explicit ORDERED-BUT-NOT-DELIVERED disclosure.
+            _refresh_report_decision_readiness(report)
 
         report.discipline_coverage = {
             "entity_type_detected": _entity_type,
