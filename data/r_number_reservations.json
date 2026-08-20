@@ -35898,9 +35898,10 @@
       "title": "restore CSP-safe backend sign-in submission",
       "claimed_at": "2026-08-20T10:51:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fa204339e135a13394baf40696d1117b496ec76f",
+      "notes": null,
+      "shipped_at": "2026-08-20T11:03:03Z"
     }
   ]
 }
