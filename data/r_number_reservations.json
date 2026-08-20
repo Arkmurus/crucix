@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4184,
+  "next_available": 4185,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35748,6 +35748,15 @@
       "commit_sha": "cc8faca0",
       "notes": null,
       "shipped_at": "2026-08-19T22:18:18Z"
+    },
+    {
+      "r_number": "R-F4184",
+      "title": "promote sign-in through a tested strangler boundary",
+      "claimed_at": "2026-08-19T22:25:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

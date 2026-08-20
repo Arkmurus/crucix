@@ -25,7 +25,7 @@ const nextConfig = {
     // while the full old platform stays the default everywhere else.
     return {
       beforeFiles: [
-        { source: '/:path((?!preview/|preview$|health/app$|_next/).*)', destination: `${BACKEND_URL}/:path` },
+        { source: '/:path((?!preview/|preview$|signin$|api/session$|health/app$|_next/).*)', destination: `${BACKEND_URL}/:path` },
       ],
       afterFiles: [],
       fallback: [],

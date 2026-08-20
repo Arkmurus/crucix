@@ -7,7 +7,7 @@ export function GET() {
   const verified = buildRev !== 'UNKNOWN-BUILD';
 
   return NextResponse.json(
-    { status: verified ? 'alive' : 'degraded', build_rev: buildRev },
+    { status: verified ? 'alive' : 'degraded', build_rev: buildRev, native_routes: ['/preview', '/signin', '/api/session', '/health/app'] },
     { status: verified ? 200 : 503 },
   );
 }
