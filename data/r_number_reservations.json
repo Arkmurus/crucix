@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4188,
+  "next_available": 4189,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35788,6 +35788,15 @@
       "commit_sha": "a7656d93",
       "notes": null,
       "shipped_at": "2026-08-20T06:21:36Z"
+    },
+    {
+      "r_number": "R-F4188",
+      "title": "promote reports with observable async DD submission",
+      "claimed_at": "2026-08-20T06:27:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -8,19 +8,20 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiServer } from '@/lib/api';
+import { submitDD, type DDSubmissionState } from '@/lib/dd-submission';
 
 // ── DD ───────────────────────────────────────────────────────────────────────
-export async function runDD(formData: FormData) {
-  const name = String(formData.get('name') || '').trim();
-  if (!name) return;
-  const mode = String(formData.get('mode') || 'standard');
-  const jurisdiction = String(formData.get('jurisdiction') || '').trim() || undefined;
-  await apiServer('/api/aria/dd/orchestrate', {
-    method: 'POST',
-    body: JSON.stringify({ name, mode, ...(jurisdiction ? { jurisdiction } : {}) }),
-  }).catch(() => {});
-  revalidatePath('/reports');
-  revalidatePath('/dashboard');
+export async function runDD(_previousState: DDSubmissionState, formData: FormData): Promise<DDSubmissionState> {
+  const result = await submitDD(apiServer, {
+    name: String(formData.get('name') || ''),
+    jurisdiction: String(formData.get('jurisdiction') || ''),
+    mode: String(formData.get('mode') || 'standard'),
+  });
+  if (result.status === 'started' || result.status === 'existing') {
+    revalidatePath('/reports');
+    revalidatePath('/dashboard');
+  }
+  return result;
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────

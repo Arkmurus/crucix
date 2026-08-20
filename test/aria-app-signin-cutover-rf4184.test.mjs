@@ -21,7 +21,7 @@ test('R-F4184: the real strangler rewrite owns sign-in but preserves rollback', 
   assert.equal(matchesRewrite(proxy.source, '/preview'), false);
   assert.equal(matchesRewrite(proxy.source, '/preview/bd'), false);
 
-  assert.equal(matchesRewrite(proxy.source, '/reports'), true);
+  assert.equal(matchesRewrite(proxy.source, '/watchlist'), true);
   assert.equal(matchesRewrite(proxy.source, '/api/auth/login'), true);
   assert.equal(matchesRewrite(proxy.source, '/api/aria/health'), true);
   assert.equal(matchesRewrite(proxy.source, '/legal/privacy'), true);
