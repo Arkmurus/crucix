@@ -7,6 +7,7 @@ from aria_service.intel.dd_orchestrator import (
     _apply_adverse_media_to_verdict,
     _assemble_bluf,
     _invalidate_stale_report_render,
+    _refresh_persisted_decision_readiness,
     _retained_research_findings,
 )
 from aria_service.intel.dd_schema import ARKDDReport, RiskClassification
@@ -99,3 +100,45 @@ def test_retained_research_requires_subject_attribution_when_identity_known():
     assert len(findings) == 1
     assert findings[0].source == "https://example.test/right"
     assert findings[0].confidence == "UNVERIFIED"
+
+
+def test_former_name_alone_cannot_attribute_a_different_company():
+    result = {"facts": [{
+        "content": "VIGILO LTD is active under company number 05933160.",
+        "source_url": "https://example.test/vigilo-ltd",
+        "confidence": "CONFIRMED",
+    }]}
+    findings = _retained_research_findings(
+        result, subject_names=["KGHW LTD"], registration_number="14825146",
+    )
+    assert findings == []
+
+
+def test_late_adverse_completion_refreshes_amber_coverage_count():
+    body = {
+        "risk_classification": "AMBER-LIGHT",
+        "confidence_gate_triggered": True,
+        "bottom_line": "stale coverage: only 1/5",
+        "identity": {
+            "entity_name": "KGHW LTD", "registration_status": "dissolved",
+            "registration_number": "14825146", "incorporation_date": "2023-04-25",
+            "directors": [{"name": "GANDHI, Kailan"}],
+            "shareholders": [{"name": "Mr Hargun Walia"}],
+        },
+        "compliance": {
+            "sanctions_screen": {"screened": True, "screened_at": "2026-08-20"},
+            "export_control": {"assessed": False},
+        },
+        "digital": {},
+        "network": {},
+        "verification": {"evidence_grade": "D"},
+        "adverse_media": {
+            "ok": True, "status": "completed", "partial": False,
+            "templates_searched": 30, "search_backends_answered": True,
+            "findings_count": 0,
+        },
+    }
+    readiness = _refresh_persisted_decision_readiness(body)
+    assert readiness["answered"] == 2
+    assert "2/5" in body["bottom_line"]
+    assert "1/5" not in body["bottom_line"]

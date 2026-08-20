@@ -8805,7 +8805,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 report.digital.findings.extend(
                     _retained_research_findings(
                         dr,
-                        subject_names=[name, _original_name],
+                        # The registry-resolved legal name is authoritative. The
+                        # supplied/former name remains in the search topic for recall,
+                        # but cannot independently attribute a fact: live, "Vigilo"
+                        # admitted unrelated VIGILO LTD (company 05933160) into the
+                        # KGHW LTD / 14825146 report.
+                        subject_names=[name],
                         registration_number=_registration,
                     )
                 )
@@ -14336,6 +14341,15 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
               or _target0.get("query") or "subject")
     body["next_actions"] = compose_decision_bluf(readiness, _name0)["next_actions"]
     if str(body.get("risk_classification") or "").upper() != "GREEN":
+        # R-F4203 — confidence-gated AMBER wording carries coverage counts. The
+        # adverse follow-up can move readiness from 1/5 to 2/5 without escalating
+        # risk; preserving the old BLUF then makes the report contradict its own
+        # scorecard. Only preserve custom non-GREEN wording when adverse evidence
+        # actually escalated the verdict.
+        if body.get("confidence_gate_triggered") and not body.get("adverse_media_escalated"):
+            _bluf = compose_decision_bluf(readiness, _name0)
+            body["bottom_line"] = _bluf["bottom_line"]
+            body["recommendation"] = _bluf["recommendation"]
         return readiness
 
     identity = body.get("identity") if isinstance(body.get("identity"), dict) else {}
