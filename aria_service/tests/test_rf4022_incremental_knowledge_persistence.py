@@ -44,6 +44,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 
 import pytest
 
@@ -230,6 +231,31 @@ async def test_restart_builds_indices_before_first_store_fact(monkeypatch):
         skip_semantic_index=True,
     )
     assert result["action"] == "created"
+
+
+@pytest.mark.asyncio
+async def test_restart_sidecar_reads_and_decodes_off_event_loop(monkeypatch):
+    """Drive the real restart loader and prove its disk batches are off-loop."""
+    knowledge._cache = _seed(5_000)
+    await _compact_now()
+    knowledge._cache = None
+
+    event_loop_thread = threading.get_ident()
+    worker_threads: list[int] = []
+    real_batch_reader = knowledge._read_jsonl_batch
+
+    def _observed_batch_reader(file_obj, batch_size=1024):
+        worker_threads.append(threading.get_ident())
+        return real_batch_reader(file_obj, batch_size)
+
+    monkeypatch.setattr(knowledge, "_read_jsonl_batch", _observed_batch_reader)
+    loaded = await knowledge._load()
+
+    assert len(loaded["facts"]) == 5_000
+    assert len(worker_threads) >= 5, "the real sidecar was not read in bounded batches"
+    assert all(tid != event_loop_thread for tid in worker_threads), (
+        "sidecar I/O or JSON decoding ran on the serving event-loop thread"
+    )
 
 
 # ── 2. durability is NOT weakened by the fast path (§7) ─────────────────────

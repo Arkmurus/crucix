@@ -1077,6 +1077,19 @@ def _write_facts_sidecar(data: dict, marker: dict | None = None) -> None:
         logger.debug("knowledge: facts sidecar write skipped (non-fatal): %s", e)
 
 
+def _read_jsonl_batch(file_obj: Any, batch_size: int = 1024) -> list[Any]:
+    """Read and decode one bounded JSONL batch outside the event loop."""
+    batch: list[Any] = []
+    for _ in range(batch_size):
+        line = file_obj.readline()
+        if not line:
+            break
+        line = line.strip()
+        if line:
+            batch.append(json.loads(line))
+    return batch
+
+
 async def _read_from_disk_chunked() -> dict | None:
     """R-F2144: prefer the derived JSONL sidecar — stream facts in GIL-yielding
     chunks so a boot load never starves the event loop. The sidecar is used only
@@ -1095,13 +1108,18 @@ async def _read_from_disk_chunked() -> dict | None:
                 if marker == current or current is None:
                     facts: list = []
                     with open(jsonl_path, "r", encoding="utf-8") as f:
-                        for _i, line in enumerate(f):
-                            line = line.strip()
-                            if not line:
-                                continue
-                            facts.append(json.loads(line))
-                            if (_i & 0x3FF) == 0:        # every 1024 facts
-                                await asyncio.sleep(0)   # yield the event loop
+                        while True:
+                            # R-F4211: yielding after synchronous batches did not
+                            # protect the serving loop from a slow volume read. The
+                            # live heartbeat caught a 2.02s stall inside this exact
+                            # function. Perform both I/O and JSON decoding on a
+                            # worker; each bounded await remains a cancellation and
+                            # scheduling point without loading the whole corpus in
+                            # a second temporary list.
+                            batch = await asyncio.to_thread(_read_jsonl_batch, f)
+                            if not batch:
+                                break
+                            facts.extend(batch)
                     data = {k: v for k, v in meta.items()
                             if k not in ("_canonical", "_n_facts")}
                     data["facts"] = facts
