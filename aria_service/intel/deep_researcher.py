@@ -1380,7 +1380,36 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             if article.get("link"):
                 await _mark_read(article["link"])
             articles_read += 1
-            _stage("fact retention", retained=articles_read)
+            # R-F4202 — the caller's hard wait_for backstop can cancel this
+            # frame after hundreds of seconds. Counts alone survived through
+            # progress, while the retained facts did not. Publish a bounded
+            # evidence snapshot after each completed retention so the caller can
+            # return real partial work even if cancellation lands on the next
+            # store operation. Source URLs were attached above; synthesis is
+            # deliberately absent and the DD consumer labels these UNVERIFIED.
+            _stage("fact retention",
+                retained=articles_read,
+                partial_result={
+                    "topic": topic,
+                    "depth": depth,
+                    "synthesis_error": "hard operation boundary reached before synthesis",
+                    "search_angles": len(queries),
+                    "articles_read": articles_read,
+                    "facts_learned": total_facts,
+                    "hypotheses_generated": total_hyp,
+                    "facts": list(all_facts),
+                    "synthesis": None,
+                    "people": [],
+                    "people_disclosures": [],
+                    "verification_summary": {
+                        "facts_total": len(all_facts),
+                        "failed": "verification did not run before the hard boundary",
+                    },
+                    "partial": True,
+                    "stopped_after": "hard operation boundary during fact retention",
+                    "budget_s": deadline_s,
+                },
+            )
 
     # R-F3018 — harvest what FINISHES inside the budget instead of discarding
     # everything. `gather` is all-or-nothing under an outer cancel; `wait` with a

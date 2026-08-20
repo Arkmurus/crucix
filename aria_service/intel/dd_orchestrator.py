@@ -1763,7 +1763,7 @@ async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=No
             if isinstance(progress, dict) and progress.get("stage"):
                 _detail = ", ".join(
                     f"{k}={v}" for k, v in progress.items()
-                    if k != "stage" and v not in (None, "")
+                    if k not in ("stage", "partial_result") and v not in (None, "")
                 )
                 _where = f", last stage: {progress['stage']}"
                 if _detail:
@@ -1778,6 +1778,15 @@ async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=No
             pass
         logger.warning("[R-F2977] DD op '%s' exceeded %ss (bounded, layer continues)%s",
                        op_name, timeout_s, _where)
+        # R-F4202 — diagnostics are not enough when the cancelled operation has
+        # already retained evidence. The callee may publish a bounded partial
+        # payload into the caller-owned progress bridge; return that payload so
+        # cancellation cannot erase completed work. Never accept an arbitrary
+        # truthy value here: the consumer contract is a result dict.
+        if isinstance(progress, dict):
+            _partial_result = progress.get("partial_result")
+            if isinstance(_partial_result, dict):
+                return _partial_result
         return default
 DEEP_RESEARCH_ENABLED = (os.getenv("ARIA_DD_DEEP_RESEARCH", "1") or "1").strip() not in ("0", "false", "no", "off")
 ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").strip() not in ("0", "false", "no", "off")
