@@ -160,8 +160,25 @@ def test_symbolic_reasoner_default_still_emits():
     """Sanity check: default reason() (silent_brain_hook=False) still fires
     brain_hook.absorb so the gap ledger keeps working for the real call.
 
-    NOTE: brain_hook is imported INSIDE reason() via relative import
-    (`from . import brain_hook as _bh`), making it impossible to patch
-    from outside. The wiring is verified by test_rf892 and live integration."""
-    import pytest
-    pytest.skip("Cannot patch internal relative import of brain_hook")
+    The relative import resolves the package module at call time, so patching the
+    canonical module attribute drives the real emission path without changing
+    production code."""
+    from aria_service.intel import symbolic_reasoner
+
+    absorbed: list[dict] = []
+
+    async def fake_absorb(**kwargs):
+        absorbed.append(kwargs)
+
+    async def run():
+        with patch("aria_service.intel.brain_hook.absorb", side_effect=fake_absorb):
+            question = "Explain quantum gardening policy in an unknown lunar market"
+            result = symbolic_reasoner.reason(question)
+            assert result["confident"] is False
+            await asyncio.sleep(0.01)
+
+    asyncio.run(run())
+    assert len(absorbed) == 1
+    assert absorbed[0]["module"] == "symbolic_reasoner"
+    assert absorbed[0]["success"] is False
+    assert absorbed[0]["gap_type"] == "no_symbolic_rule"

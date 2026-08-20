@@ -45,6 +45,7 @@ precisely the fail-open case R-F1958 protected.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +56,19 @@ from aria_service.tests._source_probe import repo_path
 
 
 HOOK = repo_path("scripts/git-hooks/pre-commit")
+_GIT_SH_CANDIDATES = (
+    Path(r"C:\Program Files\Git\bin\sh.exe"),
+    Path(r"C:\Program Files\Git\usr\bin\sh.exe"),
+)
+SH = shutil.which("sh") or next(
+    (str(candidate) for candidate in _GIT_SH_CANDIDATES if candidate.exists()),
+    None,
+)
+_HOOK_UNAVAILABLE = not HOOK.exists() or SH is None
+_HOOK_UNAVAILABLE_REASON = (
+    "hook not present in this checkout" if not HOOK.exists()
+    else "POSIX shell unavailable on this platform"
+)
 
 
 def _run_hook_against(
@@ -72,6 +86,7 @@ def _run_hook_against(
     venv is reachable and `python3` resolves to the Windows App Execution Alias
     shim, which prints an advertisement and exits 49 without running anything.
     """
+    assert SH is not None, "POSIX shell is required to execute the hook fixture"
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     scripts = tmp_path / "scripts"
     scripts.mkdir()
@@ -110,7 +125,7 @@ def _run_hook_against(
         env["PATH"] = f"{real_bin}{os.pathsep}{env['PATH']}"
 
     return subprocess.run(
-        ["sh", str(HOOK)],
+        [SH, str(HOOK)],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -119,7 +134,7 @@ def _run_hook_against(
     )
 
 
-@pytest.mark.skipif(not HOOK.exists(), reason="hook not present in this checkout")
+@pytest.mark.skipif(_HOOK_UNAVAILABLE, reason=_HOOK_UNAVAILABLE_REASON)
 def test_hook_blocks_when_no_usable_interpreter_exists(tmp_path) -> None:
     """THE SYMPTOM, reproduced at its true cause.
 
@@ -141,7 +156,7 @@ def test_hook_blocks_when_no_usable_interpreter_exists(tmp_path) -> None:
     )
 
 
-@pytest.mark.skipif(not HOOK.exists(), reason="hook not present in this checkout")
+@pytest.mark.skipif(_HOOK_UNAVAILABLE, reason=_HOOK_UNAVAILABLE_REASON)
 def test_hook_allows_a_clean_verified_commit(tmp_path) -> None:
     """The positive sentinel must still pass — the guard has to be able to go green."""
     stub = "print('[pre-commit] OK — all files checked, no issues.')\n"
@@ -152,7 +167,7 @@ def test_hook_allows_a_clean_verified_commit(tmp_path) -> None:
     )
 
 
-@pytest.mark.skipif(not HOOK.exists(), reason="hook not present in this checkout")
+@pytest.mark.skipif(_HOOK_UNAVAILABLE, reason=_HOOK_UNAVAILABLE_REASON)
 def test_hook_still_blocks_a_real_verification_failure(tmp_path) -> None:
     """R-F1958's original contract, unchanged."""
     stub = (
@@ -164,7 +179,7 @@ def test_hook_still_blocks_a_real_verification_failure(tmp_path) -> None:
     assert proc.returncode != 0, "a real VERIFICATION FAILED no longer blocks"
 
 
-@pytest.mark.skipif(not HOOK.exists(), reason="hook not present in this checkout")
+@pytest.mark.skipif(_HOOK_UNAVAILABLE, reason=_HOOK_UNAVAILABLE_REASON)
 def test_a_crashing_checker_still_fails_open(tmp_path) -> None:
     """The DELIBERATE fail-open is preserved: a checker that RAN and crashed warns.
 

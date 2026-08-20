@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4206,
+  "next_available": 4207,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35972,6 +35972,15 @@
       "commit_sha": "5ec425e4",
       "notes": null,
       "shipped_at": "2026-08-20T14:47:02Z"
+    },
+    {
+      "r_number": "R-F4206",
+      "title": "Audit and harden conditional test skips",
+      "claimed_at": "2026-08-20T14:48:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
