@@ -35666,9 +35666,10 @@
       "title": "C-187 carry the resolved canonical list ids on a finding so the contradiction detector compares ids",
       "claimed_at": "2026-08-19T14:27:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:12Z"
     },
     {
       "r_number": "R-F4176",
@@ -35856,27 +35857,30 @@
       "title": "isolate sanctions coverage announcement latch in tests",
       "claimed_at": "2026-08-20T09:02:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:12Z"
     },
     {
       "r_number": "R-F4195",
       "title": "align sanctions relationship tests with source query contract",
       "claimed_at": "2026-08-20T09:12:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:13Z"
     },
     {
       "r_number": "R-F4196",
       "title": "add evidence-safe stale reservation audit",
       "claimed_at": "2026-08-20T09:15:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:13Z"
     }
   ]
 }

@@ -2113,9 +2113,12 @@
       "title": "the screen-contradiction detector is wired but blind: it prose-matches canonical names against OpenSanctions labels",
       "claimed_at": "2026-08-19T13:56:11Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4175"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-20T10:12:20Z"
     },
     {
       "c_number": "C-188",
