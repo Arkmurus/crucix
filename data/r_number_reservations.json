@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4201,
+  "next_available": 4202,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35917,6 +35917,15 @@
       "r_number": "R-F4200",
       "title": "Preserve retained DD research without synthesis",
       "claimed_at": "2026-08-20T12:14:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4201",
+      "title": "Prevent prior reads starving repeat DD",
+      "claimed_at": "2026-08-20T12:41:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

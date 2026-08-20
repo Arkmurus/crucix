@@ -1239,7 +1239,15 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         _stage("search fan-out", angles_run=_queries_run)
         # R-F1594: space sequential searches to avoid DDG rate limiting
         await asyncio.sleep(0.5)
-        unread = [a for a in results if a.get("link") not in read_urls]
+        # R-F4201 — a repeat DD is a fresh measurement, not a continuation
+        # of a personal reading queue. Applying the process-wide read cache to
+        # entity DD made a second run on the same company return zero articles
+        # and facts. Ignore historical reads for DD, while preserving the
+        # existing fan-out and non-DD discovery behaviour exactly.
+        unread = [
+            a for a in results
+            if _is_entity_dd or a.get("link") not in read_urls
+        ]
         for article in unread[:max_articles_per_search]:
             article_jobs.append((query, article))
 
