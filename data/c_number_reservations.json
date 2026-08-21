@@ -2356,6 +2356,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-208",
+      "title": "a GREEN-not-downgraded guard went blind when its fixture stopped answering any question",
+      "claimed_at": "2026-08-21T16:13:07Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

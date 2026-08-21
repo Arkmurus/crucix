@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4228,
+  "next_available": 4229,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36183,6 +36183,15 @@
       "r_number": "R-F4227",
       "title": "retained-lead dedup is exact-string so reworded restatements both render",
       "claimed_at": "2026-08-21T15:54:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4228",
+      "title": "synthesis-BLUF fixture drifted behind the decision-readiness scorecard",
+      "claimed_at": "2026-08-21T16:13:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

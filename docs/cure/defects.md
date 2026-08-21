@@ -13139,3 +13139,68 @@ one (`test_rf2621_synthesis_timeout_bluf`) **fails identically with HEAD's
   literal text `$1`; the defect is that a high-frequency, low-information value is
   presented as nine-source corroboration. Suppressing small amounts is unsafe (a
   GBP 1 share sale is a real signal), so this needs an information-content rule.
+
+## C-208 · a GREEN-not-downgraded guard went blind when its fixture drifted (fixed, R-F4228)
+
+`test_completed_green_synthesis_is_not_downgraded_to_amber_or_red` had been
+failing continuously. **The production behaviour was right throughout.**
+
+The test asserts R-F2621's real invariant: the synthesis-timeout guard must not
+over-trigger and turn a completed GREEN report into a false AMBER/RED. Its BLUF
+must say the completed checks found **no blocking risk**.
+
+`_report_with_registry_substance()` set a live registry status, directors and an
+incorporation date — enough when it was written. The decision-readiness scorecard
+(R-F2786/R-F2792, `verdict_logic_version 2026.08.20`) then made the five
+decision-critical questions explicit, and the fixture answered **0 of 5**:
+
+```
+identity                   UNRESOLVED   <- identity_ok also needs a registration NUMBER
+sanctions_export_control   UNRESOLVED
+adverse_media              UNRESOLVED
+ownership_control          UNRESOLVED
+financial_capacity         UNRESOLVED
+```
+
+With nothing answered, `compose_decision_bluf` correctly took the branch reading
+*"the check whose purpose is to find blocking risk (sanctions and export-control
+screening) is NOT satisfied, so this report cannot state whether blocking risk
+exists"* — so the assertion could never pass. **With 0/5 answered, refusing to
+claim "no blocking risk" is exactly correct**, and the live Penfold report (3/5,
+sanctions screened) does say it.
+
+### The fix
+
+The fixture answers the two questions the guards depend on, and nothing more:
+
+* **identity** — plus a `registration_number`;
+* **sanctions/export-control** — `identity.sanctions_screen.verified_sources`
+  (it hangs off **identity**, not compliance — measured, not assumed) plus an
+  export-control assessment on `compliance`.
+
+Coverage stays deliberately incomplete at **2 of 5**, because that is the case
+under test: risk GREEN, reliance not yet earned — the RISK/RELIANCE split
+R-F2786 exists to keep apart.
+
+### And the precondition is pinned
+
+`test_the_fixture_still_answers_the_questions_these_guards_need` asserts the
+fixture still answers identity and sanctions, **and** that coverage remains
+partial. A future scorecard change now fails there with a readable message —
+quoting the scorecard's own `blocker` string — instead of silently turning every
+guard in the file into noise.
+
+### Verification
+
+6 tests pass. Mutation-proven: reverting the fixture reproduces the original
+blindness **and** trips the new precondition, which names the cause. Regression:
+39 files touching BLUF/decision-readiness — **493 passed, 0 failed**. No
+production code changed — nothing to deploy.
+
+### Five in one session
+
+C-198, C-204, C-205, C-206 and C-208 are the same family: a test pinned to where
+logic lived, what a flag meant, or what a fixture used to satisfy. Every one went
+permanently red; **none was hiding a live defect**; all five had stopped being
+able to report one. The pattern is now recorded in
+`a-red-test-usually-points-where-code-used-to-be`.

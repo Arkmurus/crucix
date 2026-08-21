@@ -26,12 +26,43 @@ from aria_service.intel.dd_schema import ARKDDReport, LayerStatus, RiskClassific
 
 def _report_with_registry_substance(name: str = "Acme Defence Ltd") -> ARKDDReport:
     """A report whose EVIDENCE layers succeeded — registry substance present, so
-    the ``_data_starved`` guard at :6857 does NOT fire and cannot mask the bug."""
+    the ``_data_starved`` guard at :6857 does NOT fire and cannot mask the bug.
+
+    R-F4228 / C-208 — THIS FIXTURE HAD DRIFTED BEHIND THE SCORECARD, and the guard
+    below went blind. It set a live registry status, directors and an incorporation
+    date, which was enough when it was written. The decision-readiness scorecard
+    (R-F2786/R-F2792, verdict_logic_version 2026.08.20) then made the questions
+    explicit, and the fixture answered **0 of 5** — including identity, because
+    `identity_ok` also requires a registration NUMBER.
+
+    With nothing answered, `compose_decision_bluf` correctly took the branch that
+    says ARIA "cannot state whether blocking risk exists", so
+    `test_completed_green_synthesis_is_not_downgraded_to_amber_or_red` — whose whole
+    point is that a COMPLETED GREEN synthesis must say the checks found no blocking
+    risk — could never pass. The production behaviour was right throughout: with
+    0/5 answered, refusing to claim "no blocking risk" is exactly correct, and the
+    live Penfold report (3/5, sanctions screened) does say it.
+
+    So the fixture now answers the two questions the guard needs, and nothing more:
+      * identity           — registration_number + live status + registry substance
+      * sanctions/export   — `identity.sanctions_screen.verified_sources` (it hangs
+                             off IDENTITY, not compliance) plus an export-control
+                             assessment on compliance
+    Coverage stays deliberately INCOMPLETE at 2/5, because that is the case under
+    test: risk GREEN, reliance not yet earned.
+    """
     report = ARKDDReport(target={"name": name}, orchestrator_mode="deep")
     report.identity.entity_name = name
     report.identity.directors = [{"name": "J. Doe"}]
     report.identity.registration_status = "active"
     report.identity.incorporation_date = "2011-04-02"
+    report.identity.registration_number = "11668244"
+    report.identity.sanctions_screen = {"verified_sources": [
+        {"source": "ofac_sdn", "status": "CLEAN"},
+        {"source": "eu_consolidated", "status": "CLEAN"},
+    ]}
+    report.compliance.export_control = {
+        "classification": "civilian or unclassified", "assessed": True}
     return report
 
 
@@ -176,3 +207,39 @@ async def test_completed_red_synthesis_unaffected():
     assert "RED" in (report.bottom_line or ""), (
         f"a completed RED verdict must survive, got: {report.bottom_line!r}"
     )
+
+
+def test_the_fixture_still_answers_the_questions_these_guards_need():
+    """R-F4228 / C-208 — a drifting fixture blinds every guard in this file.
+
+    This fixture once answered 0 of 5 decision-critical questions, which sent
+    `compose_decision_bluf` down the "cannot state whether blocking risk exists"
+    branch and made `test_completed_green_synthesis_is_not_downgraded_to_amber_or_red`
+    permanently red — for a production behaviour that was correct.
+
+    Pin the PRECONDITION, so a future scorecard change fails HERE with a readable
+    message instead of silently turning the guards above into noise. Coverage is
+    deliberately partial: 2 of 5 is the case under test (risk GREEN, reliance not
+    yet earned), so this asserts the two the guards depend on and does NOT demand
+    a clean sweep.
+    """
+    from aria_service.intel.dd_schema import _dd_decision_readiness
+
+    readiness = _dd_decision_readiness(_report_with_registry_substance().as_dict())
+    questions = readiness.get("questions") or {}
+
+    assert questions.get("identity", {}).get("answered") is True, (
+        "the fixture no longer answers 'Verified legal identity' — the scorecard's "
+        f"requirements moved. Blocker: {questions.get('identity', {}).get('blocker')!r}")
+    sanc = questions.get("sanctions_export_control", {})
+    assert sanc.get("answered") is True, (
+        "the fixture no longer answers 'Sanctions and export-control exposure', so "
+        "the BLUF cannot say the completed checks found no blocking risk. "
+        f"Blocker: {sanc.get('blocker')!r}")
+    assert sanc.get("sanctions_evidenced") is True
+    assert sanc.get("export_control_evidenced") is True
+
+    # And the case under test really is INCOMPLETE coverage, not a clean sweep.
+    assert readiness.get("answered", 0) < readiness.get("required", 5), (
+        "the fixture now answers every question — these tests are about a GREEN "
+        "risk verdict with incomplete RELIANCE, and that distinction is gone")
