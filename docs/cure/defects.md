@@ -12344,3 +12344,92 @@ an in-process check could not observe the failure it asserts against.
 Blast radius: all 108 `main`-importing test files — **1,135 passed, 5 failed,
 all 5 in the recorded baseline at `bf680ed1`.** Zero new failures. R-F4213,
 R-F4214 and R-F2663 all still green.
+
+## C-196 · a country name disabled live search in chat for 69 days (fixed, R-F4216)
+
+Live failure, WhatsApp, 2026-08-21 11:15–11:20, reproduced server-side by
+POSTing the operator's exact question to `/api/aria/chat` from inside the
+machine:
+
+```
+"What is your insight on the Turkey and Israel tensions in Syria?"
+ -> tool_used: "registry_lookup", verification: {"verdict": "no_tool"}, sources: []
+```
+
+The **same question without the word "Turkey"** routes to `brave_answer`, a
+web-class tool that reaches `web_explorer`. One country word turned a
+current-events question into a company-registry lookup, so web search never ran
+and ARIA answered from training data with an honest cutoff caveat.
+
+**The honesty layer worked; the capability was gone.** ARIA correctly reported
+`0 grounded sources` and refused to fabricate. That is why this survived so
+long — it never looked like a bug, it looked like ARIA being careful.
+
+Introduced 2026-06-13 (R-F1543). **69 days.**
+
+### Two defects, and the second is the one that rots
+
+**1. No company signal was required.** `_REGISTRY_JURISDICTIONS` matched a bare
+jurisdiction word anywhere in the message and returned immediately, pre-empting
+every later routing rule. The stated intent was never that broad — the comment
+directly above it reads *"Detects patterns like 'Turkish company X', 'Estonian
+firm Y', 'MERSIS lookup for Z'"*, and every one of those carries a company
+signal. The contract was written down and the code did something wider: the
+C-187/C-189 shape, and the same class as §22a (an NDA review routed to
+`company_investigator`).
+
+Measured blast radius before the fix — every one of these routed to
+`registry_lookup` and got no live search:
+
+```
+"Any news from Angola this week?"              -> registry_lookup
+"What is happening in Kenya right now?"        -> registry_lookup
+"Give me the latest on Saudi defence procurement" -> registry_lookup
+"How is the Brazil economy doing?"             -> registry_lookup
+"Tell me about Ghana elections"                -> registry_lookup
+"What are the tensions between Israel and Syria?" -> brave_answer   (no country word)
+```
+
+**2. The jurisdiction list was a hardcoded subset.** It named **12** countries
+while `registry_adapters._DISPATCH` serves **26**. AE, CH, CZ, DE, FI, FR, HU,
+IL, IN, NG, NO, SK, US and ZA had working adapters that chat could not reach —
+Nigeria, South Africa, UAE, Germany, France, India, Israel and the United States
+silently unroutable. Operator, 2026-08-21: *"everything is core market"*.
+
+### The fix
+
+Two tiers, because they carry different evidence:
+
+* **IDENTIFIERS** — a named registry system (MERSIS/KRS/ONRC/CNPJ/MOCI, plus
+  HANDELSREGISTER/SIREN/SIRET). The word *is* the intent; nothing else says
+  "MERSIS". Fires alone.
+* **JURISDICTIONS** — a country or demonym. Ambiguous by nature, so it fires
+  only alongside a company signal (legal forms, registry vocabulary,
+  corporate-identity nouns — deliberately explicit so a news sentence cannot
+  satisfy it by accident).
+
+**The authority is now the dispatch table, not a literal.** Aliases are filtered
+through `registry_adapters.supported_jurisdictions()`, and
+`test_no_supported_jurisdiction_lacks_a_chat_alias` **fails** if a supported
+jurisdiction has no chat alias — so a new adapter cannot ship chat-invisible.
+That is the §27d anti-rot rule applied to the thing that rotted.
+
+Short ambiguous tokens are deliberately excluded: no bare `us`, `no`, `in`, `de`
+— they are ordinary English words and a test pins that.
+
+### Verification
+
+`test_rf4216_jurisdiction_not_registry_hijack.py` — 43 tests, **17 RED before**.
+Capability assertions check the user-visible outcome (the question reaches a
+web-class tool), not merely that it left the registry branch — routing to
+nothing would reproduce the same symptom.
+
+Mutation-proven both ways: dropping the company-signal requirement restores the
+hijack (17 red); dropping one jurisdiction alias fires the anti-rot guard.
+
+Regression: 68 routing/chat test files — **943 passed, 1 failed**, and that one
+(`test_session_2026_05_11.py::TestUBOChainWalk::test_sanctioned_officer_in_chain_surfaces`)
+**fails identically on the pre-change tree**, verified by swapping in HEAD's
+`routes/aria.py`. Pre-existing, not a regression here — but it is
+false-clean-shaped (a sanctioned officer in a UBO chain returning 0 instead of
+1) and is recorded as an open lead.

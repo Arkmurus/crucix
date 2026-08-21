@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4216,
+  "next_available": 4217,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36063,6 +36063,16 @@
       "r_number": "R-F4215",
       "title": "main.py boot env parses must not raise on a malformed value",
       "claimed_at": "2026-08-21T09:09:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "41807ae4",
+      "notes": null,
+      "shipped_at": "2026-08-21T09:28:55Z"
+    },
+    {
+      "r_number": "R-F4216",
+      "title": "jurisdiction word must not hijack chat to registry_lookup",
+      "claimed_at": "2026-08-21T09:37:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

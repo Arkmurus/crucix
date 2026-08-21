@@ -2209,6 +2209,18 @@
       "title": "a malformed tuning knob kills boot or darkens a watchdog in main.py",
       "claimed_at": "2026-08-21T09:09:04Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4215"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T09:28:55Z"
+    },
+    {
+      "c_number": "C-196",
+      "title": "a country name disables live search in chat",
+      "claimed_at": "2026-08-21T09:37:11Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

@@ -7533,36 +7533,120 @@ def _detect_tool_intent(message: str) -> dict | None:
     # other jurisdictions. Auto-fires without asking permission because
     # registry lookups are cheap (single httpx call, 15s timeout) and the
     # result is always authoritative.
-    _REGISTRY_JURISDICTIONS = {
-        "turkish": "TR", "turkey": "TR", "mersis": "TR",
-        "estonian": "EE", "estonia": "EE", "eesti": "EE",
-        "polish": "PL", "poland": "PL", "krs": "PL",
-        "romanian": "RO", "romania": "RO", "onrc": "RO",
-        "brazilian": "BR", "brazil": "BR", "cnpj": "BR",
-        "bulgarian": "BG", "bulgaria": "BG",
-        "ghanaian": "GH", "ghana": "GH",
-        "kenyan": "KE", "kenya": "KE",
-        "saudi": "SA", "saudi arabia": "SA", "moci": "SA",
-        "panamanian": "PA", "panama": "PA",
-        "gibraltar": "GI",
-        "angolan": "AO", "angola": "AO",
+    # ── R-F4216 / C-196 — a country word alone is NOT a registry intent ─────
+    # Live failure 2026-08-21 (WhatsApp, reproduced server-side): "What is your
+    # insight on the Turkey and Israel tensions in Syria?" routed to
+    # registry_lookup, so web search never ran and ARIA answered from training
+    # data with a cutoff caveat. The SAME question without the word "Turkey"
+    # routed to brave_answer. One country word disabled live search, from
+    # 2026-06-13 (R-F1543) until this fix — 69 days.
+    #
+    # Two independent defects, and the second is the one that rots:
+    #
+    # 1. NO COMPANY SIGNAL WAS REQUIRED. A bare jurisdiction word matched
+    #    anywhere in the message and returned immediately, pre-empting every
+    #    later rule. The stated intent was never that broad — the comment above
+    #    reads "Turkish company X", "Estonian firm Y", "MERSIS lookup for Z",
+    #    and every one of those carries a company signal. The contract was
+    #    written down and the code did something wider (C-187/C-189 shape; §22a
+    #    is the same class — an NDA review routed to a company tool).
+    #
+    # 2. THE JURISDICTION LIST WAS A HARDCODED SUBSET. It named 12 countries
+    #    while registry_adapters._DISPATCH serves 26, so AE, CH, CZ, DE, FI, FR,
+    #    HU, IL, IN, NG, NO, SK, US and ZA had working adapters that chat could
+    #    not reach — Nigeria, South Africa, UAE, Germany, France, India, Israel
+    #    and the US, silently unroutable. Operator, 2026-08-21: "everything is
+    #    core market". The authority is now the DISPATCH TABLE, not a literal
+    #    here, and test_rf4216 fails if a supported jurisdiction has no alias —
+    #    so a new adapter cannot ship chat-invisible (the stale hand-maintained
+    #    list §27d exists to prevent).
+    _re_rf4216 = __import__("re")
+    # Unambiguous registry SYSTEM names. The word itself is the intent —
+    # nothing says "MERSIS" except someone asking for a Turkish registry.
+    _REGISTRY_IDENTIFIERS = {
+        "mersis": "TR", "krs": "PL", "onrc": "RO", "cnpj": "BR", "moci": "SA",
+        "handelsregister": "DE", "siren": "FR", "siret": "FR",
     }
-    _REGISTRY_KEYWORDS_RE = __import__("re").compile(
-        r"\b(?:" + "|".join(__import__("re").escape(k) for k in _REGISTRY_JURISDICTIONS) + r")\b",
-        __import__("re").IGNORECASE,
+    # Country + demonym aliases. Ambiguous by nature, so these fire ONLY
+    # alongside a company signal. Deliberately no bare "us", "no", "in" or
+    # "de" — they are ordinary English words and would match constantly.
+    _REGISTRY_JURISDICTION_ALIASES = {
+        "TR": ("turkey", "turkish"),
+        "EE": ("estonia", "estonian", "eesti"),
+        "PL": ("poland", "polish"),
+        "RO": ("romania", "romanian"),
+        "BR": ("brazil", "brazilian"),
+        "BG": ("bulgaria", "bulgarian"),
+        "GH": ("ghana", "ghanaian"),
+        "KE": ("kenya", "kenyan"),
+        "SA": ("saudi arabia", "saudi"),
+        "PA": ("panama", "panamanian"),
+        "GI": ("gibraltar",),
+        "AO": ("angola", "angolan"),
+        "AE": ("united arab emirates", "uae", "emirati"),
+        "CH": ("switzerland", "swiss"),
+        "CZ": ("czech republic", "czechia", "czech"),
+        "DE": ("germany", "german"),
+        "FI": ("finland", "finnish"),
+        "FR": ("france", "french"),
+        "HU": ("hungary", "hungarian"),
+        "IL": ("israel", "israeli"),
+        "IN": ("india", "indian"),
+        "NG": ("nigeria", "nigerian"),
+        "NO": ("norway", "norwegian"),
+        "SK": ("slovakia", "slovak"),
+        "US": ("united states", "usa", "u.s.", "american"),
+        "ZA": ("south africa", "south african"),
+    }
+    try:
+        from ..intel.registry_adapters import supported_jurisdictions as _sup_rf4216
+        _SUPPORTED_RF4216 = set(_sup_rf4216())
+    except Exception:
+        # Never let an import problem turn into a routing change; fall back to
+        # the alias keys so behaviour degrades to "route what we know".
+        _SUPPORTED_RF4216 = set(_REGISTRY_JURISDICTION_ALIASES)
+    _REGISTRY_JURISDICTIONS = {
+        alias: iso2
+        for iso2, aliases in _REGISTRY_JURISDICTION_ALIASES.items()
+        if iso2 in _SUPPORTED_RF4216
+        for alias in aliases
+    }
+    # What makes a message about a COMPANY rather than a country: legal forms,
+    # registry vocabulary, corporate-identity nouns. Deliberately explicit
+    # rather than a catch-all, so a news sentence cannot satisfy it by accident.
+    _REGISTRY_COMPANY_SIGNAL_RE = _re_rf4216.compile(
+        r"\b(?:compan(?:y|ies)|firm|entit(?:y|ies)|corporation|corporate"
+        r"|subsidiar(?:y|ies)|shareholder|director|ubo|beneficial\s+owner"
+        r"|registr(?:y|ies|ar|ation|ered)|register|incorporat(?:ed|ion)"
+        r"|company\s+number|vat|tax\s+id|kyc|due\s+diligence"
+        r"|ltd|limited|plc|gmbh|llc|srl|s\.a\.)\b",
+        _re_rf4216.IGNORECASE,
     )
-    _registry_match = _REGISTRY_KEYWORDS_RE.search(msg)
-    if _registry_match:
-        jurisdiction_key = _registry_match.group(0).lower()
-        iso2 = _REGISTRY_JURISDICTIONS.get(jurisdiction_key)
-        if iso2:
-            return {
-                "tool": "registry_lookup",
-                "entity": msg[:200],
-                "jurisdiction": iso2,
-                "context": msg,
-                "_reason": f"registry_auto_fire_{iso2}",
-            }
+
+    def _registry_hit_rf4216(mapping):
+        """Longest key first, so 'saudi arabia' is not shadowed by 'saudi'."""
+        if not mapping:
+            return None
+        pattern = r"\b(?:" + "|".join(
+            _re_rf4216.escape(k) for k in sorted(mapping, key=len, reverse=True)
+        ) + r")\b"
+        m = _re_rf4216.compile(pattern, _re_rf4216.IGNORECASE).search(msg)
+        return mapping.get(m.group(0).lower()) if m else None
+
+    _iso2_rf4216 = _registry_hit_rf4216(
+        {k: v for k, v in _REGISTRY_IDENTIFIERS.items() if v in _SUPPORTED_RF4216})
+    _reason_rf4216 = "registry_auto_fire_identifier"
+    if not _iso2_rf4216 and _REGISTRY_COMPANY_SIGNAL_RE.search(msg):
+        _iso2_rf4216 = _registry_hit_rf4216(_REGISTRY_JURISDICTIONS)
+        _reason_rf4216 = "registry_auto_fire_jurisdiction_with_company_signal"
+    if _iso2_rf4216:
+        return {
+            "tool": "registry_lookup",
+            "entity": msg[:200],
+            "jurisdiction": _iso2_rf4216,
+            "context": msg,
+            "_reason": f"{_reason_rf4216}_{_iso2_rf4216}",
+        }
 
     # ── R-F729 (2026-05-20) — slash command for full DD orchestrator ──
     # Pre-R-F729 the dd_orchestrator path required prose phrasing
