@@ -995,11 +995,90 @@ _HEAVY_PREWARM_MODULES: tuple[str, ...] = (
 )
 
 
+# ── R-F4213 / C-192 — the heavy-graph barrier must ALWAYS open ───────────────
+# R-F4211 put SEVEN boot workloads behind one asyncio.Event: the autonomous
+# engine, ARIA-Coder, the knowledge seed, the web-integrity agent, the defence
+# seed, the health precompute loop and the entire boot continuation. That is
+# ARIA's whole metabolism — the self-improvement loop §21c requires stay enabled
+# and draining. It had no failsafe on either side: the producer's single .set()
+# was the tail statement of an unguarded coroutine, and this consumer waited on
+# it forever. Any escape above that .set() parked all seven PERMANENTLY while
+# /health still reported `operational` and HTTP served normally — a dark
+# metabolism is indistinguishable from a healthy one from the outside.
+_HEAVY_WARMUP_TIMEOUT_DEFAULT_S = 1200.0
+# Margin over the warmup cap. The two graph loads run concurrently under
+# asyncio.gather, so the warmup's own worst case is ~one cap plus the
+# freeze-out-of-GC pass; this is head-room on top of that, not a second budget.
+_HEAVY_BARRIER_MARGIN_S = 300.0
+_HEAVY_BARRIER_TIMEOUTS = 0
+_HEAVY_BARRIER_ANNOUNCED = False
+
+
+def _heavy_warmup_timeout_s() -> float:
+    """ONE source of truth for the heavy-graph warmup cap.
+
+    This used to be an inline `float(_os.getenv(...))` INSIDE the warmup and
+    ABOVE its only `heavy_graph_ready.set()`. A malformed operator value —
+    "20m", "1200s", a stray space — raised ValueError there, the barrier never
+    opened, and ARIA's entire metabolism went dark until someone redeployed.
+    A cap is a tuning knob; it must never be able to disable self-improvement.
+    Malformed input degrades to the default and says so, rather than raising.
+    """
+    raw = (_os.getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S", "") or "").strip()
+    if not raw:
+        return _HEAVY_WARMUP_TIMEOUT_DEFAULT_S
+    try:
+        return max(60.0, float(raw))
+    except (TypeError, ValueError):
+        logger.warning(
+            "[R-F4213] ARIA_HEAVY_WARMUP_TIMEOUT_S=%r is not a number — using "
+            "the %.0fs default. Set a bare number of seconds.",
+            raw, _HEAVY_WARMUP_TIMEOUT_DEFAULT_S,
+        )
+        return _HEAVY_WARMUP_TIMEOUT_DEFAULT_S
+
+
+def _heavy_barrier_timeout_s() -> float:
+    """How long a gated workload waits before running anyway.
+
+    DERIVED from the warmup cap, never hardcoded: an operator who lengthens the
+    warmup would otherwise silently push the barrier into releasing early — the
+    stale-hand-maintained-constant shape §27d exists to prevent.
+    """
+    return _heavy_warmup_timeout_s() + _HEAVY_BARRIER_MARGIN_S
+
+
 async def _await_heavy_graph_ready(app: FastAPI) -> None:
-    """Wait until boot graph hydration finishes before starting heavy agents."""
+    """Wait until boot graph hydration finishes before starting heavy agents.
+
+    BOUNDED. If hydration has not signalled by the cap, the workload is released
+    anyway and the fact is logged. Running late and contended is a degradation;
+    never running at all is a silent capability loss, and §21c makes keeping this
+    loop draining a P0. The wait is NOT the safety property here — the barrier
+    only sequences non-critical work away from hydration (R-F4211), so releasing
+    late is exactly the right failure direction.
+    """
+    global _HEAVY_BARRIER_TIMEOUTS, _HEAVY_BARRIER_ANNOUNCED
     ready = getattr(app.state, "heavy_graph_ready", None)
-    if ready is not None:
-        await ready.wait()
+    if ready is None:
+        return
+    cap = _heavy_barrier_timeout_s()
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=cap)
+    except asyncio.TimeoutError:
+        _HEAVY_BARRIER_TIMEOUTS += 1
+        if not _HEAVY_BARRIER_ANNOUNCED:
+            _HEAVY_BARRIER_ANNOUNCED = True
+            # WARNING, never ERROR: this is a recoverable degradation and
+            # `is_reset_type` excludes log:warning, so it must not reset the
+            # Phase A gate-#3 streak (R-F2663). The error_log_handler mirror
+            # carries it to the brain, so this failure branch is wired (§21a).
+            logger.warning(
+                "[R-F4213] heavy-graph barrier still closed after %.0fs — "
+                "releasing gated boot workloads anyway (autonomous engine, "
+                "coder, seeds, web-integrity, health precompute). Hydration "
+                "did not signal; running degraded beats not running.", cap,
+            )
 
 
 @asynccontextmanager
@@ -1302,7 +1381,7 @@ async def lifespan(app: FastAPI):
         # recoverable DEGRADATION (app stays up, reduced context, re-warms next
         # boot), not an ERROR (§14 degraded≠broken; is_reset_type excludes
         # log:warning per error_streak.py:94, so it no longer resets gate #3).
-        _warm_timeout = max(60.0, float(_os.getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S", "1200")))
+        _warm_timeout = _heavy_warmup_timeout_s()  # R-F4213: cannot raise
 
         async def _warm_one(_name, _fn):
             try:
@@ -1353,7 +1432,22 @@ async def lifespan(app: FastAPI):
         )
         app.state.heavy_graph_ready.set()
 
-    _bg_task(asyncio.create_task(_warmup_heavy_graphs(), name="heavy_graph_warmup"))
+    async def _warmup_heavy_graphs_guarded():
+        """R-F4213: guarantee the barrier opens, whatever the warmup does.
+
+        Wrapping rather than reindenting the warmup is deliberate — a bare
+        `finally` also runs on CancelledError, which `_warm_one`'s
+        `except Exception` cannot catch (it is a BaseException), and it covers
+        every future statement added above the inner .set() without anyone
+        having to remember this rule. Event.set() is idempotent, so the
+        warmup's own set() calls stay as the fast path.
+        """
+        try:
+            await _warmup_heavy_graphs()
+        finally:
+            app.state.heavy_graph_ready.set()
+
+    _bg_task(asyncio.create_task(_warmup_heavy_graphs_guarded(), name="heavy_graph_warmup"))
 
     # ---- R-F2300 - reconcile orphaned async-DD 'running' placeholders ---------
     # An async DD (R-F2250) runs in an in-process bg task; a restart (deploy /

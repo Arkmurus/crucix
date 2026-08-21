@@ -12118,3 +12118,80 @@ before. Covers both error directions as capability tests, the one-derivation
 property, the all-suffix fallback, verdict-correctness across every pinned case,
 and a wiring test that reads `sanctions.py` so a better measure nothing computes
 cannot pass. Sanctions/screen blast radius: **665 passed, 7 xfailed, 0 failed.**
+
+## C-192 · the heavy-graph barrier could never open, and the metabolism waited forever (fixed, R-F4213)
+
+R-F4211 put **seven** boot workloads behind one `asyncio.Event`
+(`app.state.heavy_graph_ready`), and its own test pins all seven:
+`_boot_continuation`, `_health_precompute_loop`, `_bootstrap_autonomous_engine_bg`,
+`_seed_bg`, `_seed_knowledge_bg`, `_start_aria_coder_bg`, `_start_web_integrity_bg`.
+That set is the autonomous engine, ARIA-Coder, the knowledge seed, the
+web-integrity agent, the defence seed, the health cache warmer, and orphaned-job
+recovery + search-index seeding + the crawler. **It is ARIA's entire
+metabolism** — the loop §21c requires stay "enabled and draining", and the
+mechanism by which she heals and compounds at all.
+
+Sequencing that work behind hydration is right. Doing it with no failsafe on
+either side was not:
+
+* **Producer.** The only `heavy_graph_ready.set()` on the non-web path was the
+  **tail statement** of `_warmup_heavy_graphs`, with no `try/finally`. Anything
+  escaping above it left the event permanently unset. `_warm_one` catches
+  `Exception`, so a `CancelledError` out of the `asyncio.gather` — a
+  `BaseException` — went straight past it. So did `_aria_role()` raising.
+* **The realistic trigger.** The `.set()` sat *below*
+  `float(_os.getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S", "1200"))`. A malformed
+  operator value — `20m`, `1200s`, a stray character — raises `ValueError`
+  there. **A tuning knob could silently disable self-improvement.**
+* **Consumer.** `_await_heavy_graph_ready` was a bare `await ready.wait()`.
+  Unbounded. Seven workloads parked forever.
+* **And it was invisible.** `_bg_task` logs the death, but nothing recovers
+  (no respawn factory), HTTP keeps serving, and `/health` keeps reporting
+  `operational`. A dark metabolism and a healthy one look identical from
+  outside — the same absence-reads-as-health shape §1 records for three Phase A
+  gates, C-39, and the §17 cost probe, except here the absence disables ARIA's
+  ability to improve herself.
+
+R-F4211's own test pinned that all seven workloads *wait on* the barrier. **No
+test asserted the barrier ever opens.** The guard was pinned; the failsafe was
+absent.
+
+### The fix
+
+* `_heavy_warmup_timeout_s()` — one module-level source of truth for the cap,
+  which **cannot raise**: malformed input logs and degrades to the default.
+* `_warmup_heavy_graphs_guarded()` — a `try/finally` around the warmup that
+  guarantees the release. Wrapping rather than reindenting is deliberate: a bare
+  `finally` also runs on `CancelledError`, and it covers every statement a
+  future edit adds above the inner `.set()` without anyone remembering this rule.
+  `Event.set()` is idempotent, so the existing sets stay as the fast path.
+* `_await_heavy_graph_ready` is **bounded**, at a cap **derived** from the warmup
+  cap (`+300s`), never hardcoded — an operator lengthening the warmup would
+  otherwise silently push the barrier into releasing early, the stale-constant
+  shape §27d exists to prevent. On timeout it releases the workload and logs
+  WARNING once per process (§28's announce-once pattern, not a per-caller flood).
+  WARNING, never ERROR: `is_reset_type` excludes `log:warning`, so it cannot
+  reset the gate-#3 streak (R-F2663), and the `error_log_handler` mirror carries
+  it to the brain, so the failure branch is wired (§21a).
+
+**Running late and contended is a degradation; never running is a capability
+loss.** The barrier only sequences *non-critical* work away from hydration, so
+releasing late is the correct failure direction.
+
+### Verification
+
+`test_rf4213_heavy_barrier_failsafe.py` — 12 tests, **10 RED before the fix**.
+Each guard was mutation-proven to bite: spawning the unguarded warmup, restoring
+the unbounded wait, and restoring the raising `float()` each turn it red.
+
+`test_rf2663_gate3_warmup_not_error.py` went red on the refactor and was
+**followed through it, not deleted**. It asserted the *mechanism* (the literal
+env name inside the closure) rather than the *property*. It now asserts the
+surviving intent — the warmup takes its cap from the one source, that source
+reads the operator's var, and the default is still generous — and it is
+**stronger** than before: it now catches a short *default*, which a literal-name
+check never could.
+
+Blast radius: all 108 test files importing `aria_service.main` — **1,111 passed,
+5 failed, and all 5 are in the recorded 113-failure baseline at `bf680ed1`.**
+Zero new failures.

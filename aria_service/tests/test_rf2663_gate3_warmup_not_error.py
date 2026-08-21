@@ -20,6 +20,7 @@ pre-R-F2663 tree.
 from __future__ import annotations
 
 import ast
+import inspect
 import pathlib
 
 import pytest
@@ -70,8 +71,22 @@ def test_warmup_does_not_use_5s_boot_init_timeout():
     assert "_run_boot_inits" not in calls, (
         "warmup routes heavy graphs through _run_boot_inits' 5s timeout — cancels the "
         "~10-min load (R-F2663 regression)")
-    assert "ARIA_HEAVY_WARMUP_TIMEOUT_S" in ast.unparse(node), (
-        "warmup must read a generous background timeout, not the 5s boot-init default")
+    # R-F4213 moved the env read OUT of this closure into the module-level
+    # _heavy_warmup_timeout_s(), because a malformed value raised ValueError here
+    # — ABOVE the only heavy_graph_ready.set() — and parked every gated boot
+    # workload forever. The SURVIVING INTENT is "a generous cap, not the 5s
+    # boot-init default", so assert that property through the one source of
+    # truth. Do NOT green a failure here by deleting the assertion: that is how
+    # the 5s cap silently comes back.
+    assert "_heavy_warmup_timeout_s" in calls, (
+        "warmup no longer takes its cap from _heavy_warmup_timeout_s() — either "
+        "the 5s boot-init default is back, or a second cap has been forked")
+    src = inspect.getsource(_main._heavy_warmup_timeout_s)
+    assert "ARIA_HEAVY_WARMUP_TIMEOUT_S" in src, (
+        "the cap helper no longer reads the operator's env var")
+    assert _main._HEAVY_WARMUP_TIMEOUT_DEFAULT_S >= 600.0, (
+        "the background warmup default is no longer generous — a short cap "
+        "cancels the ~10-min graph load, the R-F2663 regression")
 
 
 def test_warmup_warning_type_cannot_reset_gate3():
