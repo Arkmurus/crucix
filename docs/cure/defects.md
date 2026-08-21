@@ -12648,3 +12648,61 @@ Blast radius: 204 test files touching citation/grounding/chat_sources —
 **2,430 passed, 20 failed, and a before/after failure-set diff against HEAD's
 `chat_sources.py` shows ZERO new failures** (the only delta is this file's own 5
 tests going from red to green).
+
+## C-200 · the streaming chat fork blanked the tool context, so no tool-derived citation could appear (fixed, R-F4220)
+
+CLAUDE.md §13 — the stream-bypass rule — says `aria_chat_stream` is a subset-fork
+of `aria_chat` and **every post-response hook must be mirrored into BOTH paths**.
+
+`_aria_chat_stream_impl` called:
+
+```python
+_sources = _cs.extract(response_text, tool_context="")     # <- empty
+```
+
+directly beneath a comment reading *"mirror of the non-stream sources[] field per
+CLAUDE.md §13"*. **It cited the rule it was breaking.**
+
+The non-stream path passes `tool_context=context or ""`, and so does the stream's
+own grounding check 400 lines earlier **in the same function** (`aria_engine.py:5310`),
+so `context` was in scope the entire time. It is assigned at line 5120 as a
+top-level statement of that function — unconditionally — so passing it carries no
+`UnboundLocalError` risk (the F28 class §9 exists for; checked before editing).
+
+### Consequence
+
+`chat_sources.extract()` searches `response_text + tool_context`. With the tool
+context blanked, the only citations the streaming path could ever emit were URLs
+the model happened to type into its own prose. Everything the tools actually
+found was invisible: web_explorer's result URLs, the sanctions live-check block,
+and — as of R-F4219 — ARIA's own `memory://` provenance.
+
+**The web UI streams, so this is the path most users see.** It is the same shape
+as C-199 one layer up: the evidence existed and the surface that publishes it
+could not see it. Two independent bugs, both ending in `Sources: 0` on an answer
+that was genuinely evidenced.
+
+### The fix, and why it is a rule rather than a line
+
+Passing `context or ""` is one line. The test is the part that matters:
+`test_no_chat_path_blanks_the_tool_context` walks **every**
+`chat_sources.extract()` call in `aria_engine` via AST and fails if any passes a
+literal `""` — and `test_every_extract_call_passes_a_tool_context_at_all` fails
+if any omits the kwarg, since the default is `""` and that is the same defect
+spelled differently. A third test asserts the extractor is present on **both**
+forks at all, because a guard over one path is no guard (§13).
+
+### Verification
+
+5 tests, 1 RED before. Mutation-proven in both spellings: restoring `""` fails
+the first guard, omitting the kwarg fails the second. A behavioural test measures
+the loss directly — the same answer yields ≥2 sources with the context and
+exactly zero without.
+
+Blast radius: 286 test files touching `aria_engine` / `aria_chat` /
+`chat_sources` / stream — **2,821 passed, 14 failed**, all 14 attributed as
+pre-existing: three are in the recorded baseline, the `rf795` (5) and `rf799` (4)
+brain-hook family all pass standalone (CLAUDE.md §16 records this exact cluster as
+known-flaky and order-dependent), `rf3615` fails identically with HEAD's
+`aria_engine.py` swapped back in, and `rf4125`'s reported violations name
+`brain_hook.py:describe_success_rate()` — none of the functions added today.

@@ -2257,6 +2257,18 @@
       "title": "facts recalled from ARIA's own index produce zero citations",
       "claimed_at": "2026-08-21T10:56:41Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4219"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T11:19:27Z"
+    },
+    {
+      "c_number": "C-200",
+      "title": "stream fork passes an empty tool_context while citing the rule it breaks",
+      "claimed_at": "2026-08-21T11:22:36Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

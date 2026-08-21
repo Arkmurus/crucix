@@ -5711,7 +5711,7 @@ async def _aria_chat_stream_impl(
     # frontend can render chips while the user is reading. Fail-soft.
     try:
         from .intel import chat_sources as _cs
-        _sources = _cs.extract(response_text, tool_context="")
+        _sources = _cs.extract(response_text, tool_context=context or "")  # R-F4220
         if _sources:
             yield _emit("sources", sources=_sources, session_id=session_id)
     except Exception as _cs_err:
