@@ -13067,3 +13067,75 @@ C-198, C-205 and C-206 are the same shape: a test pinned to *where* logic lived 
 permanently red, and a permanently-red test carries no information (§16). None of
 the three was hiding a live defect — but all three had stopped being able to
 report one, and C-205's obvious "fix" would have introduced an overclaim.
+
+## C-207 · one fact rendered as two retained leads (fixed, R-F4227)
+
+Page 5 of the delivered Penfold report lists five "Retained research lead" items.
+Two of them say the same thing:
+
+```
+"Penfold Savings Limited IS registered at Companies House with company number 11668244"
+"PENFOLD SAVINGS LIMITED registered at Companies House with company number 11668244"
+```
+
+Each carries *"verify this claim against the cited source before relying on it"*.
+So the report **manufactured two outstanding verification tasks out of one fact**
+— in the section whose entire job is telling a customer what still needs
+checking.
+
+### Cause
+
+`_retained_research_findings` deduped on `" ".join(content.lower().split())` — an
+exact string after whitespace normalisation. Lowercasing settled the case
+difference; the word **"is"** defeated everything else.
+
+The subject-relevance filter immediately above *selects for this shape*: a fact
+survives when it names the subject or carries its registration number, so facts
+whose entire content is the subject's identity are exactly what reaches the
+dedup.
+
+### The key is order-aware on purpose
+
+`_distinctive_tokens` returns a **set**, and a set cannot separate *"Acme acquired
+Broadwing"* from *"Broadwing acquired Acme"*. R-F3579 already wrote
+`_distinctive_sequence_dd` for that hazard, so this reuses it rather than
+inventing a third notion of "the same claim".
+
+Measured against the five real leads before choosing:
+
+```
+exact-string key  -> 5 distinct of 5   (misses the duplicate)
+token-SET key     -> 4 distinct of 5   (correct here, but merges reversals)
+ordered-seq key   -> 4 distinct of 5   (correct here, refuses reversals)
+```
+
+A lead carrying anything extra — an FRN, a date, a resignation — keeps a
+different sequence and survives. **Dedup here removes a restatement, never a
+claim.** An empty sequence (content that is all generic or two-character tokens)
+falls back to the exact string, so nothing can merge on an absence.
+
+### Verification
+
+8 tests, 1 RED before. Mutation-proven both ways: reverting to the exact-string
+key restores the live duplicate; switching to the order-blind set merges the
+reversal case. The surviving lead keeps its source URL and its `UNVERIFIED`
+label — dedup must not upgrade a lead into an adjudicated conclusion.
+
+Regression: 18 files touching the synthesis path — 133 passed, 1 failed, and that
+one (`test_rf2621_synthesis_timeout_bluf`) **fails identically with HEAD's
+`dd_orchestrator.py` swapped back in**. Pre-existing; recorded as the next lead.
+
+### Still open from the same report — stated, not silently dropped
+
+* **The same fact carries two confidence labels**: registration number `11668244`
+  is `CONFIRMED` from `companies_house.charges` and simultaneously appears as an
+  `UNVERIFIED` retained lead. This fix halves the restatements but does not
+  reconcile the labels. Doing that safely needs a rule for when a lead is
+  *entirely* accounted for by an already-confirmed structured fact — and a lead
+  like *"4 total officers ... 2 resignations (Galer, Hykin)"* contains the
+  confirmed number **and** a new claim, so a "contains a confirmed value" test
+  would wrongly mark it verified. That needs a product decision, not a heuristic.
+* `link-tree: amount=$1 (x9 sources)` — the amount regex legitimately matches the
+  literal text `$1`; the defect is that a high-frequency, low-information value is
+  presented as nine-source corroboration. Suppressing small amounts is unsafe (a
+  GBP 1 share sale is a real signal), so this needs an information-content rule.

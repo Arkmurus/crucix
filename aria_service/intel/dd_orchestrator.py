@@ -13326,7 +13326,35 @@ def _retained_research_findings(
     findings: list[Finding] = []
     seen: set[str] = set()
     for _, _, fact, content, source_url in sorted(candidates):
-        key = " ".join(content.lower().split())
+        # ── R-F4227 / C-207 — one fact must not become two verification tasks ──
+        #
+        # This was `" ".join(content.lower().split())`: an EXACT string. Live on
+        # the Penfold report (dd_9b3bc17a15f4, page 5) it rendered BOTH of
+        #   "Penfold Savings Limited IS registered at Companies House with
+        #    company number 11668244"
+        #   "PENFOLD SAVINGS LIMITED registered at Companies House with company
+        #    number 11668244"
+        # as separate leads, each telling the reader to "verify this claim
+        # against the cited source before relying on it". Lowercasing settled the
+        # case difference; the word "is" defeated everything else. So the report
+        # manufactured two outstanding checks from one fact, in the section whose
+        # entire job is telling a customer what still needs checking.
+        #
+        # The filter directly above SELECTS for this shape: a fact survives when
+        # it names the subject or carries its registration number, so facts whose
+        # whole content is the subject's identity are exactly what gets here.
+        #
+        # ORDER-AWARE ON PURPOSE. `_distinctive_tokens` returns a SET, and a set
+        # cannot separate "Acme acquired Broadwing" from "Broadwing acquired
+        # Acme". R-F3579 wrote `_distinctive_sequence_dd` for that hazard; reuse
+        # it rather than inventing a third notion of "the same claim". Measured
+        # on the five real Penfold leads: merges exactly the duplicate pair and
+        # leaves the address, board-composition and incorporation-date leads
+        # untouched. A lead carrying anything extra (an FRN, a date) keeps a
+        # different sequence and survives — dedup here removes a RESTATEMENT,
+        # never a claim.
+        key = tuple(_distinctive_sequence_dd(content)) or (
+            " ".join(content.lower().split()),)
         if key in seen:
             continue
         seen.add(key)

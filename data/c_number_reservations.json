@@ -2341,6 +2341,18 @@
       "title": "a section-7 no-delete guard went blind when its function was split",
       "claimed_at": "2026-08-21T15:23:58Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4226"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:43:00Z"
+    },
+    {
+      "c_number": "C-207",
+      "title": "one fact rendered as two retained leads because dedup matched exact strings",
+      "claimed_at": "2026-08-21T15:54:59Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

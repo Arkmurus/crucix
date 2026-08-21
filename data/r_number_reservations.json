@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4227,
+  "next_available": 4228,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36173,6 +36173,16 @@
       "r_number": "R-F4226",
       "title": "quarantine no-delete guard inspects the wrapper, not the implementation",
       "claimed_at": "2026-08-21T15:23:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d19a1b35",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:42:59Z"
+    },
+    {
+      "r_number": "R-F4227",
+      "title": "retained-lead dedup is exact-string so reworded restatements both render",
+      "claimed_at": "2026-08-21T15:54:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
