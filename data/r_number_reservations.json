@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4221,
+  "next_available": 4222,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36113,6 +36113,16 @@
       "r_number": "R-F4220",
       "title": "streaming chat drops tool context so no tool-derived citation can appear",
       "claimed_at": "2026-08-21T11:22:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "69ec8684",
+      "notes": null,
+      "shipped_at": "2026-08-21T11:45:07Z"
+    },
+    {
+      "r_number": "R-F4221",
+      "title": "the citation extractor never saw the tool block on either chat path",
+      "claimed_at": "2026-08-21T11:51:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

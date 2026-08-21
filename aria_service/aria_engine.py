@@ -4845,7 +4845,14 @@ async def _aria_chat_impl(
     _sources: list[dict] = []
     try:
         from .intel import chat_sources as _cs
-        _sources = _cs.extract(response_text, tool_context=context or "")
+        _sources = _cs.extract(
+            response_text,
+            # R-F4221 — BOTH sources of evidence. `context` is the 7-layer
+            # knowledge context; the tool block arrives inside `message`
+            # (routes wraps it with _wrap_tool_block), and until now no
+            # extractor on either path ever read it.
+            tool_context=(context or "") + _cs.tool_block_from(message),
+        )
     except Exception as _cs_err:
         logger.debug("R-F732 chat_sources extract failed (non-fatal): %s", _cs_err)
 
@@ -5711,7 +5718,10 @@ async def _aria_chat_stream_impl(
     # frontend can render chips while the user is reading. Fail-soft.
     try:
         from .intel import chat_sources as _cs
-        _sources = _cs.extract(response_text, tool_context=context or "")  # R-F4220
+        _sources = _cs.extract(   # R-F4220 + R-F4221
+            response_text,
+            tool_context=(context or "") + _cs.tool_block_from(message),
+        )
         if _sources:
             yield _emit("sources", sources=_sources, session_id=session_id)
     except Exception as _cs_err:

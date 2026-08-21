@@ -12706,3 +12706,65 @@ brain-hook family all pass standalone (CLAUDE.md §16 records this exact cluster
 known-flaky and order-dependent), `rf3615` fails identically with HEAD's
 `aria_engine.py` swapped back in, and `rf4125`'s reported violations name
 `brain_hook.py:describe_success_rate()` — none of the functions added today.
+
+## C-201 · the citation extractor never saw the tool block, on either chat path (fixed, R-F4221)
+
+C-199 taught the extractor to read `memory://` provenance. C-200 stopped the
+stream fork blanking its context. Both were real defects, and **neither produced
+a citation**, because of a third thing underneath them.
+
+**Tool output never reaches the engine as an argument.** `routes/aria.py` folds
+it into the message:
+
+```python
+message_for_llm = f"{message_for_llm}\n\n{_wrap_tool_block(tool_context)}"
+result = await aria_chat(message_for_llm, ...)
+```
+
+Inside the engine, `context` is the **7-layer knowledge context** from
+`_build_7_layer_context` — a different thing entirely. So
+`chat_sources.extract(response_text, tool_context=context)` was reading a context
+that never contained the tool's URLs, while the block that did contain them sat
+unread in `message`. Both call sites, both forks, since the extractor was written.
+
+**Measured live** (aria-intel `69ec8684`, 2026-08-21): a `/api/aria/chat/stream`
+turn emitted `tool_running` ×6, `tool_done`, and a footer reading *"Tools: deep
+web search"* — a tool demonstrably ran — and produced **no `sources` event at
+all**. That measurement is what separated this from C-200; without it I would
+have called C-200 the fix and been wrong.
+
+### The fix
+
+`_wrap_tool_block`'s docstring already declares itself *"the ONLY place tool
+output should enter message_for_llm"*, so there is exactly one marker to key on.
+`TOOL_BLOCK_PREAMBLE` and `tool_block_from()` now live in `chat_sources`, and
+`routes/aria.py` **imports** the constant rather than owning it — the engine
+cannot import routes (routes imports the engine), and a second copy would drift
+apart from the first the way R-F2639 records. Both extract sites now pass
+`(context or "") + tool_block_from(message)`: **both** kinds of evidence, not one
+swapped for the other, and a test pins that R-F4220's `context` survives.
+
+`tool_block_from` returns only the text *after* the preamble. A URL the user
+pasted into their own message is not ARIA's evidence, and a test pins that
+distinction. A message with no tool block returns `""` — absence reads as
+absence.
+
+### Verification
+
+7 tests, all RED before (the module could not even import the marker).
+Mutation-proven both ways: dropping the block from one path fails the
+"every chat path" guard — the §13 half-fix — and letting the helper return the
+whole message fails the user-text exclusion.
+
+Blast radius: 167 test files touching citation/grounding/chat — **1,811 passed,
+20 failed**. The failures are citation-adjacent (`rf3183` memory tiering,
+`rf3132` citation sample, `rf2286` grounding breadth), so they were attributed
+directly rather than by assumption: with HEAD's `aria_engine.py`,
+`chat_sources.py` and `routes/aria.py` swapped back in, those three files give
+**19 failed / 5 passed — identical to the run with the fix in place.** Zero
+regressions.
+
+⚠️ **Lead for someone**: that is a ~20-strong pre-existing red cluster sitting in
+exactly the citation/grounding area this chain has been repairing. Per §16 a
+permanently-red test carries no information; a cluster this size in this area is
+worth its own investigation.

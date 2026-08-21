@@ -3499,11 +3499,10 @@ async def feedback_get_ep(feedback_id: str, user_id: str = ""):
 # same contract in the user-message slot is refused as a forged-tag injection
 # (aria_engine.py:627 I1_VERIFICATION_TAG_FAKE). chat_ep, the stream path AND the
 # eval path all inject via this ONE preamble so the position is identical (§13).
-_TOOL_BLOCK_PREAMBLE = (
-    "[I have already run the appropriate tool on your request. "
-    "Use the data below to answer comprehensively, cite specific findings, "
-    "and end with a clear recommendation.]"
-)
+# R-F4221 — ONE definition, imported. The engine must be able to find this block
+# inside a message to cite what the tool actually found, and it cannot import
+# routes (routes imports the engine). A second copy here would drift.
+from ..intel.chat_sources import TOOL_BLOCK_PREAMBLE as _TOOL_BLOCK_PREAMBLE
 
 
 def _wrap_tool_block(tool_context: str) -> str:

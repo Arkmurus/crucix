@@ -237,3 +237,41 @@ def extract(response_text: str, tool_context: str = "") -> list[dict[str, Any]]:
     return sources
 
 # R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.
+
+
+# ── R-F4221 / C-201 — the tool block, and the ONE marker that identifies it ──
+# Tool output does not reach the engine as an argument: routes/aria.py folds it
+# INTO the message via _wrap_tool_block(), whose own docstring calls itself "the
+# ONLY place tool output should enter message_for_llm". Inside the engine,
+# `context` is the 7-layer KNOWLEDGE context — a different thing — so
+# extract(response_text, tool_context=context) was reading a context that never
+# held the tool's URLs, while the block that did sat unread in `message`.
+#
+# Measured live 2026-08-21 (aria-intel 69ec8684): a /chat/stream turn emitted
+# tool_running x6, tool_done and a "Tools: deep web search" footer — a tool
+# demonstrably ran — and produced no `sources` event at all.
+#
+# The marker lives HERE, not in routes, so the engine can find the block without
+# importing routes (routes imports the engine — the reverse is circular) and
+# without a copied literal that could drift apart from it (R-F2639: one measure).
+TOOL_BLOCK_PREAMBLE = (
+    "[I have already run the appropriate tool on your request. "
+    "Use the data below to answer comprehensively, cite specific findings, "
+    "and end with a clear recommendation.]"
+)
+
+
+def tool_block_from(message: str | None) -> str:
+    """Return the trusted tool block embedded in a message, or "" if none.
+
+    Deliberately returns only the text AFTER the preamble: everything before it
+    is the user's own message, and a URL the user pasted is not ARIA's evidence.
+    Absence reads as absence — a message with no tool block yields "", never a
+    guess at what a tool might have said.
+    """
+    if not message:
+        return ""
+    idx = message.find(TOOL_BLOCK_PREAMBLE)
+    if idx < 0:
+        return ""
+    return message[idx + len(TOOL_BLOCK_PREAMBLE):]
