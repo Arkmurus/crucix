@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4222,
+  "next_available": 4223,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36123,6 +36123,16 @@
       "r_number": "R-F4221",
       "title": "the citation extractor never saw the tool block on either chat path",
       "claimed_at": "2026-08-21T11:51:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "95ab9d9b",
+      "notes": null,
+      "shipped_at": "2026-08-21T12:09:28Z"
+    },
+    {
+      "r_number": "R-F4222",
+      "title": "readiness gate refuses requests dispatch would serve at chain depth 1",
+      "claimed_at": "2026-08-21T12:25:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

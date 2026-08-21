@@ -475,6 +475,43 @@ class FallbackProvider(LLMProvider):
             return True  # no credit / bad key — dialling is failing slower
         return self._cooldown_age(stats) < _LAST_RESORT_BREATHER_S
 
+    def can_dispatch_now(self) -> bool:
+        """Would dispatch dial ANY provider right now?
+
+        R-F4222 / C-202 — ADMISSION MUST ASK THE QUESTION DISPATCH ANSWERS.
+
+        `_llm_serving_state` (routes/aria.py) refused a chat whenever
+        `resilient` was not True, and `resilient` is redundancy: `len(active) > 0`
+        where "active" means only that a cooldown TIMESTAMP has passed. So the
+        instant a single-provider chain soft-cooled, admission returned a 503 —
+        *before dispatch could apply R-F3680's last-resort rule, which exists for
+        exactly that case*. Its docstring promises she "never goes silent just
+        because her primary LLM had a transient blip"; through the chat endpoint
+        that promise was unreachable. Measured live 2026-08-21: four refusals in
+        one hour, `reason: timeout`, on `general_vendor_depth: 1`.
+
+        This asks `_should_skip` — the SAME predicate dispatch uses, with the same
+        `alternative_exists` computation — so the two layers cannot drift apart
+        (R-F2639: one measure). It is NOT a relaxation: a HARD cooldown still
+        returns False here, because `_should_skip` refuses it even with no
+        alternative ("dialling is failing slower"), and the 5s breather is still
+        honoured. R-F2814's guarantee — never enter a pipeline that will hang —
+        is preserved; it is simply now measured on servability rather than on
+        redundancy.
+        """
+        order = [
+            p for p in self.providers
+            if (p.name or "").lower() not in preference_only_providers()
+        ]
+        for p in order:
+            stats = self._stats.get(p.name, {})
+            if not self._should_skip(
+                stats,
+                alternative_exists=self._has_reachable_alternative(order, p.name),
+            ):
+                return True
+        return False
+
     def _has_reachable_alternative(self, order: list, exclude: str) -> bool:
         """Is any provider in `order` OTHER than `exclude` servable right now?
 
@@ -1799,6 +1836,11 @@ class FallbackProvider(LLMProvider):
             "active_providers": active,
             "cooling_providers": cooling,
             "resilient": len(active) > 0 and _exhausted_age is None,
+            # R-F4222 — a DIFFERENT question from `resilient`, deliberately kept
+            # separate. `resilient` is redundancy + recent outcomes (R-F3477);
+            # this is "would dispatch dial anything right now?". Collapsing them
+            # is what made admission refuse what dispatch would have served.
+            "can_dispatch_now": self.can_dispatch_now(),
             "last_exhaustion_age_s": _exhausted_age,
             "primary_active": bool(active and chain_order and active[0] == chain_order[0]),
             "serving_provider": active[0] if active else None,

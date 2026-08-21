@@ -806,7 +806,19 @@ def _llm_serving_state(request: Request) -> dict:
             "retry_after_s": 30,
             "detail": str(exc)[:160],
         }
-    if health.get("resilient") is not True:
+    # R-F4222 / C-202 — ask SERVABILITY, not redundancy. `resilient` is False the
+    # instant a single-provider chain soft-cools, but R-F3680 deliberately
+    # last-resorts a soft-cooled provider when nothing else is reachable. Refusing
+    # here meant the request never reached the dispatcher that would have served
+    # it — the live "⚠️ I hit a snag", four times in one hour on 2026-08-21.
+    # `can_dispatch_now` is computed from the SAME `_should_skip` predicate
+    # dispatch uses, so the two layers cannot drift (R-F2639).
+    #
+    # FAIL CLOSED on absence: a provider object without the field falls back to
+    # `resilient` alone, i.e. exactly the previous behaviour. A hard cooldown
+    # (billing/auth) still reports False here, so R-F2814's guarantee — never
+    # enter a pipeline that will hang — is unchanged.
+    if health.get("resilient") is not True and health.get("can_dispatch_now") is not True:
         return {
             "ready": False,
             "reason": (

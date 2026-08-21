@@ -2281,6 +2281,18 @@
       "title": "tool output reaches the LLM via the message, so no extractor ever read it",
       "claimed_at": "2026-08-21T11:51:38Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4221"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T12:09:28Z"
+    },
+    {
+      "c_number": "C-202",
+      "title": "admission control asks redundancy, dispatch asks servability; they disagree",
+      "claimed_at": "2026-08-21T12:25:46Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

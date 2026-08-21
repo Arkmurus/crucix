@@ -12768,3 +12768,71 @@ regressions.
 exactly the citation/grounding area this chain has been repairing. Per §16 a
 permanently-red test carries no information; a cluster this size in this area is
 worth its own investigation.
+
+## C-202 · admission control refused requests dispatch would have served (fixed, R-F4222)
+
+The operator's recurring **"⚠️ I hit a snag"** on WhatsApp. Reproduced four times
+in one hour on 2026-08-21 while verifying other fixes:
+
+```
+503 {"error": "llm_unavailable",
+     "cooling_providers": [{"name":"deepseek","reason":"timeout",
+                            "seconds_remaining": 51}]}
+```
+
+### Two layers, two answers to the same question
+
+* **Dispatch asks servability.** `_should_skip(stats, alternative_exists=...)` is
+  R-F3680's rule: *"a cooldown is a routing instruction — go somewhere else for a
+  while. It is only meaningful if there IS somewhere else."* With a
+  single-provider chain there is nowhere else, so a **soft** cooldown is
+  deliberately last-resorted once the 5s breather passes. That docstring promises
+  she *"never goes silent just because her primary LLM had a transient blip"*.
+
+* **Admission asks redundancy.** `_llm_serving_state` refused whenever
+  `health["resilient"] is not True`, and `resilient` is
+  `len(active) > 0 and no recent exhaustion`, where `active` means only that a
+  cooldown **timestamp** has passed.
+
+So the instant the sole provider soft-cooled, `active` emptied, `resilient` went
+False, and the gate returned 503 — **before dispatch could apply the last-resort
+rule built for exactly this case.** R-F3680's mechanism was unreachable through
+the chat endpoint, and its promise had never been delivered there.
+
+`general_vendor_depth` is **1** (the operator removed `deepseek_backup`, §17), so
+this fired on every transient DeepSeek timeout. Measured at the same time:
+**11 errors in 60 dispatches (18%)**.
+
+### The fix
+
+`FallbackProvider.can_dispatch_now()` — "would dispatch dial anything right
+now?" — computed from the **same `_should_skip` predicate** dispatch uses, with
+the same `alternative_exists` computation, so the two layers cannot drift
+(R-F2639: one measure). Published on `/health` beside `resilient`, deliberately
+**as a separate field**: they answer different questions and collapsing them is
+what caused this.
+
+`_llm_serving_state` now refuses only when *both* are false.
+
+### What is NOT relaxed
+
+* A **hard** cooldown (billing/auth) still refuses — `_should_skip` rejects it
+  even with no alternative, because "dialling is failing slower".
+* The **5s breather** after a blip is still honoured.
+* **Warmup** (`llm_provider is None`) still refuses.
+* **Absence fails closed**: a provider object without the field falls back to
+  `resilient` alone — exactly the previous behaviour.
+* `resilient` keeps its R-F3477 meaning and R-F3477's tests pass unchanged.
+
+R-F2814's guarantee — never enter a pipeline that will hang for the client's
+whole budget — is preserved. It is simply now measured on **servability** rather
+than on **redundancy**, which is the question it was always trying to ask.
+
+### Verification
+
+9 tests, 7 RED before. Mutation-proven in both directions: reverting admission to
+the redundancy proxy restores the live defect; making `can_dispatch_now` ignore
+`_should_skip` breaks both the hard-cooldown refusal and the breather.
+
+Blast radius: 43 test files touching the fallback chain, admission and readiness
+— **617 passed, 0 failed.**
