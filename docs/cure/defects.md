@@ -12836,3 +12836,82 @@ the redundancy proxy restores the live defect; making `can_dispatch_now` ignore
 
 Blast radius: 43 test files touching the fallback chain, admission and readiness
 — **617 passed, 0 failed.**
+
+## C-203 · the DD PDF printed every key finding twice (fixed, R-F4223)
+
+Found by reading a delivered report the operator supplied:
+`ARIA_DD_Penfold_Savings_Limited_dd_9b3bc17a15f4.pdf`.
+
+Nine findings — GLEIF LEI, the sanctions screen, charges, insolvency, the
+disqualified-directors check, The Gazette, employment tribunals, the FCA register
+and the shell screen — appear in full on **page 2** under KEY FINDINGS and again,
+verbatim, on **page 3**. Verified by text extraction: every distinctive line
+occurs exactly twice, on pages 2 and 3. It added a page to a customer-facing
+document and inflated the apparent volume of evidence.
+
+### The contract was already written — on the other side of the tier boundary
+
+`dd_orchestrator._rollup_key_findings()` (Python) says outright:
+
+> *"NOTHING IS HIDDEN. This re-orders a 10-item view of a list **that stays
+> complete in its own section**; a deferred finding is still rendered under
+> `network`."*
+
+So `synthesis.key_findings` is a **summary view of findings that also render in
+their own layer**. `ddReportSections()` (Node) pushed that view as a section and
+then pushed every layer's full list, with no dedup — so each key finding's body
+printed twice. Neither side is wrong on its own; the contract simply does not
+cross the tier boundary, and nothing checked it.
+
+### Why the existing suite missed it — the fixture, not the assertion
+
+`dd-pdf-full-sections-rf2848.test.mjs` builds `key_findings` as
+`[{title: 'INFO finding'}, {title: 'RED finding'}, ...]` — titles that appear in
+**no layer**. The overlap that exists in every real report was never exercised.
+The assertions were fine; the fixture was not production-shaped.
+
+### The fix
+
+The layer stays canonical and complete (that is the Python contract). Only the
+**duplicated body** is suppressed from the summary, and **only when the finding
+genuinely appears in a layer** — a key finding with no layer home keeps its
+detail, because suppressing it would delete the only copy. The projection copies
+rather than edits, so `ddReportSections` stays pure as documented.
+
+Duplicate identity is `JSON.stringify([title, source])` — deliberately not a
+delimiter-joined string. Two different checks reaching the same conclusion from
+different registers are both legitimate and both shown; the same check saying the
+same thing twice is the duplication. (The first draft used a NUL separator and a
+code-generation escape wrote a literal NUL byte into the source. JSON has no
+escape to mangle.)
+
+### Verification
+
+`test/dd-pdf-key-findings-not-duplicated-rf4223.test.mjs` — 5 tests, 1 RED before,
+with a **production-shaped** fixture where `key_findings` shares objects with the
+layer. Mutation-proven in both directions: removing the suppression restores the
+live defect; suppressing unconditionally fails the orphan test, which exists
+precisely so a fix for duplication can never become a deletion.
+
+Blast radius: the full Node suite — **2,048 tests, 2,039 passed, 0 failed**, 9
+skipped. The R-F2848 ordering contract ("Key findings" first) still holds; the
+summary is `unshift`ed after the layers are built.
+
+### Observed but NOT changed — these need a product decision, not a heuristic
+
+Measured in the same report:
+
+* **The same fact carries two confidence labels.** Company number `11668244` is
+  `CONFIRMED` from `companies_house.charges` and simultaneously appears as a
+  *"Retained research lead ... UNVERIFIED ... verify this claim against the cited
+  source before relying on it"*. The report asks the reader to verify something it
+  has itself already established from a T1 source. Both labels are honest
+  per-pipeline (deep-research verification did not run, R-F3260), but the reader
+  sees a contradiction. **Not fixed here**: filtering retained leads against
+  established facts needs semantic matching, and a wrong suppression in a DD
+  report deletes evidence. That trade-off is the operator's call (§21e).
+* **5 retained leads all restate identity facts** already in the IDENTITY section.
+* **Adverse-media incompleteness is stated 6 times**; the FCA register appears as
+  two separate findings from two resolvers.
+* **`link-tree: amount=$1 (x9 sources)`** is rendered as an INFO finding. `$1` is
+  not an intelligence signal.

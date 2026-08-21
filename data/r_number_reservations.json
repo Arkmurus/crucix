@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4223,
+  "next_available": 4224,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36133,6 +36133,16 @@
       "r_number": "R-F4222",
       "title": "readiness gate refuses requests dispatch would serve at chain depth 1",
       "claimed_at": "2026-08-21T12:25:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "688ed01c",
+      "notes": null,
+      "shipped_at": "2026-08-21T13:41:41Z"
+    },
+    {
+      "r_number": "R-F4223",
+      "title": "DD PDF printed every key finding twice",
+      "claimed_at": "2026-08-21T14:35:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
