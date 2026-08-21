@@ -155,9 +155,28 @@ def test_recall_filters_already_stored_deliberation(monkeypatch):
 def test_the_quarantine_does_not_delete(monkeypatch):
     """§7 — infinite memory. The filter runs at READ time; nothing in the
     quarantine path may remove, expire, or rewrite a stored row."""
-    import inspect
     from aria_service.intel import knowledge as kn
-    src = inspect.getsource(kn._rank_knowledge_facts)
+    from ._source_probe import function_source
+
+    # ── R-F4226 / C-206 — this guard had gone blind, and the code is fine. ────
+    # It read `inspect.getsource(kn._rank_knowledge_facts)` and looked for the
+    # R-F3615 marker. That function was later split into a thin wrapper that
+    # delegates to `_rank_knowledge_facts_inner`, where the quarantine actually
+    # lives — so the marker was no longer in the source the test read, and it
+    # died on `ValueError: substring not found`. The §7 no-delete property it
+    # protects was never at risk; the test simply stopped being able to see it.
+    #
+    # Two changes, both deliberate:
+    #   1. read the function that HOLDS the block, and
+    #   2. via function_source, not inspect.getsource — §16/R-F3597: getsource
+    #      slices at the line numbers captured AT IMPORT, so on a shared tree it
+    #      can silently return a DIFFERENT function's body.
+    src = function_source(kn, "_rank_knowledge_facts_inner")
+    assert "R-F3615" in src, (
+        "the recall quarantine is no longer in _rank_knowledge_facts_inner. If it "
+        "MOVED, point this guard at its new home; if it was REMOVED, deliberation "
+        "text is being served as verified fact again (R-F3615)."
+    )
     i = src.index("R-F3615")
     # STRIP COMMENTS FIRST. An earlier draft scanned the raw block and matched
     # the word "write" inside the phrase "write-side guard" in a comment — the
@@ -173,6 +192,24 @@ def test_the_quarantine_does_not_delete(monkeypatch):
             f"the recall quarantine must not {destructive} — §7 forbids deletion"
         )
     assert "looks_like_deliberation" in code, "instrument check: the filter is here"
+
+
+def test_the_wrapper_still_reaches_the_quarantine():
+    """R-F4226 — the split that blinded the guard above must stay honest.
+
+    `_rank_knowledge_facts` is now a wrapper. If it ever stops delegating to
+    `_rank_knowledge_facts_inner`, the quarantine is unreachable at recall time
+    and the guard above would still pass, because it reads the inner function in
+    isolation. Pin the edge, not just the node.
+    """
+    from aria_service.intel import knowledge as kn
+    from ._source_probe import function_source
+
+    outer = function_source(kn, "_rank_knowledge_facts")
+    assert "_rank_knowledge_facts_inner(" in outer, (
+        "_rank_knowledge_facts no longer calls _rank_knowledge_facts_inner — the "
+        "R-F3615 recall quarantine is no longer on the recall path"
+    )
 
 
 def test_both_recall_consumers_are_covered():

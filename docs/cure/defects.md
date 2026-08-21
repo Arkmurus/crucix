@@ -13014,3 +13014,56 @@ Mutation-proven: setting `independent_source_verification_run = True` where
 `_run_verification` currently pins it False turns the test red, so the earned-flag
 guarantee is now actually guarded rather than merely documented. No production
 code changed.
+
+## C-206 · a §7 no-delete guard went blind when its function was split (fixed, R-F4226)
+
+`test_the_quarantine_does_not_delete` had been failing with
+`ValueError: substring not found`. **The code is fine; the guard could no longer
+see it.**
+
+It read `inspect.getsource(kn._rank_knowledge_facts)` and searched for the
+`R-F3615` marker. That function was later split into a thin wrapper delegating to
+`_rank_knowledge_facts_inner`, where the recall quarantine actually lives
+(`knowledge.py:2956-3045`, marker at 3017). The wrapper is 27 lines and contains
+no marker, so the lookup raised before a single assertion ran.
+
+### What it protects, and why losing it mattered
+
+The quarantine stops a model's chain-of-thought being served back as verified
+fact. §7 (infinite memory) forbids the fix being deletion, so the filter runs at
+**READ** time and nothing in that path may remove, expire or rewrite a stored
+row. The test scans the block for `delete`, `.pop(`, `remove(`, `save_facts`,
+`write` — with comments stripped first, because an earlier draft matched "write"
+inside the phrase *"write-side guard"* in a comment.
+
+So a live guard against silently deleting ARIA's memory had been inert for as
+long as the split had existed.
+
+### The fix
+
+Read the function that **holds** the block, and read it with
+`_source_probe.function_source` rather than `inspect.getsource` — §16/R-F3597:
+getsource slices at the line numbers captured **at import**, so on a shared tree
+it can silently return a different function's body. The missing-marker case now
+fails with a message that distinguishes *moved* from *removed*, because those
+need opposite responses.
+
+**And the edge is pinned, not just the node.** `test_the_wrapper_still_reaches_the_quarantine`
+asserts `_rank_knowledge_facts` still calls `_rank_knowledge_facts_inner`. Without
+it, the guard above would keep passing while the quarantine sat off the recall
+path entirely — which is exactly the failure mode the split introduced.
+
+### Verification
+
+10 tests, mutation-proven both ways: inserting `_cache.pop(0)` into the quarantine
+block fails the no-delete guard; making the wrapper stop delegating fails the new
+edge test **and** the behavioural recall test. Targeted regression: 16 files,
+**147 passed, 0 failed**. No production code changed — nothing to deploy.
+
+### The pattern, three times in one session
+
+C-198, C-205 and C-206 are the same shape: a test pinned to *where* logic lived or
+*what* a flag meant, which a later refactor or contract change moved. Each went
+permanently red, and a permanently-red test carries no information (§16). None of
+the three was hiding a live defect — but all three had stopped being able to
+report one, and C-205's obvious "fix" would have introduced an overclaim.

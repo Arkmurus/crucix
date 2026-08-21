@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4226,
+  "next_available": 4227,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36154,14 +36154,25 @@
       "title": "18 grading tests blinded by a hand-rolled fixture that drifted from the builder",
       "claimed_at": "2026-08-21T15:11:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a01e052c",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:22:46Z"
     },
     {
       "r_number": "R-F4225",
       "title": "stale test demands the independent-verification flag be flipped blind",
       "claimed_at": "2026-08-21T15:14:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a01e052c",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:22:46Z"
+    },
+    {
+      "r_number": "R-F4226",
+      "title": "quarantine no-delete guard inspects the wrapper, not the implementation",
+      "claimed_at": "2026-08-21T15:23:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

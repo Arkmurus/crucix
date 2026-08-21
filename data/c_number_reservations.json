@@ -2317,14 +2317,29 @@
       "title": "quality-grading fixtures hand-rolled, so a new metric key blinded 18 tests",
       "claimed_at": "2026-08-21T15:11:06Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4224"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:22:57Z"
     },
     {
       "c_number": "C-205",
       "title": "a red test asserts the opposite of the R-F2413 earned-flag guarantee",
       "claimed_at": "2026-08-21T15:14:06Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4225"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:22:57Z"
+    },
+    {
+      "c_number": "C-206",
+      "title": "a section-7 no-delete guard went blind when its function was split",
+      "claimed_at": "2026-08-21T15:23:58Z",
       "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
