@@ -43,6 +43,23 @@ _URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# R-F4219 / C-199 — ARIA'S OWN INDEX. web_explorer emits memory-first hits with
+# `memory://<id>` (and `rag://<id>`) provenance. `_URL_RE` above is anchored on
+# http(s) and the RAG branch below wants a `[source: ...]` shape, so neither could
+# see them: a fact recalled from ARIA's own corpus contributed NOTHING to the
+# reported evidence, and an answer built entirely from her own index read
+# `Sources: 0`. §15/§27e make that index the moat, so the better her memory got,
+# the more ungrounded she looked.
+#
+# Counted, never disguised. R-F3183 already ruled on this in dd_orchestrator —
+# "a memory:// URL is ARIA'S OWN RAG, not an external source ... Tier by the
+# SOURCE, not by the code path that fetched it" — so these get their own type and
+# NO url, and can never be rendered as a third-party link.
+_MEMORY_URI_RE = re.compile(
+    r"\b(memory|rag)://([A-Za-z0-9_\-]+)",
+    re.IGNORECASE,
+)
+
 # Primary-source sanctions block emitted by sanctions_claim_guard.
 # Shape: "[SANCTIONS LIVE CHECK ...]" or "[SANCTIONS LIVE CHECK — DEGRADED]"
 _PRIMARY_SANCTIONS_RE = re.compile(
@@ -157,6 +174,27 @@ def extract(response_text: str, tool_context: str = "") -> list[dict[str, Any]]:
                 "tool":   "sanctions_claim_guard",
                 "run_id": None,
             })
+
+        # 3b. ARIA's own index (R-F4219). Deliberately BEFORE the generic RAG
+        # branch: these arrive as bare `URL: memory://<id>` lines, not as
+        # `[source: ...]`, which is why they were invisible.
+        for m in _MEMORY_URI_RE.finditer(combined):
+            scheme, ident = m.group(1).lower(), m.group(2)
+            key = f"memory:{ident}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            sources.append({
+                "type":   "memory",
+                "label":  f"ARIA memory {ident}",
+                # No url, ever: a self-citation must not be published as a
+                # clickable third-party source (R-F3183).
+                "url":    None,
+                "tool":   scheme,
+                "run_id": ident,
+            })
+            if len(sources) >= MAX_SOURCES:
+                return sources
 
         # 4. RAG inline citations
         for m in _RAG_CITE_RE.finditer(combined):

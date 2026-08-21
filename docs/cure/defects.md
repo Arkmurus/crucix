@@ -12585,3 +12585,66 @@ promotion assertion.
 Blast radius: 50 test files touching `network_walker` / `sanctioned_in_chain` /
 `_sanctions_classify` — **617 passed, 0 failed**. `test_rf4199` still passes
 unchanged. **No production code was changed**, so there is nothing to deploy.
+
+## C-199 · facts recalled from ARIA's own index produced zero citations (fixed, R-F4219)
+
+§15 and §27e make ARIA's own compounding index the moat: every paid search writes
+to `rag_store` + `intel_ledger` + `brain_hook` so the next equivalent query is
+free, and CLAUDE.md records the live proof — *"memory:documents supplied 5 of 10
+results"*. Measured the same way on the live box: `/api/aria/explore` for an
+Angola procurement query returned **17 facts, 12 web hits and 5 memory hits**,
+the memory ones carrying `memory://<id>` provenance.
+
+**None of those five could ever become a citation.**
+
+`chat_sources.extract()` builds the `sources` array on every chat answer, and it
+could only see `https?://`. `_URL_RE` is anchored on that scheme, and the RAG
+branch matches `[source: ...]` — a different shape from the `URL: memory://<id>`
+lines `web_explorer` actually emits. So a fact recalled from ARIA's own corpus
+contributed nothing to the reported evidence, and an answer built entirely from
+her own index reported `Sources: 0`.
+
+**This inverted the differentiator: the better her memory got, the more
+ungrounded she looked.** The asset §15 exists to build was invisible to the
+surface that sells it.
+
+### Counted, never disguised
+
+R-F3183 already ruled on this exact distinction in `dd_orchestrator`:
+
+> *"a memory:// URL is ARIA'S OWN RAG, not an external source ... Tier by the
+> SOURCE, not by the code path that fetched it: a memory:// URL is ARIA quoting
+> herself no matter which branch surfaced it."*
+
+It tiers those `MEMORY_ONLY` and counts them separately. This mirrors that
+contract rather than inventing a second policy: `memory://` and `rag://` refs now
+produce a distinct **`type: "memory"`** entry, labelled `ARIA memory <id>`, with
+**`url: None`** — always. Making a self-citation clickable would present ARIA's
+own recall as third-party evidence, which is manufacturing certainty, the exact
+opposite of the point. An auditor can always separate "recalled from our own
+corpus" from "fetched from defenceweb.co.za".
+
+Absence still reads as absence: a context with no memory refs produces no memory
+sources, and repeats are deduplicated by id so re-recalling a fact cannot inflate
+the evidence count.
+
+### What this does NOT fix
+
+The footer's `Sources: N grounded / M unverified` comes from `claim_grounding`
+(sentence-level grounding against the tool context), which is a **different
+layer** from the `sources` array. Live runs showing `0 grounded / UNGROUNDED`
+beside a genuinely evidenced answer are **not** explained by this fix and remain
+open. Recorded here so the next reader does not assume C-199 closed it.
+
+### Verification
+
+`test_rf4219_memory_provenance_is_cited.py` — 8 tests, 5 RED before, driving the
+real `extract()` against a tool_context shaped exactly like the
+`brave_answer → web_explorer` block. Mutation-proven both ways: dropping the
+branch restores the defect; publishing memory as a clickable URL fails the
+never-disguised test.
+
+Blast radius: 204 test files touching citation/grounding/chat_sources —
+**2,430 passed, 20 failed, and a before/after failure-set diff against HEAD's
+`chat_sources.py` shows ZERO new failures** (the only delta is this file's own 5
+tests going from red to green).

@@ -2245,6 +2245,18 @@
       "title": "a permanently red UBO test asserted pre-identity-gate semantics",
       "claimed_at": "2026-08-21T10:51:36Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4218"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:54:43Z"
+    },
+    {
+      "c_number": "C-199",
+      "title": "facts recalled from ARIA's own index produce zero citations",
+      "claimed_at": "2026-08-21T10:56:41Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
