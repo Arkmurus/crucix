@@ -30,7 +30,7 @@ UNCHANGED at 75 (grade B). This is a truthfulness fix, not a grade change.
 """
 import pytest
 
-from aria_service.intel.dd_schema import _quality_penalties
+from aria_service.intel.dd_schema import _quality_metrics, _quality_penalties
 
 # R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
 # AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
@@ -38,7 +38,20 @@ from ._source_probe import module_source
 
 
 def _metrics(**kw):
-    base = dict(
+    """R-F4224 / C-204 — DERIVED from the production builder, never hand-rolled.
+
+    This fixture used to be a dict literal of 17 keys while `_quality_metrics`
+    emits 27. When `claim_grounded_rate` was added to the builder, every test in
+    this file started dying on `KeyError: 'claim_grounded_rate'` raised inside
+    `_quality_penalties` — 12 here and 6 in test_rf3132, eighteen permanently-red
+    tests that could no longer say anything about the grading logic they guard.
+
+    Starting from `_quality_metrics({})` means a key added to the builder is
+    present here automatically, so the fixture cannot drift out of shape again.
+    The values below are this file's deliberate baseline and still govern.
+    """
+    base = _quality_metrics({})
+    base.update(dict(
         press_total=15, verified_sources=3, quality_press=2, unverified_sources=12,
         own_site_sources=5, memory_only_sources=1,
         citations_checked=7, citations_grounded=5, citation_grounding_rate=0.714,
@@ -46,7 +59,7 @@ def _metrics(**kw):
         export_control_checked=True, adverse_media_skipped=False,
         has_search_degradation_gap=False, confidence_gate_triggered=False,
         registry_incomplete=False, registry_substance_present=True,
-    )
+    ))
     base.update(kw)
     return base
 

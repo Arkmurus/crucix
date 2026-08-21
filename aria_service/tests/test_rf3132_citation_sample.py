@@ -26,18 +26,25 @@ carry the claim.
 """
 import pytest
 
-from aria_service.intel.dd_schema import _quality_penalties, structured_view
+from aria_service.intel.dd_schema import _quality_metrics, _quality_penalties, structured_view
 
 
 def _metrics(**over):
-    base = dict(
+    """R-F4224 / C-204 — DERIVED from the production builder, never hand-rolled.
+
+    A 14-key literal against a 27-key builder: when `claim_grounded_rate` was
+    added, `_quality_penalties` began raising KeyError and six tests here went
+    permanently red. See test_rf3183_memory_only_tiering._metrics.
+    """
+    base = _quality_metrics({})
+    base.update(dict(
         adverse_media_skipped=False, confidence_gate_triggered=False,
         export_control_checked=True, has_search_degradation_gap=False,
         identity_authority_present=True, memory_only_sources=0, own_site_sources=5,
         press_total=24, quality_press=2, sanctions_source_unavailable=False,
         unverified_sources=16, verified_sources=0,
         citations_checked=2, citation_grounding_rate=0.0,
-    )
+    ))
     base.update(over)
     return base
 

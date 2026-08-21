@@ -38,7 +38,31 @@ class TestGroundingSpansAllLayers:
                     detail=f"Active per {_GLEIF} — status issued.", source="analysis"),
         ]
         await ddo._run_verification({}, r)
-        assert r.verification.independent_source_verification_run is True
+        # ── R-F4225 / C-205 — this used to assert the flag was True, and that
+        # assertion had been failing continuously. The CODE is right.
+        #
+        # When R-F2286 was written, source_verifier running was what set
+        # `independent_source_verification_run`. R-F2413 then separated two
+        # different claims and R-F2671 gated the flag behind an operator flip:
+        #
+        #   citation grounding      = did ARIA actually FETCH the URLs it cites?
+        #   independent verification = did ARIA RE-FETCH external sources to
+        #                              re-confirm each claim's truth?
+        #
+        # Only the first runs by default. `independent_verify_mode()` documents
+        # the gate — "'off' (default) — do not re-fetch; ...stays False" — and
+        # R-F2413's rule is that "the flag must be EARNED, never flipped blind".
+        #
+        # DO NOT "fix" a failure here by making the flag True when source_verifier
+        # runs. That is precisely the overclaim R-F2413 removed: it would tell a
+        # customer their claims were independently re-verified when only the
+        # citations were checked for grounding. Flip it by setting
+        # ARIA_DD_INDEPENDENT_VERIFY=enforce, deliberately, or not at all.
+        assert r.verification.independent_source_verification_run is False, (
+            "the earned-flag guarantee has been weakened — see R-F2413/R-F2671")
+        # THE ACTUAL SUBJECT OF R-F2286: grounding spans ALL layers, not press
+        # only. There is no press_coverage on this report at all, and the cited
+        # URL is reachable only through a compliance finding's `source`.
         # Under R-F2282 (press-only) this was 0 → ungrounded. Now grounded.
         assert r.verification.citations_checked == 1
         assert r.verification.citations_grounded == 1

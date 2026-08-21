@@ -2305,6 +2305,27 @@
       "title": "PDF renders the key-findings summary and the same findings again in their layer",
       "claimed_at": "2026-08-21T14:35:53Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4223"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T14:46:46Z"
+    },
+    {
+      "c_number": "C-204",
+      "title": "quality-grading fixtures hand-rolled, so a new metric key blinded 18 tests",
+      "claimed_at": "2026-08-21T15:11:06Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-205",
+      "title": "a red test asserts the opposite of the R-F2413 earned-flag guarantee",
+      "claimed_at": "2026-08-21T15:14:06Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

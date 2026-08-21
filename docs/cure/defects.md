@@ -12915,3 +12915,102 @@ Measured in the same report:
   two separate findings from two resolvers.
 * **`link-tree: amount=$1 (x9 sources)`** is rendered as an INFO finding. `$1` is
   not an intelligence signal.
+
+## C-204 · 18 grading tests were blinded by a hand-rolled fixture (fixed, R-F4224)
+
+`_quality_penalties(metrics)` — the function that decides whether a DD report
+earns Grade A — reads its inputs with **hard subscripts**:
+`metrics["claim_grounded_rate"]`, `metrics["citations_checked"]`, and a dozen
+more. Its only production feeder is `_quality_metrics()`, which emits **27 keys**,
+so a real DD run matches.
+
+Two test files hand-rolled their own metrics dicts — **17 keys** in
+`test_rf3183_memory_only_tiering` and **14** in `test_rf3132_citation_sample`.
+When `claim_grounded_rate` was added to the builder, `_quality_penalties` began
+raising `KeyError` inside those fixtures and **18 tests went permanently red**:
+12 + 6.
+
+**A permanently-red test carries no information** (§16). It can never go green, so
+it can never signal a regression. Eighteen of them sat across the DD
+evidence-grading logic, saying nothing, for as long as the key had existed.
+
+### What they were hiding: nothing
+
+Worth stating plainly, because the honest answer was not the exciting one. Once
+un-blinded, **all 22 tests in those files pass**. The logic they guard was
+correct throughout; the fixture was the only defect. The cost was the loss of the
+guard, not a live bug.
+
+### The fix
+
+Both fixtures now derive their base from `_quality_metrics({})` and then apply
+their own deliberate baseline values, so a key added to the builder appears in
+them automatically and they cannot drift out of shape again.
+
+### And a guard for the class — this one protects PRODUCTION, not test hygiene
+
+`test_rf4224_grading_metrics_contract.py` asserts, by AST, that every key
+`_quality_penalties` subscripts is emitted by `_quality_metrics`. If those two
+ever diverge, the failure is **not** a red test — it is a `KeyError` raised inside
+`_dd_quality_assessment` **on a live report**, i.e. a DD that cannot be graded.
+The assertion names the missing key. A companion test proves the AST probe can
+still see `claim_grounded_rate`, so the detector cannot go blind (R-F3858), and a
+third asserts the grader survives a completely empty report — it must grade it
+low, never raise. A fourth pins both fixtures as derived, so they cannot be
+hand-rolled again.
+
+### Verification
+
+Mutation-proven both ways: making `_quality_penalties` read a key the builder does
+not emit fails the contract test **and** the empty-report test; re-hand-rolling
+the rf3183 fixture fails the derived-fixture test, naming the file.
+
+Cluster result: the citation/grounding regression went from **20 failed / 1,811
+passed** to **1 failed / 1,863 passed**. **No production code was changed**, so
+there is nothing to deploy.
+
+## C-205 · a red test demanded the independent-verification flag be flipped blind (fixed, R-F4225)
+
+`test_rf2286_citation_grounding_breadth` asserted
+`r.verification.independent_source_verification_run is True` after
+`_run_verification`. It had been failing continuously. **The code is right and
+the assertion was dangerous.**
+
+When R-F2286 was written, `source_verifier` running was what set that flag.
+R-F2413 then separated two different claims, and R-F2671 gated the flag behind an
+operator flip:
+
+* **citation grounding** — did ARIA actually FETCH the URLs it cites?
+* **independent verification** — did ARIA RE-FETCH external sources to re-confirm
+  each claim's *truth*?
+
+Only the first runs by default. `independent_verify_mode()` states the gate
+outright — *"'off' (default) — do not re-fetch; ... stays False"* — and R-F2413's
+rule is that **"the flag must be EARNED, never flipped blind."** The orchestrator
+says the same thing in its own docstring.
+
+### Why a stale test here is worse than a missing one
+
+The obvious way to green it is to set the flag True when `source_verifier` runs.
+That is **exactly the overclaim R-F2413 removed**: it would tell a customer their
+claims had been independently re-verified when only the citations were checked
+for grounding. A red test that invites a specific wrong fix is worse than no test
+— and this one sat red long enough that greening it looks like tidying.
+
+### The fix
+
+The assertion is inverted to pin the guarantee — the flag **stays False** — with a
+comment naming R-F2413/R-F2671 and saying not to flip it in code; the correct
+lever is `ARIA_DD_INDEPENDENT_VERIFY=enforce`, deliberately. The test's real
+subject is restored and made explicit: R-F2286 is about grounding spanning **all
+layers, not press only**, and the report in the fixture has no `press_coverage`
+at all, so the cited URL is reachable only through a compliance finding's
+`source`. Those assertions (`citations_checked/grounded/rate`) were passing all
+along and still do.
+
+### Verification
+
+Mutation-proven: setting `independent_source_verification_run = True` where
+`_run_verification` currently pins it False turns the test red, so the earned-flag
+guarantee is now actually guarded rather than merely documented. No production
+code changed.
