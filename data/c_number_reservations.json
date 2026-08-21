@@ -2233,6 +2233,18 @@
       "title": "WA Brave access keeps being reverted by the doc that states Rule One",
       "claimed_at": "2026-08-21T10:08:01Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4217"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:47:49Z"
+    },
+    {
+      "c_number": "C-198",
+      "title": "a permanently red UBO test asserted pre-identity-gate semantics",
+      "claimed_at": "2026-08-21T10:51:36Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

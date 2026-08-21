@@ -12515,3 +12515,73 @@ Regression: 191 test files touching brave/search/chat/rule_one — **1,826 passe
 14 failed, and all 14 fail identically on the pre-change tree**, verified by
 swapping HEAD's `web_search.py`, `routes/aria.py` and `llm/fallback.py` back in.
 Zero regressions.
+
+## C-198 · a permanently-red UBO test asserted pre-identity-gate semantics (fixed, R-F4218)
+
+`test_session_2026_05_11.py::TestUBOChainWalk::test_sanctioned_officer_in_chain_surfaces`
+had been failing continuously: `assert 0 == 1` on `sanctioned_in_chain`. It looks
+exactly like a false clean in a UBO chain — a sanctioned officer not surfacing —
+which is the one property the DD product cannot get wrong.
+
+**It is not. The code is right and the test was stale.**
+
+R-F4199 added an identity gate. `match_has_secondary_identity()` requires a match
+anchored beyond a name string — dob, document, nationality, address. A
+`primary_name` / `alias` / `weak_match` hit establishes textual similarity only
+and cannot identify a natural person, so it must not brand one as sanctioned.
+The test's fixture carries no `match_field`, so it is a weak match by
+construction, and the walker correctly declines to promote it.
+
+**Measured, both directions, before touching anything:**
+
+```
+name-only match      -> pep_in_chain: [{severity: "info",
+                                        identity_confirmed: false,
+                                        summary: "...matched_via=weak_match"}]
+                        sanctioned_in_chain: []
+match_field: "dob"   -> sanctioned_in_chain: [{severity: "hard_stop",
+                                               identity_confirmed: true}]
+```
+
+The officer **surfaces either way**. It is a downgrade to "flagged, identity
+unconfirmed", not a suppression.
+
+### The root cause is an orphaned contract
+
+R-F4199 changed the contract, wrote tests for the NEW behaviour
+(`test_rf4199_dd_reliance_integrity.py:157-183` asserts exactly this gate), and
+left the OLDER test asserting the old behaviour. Nobody reconciled them. So one
+file documented the gate while another permanently contradicted it.
+
+**A permanently-red test carries no information** (CLAUDE.md §16): it can never
+go green, so it can never signal a regression. This one had the added cost of
+looking like a live false clean to anyone auditing the suite — I nearly filed it
+as a P0.
+
+### The fix
+
+The surviving intent is in the test's NAME — the officer must **surface**. It now
+asserts the real contract in both directions:
+
+* a name-only hit is **not** promoted to `sanctioned_in_chain`, **and**
+* it still appears in `pep_in_chain` with `identity_confirmed: false`,
+  `severity: "info"`, and a summary that says `matched_via=weak_match` — so a
+  reader can tell an unidentified name hit from a confirmed one;
+* a hit anchored on a DOB **is** promoted, `severity: hard_stop`,
+  `identity_confirmed: true`.
+
+That last assertion is load-bearing: without it, everything above would be
+satisfied by a walker that never promotes anything — a guard that cannot fire
+(R-F3858). Its failure message says explicitly not to "fix" a failure here by
+asserting the officer is absent.
+
+### Verification
+
+Mutation-proven in both directions against the real walker: dropping the
+unidentified officer entirely (a genuine false clean) fails the "VANISHED"
+assertion; making the gate a blanket suppressor that never promotes fails the
+promotion assertion.
+
+Blast radius: 50 test files touching `network_walker` / `sanctioned_in_chain` /
+`_sanctions_classify` — **617 passed, 0 failed**. `test_rf4199` still passes
+unchanged. **No production code was changed**, so there is nothing to deploy.

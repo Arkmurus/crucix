@@ -1706,10 +1706,60 @@ class TestUBOChainWalk:
                 registration_number="1", max_hops=1,
             )
         result = asyncio.run(_t())
-        assert len(result["sanctioned_in_chain"]) == 1
-        assert result["sanctioned_in_chain"][0]["name"] == "Bad Actor"
-        assert result["sanctioned_in_chain"][0]["hop"] == 1
-        assert result["sanctioned_in_chain"][0]["severity"] == "hard_stop"
+
+        # ── R-F4218 / C-198 — THIS TEST WAS PERMANENTLY RED AND THE CODE IS RIGHT.
+        # R-F4199 added an IDENTITY gate: `match_has_secondary_identity()` requires
+        # a match anchored beyond a name string (dob / document / nationality /
+        # address). A primary-name, alias or weak_match hit establishes textual
+        # similarity only — it cannot identify a natural person, so it must not
+        # brand one as sanctioned. R-F4199 tested the new contract in
+        # test_rf4199_dd_reliance_integrity.py and left THIS test asserting the
+        # old one, so it could never go green and therefore carried no
+        # information (CLAUDE.md §16: a red test can be the defect).
+        #
+        # The surviving intent is in the NAME — the officer must SURFACE. Do not
+        # "fix" a failure here by asserting the officer is absent: never-a-false-
+        # clean is the property this file exists to protect.
+        #
+        # The fake match below carries NO match_field, so it is a weak match.
+        assert result["sanctioned_in_chain"] == [], (
+            "a name-only sanctions hit must NOT be promoted to sanctioned_in_chain "
+            "— it cannot identify a natural person (R-F4199 identity gate)")
+
+        # ...but it must still SURFACE, flagged and honest about why.
+        assert len(result["pep_in_chain"]) == 1, (
+            "the officer VANISHED. A screened sanctions match must never be "
+            "dropped silently — that is a false clean in a UBO chain.")
+        flagged = result["pep_in_chain"][0]
+        assert flagged["name"] == "Bad Actor"
+        assert flagged["hop"] == 1
+        assert flagged["identity_confirmed"] is False
+        assert flagged["severity"] == "info"
+        assert "weak_match" in flagged["summary"], (
+            "the summary must say HOW it matched, or a reader cannot tell an "
+            "unidentified name hit from a confirmed one")
+
+        # ── the other direction: confirmed identity MUST reach sanctioned_in_chain.
+        # Without this the assertions above would be satisfied by a walker that
+        # never promotes anything — a guard that cannot fire (R-F3858).
+        async def fake_screen_identified(name):
+            if "Bad Actor" in name:
+                return {"matches": [
+                    {"name": "Bad Actor", "score": 1.0, "match_field": "dob",
+                     "topics": ["sanction"], "lists": ["us_ofac_sdn"]}
+                ]}
+            return {"matches": []}
+
+        monkeypatch.setattr(nw, "_screen_name", fake_screen_identified)
+        confirmed = asyncio.run(_t())
+        assert len(confirmed["sanctioned_in_chain"]) == 1, (
+            "a sanctions match anchored on a DOB must be promoted — otherwise the "
+            "identity gate is a blanket suppressor, not a discriminator")
+        hit = confirmed["sanctioned_in_chain"][0]
+        assert hit["name"] == "Bad Actor"
+        assert hit["hop"] == 1
+        assert hit["severity"] == "hard_stop"
+        assert hit["identity_confirmed"] is True
 
 
 class TestVerificationGate:

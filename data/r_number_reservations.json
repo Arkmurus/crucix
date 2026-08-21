@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4218,
+  "next_available": 4219,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36083,6 +36083,16 @@
       "r_number": "R-F4217",
       "title": "grant ARIA WA the Brave API as a first-class purpose",
       "claimed_at": "2026-08-21T10:08:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c29c8fd",
+      "notes": null,
+      "shipped_at": "2026-08-21T10:47:48Z"
+    },
+    {
+      "r_number": "R-F4218",
+      "title": "UBO chain identity gate: convert a stale red test into a real guard",
+      "claimed_at": "2026-08-21T10:51:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
