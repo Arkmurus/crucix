@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4214,
+  "next_available": 4215,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36043,6 +36043,16 @@
       "r_number": "R-F4213",
       "title": "guarantee heavy-graph barrier always opens",
       "claimed_at": "2026-08-21T07:54:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b2efcf1",
+      "notes": null,
+      "shipped_at": "2026-08-21T08:28:27Z"
+    },
+    {
+      "r_number": "R-F4214",
+      "title": "publish heavy-graph barrier state on health/ready",
+      "claimed_at": "2026-08-21T08:17:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

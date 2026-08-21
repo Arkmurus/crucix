@@ -12195,3 +12195,86 @@ check never could.
 Blast radius: all 108 test files importing `aria_service.main` — **1,111 passed,
 5 failed, and all 5 are in the recorded 113-failure baseline at `bf680ed1`.**
 Zero new failures.
+
+## C-193 · a parked metabolism was invisible on every health surface (fixed, R-F4214)
+
+C-192 fixed the barrier so it always opens. The other half stayed open: when it
+opens **late** — hydration never signalled and all seven gated workloads were
+force-released — the only evidence was a single WARNING in a boot log.
+
+`/health` reports `status: operational` regardless (C-96 is the precedent: it
+reported operational beside a `starved` event loop for a day, because no field
+in the payload could express what was wrong). `/health/ready` publishes
+`knowledge_ready` and `neural_ready`, and **neither can answer the question**:
+both are False during a normal ~10-minute warmup, and both are permanently
+False on a lean web worker (R-F2201). False there is not evidence of anything.
+
+So the state "ARIA's autonomous engine, coder, seeds and web-integrity agent
+are parked" was reachable and had no observable. An operator asking *is she
+healing?* had nothing to read.
+
+### The fix
+
+`/api/aria/health/ready` gains two fields, both cheap in-process reads (the
+handler is sync on purpose — R-F723 — so a wedged loop cannot hang the probe):
+
+* **`heavy_graph_ready`** — did the barrier open? An absent or unset event reads
+  `False`, never "healthy". An absence that renders as health is the C-39/C-41
+  shape this field exists to remove.
+* **`heavy_barrier_timeouts`** — how many workloads were force-released. This is
+  the load-bearing one: non-zero means hydration never signalled and the
+  metabolism started contended. Zero with `heavy_graph_ready: true` is a clean
+  boot; `false` long after boot is a parked metabolism.
+
+The counter is read off the module **at call time**. `from ..main import
+_HEAVY_BARRIER_TIMEOUTS` would bind the int once at import and freeze it at 0 —
+a gauge that can only ever report healthy. A test pins that specifically.
+
+### Verification
+
+`test_rf4214_barrier_visibility.py` — 4 tests, all RED before. Both guards
+mutation-proven: rendering an absent barrier as healthy, and freezing the
+counter, each turn it red.
+
+**Do NOT test this with `with TestClient(app)`.** That enters the real
+`main.lifespan` in-process and starts ARIA's background subsystems on a loop
+that is then closed (R-F3347/R-F3365). Writing this file reproduced it: a
+`--timeout=180` cap **did not fire** on a hang exceeding 600s, because the wait
+is inside a native call pytest-timeout cannot interrupt. The handler is a plain
+sync function over `request.app.state`, so it is called directly instead — real
+code, none of the hazard. The R-F3365 guard would have caught this at commit
+time; see C-194, which records that it was tested and does.
+
+## C-194 · NOT A DEFECT — the in-process-lifespan wedge is already guarded (investigated 2026-08-21, R-F4214 session)
+
+Recorded so nobody re-investigates. The mechanism is real and was reproduced
+here; the conclusion is that R-F3365's guard already closes it correctly.
+
+**What was observed.** Writing C-193's test with `with TestClient(app)` on
+`aria_service.main`'s app hung for **>600s with `--timeout=180` set** — the cap
+never fired, because the wait sits inside a native call pytest-timeout cannot
+interrupt (`GetQueuedCompletionStatus`, the exact signature R-F3347 named). This
+is a live reproduction of the wedge, not a theory.
+
+**Why it is not an open defect.** `test_rf3365_no_in_process_lifespan.py` already
+detects it, and detects it *properly*:
+
+* It **resolves the name** rather than grepping — a `with TestClient(app)` counts
+  only when `app` in that scope really is `aria_service.main`'s. R-F3370 exists
+  because the first version could not, flagged a clean file, and nearly wrote a
+  confidently-wrong exemption into an allowlist.
+* Its allowlist `_DECLARED` is **empty**, which is the honest state.
+* **Tested against the exact mistake made here**: a probe file reproducing the
+  function-scoped `from aria_service.main import app` inside a fixture was
+  written into the tests directory, and the guard failed with the offending file
+  named. It catches function-scope imports, not just module-level ones. The probe
+  was then removed and the guard went green again.
+
+The 86 `with TestClient(...)` sites across 24 files are **not** 86 offenders —
+resolving the app narrows it to a handful, and of those, `rf1231` and `rf1411`
+already build their clients without the context manager, while `rf2379` uses its
+own fixture app (the R-F3370 false positive).
+
+**Standing caution, not a defect:** if a suite run hangs with no summary and the
+per-test timeout does not fire, this is the shape to check first, and the guard
+is the thing to run. Do not add an isolation fixture on a hypothesis (§16).

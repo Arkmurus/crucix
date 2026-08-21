@@ -26351,6 +26351,18 @@ def health_ready_ep(request: Request):
         from ..main import ARIA_BUILD_REV as _build_rev
     except Exception:
         _build_rev = "unknown"
+    _barrier = getattr(st, "heavy_graph_ready", None)
+    # An absent or unset barrier reads False, never "healthy" — an absence that
+    # renders as health is the C-39/C-41 shape this field exists to remove.
+    _barrier_open = bool(_barrier.is_set()) if hasattr(_barrier, "is_set") else False
+    try:
+        # Read the counter off the MODULE at call time. A `from ..main import
+        # _HEAVY_BARRIER_TIMEOUTS` binds an int once at import and freezes it at
+        # 0 forever — a gauge that can only ever report healthy.
+        from .. import main as _main_mod
+        _barrier_timeouts = int(getattr(_main_mod, "_HEAVY_BARRIER_TIMEOUTS", 0) or 0)
+    except Exception:
+        _barrier_timeouts = 0
     body = {
         "ready": llm_ready,
         "llm_ready": llm_ready,
@@ -26359,6 +26371,15 @@ def health_ready_ep(request: Request):
         "rag_ready": bool(getattr(st, "rag_ready", False)),
         "knowledge_ready": bool(getattr(st, "knowledge_ready", False)),
         "neural_ready": bool(getattr(st, "neural_ready", False)),
+        # R-F4214/C-193 — did the R-F4211 barrier actually open, and did anything
+        # have to be force-released? knowledge_ready/neural_ready cannot answer:
+        # both are False during a normal warmup AND permanently False on a lean
+        # web worker (R-F2201), so False there is not evidence of anything. This
+        # pair is: a barrier still shut long after boot means the autonomous
+        # engine, coder, seeds and web-integrity agent are parked, and a non-zero
+        # count means hydration never signalled and they started contended.
+        "heavy_graph_ready": _barrier_open,
+        "heavy_barrier_timeouts": _barrier_timeouts,
         "build_rev": _build_rev,
     }
     if not llm_ready:

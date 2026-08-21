@@ -2173,9 +2173,33 @@
       "title": "heavy-graph barrier can never open; metabolism dark",
       "claimed_at": "2026-08-21T07:54:04Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4213"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:28:27Z"
+    },
+    {
+      "c_number": "C-193",
+      "title": "a parked metabolism is invisible on every health surface",
+      "claimed_at": "2026-08-21T08:17:34Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-194",
+      "title": "in-process TestClient lifespan wedges the suite",
+      "claimed_at": "2026-08-21T08:31:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4214"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:33:52Z"
     }
   ]
 }
