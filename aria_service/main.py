@@ -174,8 +174,56 @@ def _engine_election_enabled() -> bool:
     return _web_concurrency() > 1
 
 
+# ── R-F4215 / C-195 — a malformed tuning knob must never raise ───────────────
+# main.py parsed six operator env vars with a bare int()/float(). A typo in any
+# of them raised ValueError where nothing catches it: boot failed, or the engine
+# heartbeat died and lost the singleton lease, or the event-loop wedge watchdog
+# went dark, or the reading loop that feeds gate-2 mastery stopped — and
+# ARIA_MAX_BODY_BYTES is parsed at MODULE level, so a typo there made
+# `import aria_service.main` itself fail and the service could not start at all.
+# Same class as C-192, where exactly this raise sat above the only
+# heavy_graph_ready.set() and parked ARIA's entire metabolism.
+#
+# The convention was never in doubt: autonomous/safety.py, intel/user_quota.py,
+# intel/neural_memory.py, intel/dd_orchestrator.py and autonomous/self_coder.py
+# each independently wrote this guard. main.py — the file where a raise is most
+# expensive — was the outlier. A knob is for TUNING behaviour; it must never be
+# able to disable it.
+def _env_number(name: str, default, caster):
+    """Parse an operator env var, falling back to `default` on anything invalid."""
+    raw = (_os.getenv(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        return caster(raw)
+    except (TypeError, ValueError):
+        # A silently-ignored misconfiguration is an unwired failure branch
+        # (§21a); the operator must be told which knob was dropped. logger is
+        # bound below this point in the module, so fall back to stderr if a
+        # future module-level caller runs before it exists (the neural_memory.py
+        # precedent) — never let the WARNING itself become the raise.
+        try:
+            logger.warning(
+                "[R-F4215] %s=%r is not a valid number — using the default %r. "
+                "Set a bare number.", name, raw, default,
+            )
+        except Exception:  # noqa: BLE001 — logging must never break boot
+            import sys as _sys_w
+            _sys_w.stderr.write(
+                f"[R-F4215] {name}={raw!r} invalid - using {default!r}\n")
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    return _env_number(name, default, float)
+
+
+def _env_int(name: str, default: int) -> int:
+    return _env_number(name, default, int)
+
+
 def _engine_lease_ttl_s() -> int:
-    return max(10, int(_os.getenv("ARIA_ENGINE_LEASE_TTL_S", "45")))
+    return max(10, _env_int("ARIA_ENGINE_LEASE_TTL_S", 45))
 
 
 def _web_concurrency() -> int:
@@ -363,7 +411,7 @@ async def _run_boot_inits(inits) -> list:
     hold the entire pre-yield path hostage. Returned failure names preserve
     input order for callers/tests.
     """
-    timeout_s = max(0.25, float(_os.getenv("ARIA_BOOT_INIT_TIMEOUT_S", "5.0")))
+    timeout_s = max(0.25, _env_float("ARIA_BOOT_INIT_TIMEOUT_S", 5.0))
 
     async def _one(name, fn):
         try:
@@ -1024,18 +1072,11 @@ def _heavy_warmup_timeout_s() -> float:
     A cap is a tuning knob; it must never be able to disable self-improvement.
     Malformed input degrades to the default and says so, rather than raising.
     """
-    raw = (_os.getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S", "") or "").strip()
-    if not raw:
-        return _HEAVY_WARMUP_TIMEOUT_DEFAULT_S
-    try:
-        return max(60.0, float(raw))
-    except (TypeError, ValueError):
-        logger.warning(
-            "[R-F4213] ARIA_HEAVY_WARMUP_TIMEOUT_S=%r is not a number — using "
-            "the %.0fs default. Set a bare number of seconds.",
-            raw, _HEAVY_WARMUP_TIMEOUT_DEFAULT_S,
-        )
-        return _HEAVY_WARMUP_TIMEOUT_DEFAULT_S
+    # R-F4215: one parser per file. This used to warn and fall back itself,
+    # which was correct but was a SECOND mechanism alongside _env_float — the
+    # forked-measure shape R-F2639 records ("there is ONE measure now").
+    return max(60.0, _env_float("ARIA_HEAVY_WARMUP_TIMEOUT_S",
+                                _HEAVY_WARMUP_TIMEOUT_DEFAULT_S))
 
 
 def _heavy_barrier_timeout_s() -> float:
@@ -1883,7 +1924,7 @@ async def lifespan(app: FastAPI):
     # ONLY actor that can still run — it forces a process exit so Fly cold-boots
     # the machine. Default 90s = 18x the 5s warn threshold. Env-tunable; the
     # kill-switch disables it entirely.
-    _HARD_WEDGE_CEILING_S = float(_os.getenv("ARIA_WEDGE_HARD_CEILING_S", "90"))
+    _HARD_WEDGE_CEILING_S = _env_float("ARIA_WEDGE_HARD_CEILING_S", 90.0)
     _WEDGE_SELF_RESTART = (
         _os.getenv("ARIA_WEDGE_SELF_RESTART_ENABLED", "1").strip().lower()
         not in ("0", "false", "no", "off")
@@ -2536,7 +2577,7 @@ async def lifespan(app: FastAPI):
     # connected by now (rs.connect above), and the election is fail-safe — any
     # error leaves the worker as 'all' so singletons always run somewhere.
     try:
-        _election_timeout_s = float(_os.getenv("ARIA_ENGINE_ELECTION_BOOT_TIMEOUT_S", "5.0"))
+        _election_timeout_s = _env_float("ARIA_ENGINE_ELECTION_BOOT_TIMEOUT_S", 5.0)
         await asyncio.wait_for(_elect_engine_role(), timeout=max(0.5, _election_timeout_s))
     except asyncio.TimeoutError:
         globals()["_resolved_role"] = "all"
@@ -3387,7 +3428,7 @@ async def lifespan(app: FastAPI):
             # mastery — NOT gaming (alpha/weight/read-grounding are UNCHANGED). Runs at
             # Priority.BACKGROUND + cost_free, honours the R-F1395 pause flag. Env-tunable so
             # the operator can dial load; default 2.5h.
-            _reading_interval_s = float(_os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")  # R-F2448: was bare `os` (undefined in main.py) → NameError
+            _reading_interval_s = _env_float("ARIA_READING_INTERVAL_S", 9000.0)  # R-F2448: was bare `os` (undefined in main.py) → NameError
             await asyncio.sleep(max(600.0, _reading_interval_s))
 
     async def _library_consolidate_loop():
@@ -5002,7 +5043,7 @@ app.add_middleware(
 # Chunked requests with no Content-Length aren't caught here — the per-endpoint
 # caps (read-document, etc.) backstop those.
 import os as _bodylim_os
-_MAX_BODY_BYTES = int(_bodylim_os.getenv("ARIA_MAX_BODY_BYTES", str(50 * 1024 * 1024)))
+_MAX_BODY_BYTES = _env_int("ARIA_MAX_BODY_BYTES", 50 * 1024 * 1024)
 
 
 @app.middleware("http")

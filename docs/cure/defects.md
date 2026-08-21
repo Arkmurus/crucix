@@ -12278,3 +12278,69 @@ own fixture app (the R-F3370 false positive).
 **Standing caution, not a defect:** if a suite run hangs with no summary and the
 per-test timeout does not fire, this is the shape to check first, and the guard
 is the thing to run. Do not add an isolation fixture on a hypothesis (§16).
+
+## C-195 · a malformed tuning knob could kill boot or darken a watchdog (fixed, R-F4215)
+
+C-192 fixed one instance of this. This closes the class.
+
+`main.py` parsed **six** operator env vars with a bare `int()`/`float()` and no
+guard. A typo — `20m`, `5s`, `50mb` — raises `ValueError` at a point where
+nothing catches it. An AST sweep (guarded = enclosed by a handler catching
+`ValueError`/`Exception`/bare) found exactly six, and they are not equivalent in
+severity:
+
+| line | var | what a typo does |
+|---|---|---|
+| 178 | `ARIA_ENGINE_LEASE_TTL_S` | engine heartbeat dies → lease expires → **every singleton loop stops** |
+| 366 | `ARIA_BOOT_INIT_TIMEOUT_S` | boot fails |
+| 1886 | `ARIA_WEDGE_HARD_CEILING_S` | **the event-loop wedge watchdog goes dark** — the instrument that catches the C-95 starvation class |
+| 2539 | `ARIA_ENGINE_ELECTION_BOOT_TIMEOUT_S` | boot fails (only `TimeoutError` is caught there, not `ValueError`) |
+| 3390 | `ARIA_READING_INTERVAL_S` | the reading loop feeding gate-2 regional mastery **stops compounding** |
+| 5005 | `ARIA_MAX_BODY_BYTES` | **module level** — `import aria_service.main` itself fails |
+
+**Proven, not argued.** `ARIA_MAX_BODY_BYTES=50mb` →
+`ValueError: invalid literal for int() with base 10: '50mb'` at `main.py:5005`,
+raised by `import aria_service.main`. The whole service cannot start, and every
+test in the suite fails to collect, because of one character in a tuning knob.
+
+**The convention already existed and main.py was the outlier.**
+`autonomous/safety.py`, `intel/user_quota.py`, `intel/neural_memory.py`,
+`intel/dd_orchestrator.py` and `autonomous/self_coder.py` each independently
+wrote a warn-and-fall-back env guard — five separate authors hit this and solved
+it locally. The one file where a raise takes down the service had none.
+
+### The fix
+
+`_env_number` / `_env_float` / `_env_int` in `main.py`, matching `safety.py`'s
+contract: empty → default, invalid → default **with a WARNING naming the knob**
+(a silently-ignored misconfiguration is an unwired failure branch, §21a; the
+`error_log_handler` mirror carries it to the brain, and `log:warning` cannot
+reset the gate-3 streak). The warning itself is wrapped and falls back to stderr
+— `logger` is bound below the helper, so a future module-level caller placed
+above it must not turn the warning into the raise (the `neural_memory.py`
+precedent). All six sites converted; every existing `max(...)` floor kept.
+
+R-F4213's bespoke `_heavy_warmup_timeout_s` parser was **folded into the same
+helper**. It was correct, but leaving it would have made main.py a file with two
+env parsers — the forked-measure shape R-F2639 records ("there is ONE measure
+now. Do not fork it again."). A test pins that it goes through `_env_float`.
+
+### Verification
+
+`test_rf4215_env_parse_never_raises.py` — 20 tests, **18 RED before**.
+
+The load-bearing one is `test_no_unguarded_numeric_env_parse_remains_in_main`:
+it re-runs the AST sweep and fails on **any** unguarded numeric env parse, so
+this closes the class rather than the six instances — a seventh cannot appear
+quietly. Mutation-proven: restoring the wedge-watchdog parse alone turns it red
+with the offending line and expression named. A companion test asserts the
+detector can still see a real offender (R-F3858 — a guard that cannot fire is
+not a guard).
+
+`test_main_still_imports_with_a_malformed_body_limit` runs the import in a
+**subprocess**, because the module is already imported in the test process and
+an in-process check could not observe the failure it asserts against.
+
+Blast radius: all 108 `main`-importing test files — **1,135 passed, 5 failed,
+all 5 in the recorded baseline at `bf680ed1`.** Zero new failures. R-F4213,
+R-F4214 and R-F2663 all still green.

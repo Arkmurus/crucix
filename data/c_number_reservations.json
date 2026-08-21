@@ -2185,9 +2185,12 @@
       "title": "a parked metabolism is invisible on every health surface",
       "claimed_at": "2026-08-21T08:17:34Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4214"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:50:50Z"
     },
     {
       "c_number": "C-194",
@@ -2200,6 +2203,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-21T08:33:52Z"
+    },
+    {
+      "c_number": "C-195",
+      "title": "a malformed tuning knob kills boot or darkens a watchdog in main.py",
+      "claimed_at": "2026-08-21T09:09:04Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

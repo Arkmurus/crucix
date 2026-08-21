@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4215,
+  "next_available": 4216,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36053,6 +36053,16 @@
       "r_number": "R-F4214",
       "title": "publish heavy-graph barrier state on health/ready",
       "claimed_at": "2026-08-21T08:17:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b6eff59",
+      "notes": null,
+      "shipped_at": "2026-08-21T08:50:50Z"
+    },
+    {
+      "r_number": "R-F4215",
+      "title": "main.py boot env parses must not raise on a malformed value",
+      "claimed_at": "2026-08-21T09:09:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
