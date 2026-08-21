@@ -652,6 +652,14 @@ class ChatRequest(BaseModel):
     # callback even if the poll loop times out. The callback URL should point
     # to the caller's delivery endpoint (e.g. WA listener's /api/wa-listener/send).
     callback_url: str = ""
+    # R-F4217 — which surface this turn came from ("wa", "web", "tg", "cli", ...).
+    # Load-bearing for RULE ONE: the operator put ARIA WA on the paid Brave key
+    # (2026-08-21) and nothing else general-purpose, so the brain has to be able
+    # to TELL a WA turn from a web turn. It could not before — WA and the web UI
+    # both POST /api/aria/chat with no surface marker. Declared, never inferred:
+    # guessing the channel from callback_url shape would be exactly the kind of
+    # implicit coupling that rots. Empty = unknown = no paid grant.
+    channel: str = ""
     # Internal: the async wrapper stamps its own job id here before re-entering
     # chat_ep synchronously, so the chat path can post OBSERVED progress back
     # into the job record while it works. Never set by an external caller —
@@ -1068,6 +1076,18 @@ async def dd_evidence_get_ep(evidence_id: str, tenant_id: str):
     return result
 
 
+# R-F4217 — `channel` arrives from the CLIENT, so it must MAP to a purpose, never
+# BE one. Passing it through would let anything able to POST /chat send
+# {"channel": "dd"} and help itself to the paid DD key — a caller-controlled
+# string selecting a paid backend. Extending this map is a deliberate act.
+_CHANNEL_BRAVE_PURPOSE: dict[str, str] = {"wa": "wa"}
+
+
+def _channel_brave_purpose(channel: str | None) -> str:
+    """Brave purpose for a declared client channel; "" when it grants nothing."""
+    return _CHANNEL_BRAVE_PURPOSE.get(str(channel or "").strip().lower(), "")
+
+
 def _brave_scope(fn):
     """R-F2318 — open a search scope for the wrapped user-facing handler.
 
@@ -1101,7 +1121,17 @@ def _brave_scope(fn):
         try:
             from ..intel import web_search as _ws_brave
             _brave_module = _ws_brave
-            _brave_token = _ws_brave.enable_brave_for_scope(True)
+            # R-F4217 — derive the purpose from the channel the caller DECLARED.
+            # Still a purpose, not a route list (R-F3946): the decorator grants
+            # nothing on its own, and a body without a mapped channel opens an
+            # unprivileged scope exactly as before.
+            _purpose = ""
+            for _cand in list(kwargs.values()) + list(args):
+                _ch = getattr(_cand, "channel", None)
+                if isinstance(_ch, str) and _ch.strip():
+                    _purpose = _channel_brave_purpose(_ch)
+                    break
+            _brave_token = _ws_brave.enable_brave_for_scope(True, purpose=_purpose)
         except Exception:
             pass
         try:

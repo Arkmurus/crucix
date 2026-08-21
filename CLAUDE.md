@@ -264,9 +264,44 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
   (`ARIA_NON_DEGRADING_PINS=anthropic`, R-F3034/R-F3767), while everything else runs
   DeepSeek.
 
-- 🔴 **RULE ONE — ANTHROPIC AND BRAVE ARE FOR DD REPORTS ONLY (operator, 2026-08-12).**
-  Verbatim: *"anthropic API calls must be only active on DD reports, when a new DD
+- 🔴 **RULE ONE — ANTHROPIC IS DD-ONLY; BRAVE IS DD **AND ARIA WA** (operator,
+  2026-08-12, **AMENDED 2026-08-21**).**
+  Verbatim (2026-08-12): *"anthropic API calls must be only active on DD reports, when a new DD
   report is been actioned, as well as for brave API, that was the rule number one."*
+
+  ⚠️ **AMENDMENT, 2026-08-21 — READ THIS BEFORE "ENFORCING" THE LINE ABOVE.**
+  Operator, verbatim: *"include aria wa on the brave api also, that was requested
+  and done a while back but keeps breaking, can you stop and ensure the approach
+  is from the root and does not get damage again."*
+  **ARIA WA IS AN AUTHORISED BRAVE SURFACE. Do not remove it. The Anthropic half
+  is UNCHANGED and stays DD-only.**
+
+  **WHY IT KEPT BREAKING — and it was never a code add/remove cycle.** `git log -S`
+  shows `_DD_BRAVE_PURPOSES` was introduced exactly ONCE (R-F3946, 2026-08-13).
+  **The reverting mechanism was THIS FILE.** §17 said "Brave is for DD reports and
+  nothing else", §20/§26 make this the first thing every session reads, so each
+  session dutifully re-enforced DD-only and stripped WA again. That is the same
+  shape recorded three paragraphs down for the Anthropic half — *"the one file
+  every session reads first told each of them to preserve"* the wrong state —
+  except here the doc was deleting a capability the operator had asked for.
+  A code fix alone would have been reverted a fourth time; the doc IS the fix.
+
+  **Implementation (R-F4217 / C-197), enforced at ONE decision point:**
+  `web_search._BRAVE_ALLOWED_PURPOSES = {"dd", "wa"}`, checked by
+  `brave_is_enabled()`. Every other purpose — chat, explore, student, research,
+  "" — is still refused, and R-F3946's parametrised test still pins that.
+  WA declares itself: `aria_wa_listener.mjs` sends `channel: 'wa'` on BOTH chat
+  dispatch paths, and `_channel_brave_purpose()` MAPS a client channel to a
+  purpose rather than passing it through — otherwise anything that can POST
+  `/chat` could send `{"channel": "dd"}` and help itself to the paid key.
+  `test_rf4217_wa_brave_purpose.py` fails loudly if WA is tidied back out.
+
+  **Observability:** `/health` → `rule_one.brave_allowed_purposes` and
+  `brave_grants_by_purpose` (WA spend is attributable, not merged into DD);
+  `brave_non_dd_grants` still means "grants to a purpose NOT on the allow-list"
+  and must stay 0. **Cost note:** this genuinely increases Brave spend — WA is a
+  live surface, DD is a handful of runs a day. Watch `brave_usage` on
+  `/api/aria/search/health` (830 calls MTD before this change).
   This RESTATES the 2026-08-11 directive already recorded at `web_search.py:167`
   ("Brave (and Anthropic) are the designated tools for DD reports, **and nothing
   else**"). It is not a cost preference — breaking it took DD down.
@@ -897,7 +932,15 @@ responses:
 Read **`blocked`** to answer "is this source dark?", `quarantined` for "is it lying?",
 and `serving: null` means COULD NOT MEASURE, never healthy.
 
-### 27e. Tier 2 is SETTLED — SearXNG stays, Brave stays DD-only (operator, 2026-08-11)
+### 27e. Tier 2 is SETTLED — SearXNG stays; Brave is DD **+ ARIA WA** (operator, 2026-08-11, amended 2026-08-21)
+
+⚠️ **AMENDED 2026-08-21 — see §17 RULE ONE.** ARIA WA is now an authorised Brave
+surface (R-F4217/C-197). Everything below still holds for the AUTONOMOUS loops and
+the web/API surfaces, which are what points 1–3 are actually about: SearXNG remains
+tier 2 for them, and the student loop stays at `ARIA_STUDENT_BRAVE_BUDGET=0`. What
+changed is the OPERATOR-FACING WA surface, not the background stack. **Do not read
+the DD-only phrasing below as licence to remove WA's access** — that misreading is
+exactly how it kept getting reverted.
 Asked "aria-searxng or Brave for tier 2, another paying service is not ARIA taking
 control", the answer is **SearXNG, and buy nothing.** Four reasons, in order of weight:
 1. **Brave is DD's engine** (operator: "brave API will be responding and be
@@ -920,7 +963,9 @@ control", the answer is **SearXNG, and buy nothing.** Four reasons, in order of 
    set live**; the budget knob is the whole lever (`student.py:1406` gates on
    `_brave_budget > 0`), so no code change was needed and the Pass-2 code path stays
    intact should the rule ever be relaxed deliberately. Do not restore a non-zero
-   default. Points 1–3 above stand: SearXNG remains tier 2 and Brave stays DD-only.
+   default. Points 1–3 above stand: SearXNG remains tier 2 for the autonomous and
+   web/API surfaces. **Brave = DD + ARIA WA as of 2026-08-21 (§17); the student
+   loop is NOT included and its budget stays 0.**
 
 **The sovereignty play is ARIA's own index, and it already compounds.** §15 is live:
 every paid search writes to `rag_store` + `intel_ledger` + `brain_hook`, so DD's

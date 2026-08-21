@@ -1372,13 +1372,20 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
     // only, so "do you remember me" was unanswerable by construction and the
     // honest reply was a refusal. pushName is self-declared; the engine labels
     // it unverified unless the bound account (R-F3587) accompanies it.
+    // R-F4217 — DECLARE the surface. The operator put ARIA WA on the paid Brave
+    // key (2026-08-21) and nothing else general-purpose, so the brain has to be
+    // able to tell a WA turn from a web turn. Both POST this same endpoint, and
+    // until now neither said which it was, so the brain could only refuse both.
+    // Declared, never inferred: guessing from callback_url shape would rot.
     job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true, callback_url: callbackUrl,
+      channel: 'wa',
       speaker_name: speaker?.name || '', user_id: speaker?.userId || '' });
   } catch (e) {
     // Dispatch itself failed (brain down / network) — fall back to a best-effort
     // sync attempt so a transient blip doesn't silently drop the question.
     console.error('[ARIA Listener] Async dispatch failed, trying sync:', e.message);
     const r = await brainPost('/api/aria/chat', { message, session_id: sid,
+      channel: 'wa',                                                          // R-F4217 — the sync fallback is still a WA turn
       speaker_name: speaker?.name || '', user_id: speaker?.userId || '' });   // R-F3590 — sync fallback carries it too
     return r.response || r.answer || 'No response.';
   }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4217,
+  "next_available": 4218,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36073,6 +36073,16 @@
       "r_number": "R-F4216",
       "title": "jurisdiction word must not hijack chat to registry_lookup",
       "claimed_at": "2026-08-21T09:37:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bd8b39d6",
+      "notes": null,
+      "shipped_at": "2026-08-21T10:01:36Z"
+    },
+    {
+      "r_number": "R-F4217",
+      "title": "grant ARIA WA the Brave API as a first-class purpose",
+      "claimed_at": "2026-08-21T10:08:01Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -2221,6 +2221,18 @@
       "title": "a country name disables live search in chat",
       "claimed_at": "2026-08-21T09:37:11Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4216"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:01:37Z"
+    },
+    {
+      "c_number": "C-197",
+      "title": "WA Brave access keeps being reverted by the doc that states Rule One",
+      "claimed_at": "2026-08-21T10:08:01Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

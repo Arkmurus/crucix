@@ -203,11 +203,20 @@ def rule_one_status() -> dict:
     # a breach that cannot be measured must not read as its absence.
     brave_confined = None
     brave_non_dd_grants = None
+    brave_allowed_purposes = None
+    brave_grants_by_purpose = None
     try:
         from ..intel.web_search import brave_policy_status as _bps
         _b = _bps()
         brave_confined = bool(_b.get("confined_to_dd"))
         brave_non_dd_grants = int(_b.get("non_dd_grants") or 0)
+        # R-F4217 — the allow-list is now TWO purposes (dd + wa, operator
+        # 2026-08-21). Publish it and the per-purpose grants, so this surface
+        # states which rule it is measuring instead of leaving a reader to infer
+        # "DD only" from a field name. A half-measure reporting a whole rule is
+        # what R-F3946 was written to stop; a stale-named measure is the same bug.
+        brave_allowed_purposes = list(_b.get("allowed_purposes") or [])
+        brave_grants_by_purpose = dict(_b.get("grants_by_purpose") or {})
         # A grant that actually happened is a LIVE breach, not a policy opinion.
         if brave_non_dd_grants > 0:
             brave_confined = False
@@ -217,12 +226,20 @@ def rule_one_status() -> dict:
     breached = breached or (brave_confined is False)
 
     return {
-        "rule": "anthropic and brave are for DD reports only (operator 2026-08-12)",
+        # R-F4217 — the rule STRING must track the rule. It said "brave ... for DD
+        # reports only" while ARIA WA is now an authorised Brave surface; leaving
+        # it would have told the next reader the opposite of the policy, which is
+        # precisely how WA's access kept getting reverted (C-197).
+        "rule": ("anthropic is for DD reports only (operator 2026-08-12); "
+                 "brave is for DD reports and ARIA WA (amended 2026-08-21)"),
         "anthropic_key_present": key_present,
         "anthropic_confined_to_dd": confined,
         # R-F3946 — tri-state: None means COULD NOT MEASURE, never "compliant".
         "brave_confined_to_dd": brave_confined,
         "brave_non_dd_grants": brave_non_dd_grants,
+        # R-F4217 — what "confined" actually means here, published rather than implied.
+        "brave_allowed_purposes": brave_allowed_purposes,
+        "brave_grants_by_purpose": brave_grants_by_purpose,
         "breached": breached,
         "preference_only_providers": sorted(pref),
     }

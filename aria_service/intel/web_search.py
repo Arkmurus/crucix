@@ -156,19 +156,49 @@ _BRAVE_CTX: "_contextvars.ContextVar[str]" = _contextvars.ContextVar("aria_brave
 # that can be switched on without a deploy is not a rule, it is a default — and
 # the Anthropic half of this same rule was broken for days by exactly such an
 # override being set to the empty string (R-F3942).
-_DD_BRAVE_PURPOSES = frozenset({"dd"})
+# ── R-F4217 / C-197 — RULE ONE, AS AMENDED BY THE OPERATOR 2026-08-21 ───────
+# "include aria wa on the brave api also, that was requested and done a while
+#  back but keeps breaking"
+#
+# WHY IT KEPT BREAKING, and why the fix is not only code: `git log -S` shows this
+# constant was introduced exactly ONCE (R-F3946, 2026-08-13). There was never an
+# add/remove cycle here. The reverting mechanism was the DOCUMENT — CLAUDE.md §17
+# stated RULE ONE as "Brave is for DD reports and nothing else", and §20/§26 make
+# that file the first thing every session reads. So each session re-enforced
+# DD-only and stripped WA again. CLAUDE.md records this exact shape for the
+# Anthropic half ("the floor every session reads first, telling each of them to
+# preserve the broken state"); this was the same shape, one clause over. §17 now
+# carries the amendment, and test_rf4217 fails loudly if anyone tidies WA back out.
+#
+# NOT WEAKENED ANYWHERE ELSE: the Anthropic half is untouched, and every other
+# purpose — chat, explore, student, research, "" — is still refused. R-F3946's
+# parametrised test still pins that, and still passes.
+_BRAVE_ALLOWED_PURPOSES = frozenset({"dd", "wa"})
+# Kept as the historical name so nothing that imported it breaks; it is the same
+# allow-list, which now has two members rather than one.
+_DD_BRAVE_PURPOSES = _BRAVE_ALLOWED_PURPOSES
 
 # Falsifiable counters. `non_dd_grants` must stay 0 while the gate holds; it is
 # the half that can actually FAIL, which is what stops this from being a guard
 # certified by its own construction (R-F3858).
 _BRAVE_POLICY_COUNTERS = {"non_dd_scope_refused": 0, "dd_grants": 0, "non_dd_grants": 0}
+# R-F4217 — grants attributed PER PURPOSE. WA on Brave is real spend against the
+# same paid key DD uses, so it must be attributable rather than merged into the
+# DD figure; "how much of this month's Brave went to WA?" is now answerable.
+_BRAVE_GRANTS_BY_PURPOSE: dict[str, int] = {p: 0 for p in sorted(_BRAVE_ALLOWED_PURPOSES)}
 # Global hard kill-switch (ops): ARIA_BRAVE_DISABLED=1 forces the free stack everywhere.
 _BRAVE_GLOBALLY_OFF = (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes")
 
 
+def is_allowed_brave_purpose(purpose: str | None) -> bool:
+    """R-F3946/R-F4217 — may this scope reach the paid key? One predicate, one policy."""
+    return str(purpose or "").strip().lower() in _BRAVE_ALLOWED_PURPOSES
+
+
 def is_dd_brave_purpose(purpose: str | None) -> bool:
-    """R-F3946 — does this scope purpose satisfy RULE ONE? One predicate, one policy."""
-    return str(purpose or "").strip().lower() in _DD_BRAVE_PURPOSES
+    """Historical name for the predicate above. Kept so existing callers and the
+    R-F3946 contract test keep working; the allow-list now includes ARIA WA."""
+    return is_allowed_brave_purpose(purpose)
 
 
 def brave_policy_status() -> dict:
@@ -183,8 +213,17 @@ def brave_policy_status() -> dict:
     scope actually RECEIVED Brave. It must be 0.
     """
     return {
+        # R-F4217 — honest names first. `unauthorised_grants` is the falsifiable
+        # field: a grant to a purpose that is NOT on the allow-list. It must be 0.
+        "confined_to_allowed": True,
+        "allowed_purposes": sorted(_BRAVE_ALLOWED_PURPOSES),
+        "grants_by_purpose": dict(_BRAVE_GRANTS_BY_PURPOSE),
+        "unauthorised_grants": int(_BRAVE_POLICY_COUNTERS["non_dd_grants"]),
+        # Legacy keys, kept because CLAUDE.md §17 documents `/health` ->
+        # rule_one.brave_confined_to_dd as THE check and R-F3946's test asserts
+        # them. Same values, older names — WA is now inside "allowed".
         "confined_to_dd": True,
-        "dd_purposes": sorted(_DD_BRAVE_PURPOSES),
+        "dd_purposes": sorted(_BRAVE_ALLOWED_PURPOSES),
         "key_present": bool(BRAVE_API_KEY),
         "globally_disabled": bool(_BRAVE_GLOBALLY_OFF),
         **_BRAVE_POLICY_COUNTERS,
@@ -195,6 +234,8 @@ def reset_brave_usage_counters() -> None:
     """Test hook — zero the policy counters so assertions are order-independent."""
     for k in _BRAVE_POLICY_COUNTERS:
         _BRAVE_POLICY_COUNTERS[k] = 0
+    for k in _BRAVE_GRANTS_BY_PURPOSE:
+        _BRAVE_GRANTS_BY_PURPOSE[k] = 0
 
 
 def enable_brave_for_scope(on: bool = True, *, purpose: str = "") -> _contextvars.Token:
@@ -224,6 +265,13 @@ def _dd_brave_only() -> bool:
 
     Operator directive 2026-08-11: Brave (and Anthropic) are the designated tools for
     DD reports, "and nothing else".
+
+    ⚠️ AMENDED 2026-08-21 (R-F4217/C-197, CLAUDE.md §17): ARIA WA is ALSO an
+    authorised Brave surface. This docstring is one of the places whose DD-only
+    phrasing was used to justify stripping WA's access; it is not licence to do so
+    again. Nothing about THIS function changes — it governs the SearXNG fallback
+    inside a Brave-scoped search, and that stays off whichever purpose opened the
+    scope. The Anthropic half of the rule is unchanged and remains DD-only.
 
     This turns OFF the R-F3122 SearXNG fallback for Brave-scoped (DD) searches. That
     fallback was a reasonable design — it kept coverage when Brave yielded nothing,
@@ -262,13 +310,16 @@ def brave_is_enabled() -> bool:
     if not _purpose:
         return False
     # ── R-F3946 — RULE ONE, enforced at the ONE decision point. ──────────────
-    if not is_dd_brave_purpose(_purpose):
+    if not is_allowed_brave_purpose(_purpose):
         # Expected and frequent: chat/explore open a scope on every request.
         # COUNTED, never wired as a gap — a per-refusal gap would be a
         # self-sustaining flood of the exact kind that has already filled the
         # 500-slot capability ledger and starved the self-coder of real work.
         _BRAVE_POLICY_COUNTERS["non_dd_scope_refused"] += 1
         return False
+    _key = str(_purpose).strip().lower()
+    _BRAVE_GRANTS_BY_PURPOSE[_key] = _BRAVE_GRANTS_BY_PURPOSE.get(_key, 0) + 1
+    # Legacy aggregate — every allowed grant, whatever its purpose.
     _BRAVE_POLICY_COUNTERS["dd_grants"] += 1
     return True
 

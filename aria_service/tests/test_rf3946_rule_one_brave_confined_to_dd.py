@@ -25,6 +25,16 @@ does not get Brave, wherever it lives. DD already enables its own scope
 (dd_orchestrator.py:14981 / :14564), so it is unaffected — the decorators were
 never what DD depended on.
 
+⚠️ AMENDED 2026-08-21 (R-F4217 / C-197). The operator put ARIA WA on the Brave
+API: "include aria wa on the brave api also, that was requested and done a while
+back but keeps breaking". The allow-list is now {"dd", "wa"}. EVERY TEST IN THIS
+FILE STILL PASSES UNCHANGED, because none of them asserted "dd is the only
+member" — they assert that chat/explore/student/research/"" are refused, and
+they still are. That is the whole point of enforcing at one predicate. WA's
+grant is pinned separately in test_rf4217_wa_brave_purpose.py; if you are here
+because you want to restore DD-only, read CLAUDE.md §17 first — the doc saying
+"and nothing else" is what kept reverting a capability the operator asked for.
+
 NOTE ON `ARIA_STUDENT_BRAVE_BUDGET=0`: it does exactly what CLAUDE.md §27e says,
 and it only ever governed the student loop. After this change it is no longer the
 ONLY thing standing between us and a breach.

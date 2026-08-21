@@ -12433,3 +12433,85 @@ Regression: 68 routing/chat test files — **943 passed, 1 failed**, and that on
 `routes/aria.py`. Pre-existing, not a regression here — but it is
 false-clean-shaped (a sanctioned officer in a UBO chain returning 0 instead of
 1) and is recorded as an open lead.
+
+## C-197 · WA's Brave access kept being reverted by the document that states RULE ONE (fixed, R-F4217)
+
+Operator, 2026-08-21: *"include aria wa on the brave api also, that was requested
+and done a while back but keeps breaking, can you stop and ensure the approach is
+from the root and does not get damage again."*
+
+### The root cause is not in the code
+
+`git log -S'_DD_BRAVE_PURPOSES'` shows the constant was introduced **exactly
+once** (R-F3946, 2026-08-13). There was never an add/remove cycle to find.
+
+**The reverting mechanism was `CLAUDE.md` §17.** It stated RULE ONE as *"Brave is
+for DD reports **and nothing else**"*, and §20/§26 make that file the first thing
+every session reads. So each session read the floor, found WA using the paid key,
+and dutifully removed it — believing it was enforcing an operator directive.
+
+CLAUDE.md already records this exact shape, three paragraphs below, for the
+Anthropic half: *"the one file every session reads first told each of them to
+preserve the exact setting that was draining the account, and to distrust anyone
+who fixed it."* This is the same failure, one clause over, running in the
+opposite direction: the doc was **deleting** a capability the operator had asked
+for. A code-only fix would have been reverted a fourth time. **The doc is the
+fix.**
+
+### What shipped
+
+Three parts, because any one alone regresses:
+
+1. **Code** — `_BRAVE_ALLOWED_PURPOSES = {"dd", "wa"}`, enforced at the single
+   decision point `brave_is_enabled()`. R-F3946's "purpose, not a route list"
+   design is preserved exactly; only the allow-list gained a member.
+2. **Doc** — §17 and §27e both carry the amendment with the date and the verbatim
+   quote, and both say plainly that the DD-only phrasing is *not* licence to strip
+   WA again. The `web_search.py` docstring that §27e cites is annotated too — it
+   was one of the texts used to justify the revert.
+3. **Test** — `test_rf4217_wa_brave_purpose.py`, whose failure message names the
+   directive and tells the reader not to "fix" it by restoring DD-only.
+
+### RULE ONE is not weakened anywhere else
+
+* The **Anthropic half is untouched** and stays DD-only.
+* Every other purpose — `chat`, `explore`, `student`, `research`, `""`, `web`,
+  `api` — is still refused. **R-F3946's parametrised test passes unchanged**,
+  because it never asserted "dd is the only member"; it asserted that those
+  purposes are refused, and they are. That is what enforcing at one predicate buys.
+* `ARIA_STUDENT_BRAVE_BUDGET=0` is unchanged; the student loop is not included.
+
+### WA has to be able to identify itself
+
+WA and the web UI both `POST /api/aria/chat` and neither declared a surface, so
+the brain could not tell them apart — it could only refuse both. `ChatRequest`
+gains `channel`, and `aria_wa_listener.mjs` sends `channel: 'wa'` on **both**
+dispatch paths (async and the sync fallback). Declared, never inferred: guessing
+the channel from `callback_url` shape would be exactly the implicit coupling that
+rots.
+
+**`channel` is client-supplied, so it MAPS to a purpose and never becomes one.**
+`_channel_brave_purpose()` translates through `{"wa": "wa"}`; passing the raw
+value through would let anything able to POST `/chat` send `{"channel": "dd"}`
+and help itself to the paid key — a caller-controlled string selecting a paid
+backend. A test pins that `"dd"`, `"web"`, `""` and `None` all grant nothing.
+
+### Cost, stated rather than buried
+
+This genuinely increases Brave spend: WA is a live operator surface, DD is a
+handful of runs a day. Grants are now counted **per purpose**
+(`grants_by_purpose`) so WA's share is attributable instead of merged into DD,
+and `/health` → `rule_one.brave_allowed_purposes` publishes which rule is being
+measured. `brave_non_dd_grants` keeps its meaning — grants to a purpose *not* on
+the allow-list — and must stay 0.
+
+### Verification
+
+14 tests, 5 RED before. Mutation-proven both ways: reverting the allow-list to
+`{"dd"}` turns 3 red including the one that names the directive; letting a client
+channel claim `dd` turns the escalation guard red.
+
+Regression: 191 test files touching brave/search/chat/rule_one — **1,826 passed,
+14 failed, and all 14 fail identically on the pre-change tree**, verified by
+swapping HEAD's `web_search.py`, `routes/aria.py` and `llm/fallback.py` back in.
+Zero regressions.
