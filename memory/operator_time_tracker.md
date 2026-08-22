@@ -2865,3 +2865,139 @@ measurement that closed C-190.
   deleted when a better route appeared; it is still the right backstop.
 - **C-188** — the neural graph's recorded birth date was reset by `init()`'s own
   repair line. Low severity; no facts, neurons or edges lost.
+
+## Session 2026-08-21 — the citation chain, RULE ONE amended, and five tests that had stopped being able to fail
+
+**R-numbers shipped: 16** — R-F4213 … R-F4228, all ship-marked. **Eleven changed
+production and are live-verified by `build_rev`**: ten on aria-intel (final
+`94eee7d8`), one on aria-web (v512), and R-F4217 also shipped aria-wa (v148).
+**Five changed only tests** — R-F4218, R-F4224, R-F4225, R-F4226, R-F4228 — and
+were correctly **not** deployed; recording them as "live" would be a false claim,
+so they are counted separately. **C-numbers: 17** (C-192…C-208), of which C-194 is
+an investigated **not-a-defect** kept as an audit trail.
+
+**Operator hours: not supplied → pace_ratio deliberately blank.** Agent wall-clock
+spans a long day including eleven ~10-minute cold boots, one per deploy.
+
+**What it was.** Picked up a peer agent's undeployed commit and ended up walking
+the whole customer-facing path: boot → routing → search → citation → PDF.
+
+### The three findings that matter
+
+**1. ARIA's metabolism sat behind a gate that could never open (C-192).**
+R-F4211 put SEVEN boot workloads — autonomous engine, coder, knowledge seed,
+web-integrity, defence seed, health precompute, boot continuation — behind one
+`asyncio.Event`. Its own test pinned that all seven WAIT on it. **Nothing asserted
+it ever OPENS.** The producer's only `.set()` was the tail statement of an
+unguarded coroutine, sitting *below* `float(getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S"))`
+— so `20m` in a tuning knob would have parked self-improvement forever while
+`/health` reported `operational`. C-195 then closed the class: six such parses in
+`main.py`, one of them (`ARIA_MAX_BODY_BYTES`) at module level, where `50mb` makes
+`import aria_service.main` fail outright. Proven, not argued.
+
+**2. Three independent bugs, one symptom: `Sources: 0`.** C-199 — the extractor
+could only see `https?://`, so every fact from ARIA's own compounding index
+(`memory://`) was invisible; the §15 asset was unreadable by the surface that
+sells it. C-200 — the stream fork passed an empty tool_context while the comment
+directly above it claimed to "mirror the non-stream field per CLAUDE.md §13".
+C-201, the root beneath both — tool output reaches the engine **inside the
+message** (`routes` wraps it), while `context` is the 7-layer knowledge context,
+so **no extractor on either fork had ever read the tool block.** Live proof end to
+end: a stream turn that emitted zero sources now emits **6 url + 5 memory + 3 rag**.
+
+I would have stopped at C-200 and been wrong. What saved it was measuring: a live
+stream showing `tool_running` x6 and *still* no sources event.
+
+**3. A country name disabled live search for 69 days (C-196).** The operator's
+WhatsApp question routed to `registry_lookup` because it contained "Turkey". The
+same question without that word routed to search. `_REGISTRY_JURISDICTIONS`
+matched a bare country word with **no company signal**, while the comment directly
+above said it detects *"Turkish company X"*. Angola, Kenya, Ghana, Saudi, Brazil,
+Panama, Poland — all of it. And the list was a hardcoded 12 against a dispatch
+table of 26, so Nigeria, South Africa, UAE, Germany, France, India, Israel and the
+US were unreachable from chat at all.
+
+### RULE ONE, amended — and why the fix was mostly a document
+
+The operator: *"include aria wa on the brave api also, that was requested and done
+a while back but keeps breaking."* `git log -S` showed `_DD_BRAVE_PURPOSES` was
+introduced **exactly once** — there was no code add/remove cycle to find.
+**`CLAUDE.md` §17 was the reverting mechanism**: it said "Brave is for DD reports
+and nothing else", §20/§26 make it the first thing every session reads, and each
+session dutifully stripped WA again believing it was enforcing a directive. §17
+records this exact shape for the Anthropic half. A code-only fix would have been
+reverted a fourth time.
+
+### Five permanently-red tests — none hiding a defect, all unable to report one
+
+C-198, C-204, C-205, C-206, C-208. Each pinned *where* logic lived, *what* a flag
+meant, or *what a fixture used to satisfy*. **C-205 is the one to remember**: it
+demanded `independent_source_verification_run is True`, and the obvious way to
+green it would tell a customer their claims were independently re-verified when
+only the citations were grounded — the exact overclaim R-F2413 removed. A red test
+that invites a specific wrong fix is worse than no test. Pattern recorded in
+`a-red-test-usually-points-where-code-used-to-be`.
+
+The citation/grounding cluster went from **20 failed / 1,811 passed** to
+**1,909 passed / 0 failed**.
+
+### Where I was wrong
+
+- **"Search returns nothing in chat."** It did not. `/explore` returned 17 facts,
+  12 web + 5 memory, ecosystem HEALTHY. I had read `sources: 0` as a capability
+  failure when it was a reporting one. Corrected mid-flight.
+- **I told ARIA to loosen the training retention ratchet** before reading it. Its
+  docstring says *"Require an aggregate gain and zero lost honest answers on every
+  axis"* and it emits `strict_compounding`. Under a ratchet, noise causes false
+  REJECTIONS (safe), never false PROMOTIONS. I sent her a correction telling her to
+  stop. The right move is enlarge the evidence, never loosen the gate.
+- **I reported `state_backend_read_timeouts` as a standing defect.** It was
+  boot-stampede residue and cleared to green on its own. I had reported it at its
+  worst moment.
+- **I predicted the red cluster might hide a P0.** It did not — five stale tests.
+  Worth saying plainly because it was not the exciting answer.
+- **Escape mangling twice wrote control bytes into source** — a literal NUL into
+  `pdf_generator.mjs`, a backspace into `chat_sources.py` (which silently broke a
+  regex; the tests caught it). Now sweep the tree for control chars after any
+  generated edit, and prefer JSON over delimiter escapes.
+- **My first mutation test hit the wrong `except` clause** — there are four
+  identical `except (TypeError, ValueError):` in `main.py` and a single-shot
+  replace took the first. The mutation "passed", which nearly certified a guard
+  that could not fire.
+- **I created a probe file while a background regression was collecting**, and
+  broke it — the §16 quiet-tree rule applied to myself. Separately, a command
+  timeout mid-file-swap lost my R-F4220 fix; recovered from backup because I
+  checked rather than assumed.
+
+### The DD report review (Penfold Savings Ltd, dd_9b3bc17a15f4)
+
+The report is **honest** and that deserves recording: it refuses to clear, says
+*"This is not a clean bill"*, labels every incomplete check UNCHECKED rather than
+clean, and states *"ORDERED SECTION NOT DELIVERED — IS-14 … must not be presented
+as covered or charged for."* That is the USP working.
+
+Two defects fixed: **C-203** — nine findings printed twice, pages 2 and 3, because
+the Node PDF rendered the `key_findings` summary AND every layer's full list while
+the Python side documents key_findings as "a view of a list that stays complete in
+its own section". **C-207** — one fact rendered as two retained leads ("… **is**
+registered at …" vs "… registered at …") because dedup matched exact strings;
+replaced with the module's own order-aware `_distinctive_sequence_dd`, measured
+against the five real leads before choosing.
+
+### Still open
+
+- **Same fact, two confidence labels** — `11668244` is `CONFIRMED` from Companies
+  House and simultaneously an `UNVERIFIED` retained lead telling the reader to go
+  verify it. C-207 halved the restatements; it did not reconcile the labels. A
+  "contains a confirmed value" rule would wrongly mark *"4 officers … 2
+  resignations"* verified. **Product decision, not a heuristic.**
+- **link-tree amount=$1 (x9 sources)** — the regex legitimately matches the
+  literal text; the defect is a low-information value presented as nine-source
+  corroboration. Suppressing small amounts is unsafe (a GBP 1 share sale is a real
+  signal). Needs an information-content rule.
+- **Adverse-media incompleteness stated 6x**, FCA register as two findings from two
+  resolvers.
+- **DeepSeek at chain depth 1.** C-202 fixed the wrong half of the symptom —
+  admission was refusing what dispatch would serve — and was caught working live at
+  18:20:47 (`dispatch=True` while `cooling=1`). The cooling itself is unchanged and
+  unexplained; 11 errors in 60 dispatches when measured.
