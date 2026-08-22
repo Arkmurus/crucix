@@ -13204,3 +13204,133 @@ logic lived, what a flag meant, or what a fixture used to satisfy. Every one wen
 permanently red; **none was hiding a live defect**; all five had stopped being
 able to report one. The pattern is now recorded in
 `a-red-test-usually-points-where-code-used-to-be`.
+
+## C-209 · ARIA was blind to her LLM vendor's prepaid balance (fixed, R-F4229)
+
+**Found by a live probe at session open, not by a test.** Continuation of the P0
+recorded at the close of 2026-08-21.
+
+### The outage
+
+General chat and WhatsApp were fully dark for ~19h. DeepSeek returned `HTTP 402
+Insufficient Balance`, R-F678's 24h HARD billing cooldown armed, and with
+`general_vendor_depth: 1` (§17 — `deepseek_backup` removed by operator directive)
+and Anthropic confined to DD by RULE ONE, nothing could serve a general turn.
+`/health` at session open: `active_providers: []`, `can_dispatch_now: false`.
+
+Measured from inside aria-intel, same key the chain dials:
+
+```
+GET https://api.deepseek.com/user/balance  ->  HTTP 200
+{"is_available": false,
+ "balance_infos": [{"currency":"USD","total_balance":"-0.02",
+                    "granted_balance":"0.00","topped_up_balance":"-0.02"}]}
+```
+
+**The account is overdrawn by two cents.**
+
+### The defect is not the empty account — it is that nothing could see it coming
+
+Throughout the outage `/api/aria/cost/monthly/status` read `spent_usd 107.35` of
+`cap_usd 600.0` — **17.9% used, $492.65 "remaining"**. Every instrument ARIA had
+said healthy.
+
+`cost_tracker` measures MODELLED spend: tokens counted off responses, multiplied
+by a hardcoded price table, checked against an operator-set cap. A vendor's
+prepaid balance is a different quantity in a different system, and
+`cost_tracker.py:148` already records the two diverging ~25x once before
+(deepseek-v4-flash falling through to Claude pricing). **A meter that models its
+own spend is structurally incapable of seeing vendor credit**, so no threshold
+tuned on it could ever have warned, and the first signal was a total outage.
+
+Same shape as §17's mirror-image trap (a detached probe reading `spent_usd: 0.0`
+and nearly filing a fabricated P0) and as R-F3868/R-F3870 for Brave — *"an
+unmeasured dependency reads exactly like a healthy one, right up to the 429"*.
+A repo-wide grep found **no reader for any vendor balance endpoint**.
+
+### The fix — read what the vendor already publishes (§27f)
+
+`aria_service/llm/vendor_balance.py`, wired at three points in `fallback.py`:
+
+1. **Headroom before zero.** `_schedule_balance_poll()` hangs off the dispatch
+   path (no new background loop to wire at boot), at most one read per
+   `ARIA_LLM_BALANCE_POLL_INTERVAL_S` (900s). A balance at or below
+   `ARIA_LLM_BALANCE_WARN_USD` (default 10) wires a gap naming the action.
+2. **The lockout page carries the number.** `_probe_recovery` asks the vendor
+   before spending a call to guess, so `still_locked_out` now reads *"prepaid
+   vendor balance is -0.02 USD"* rather than bare `billing` — the difference
+   between a $0.02 top-up and a dead key.
+3. **Recovery on the vendor's own evidence, free.** `is_available: true`
+   releases the billing cooldown with **no LLM call spent**. R-F3685's probe can
+   only learn this by making a paid call that, while the balance is empty, fails
+   every time. This is C-41's latch rule: retire a latch on the same evidence
+   class that armed it (a 402 is the vendor's accounting refusing us;
+   `is_available` is the vendor's accounting answering directly).
+
+### Three honesty rules, each pinned by a test
+
+* **UNREADABLE IS NEVER EXHAUSTED.** A timeout, DNS failure or HTTP 500 yields
+  `state: unreadable`, `available: None`. Rendering that as "no credit" would
+  arm an outage response against a funded account; rendering it as "fine" would
+  hide a real one — the §1 absence-reads-as-measurement shape.
+* **AN UNSUPPORTED VENDOR IS DECLARED, NEVER INVENTED.** Anthropic publishes no
+  balance endpoint, so it reads `unsupported` and **no request is made**.
+* **THE GAUGE IS NOT THE SUBJECT.** An unreadable gauge wires under
+  `llm_vendor_balance_gauge`, a vendor refusal under `llm_vendor_balance` — the
+  remedies are opposite (a code/network fix vs the operator's wallet). Folding
+  them together is the R-F3693 mistake of merging `inconclusive` into
+  `still_locked_out`, and would page the operator to top up a funded account.
+
+**No breaker, deliberately** (`# no-breaker:` on the client line, per the
+constitutional rule). A breaker would pin the gauge at `unreadable` for its whole
+cooldown — blinding the instrument exactly when the network is sick, which is the
+failure class this module exists to remove. The poll interval is the throttle.
+
+Every signal is transition-driven, never per-poll: a persistently low balance
+emits **once**, not 96 times a day. That flood shape has already filled a
+500-slot capability ledger twice.
+
+### The regression this fix caused, and why it is recorded
+
+The first cut initialised three dicts in `FallbackProvider.__init__` and broke
+**11 previously-green tests** with `AttributeError: no attribute '_balance'` —
+raised from `get_health()`, i.e. the health surface would have thrown on any
+chain built via `FallbackProvider.__new__(...)`, which is an established
+construction across this suite (test_rf3477, test_rf3513, test_rf4222). The
+fields are now lazy per-instance properties. **Caught by the §3 pass-2
+regression sweep, not by the new tests** — the new tests were green while this
+was broken.
+
+### The SECOND regression this fix caused — caught by the repo's own §21a gate
+
+`scripts/ci/wiring_audit.py` failed with **`aria_service/llm/vendor_balance.py:
+no-wiring` — 1 NEW dark module`**, turning `test_rf3728_wiring_baseline_key` and
+`test_rf3900_search_engine_health_is_not_dark` red (neither is in the §16
+baseline, so both were green before this change). The signals were being emitted
+from `fallback.py`; the audit scans PER MODULE, so **the module whose entire job
+is observability was itself unobservable** — the sharpest possible version of
+§21b.
+
+The audit's own message says *"Do NOT add it to the baseline to go green."* It was
+not. `note_transition()` moved into `vendor_balance.py`, which is also better
+cohesion: the module that knows what a balance MEANS owns what is said about it.
+`fallback.py` keeps only the per-provider severity dict — the state a
+module-level function cannot hold, and the thing that makes the signal a
+transition rather than a flood. Audit now exits 0; both gate tests green again.
+
+### Verification
+
+* Fixture-first: RED (`ImportError: cannot import name 'vendor_balance'`) → GREEN.
+* 21 capability tests in `test_rf4229_vendor_prepaid_balance.py`, driving the
+  real `FallbackProvider` methods with the exact live vendor body.
+* Regression: 550 passed / 0 failed across the LLM-chain, health, cost and
+  wiring surfaces.
+
+### Operator action — still outstanding, and no code can substitute
+
+**Top up the DeepSeek account.** The vendor is refusing on credit; retries,
+restarts and cooldown clears cannot create balance. After the top-up, ARIA now
+releases the cooldown herself within one probe interval on the vendor's own
+`is_available`, so the manual
+`POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` becomes an
+accelerator rather than a requirement.

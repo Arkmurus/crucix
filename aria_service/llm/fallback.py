@@ -20,6 +20,7 @@ from typing import Any, Optional
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
 from .openai_compat import KIND_REASONING_TRUNCATED  # R-F3627 — cause-aware paging
+from . import vendor_balance  # R-F4229 — the vendor's OWN prepaid balance
 
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
@@ -307,6 +308,11 @@ _RECOVERY_PROBE_INTERVAL_S = float(
     os.getenv("ARIA_LLM_RECOVERY_PROBE_INTERVAL_S", "900"))
 _RECOVERY_PROBE_TIMEOUT_S = float(
     os.getenv("ARIA_LLM_RECOVERY_PROBE_TIMEOUT_S", "20"))
+# R-F4229 — how often to ask the vendor what our prepaid balance is. This is the
+# ONLY throttle on that call (vendor_balance carries no breaker, deliberately),
+# so it is what keeps a headroom gauge from becoming its own incident.
+_BALANCE_POLL_INTERVAL_S = float(
+    os.getenv("ARIA_LLM_BALANCE_POLL_INTERVAL_S", "900"))
 
 # R-F3693 — the last-resort dial is decided PER REQUEST, so its §21a signal needs
 # its own throttle or a sustained outage turns the brain-wiring into the incident
@@ -322,6 +328,9 @@ class FallbackProvider(LLMProvider):
         """Initialize with ordered list of providers (highest priority first)."""
         self.providers = [p for p in providers if p and p.is_configured]
         self._stats: dict[str, dict] = {}
+        # R-F4229 — the vendor-balance state is DELIBERATELY NOT initialised
+        # here; see the lazy properties below. Assigning it in __init__ is what
+        # broke 11 existing tests on the first attempt.
         for p in self.providers:
             self._stats[p.name] = {
                 "calls": 0, "failures": 0, "last_failure": 0,
@@ -619,6 +628,130 @@ class FallbackProvider(LLMProvider):
         except Exception:
             logger.debug("[R-F3693] last-resort wiring failed", exc_info=True)
 
+    # ── R-F4229: the vendor's own prepaid balance ────────────────────────────
+
+    # THESE ARE LAZY ON PURPOSE, and the reason is worth keeping.
+    #
+    # `FallbackProvider.__new__(FallbackProvider)` — building a chain without
+    # touching the environment — is an established construction across this
+    # repo's tests (test_rf3477, test_rf3513, test_rf4222, …). `__init__` has
+    # therefore NOT necessarily run, so any new field added there is invisible
+    # to those instances. The first cut of R-F4229 initialised these three dicts
+    # in `__init__` and broke 11 previously-green tests with
+    # `AttributeError: no attribute '_balance'` — from `get_health()`, i.e. the
+    # health surface would have raised on any such chain.
+    #
+    # Backed by differently-named keys so the data descriptor cannot recurse
+    # into itself. Per-instance (never class-level mutables), so two chains
+    # cannot share a gauge.
+
+    @property
+    def _balance(self) -> dict:
+        """provider name -> last BalanceReading."""
+        return self.__dict__.setdefault("_balance_readings", {})
+
+    @property
+    def _balance_wired_severity(self) -> dict:
+        """provider name -> last severity WIRED. Makes the signal a transition."""
+        return self.__dict__.setdefault("_balance_wired_sev", {})
+
+    @property
+    def _balance_last_poll(self) -> dict:
+        """provider name -> monotonic-ish timestamp of the last vendor read."""
+        return self.__dict__.setdefault("_balance_poll_at", {})
+
+    def _provider_api_key(self, provider) -> str:
+        """The key this provider dials with.
+
+        Every concrete provider stores it as `_api_key` (openai_compat:310,
+        anthropic:69). Read it off the OBJECT rather than the environment so the
+        gauge asks about the same account the chain is actually spending — an
+        env lookup would silently poll a different key after a rotation.
+        """
+        return str(getattr(provider, "_api_key", "") or "")
+
+    async def _read_vendor_balance(self, provider):
+        """Read + cache one provider's vendor balance. Never raises."""
+        reading = await vendor_balance.read_balance(
+            provider.name, self._provider_api_key(provider))
+        self._balance[provider.name] = reading
+        self._balance_last_poll[provider.name] = time.time()
+        return reading
+
+    def _wire_balance_transition(self, provider_name: str, reading) -> None:
+        """Hold the per-provider severity; `vendor_balance` decides what to say.
+
+        The SIGNALS deliberately live in `vendor_balance.note_transition`, not
+        here: `scripts/ci/wiring_audit.py` scans per module and flagged that file
+        `no-wiring` when they lived in this one — correctly, per §21b. All this
+        keeps is the state a module-level function cannot: which severity was
+        last announced for which provider, which is what makes the signal a
+        transition rather than a per-poll flood.
+        """
+        try:
+            self._balance_wired_severity[provider_name] = (
+                vendor_balance.note_transition(
+                    provider_name, reading,
+                    self._balance_wired_severity.get(provider_name),
+                )
+            )
+        except Exception:
+            logger.debug("[R-F4229] balance-transition wiring failed", exc_info=True)
+
+    async def _poll_balance_quietly(self, provider) -> None:
+        """One headroom read. Never awaited by a user request, never raises."""
+        try:
+            if not vendor_balance.supports(provider.name):
+                return
+            reading = await self._read_vendor_balance(provider)
+            self._wire_balance_transition(provider.name, reading)
+            if reading.is_exhausted:
+                logger.error(
+                    "[R-F4229] %s prepaid vendor balance EXHAUSTED (%s) — "
+                    "general chat will fail until the account is topped up",
+                    provider.name, reading.describe(),
+                )
+        except Exception:
+            logger.debug("[R-F4229] balance poll failed", exc_info=True)
+
+    def _providers_due_for_balance_poll(self) -> list:
+        """Supported vendors not read this interval.
+
+        Cooling providers are EXCLUDED: `_probe_recovery` already reads the
+        balance for them every interval, and polling as well would double the
+        traffic on the one path where the answer is already being fetched.
+        """
+        now = time.time()
+        due = []
+        for p in self.providers:
+            if not vendor_balance.supports(p.name):
+                continue
+            if self._cooldown_until(self._stats.get(p.name, {})) > now:
+                continue
+            if now - (self._balance_last_poll.get(p.name) or 0) < _BALANCE_POLL_INTERVAL_S:
+                continue
+            due.append(p)
+        return due
+
+    def _schedule_balance_poll(self) -> None:
+        """Fire-and-forget the due balance reads. Never awaited.
+
+        The slot is claimed BEFORE the task is spawned, so a burst of concurrent
+        dispatches cannot all poll the same vendor — the same race guard
+        `_schedule_recovery_probes` uses.
+        """
+        due = self._providers_due_for_balance_poll()
+        if not due:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no loop: nothing to schedule, and nothing is degraded by it
+        now = time.time()
+        for p in due:
+            self._balance_last_poll[p.name] = now
+            loop.create_task(self._poll_balance_quietly(p))
+
     async def _probe_recovery(self, provider) -> bool:
         """Re-test ONE hard-cooling provider. True iff it was released.
 
@@ -644,6 +777,61 @@ class FallbackProvider(LLMProvider):
         stats = self._stats.setdefault(provider.name, {})
         stats["last_recovery_probe"] = time.time()
         kind_before = stats.get("last_kind") or "unknown"
+
+        # R-F4229 — ASK THE VENDOR BEFORE SPENDING A CALL TO GUESS.
+        #
+        # For a BILLING lockout the vendor's own balance endpoint answers the
+        # exact question this probe is asking, for free and without ambiguity:
+        # `is_available` is the vendor telling us whether it will serve. Three
+        # things improve at once:
+        #
+        #   * Recovery is immediate and free. The paid probe can only learn
+        #     "recovered" by making a call that, while the balance is empty,
+        #     fails every time — so the operator tops up and ARIA still waits
+        #     for the next interval to spend another failing call to find out.
+        #   * The lockout page carries the NUMBER. "billing" alone does not
+        #     tell the operator whether this is a $0.02 top-up or a dead
+        #     account. Live 2026-08-22 it was $0.02.
+        #   * It is the SAME EVIDENCE CLASS THAT SET THE LOCK — a 402 is the
+        #     vendor's accounting refusing us, and `is_available: true` is the
+        #     vendor's accounting accepting us. C-41 established that rule for
+        #     the OpenSanctions quota latch: retire a latch on the same kind of
+        #     evidence that armed it, not on a better guess.
+        #
+        # Scoped to `billing` on purpose. A balance says NOTHING about a revoked
+        # key, so an `auth` lockout still goes to the paid probe. An unreadable
+        # or unsupported reading falls through as well: the gauge may never make
+        # this path WORSE than it was before the gauge existed.
+        if kind_before == "billing" and vendor_balance.supports(provider.name):
+            _bal = await self._read_vendor_balance(provider)
+            self._wire_balance_transition(provider.name, _bal)
+            if _bal.state == vendor_balance.STATE_FRESH:
+                if _bal.available:
+                    logger.warning(
+                        "[R-F4229] %s vendor balance RESTORED (%s) — releasing "
+                        "the billing cooldown with %ds remaining, no LLM call spent",
+                        provider.name, _bal.describe(),
+                        int(max(0, self._cooldown_until(stats) - time.time())),
+                    )
+                    self._wire_probe_outcome(
+                        provider.name, "recovered",
+                        f"was billing; vendor balance restored: {_bal.describe()}",
+                    )
+                    self._record_success(provider, stats)
+                    return True
+                logger.info(
+                    "[R-F4229] recovery probe: %s vendor balance still empty "
+                    "(%s) — cooldown stands, no LLM call spent",
+                    provider.name, _bal.describe(),
+                )
+                self._wire_probe_outcome(
+                    provider.name, "still_locked_out",
+                    f"kind=billing — operator action needed: {provider.name} "
+                    f"prepaid vendor balance is {_bal.describe()}. Top up the "
+                    f"{_bal.vendor} account; this is not the monthly cap.",
+                )
+                return False
+
         try:
             # R-F3687 — THE SYSTEM PROMPT MUST NOT BE EMPTY.
             #
@@ -1130,6 +1318,13 @@ class FallbackProvider(LLMProvider):
         # R-F3685 — re-test any hard-cooling provider in the background. Never
         # awaited: this must not add a millisecond to the user's request.
         self._schedule_recovery_probes()
+
+        # R-F4229 — read the vendor's prepaid balance on the same fire-and-forget
+        # footing, at most once per _BALANCE_POLL_INTERVAL_S. Deliberately hung
+        # off the DISPATCH path rather than a new background loop: it needs no
+        # boot-order wiring, and the only time an unnoticed balance matters is
+        # when traffic is flowing to spend it.
+        self._schedule_balance_poll()
 
         # R-F1366 — per-call provider preference (see docstring).
         # R-F2917 — when the caller did not pass one explicitly, fall back to the
@@ -1876,6 +2071,26 @@ class FallbackProvider(LLMProvider):
             "general_vendor_depth": len({
                 (p.name or "").lower().split("_")[0] for p in _general
             }),
+            # R-F4229 — the vendor's OWN prepaid balance, beside our modelled
+            # spend rather than instead of it. On 2026-08-22 the cost surface
+            # read 17.9% of cap used while DeepSeek refused every call on
+            # credit; a reader with only that number concluded the chain was
+            # healthy. Reported for EVERY provider, including preference-only
+            # ones, because DD depends on Anthropic and a reader must be able
+            # to see that its balance is `unsupported` (not measured and fine).
+            "vendor_balance": {
+                p.name: (
+                    self._balance[p.name].to_dict()
+                    if p.name in self._balance
+                    else vendor_balance.unknown(
+                        p.name,
+                        vendor_balance.STATE_NEVER_OBSERVED
+                        if vendor_balance.supports(p.name)
+                        else vendor_balance.STATE_UNSUPPORTED,
+                    ).to_dict()
+                )
+                for p in self.providers
+            },
         }
 
 

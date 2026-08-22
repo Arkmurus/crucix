@@ -247,7 +247,32 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
     same absence-collapsing-into-a-measurement class as the three fabricated Phase A
     gates in §1 — the instrument, not the subject, was broken.
   - `ARIA_USER_MONTHLY_CAP_USD` is a SEPARATE per-user cap and was NOT changed.
-  - `ARIA_USER_MONTHLY_CAP_USD` is a SEPARATE per-user cap and was NOT changed.
+- 🔴 **THE COST METER CANNOT SEE VENDOR CREDIT. DO NOT DIAGNOSE AN LLM OUTAGE FROM
+  `/api/aria/cost/monthly/status` (R-F4229 / C-209, 2026-08-22).** General chat and
+  WhatsApp were dark for ~19h on a DeepSeek `HTTP 402 Insufficient Balance` while
+  that surface read **`spent_usd 107.35` of `cap_usd 600.0` — 17.9% used, $492.65
+  "remaining"**. Both numbers were correct and the conclusion they invite is wrong:
+  `cost_tracker` measures OUR MODELLED spend (tokens x a hardcoded price table)
+  against an operator-set cap; the vendor's PREPAID BALANCE is a different quantity
+  in a different system. `cost_tracker.py:148` already records the two diverging
+  ~25x. **A meter that models its own spend is structurally incapable of seeing a
+  vendor's balance**, so no threshold on it could ever warn — this is the mirror
+  image of the `spent_usd: 0.0` trap two bullets up, and the instrument was wrong
+  in both directions.
+  **Ask the vendor instead — it publishes it, free, on the same key:**
+  `GET https://api.deepseek.com/user/balance` → `{"is_available": …,
+  "balance_infos":[{"currency":"USD","total_balance":"…"}]}`. Live 2026-08-22 it
+  read `is_available: false, total_balance: "-0.02"` — the account was overdrawn by
+  **two cents** while every internal instrument said healthy.
+  R-F4229 wires this: `llm_chain.vendor_balance` on `/health` (tri-state —
+  `unreadable` is NEVER `exhausted`, and Anthropic reads `unsupported` because it
+  publishes no such endpoint, never a guess), a warning gap below
+  `ARIA_LLM_BALANCE_WARN_USD` (default 10) BEFORE zero, the number carried on the
+  lockout page, and **automatic release of R-F678's 24h billing cooldown on
+  `is_available: true` with no paid call spent**. So after a top-up ARIA now
+  recovers herself within one probe interval; the admin clear below is an
+  accelerator, not a requirement. **Do not "simplify" the tri-state into a bool** —
+  an unreadable gauge collapsing to either value re-creates the defect.
 - **Acting on an LLM billing top-up (R-F3513, 2026-07-30):** a billing failure sets a **24h HARD cooldown** (R-F678) that is mirrored to Redis and **REHYDRATED ON BOOT**, and `_record_success` is the only thing that clears it — but a cooling provider is never called, so it sustains itself for the full 24h. **Restarting does NOT clear it** (the old `fallback.py` comment claiming otherwise was wrong and is corrected). Paying for credit therefore had no effect for ~18h on 2026-07-30. To make a top-up take effect immediately:
   `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` — **operator token only** (it re-enables provider spend). Omit `provider` to clear the whole chain. It clears the in-process stats **and** deletes the Redis mirror; clearing either alone lets the other restore it. The response reports `was_cooling`, so it never claims to have lifted a cooldown that was not there.
 - **DO NOT set `LLM_PROVIDER=anthropic` to "make Claude primary" (R-F3853, 2026-08-11).**

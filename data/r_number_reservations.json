@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4229,
+  "next_available": 4230,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36184,14 +36184,25 @@
       "title": "retained-lead dedup is exact-string so reworded restatements both render",
       "claimed_at": "2026-08-21T15:54:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "94eee7d8",
+      "notes": null,
+      "shipped_at": "2026-08-21T16:19:43Z"
     },
     {
       "r_number": "R-F4228",
       "title": "synthesis-BLUF fixture drifted behind the decision-readiness scorecard",
       "claimed_at": "2026-08-21T16:13:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "97318050",
+      "notes": null,
+      "shipped_at": "2026-08-21T16:18:04Z"
+    },
+    {
+      "r_number": "R-F4229",
+      "title": "vendor prepaid balance gauge — warn before the LLM credit hits zero",
+      "claimed_at": "2026-08-22T12:42:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
