@@ -2395,6 +2395,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-22T13:39:35Z"
+    },
+    {
+      "c_number": "C-211",
+      "title": "Phase A gate 1 can certify with the honesty axis entirely unmeasured",
+      "claimed_at": "2026-08-22T13:59:23Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

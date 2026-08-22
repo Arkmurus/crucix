@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4231,
+  "next_available": 4232,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36218,6 +36218,15 @@
       "commit_sha": "aa15cc4a",
       "notes": null,
       "shipped_at": "2026-08-22T13:39:35Z"
+    },
+    {
+      "r_number": "R-F4231",
+      "title": "gate 1 renormalised composite is not comparable to a full-weight target",
+      "claimed_at": "2026-08-22T13:59:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

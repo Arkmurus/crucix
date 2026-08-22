@@ -128,6 +128,51 @@ async def compute_phase_gates() -> dict:
         comp = await autonomy_scorer.compute_composite()
         cs = (comp or {}).get("composite_score")
         _low_conf = (comp or {}).get("low_confidence", True)
+
+        # ── R-F4231 (C-211) — AN UNMEASURED AXIS IS NOT A VERDICT ────────────
+        #
+        # `compute_composite` renormalises over the signals that HAVE data
+        # (`measured_sum / measured_weight`), and this gate compared that to
+        # GATE_1_TARGET — a threshold defined over the FULL weight set. Those
+        # are different quantities, so the comparison is undefined in BOTH
+        # directions whenever an axis is missing.
+        #
+        # Measured live 2026-08-22: mastery 0.838, verification 0.594,
+        # honesty_rate **None** (`no_data_neutral_prior`, 0 samples — the
+        # honesty judge has 55 judgments in the platform's LIFETIME). The
+        # renormalised score read 0.6916 and the gate reported a confident
+        # `pass: false`. The true full-weight composite for those signals is
+        # 0.5187 / 0.6437 / 0.7687 at honesty 0.0 / 0.5 / 1.0 — it STRADDLES
+        # the 0.71 target, so `false` was as unfounded as `true` would have been.
+        #
+        # R-F2665's comment claims this gate closes only with "both honesty
+        # signals present with real samples", but it enforces
+        # `confidence >= MIN_CONFIDENCE (0.60)` where confidence is a fraction
+        # of WEIGHT. Honesty carries 0.25, so mastery + verification alone give
+        # 0.75 and the flag stays False. The guard was calibrated against the
+        # mastery-ONLY case (0.30) and went INERT the moment verification began
+        # reporting — a guard that stopped being able to fail rather than
+        # failing (R-F3791/R-F3858). Verified against the pre-fix tree: a 0.75
+        # composite with ZERO honesty samples returned `pass: True`.
+        #
+        # This is Phase A — the HONESTY foundation — and this is its exit gate.
+        #
+        # So `pass` is tri-state, the contract §1/R-F2639 already binds every
+        # gate to: True/False = measured, None = COULD NOT MEASURE, rendered
+        # `unknown` and never `open`. The score, the target and the missing axis
+        # names are all still published, so this MEASURES MORE rather than
+        # clamping (§1) — it only refuses to turn an absence into a verdict, and
+        # `unknown` can never help Phase A exit.
+        #
+        # A payload with NO `signals` key is `unknown` too, deliberately: the
+        # `{} -> nothing missing -> all measured` collapse is precisely how the
+        # three fabricated Phase A gates in §1 were certified by an absence.
+        _sig = (comp or {}).get("signals")
+        if isinstance(_sig, dict):
+            _unmeasured = sorted(k for k, v in _sig.items() if v is None)
+        else:
+            _unmeasured = ["signals_unavailable"]
+        _comparable = not _unmeasured
         gates["gate_1_composite"] = _gate(
             1, "gate_1_composite", "Composite >= 71%", "Composite score ≥71%",
             round(cs, 3) if isinstance(cs, (int, float)) else cs,
@@ -141,11 +186,15 @@ async def compute_phase_gates() -> dict:
             # when the composite is >= 0.71 AND measured at real confidence (both
             # honesty signals present with real samples). This TIGHTENS the gate to
             # be honest; it does not clamp it (CLAUDE.md §1 — measure MORE, not less).
-            (cs is not None and cs >= GATE_1_TARGET and not _low_conf),
+            # R-F4231 — None (unknown) when an axis is unmeasured, because the
+            # renormalised score is not comparable to a full-weight target.
+            (None if not _comparable
+             else (cs is not None and cs >= GATE_1_TARGET and not _low_conf)),
             "autonomy_scorer.compute_composite()['composite_score']",
             target=GATE_1_TARGET,
             confidence=(comp or {}).get("confidence"),
             low_confidence=_low_conf,
+            unmeasured_signals=_unmeasured,
         )
         sources["composite"] = "compute_composite()"
     except Exception as e:

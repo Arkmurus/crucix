@@ -43,9 +43,28 @@ def test_phase_gates_gate1_resolves_not_unknown():
     result = asyncio.run(phase_gates_ep())
     gates = {g["id"]: g for g in result["gates"]}
     assert set(gates) == {1, 2, 3, 4, 5, 6, 7}, "all 7 gates present"
-    assert gates[1]["status"] in {"open", "closed"}, (
-        f"gate #1 still unknown — composite fn not resolving: {gates[1]}"
-    )
+    # R-F4231 — gate #1 has a LEGITIMATE no-data 'unknown' now, exactly as gate #2
+    # has had since R-F1557 (see the next test: "with an EMPTY heatmap the gate
+    # legitimately returns 'unknown' — that is no-data, not the old bug"). When an
+    # axis of the composite is unmeasured, the renormalised score is not comparable
+    # to the full-weight target, so `unknown` is the honest verdict.
+    #
+    # What R-F1557 exists to catch is the OTHER unknown: compute_composite raising
+    # (the AttributeError that was swallowed). That one carries `error` and
+    # "FAILED" evidence and NO `unmeasured_signals`, so this still fails on it.
+    if gates[1]["status"] == "unknown":
+        assert gates[1].get("unmeasured_signals"), (
+            f"gate #1 unknown WITHOUT a measured reason — the composite fn is not "
+            f"resolving (the R-F1557 symptom): {gates[1]}"
+        )
+        assert not gates[1].get("error"), (
+            f"gate #1 unknown because compute_composite RAISED: {gates[1]}"
+        )
+        assert "FAILED" not in gates[1]["evidence"]
+    else:
+        assert gates[1]["status"] in {"open", "closed"}, (
+            f"gate #1 status is not a recognised verdict: {gates[1]}"
+        )
     assert "compute_composite" in gates[1]["evidence"]
     assert "get_regional_heatmap" in gates[2]["evidence"]
 

@@ -13364,3 +13364,103 @@ busiest user path"*, while `test_complete_feeds_the_gauge` stays green — so th
 guard discriminates between the two forks rather than merely passing.
 
 25 tests in `test_rf4229_vendor_prepaid_balance.py`.
+
+## C-211 · Phase A gate #1 could certify with the HONESTY axis unmeasured (fixed, R-F4231)
+
+Found by asking what is actually holding the north-star gate down, rather than
+assuming it was capability.
+
+### Measured live 2026-08-22, `GET /health/composite`
+
+```
+signals : {"mastery": 0.838, "verification": 0.594, "honesty_rate": null}
+weights : {"mastery": 0.30,  "verification": 0.45,  "honesty_rate": 0.25}
+details : honesty_rate_source = "no_data_neutral_prior", honesty_rate_samples = 0
+          confidence = 0.75,  low_confidence = false
+composite_score : 0.6916   ->  gate #1 reported a confident  pass: false
+```
+
+`GET /api/aria/honesty/stats`, read **through the running server** (§17), explains
+the zero: **55 honesty judgments in the platform's entire lifetime**, 41 scored,
+`by_status_24h: {}`. The judge fires only when a chat turn ran a tool *and* the
+response carries confidence tags, so the axis is effectively unpopulated. That is
+a separate finding; this defect is what the GATE did about it.
+
+### The guard's stated contract was stronger than its mechanism
+
+R-F2665's comment in `phase_gates.py` says gate #1 closes only when the composite
+is measured at real confidence — *"(both honesty signals present with real
+samples)"*. What it enforced was `not low_confidence`, i.e.
+`confidence >= MIN_CONFIDENCE (0.60)`, where `confidence` is the **fraction of
+total WEIGHT** backed by data. Honesty carries 0.25, so mastery + verification
+alone give **0.75** and the flag stays False.
+
+R-F2665 was calibrated against the mastery-ONLY case (confidence 0.30). The
+moment verification began reporting, its guard went **inert** — a guard that
+stopped being able to fail rather than failing (R-F3791 / R-F3858).
+
+**Proven against the pre-fix tree, not argued:** the new
+`test_the_latent_false_certification` fails with `assert True is None` — a 0.75
+composite with **zero honesty samples** returned `pass: True`. Only arithmetic
+(0.6916 < 0.71) was keeping Phase A's exit gate from certifying, and a ~3-point
+tick in mastery or verification would have removed that.
+
+This is Phase A, whose name is *Honesty foundation*, and this is its exit gate.
+
+### And the number was not comparable to the target in EITHER direction
+
+`compute_composite` renormalises over measured signals
+(`measured_sum / measured_weight`); gate #1 compared that to `GATE_1_TARGET`, a
+threshold defined over the FULL weight set. For the live signals the true
+full-weight composite is:
+
+```
+honesty 0.00 -> 0.5187      honesty 0.50 -> 0.6437      honesty 1.00 -> 0.7687
+```
+
+It **straddles 0.71**. So the live `pass: false` was as unfounded as `true` would
+have been — a sufficiently honest ARIA had already closed this gate. The
+renormalised score can falsely FAIL as well as falsely PASS.
+
+### The fix
+
+`pass` is tri-state, which is the contract §1/R-F2639 already binds every gate to:
+`True`/`False` = measured, **`None` = COULD NOT MEASURE**, rendered `unknown` and
+never `open`. An unmeasured weighted axis makes the comparison undefined, so the
+verdict is `unknown`, with `unmeasured_signals` naming which axis is dark. The
+score, target and confidence are all still published — this **measures more**, it
+does not clamp (§1): it only refuses to convert an absence into a verdict.
+
+It cannot help Phase A exit. `all_pass` already requires `unmeasurable == 0`, so
+an unknown gate #1 keeps the phase closed; what changes is that the only way to
+*close* gate #1 is now to actually produce honesty judgments.
+
+**A payload with no `signals` key is `unknown` too**, deliberately: the
+`{} → nothing missing → all measured` collapse is exactly how §1's three
+fabricated Phase A gates were certified by an absence.
+
+**Do NOT "fix" a future `unknown` by lowering `MIN_CONFIDENCE` or by special-casing
+honesty back out.** That reintroduces this defect.
+
+### Two existing tests changed, and why that is not weakening them
+
+* `test_rf2665_gate1_confidence` — its stub omitted `signals`, so the gate could
+  not see what the real scorer publishes. The stub now carries it, and
+  `test_the_real_scorer_publishes_what_this_gate_reads` pins the contract so it
+  cannot drift again (C-208's lesson). One assertion moved from `is False` to
+  `is None`: R-F2665's guard (never certify on thin evidence) is **unchanged**;
+  what changed is that calling a mastery-only score "measured and failed" was
+  itself a claim we could not support.
+* `test_rf1557_phase_gates_aggregator` — gate #1 now has a legitimate no-data
+  `unknown`, exactly as gate #2 has had since R-F1557 (*"with an EMPTY heatmap the
+  gate legitimately returns 'unknown' — that is no-data, not the old bug"*). The
+  test still fails on R-F1557's actual symptom: an `unknown` carrying an `error` /
+  "FAILED" evidence and **no** `unmeasured_signals`.
+
+### Verification
+
+Fixture-first RED → GREEN. 9 new tests; 391 passed / 1 failed across the gate,
+scorer and honesty surfaces — the one failure
+(`test_rf2375_phase_gates_measures_gate4_and_honest_gate3`) is in
+`docs/suite_baseline.json` and asserts gate #3 is unmeasurable, which R-F2622
+changed. Compile gate and wiring audit clean.
