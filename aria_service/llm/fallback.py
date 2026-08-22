@@ -1527,6 +1527,16 @@ class FallbackProvider(LLMProvider):
         # R-F3685 §13 MIRROR — same background recovery probe as complete().
         self._schedule_recovery_probes()
 
+        # R-F4230 §13 MIRROR — R-F4229 hung the vendor-balance poll off
+        # complete() ALONE, one line below its own §13-mirrored sibling. §13 is
+        # explicit that every new hook goes into BOTH paths, and streaming is
+        # the CHAT path: on a deployment whose user traffic is predominantly
+        # streamed, the headroom gauge would only ever be fed by the autonomous
+        # loops and DD. It would still fire — which is worse than not firing,
+        # because a gauge that reads plausibly while missing the busiest path is
+        # trusted. Found by auditing R-F4229 against §13 before it went live.
+        self._schedule_balance_poll()
+
         # R-F2922 — streaming is the CHAT path and has no preference concept, so
         # it walked self.providers directly. With Claude in the chain that meant
         # a streaming chat turn could be served by Claude the moment DeepSeek

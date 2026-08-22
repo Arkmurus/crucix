@@ -13334,3 +13334,33 @@ releases the cooldown herself within one probe interval on the vendor's own
 `is_available`, so the manual
 `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` becomes an
 accelerator rather than a requirement.
+
+## C-210 · R-F4229's balance poll hung off `complete()` only — `stream()` was dark (fixed, R-F4230)
+
+Found by auditing R-F4229 against §13 **before it went live**, not by a failure.
+
+§13 is explicit: `stream()` is a subset-fork of `complete()` and *"every new
+post-response hook must be mirrored into BOTH paths"*. R-F4229 added
+`_schedule_balance_poll()` to `complete()` **one line below its own
+§13-mirrored sibling** `_schedule_recovery_probes()`, and did not mirror it.
+
+Streaming is the CHAT path. On a deployment whose user traffic is predominantly
+streamed, the vendor-balance gauge would have been fed only by the autonomous
+loops and DD. **That is worse than not firing at all**: a gauge that reads
+plausibly while missing the busiest path gets trusted — the same shape as C-39
+(eight never-searched lists stamped CLEAN) and R-F3873 (`engine_relevance`
+reporting a 403'd engine as the healthiest on the board).
+
+### The fix
+
+One line in `stream()`, plus two capability tests that drive the REAL entry
+points — `chain.complete(...)` and `async for ... in chain.stream(...)` — and
+assert a vendor read happened on each. Deliberately not a source grep: these keep
+working if the hook moves, and fail if either fork loses it.
+
+**Mutation-proven:** removing the `stream()` call turns
+`test_stream_feeds_the_gauge_too` red with the message *"the gauge is dark on the
+busiest user path"*, while `test_complete_feeds_the_gauge` stays green — so the
+guard discriminates between the two forks rather than merely passing.
+
+25 tests in `test_rf4229_vendor_prepaid_balance.py`.

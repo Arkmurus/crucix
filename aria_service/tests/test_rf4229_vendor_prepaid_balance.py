@@ -460,3 +460,57 @@ class TestNoSelfDOS:
         assert client_lines
         for line in client_lines:
             assert "no-breaker:" in line, line
+
+
+# -- 6. R-F4230 / C-210 — the stream fork must not be dark (§13) -------------
+
+class TestStreamBypassMirror:
+    """§13: `stream()` is a subset-fork of `complete()`; every new hook goes in BOTH.
+
+    R-F4229 shipped `_schedule_balance_poll()` into `complete()` only — one line
+    below its own §13-mirrored sibling `_schedule_recovery_probes()`. Streaming
+    is the CHAT path, so on a deployment whose user traffic is predominantly
+    streamed the headroom gauge would be fed only by the autonomous loops and
+    DD. That is worse than not firing at all: a gauge that reads plausibly while
+    missing the busiest path gets trusted.
+
+    These drive the REAL entry points rather than grepping for the call, so they
+    keep working if the hook moves, and they FAIL if either fork loses it.
+    """
+
+    def _chain_and_calls(self, monkeypatch):
+        calls = []
+
+        async def _f(url, api_key, timeout):
+            calls.append(url)
+            return 200, LIVE_FUNDED_BODY
+        chain = fb.FallbackProvider([_Provider("deepseek")])
+        monkeypatch.setattr(chain, "_provider_api_key", lambda p: "sk-test")
+        monkeypatch.setattr(vb, "_fetch", _f)
+        return chain, calls
+
+    def test_complete_feeds_the_gauge(self, monkeypatch):
+        chain, calls = self._chain_and_calls(monkeypatch)
+
+        async def _drive():
+            await chain.complete("sys", "hi")
+            for _ in range(6):
+                await asyncio.sleep(0)
+
+        _run(_drive())
+        assert len(calls) == 1
+
+    def test_stream_feeds_the_gauge_too(self, monkeypatch):
+        chain, calls = self._chain_and_calls(monkeypatch)
+
+        async def _drive():
+            async for _ in chain.stream("sys", "hi"):
+                pass
+            for _ in range(6):
+                await asyncio.sleep(0)
+
+        _run(_drive())
+        assert len(calls) == 1, (
+            "the streaming chat path must feed the vendor-balance gauge too "
+            "(§13) — got no vendor read, so the gauge is dark on the busiest "
+            "user path")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4230,
+  "next_available": 4231,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36203,6 +36203,15 @@
       "r_number": "R-F4229",
       "title": "vendor prepaid balance gauge — warn before the LLM credit hits zero",
       "claimed_at": "2026-08-22T12:42:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4230",
+      "title": "mirror the balance poll into stream() — section 13 stream-bypass",
+      "claimed_at": "2026-08-22T13:14:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
