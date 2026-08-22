@@ -3001,3 +3001,68 @@ against the five real leads before choosing.
   admission was refusing what dispatch would serve — and was caught working live at
   18:20:47 (`dispatch=True` while `cooling=1`). The cooling itself is unchanged and
   unexplained; 11 errors in 60 dispatches when measured.
+
+### 🔴 LIVE P0 FOUND AT SESSION CLOSE — DeepSeek prepaid balance exhausted
+
+Found by the final health check, not by a test. Recording it here because §19e
+says a blocker the operator has to find himself is the worst outcome.
+
+**Measured 2026-08-21 at close, from inside aria-intel:**
+
+```
+/health  -> degraded, reasons ['llm_chain_exhausted', 'operating_mode_supervised']
+            cooling_providers [{name: deepseek, reason: billing,
+                                seconds_remaining: 83428}]   (~23.2h)
+            can_dispatch_now: false
+
+POST https://api.deepseek.com/v1/chat/completions
+     -> HTTP 402 {"error":{"message":"Insufficient Balance"}}
+
+POST https://api.anthropic.com/v1/messages  (the DD pin)
+     -> HTTP 200, real token usage
+```
+
+**THIS IS NOT THE MONTHLY CAP, AND THE COST METER SAYS EVERYTHING IS FINE.**
+`/api/aria/cost/monthly/status` reads `spent_usd: 107.35` of `cap_usd: 600.0`
+— **17.89% used, $492.65 remaining**. The cap is nowhere near. What is empty is
+**DeepSeek's PREPAID VENDOR BALANCE**, which is a different quantity in a
+different system. Anyone diagnosing from the cost surface alone would conclude
+the chain was healthy and go looking for a code fault. §17 records the mirror
+image of this trap (a detached probe reading `spent_usd: 0.0` and nearly filing a
+fabricated P0); this is the same instrument/subject confusion pointing the other
+way.
+
+**Blast radius, measured rather than inferred:**
+
+* ❌ **General chat and WhatsApp are DOWN.** `general_vendor_depth` is 1 — the
+  operator removed `deepseek_backup` (§17, R-F3943) — and Anthropic is confined to
+  DD by RULE ONE, so nothing else can serve a general turn.
+* ✅ **DD reports still work.** Anthropic is pinned non-degradably
+  (`ARIA_NON_DEGRADING_PINS=anthropic`) and its key returned HTTP 200 with real
+  usage at the same instant.
+* ⚠️ Autonomous loops are running (98 tasks) but every LLM call they make will
+  fail while this holds.
+
+**`can_dispatch_now: false` here is CORRECT and is R-F4222 working.** That fix
+deliberately refuses a HARD cooldown even when nothing else is reachable —
+`_should_skip`'s rule is that dialling a provider with no credit is "failing
+slower". The soft-timeout case it fixed (observed live at 18:20:47 the same day,
+`dispatch=True` while `cooling=1`) is a different branch. This outage is not the
+admission bug returning.
+
+**Operator action — and the order matters:**
+
+1. **Top up the DeepSeek account balance.** No code change, retry, restart or
+   cooldown clear can substitute; the vendor is refusing on credit.
+2. **Then** clear the cooldown:
+   `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` (operator token).
+   R-F678 made a billing failure a **24h HARD cooldown** that is mirrored to the
+   state store and rehydrated on boot, and it **self-sustains**: a cooling
+   provider is never called, so `_record_success` — the only thing that clears it
+   — can never fire. **Restarting does NOT clear it** (§17 corrects an older
+   comment that claimed otherwise). R-F3685's background recovery probe would
+   eventually release it on evidence, but the explicit clear is immediate.
+3. Do **not** "fix" this by putting Anthropic in the general chain. §17 measured
+   that at ~41x DeepSeek per token (~$889/mo against a $600 cap), it breaks RULE
+   ONE, and `LLM_MODEL` is pinned to a DeepSeek model id that would 404 on
+   Anthropic anyway.
