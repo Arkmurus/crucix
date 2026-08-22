@@ -3066,3 +3066,102 @@ admission bug returning.
    that at ~41x DeepSeek per token (~$889/mo against a $600 cap), it breaks RULE
    ONE, and `LLM_MODEL` is pinned to a DeepSeek model id that would 404 on
    Anthropic anyway.
+
+---
+
+## Session 2026-08-22 — R-F4229..R-F4230, C-209..C-210
+
+**Picked up the live P0 recorded at the close of 2026-08-21.** It was still live at
+open: `/health` → `active_providers: []`, deepseek cooling on `billing`, and the
+cooldown had **re-armed** (~2.3h before open, vs ~0.8h before the previous
+measurement) — so the vendor was still refusing, not merely counting down.
+
+### The number nobody had
+
+```
+GET https://api.deepseek.com/user/balance   (from inside aria-intel, same key)
+-> HTTP 200
+{"is_available": false,
+ "balance_infos": [{"currency":"USD","total_balance":"-0.02", ...}]}
+```
+
+**The account is overdrawn by two cents.** That endpoint is free, keyless beyond the
+API key we already hold, and **nothing in the tree had ever read it** (repo-wide grep).
+
+### The root cause is the instrument, not the account
+
+Throughout the ~19h outage `/api/aria/cost/monthly/status` read `spent_usd 107.35` of
+`cap_usd 600.0` — 17.9% used, $492.65 "remaining". Both numbers correct; the
+conclusion they invite is wrong. `cost_tracker` measures **our modelled spend**
+(tokens × a hardcoded price table) against an **operator-set cap**. A vendor's
+prepaid balance is a different quantity in a different system — `cost_tracker.py:148`
+already records the two diverging ~25×. **No threshold on our meter could ever have
+warned**, so the first signal was a total outage. §17 records the mirror image of this
+trap; the instrument has now been wrong in both directions.
+
+### Shipped
+
+* **R-F4229 / C-209** — `aria_service/llm/vendor_balance.py`, wired at three points:
+  headroom polled BEFORE zero (dispatch-path, 900s throttle, warn below
+  `ARIA_LLM_BALANCE_WARN_USD`); the lockout page now carries the **number**; and
+  R-F678's 24h billing cooldown is released on the vendor's own `is_available: true`
+  **with no paid call spent** — C-41's rule that a latch retires on the evidence class
+  that armed it. Three honesty rules pinned by tests: unreadable is never exhausted;
+  an unsupported vendor is declared, never invented (anthropic makes no request); a
+  gauge fault is wired separately from a vendor fault, because the remedies are
+  opposite.
+* **R-F4230 / C-210** — §13 stream-bypass. R-F4229 hung the poll off `complete()`
+  **one line below its own §13-mirrored sibling** and left `stream()` — the chat path
+  — dark. Found by auditing my own change against §13 before it went live.
+  Mutation-proven: removing the `stream()` call reddens the new guard while the
+  `complete()` guard stays green.
+
+### Two regressions I caused, both caught by the repo's own machinery
+
+1. Initialising three dicts in `FallbackProvider.__init__` broke **11 green tests**
+   from `get_health()` — `FallbackProvider.__new__(...)` is an established
+   construction here, so `__init__` cannot be assumed to have run. Now lazy
+   per-instance properties. Caught by the §3 pass-2 sweep, **not** by the new tests.
+2. `scripts/ci/wiring_audit.py` failed with **"vendor_balance.py: no-wiring — 1 NEW
+   dark module"**, reddening `test_rf3728` and `test_rf3900` (neither in the §16
+   baseline). The module whose entire job is observability was itself unobservable.
+   Not baselined — the audit says explicitly not to; `note_transition()` moved into
+   `vendor_balance.py`, which is also the better home.
+
+### Verification
+
+Fixture-first RED → GREEN. 25 capability tests driving the real `FallbackProvider`
+with the exact live vendor body. Regression: 550 passed / 0 failed on the LLM-chain,
+health, cost and wiring surfaces; 922 passed / 4 failed on the wider health+wiring
+sweep, of which **2 are in `docs/suite_baseline.json`** (`test_rf1783_wiring_gates_ast`,
+`test_rf3560_gap_type_overrides`, naming `brain_hook.describe_success_rate` and
+`fallback.can_dispatch_now` — not this change) and 2 were mine and are fixed.
+Whole-tree compile gate clean; `main` imports.
+
+**Deployed and live-verified twice** (§26 operator override, §11 evidence chain):
+`R-F4229 · sha 80f78b4e`, then `R-F4230 · sha aa15cc4a`. Behavioural probe on the
+shipped build:
+
+```
+llm_chain.vendor_balance.deepseek : state=fresh available=False bal=-0.02
+                                    severity=exhausted age=2.8s
+llm_chain.vendor_balance.anthropic: state=unsupported available=None severity=unknown
+```
+
+Also verified live: RULE ONE holding (`breached: false`, anthropic DD-only,
+`brave_allowed_purposes: ['dd','wa']` per the 2026-08-21 amendment,
+`brave_non_dd_grants: 0`), `non_degrading_pins: ['anthropic']`,
+`preference_only_providers: ['anthropic']`. Agent bridge: no queued messages.
+
+### 🔴 STILL BLOCKED ON THE OPERATOR — nothing in code can substitute
+
+**Top up the DeepSeek account** (balance `-$0.02`). General chat and WhatsApp stay
+down until then: `general_vendor_depth` is 1 by operator decision (R-F3943) and
+Anthropic is DD-only by RULE ONE, so nothing else can serve a general turn. **DD is
+unaffected** — the Anthropic pin is funded and non-degrading.
+
+After the top-up ARIA now releases the cooldown **herself**, within one 900s probe
+interval, on the vendor's own `is_available` — so
+`POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` is an accelerator, not a
+requirement. That is the half of this that used to need a human to remember an admin
+endpoint existed.
