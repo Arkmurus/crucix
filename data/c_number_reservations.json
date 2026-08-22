@@ -2404,6 +2404,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-212",
+      "title": "the honesty axis depended on a garbage-collectable fire-and-forget task",
+      "claimed_at": "2026-08-22T15:53:25Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

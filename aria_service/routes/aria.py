@@ -12863,7 +12863,29 @@ async def chat_ep(req: ChatRequest, request: Request):
                     except Exception as e:
                         _log.warning("honesty judge bg failed: %s: %s", type(e).__name__, e)
                 import asyncio as _aio
-                _aio.create_task(_judge_bg())
+                # R-F4232 (C-212) — PIN IT. asyncio keeps only a WEAK reference
+                # to a task, so a bare create_task under a saturated loop can be
+                # garbage-collected before it runs. That is the R-F1363
+                # (_CODER_BG_TASKS) / R-F1377 (_ASYNC_JOB_TASKS) class, already
+                # paid for twice in this file, and the loop WAS measurably
+                # saturated for months (C-95: /health.loop starved, p95 3264ms,
+                # until 2026-08-14).
+                #
+                # It matters more here than in a normal fire-and-forget: this is
+                # the ONLY writer of `honesty_rate` in production, which is 25%
+                # of the Phase A gate #1 composite — in the phase named "Honesty
+                # foundation". Live 2026-08-22: 55 judgments in the platform's
+                # ENTIRE LIFETIME.
+                #
+                # R-F2420's comment above already names this as "ROOT CAUSE of
+                # honesty never reaching scored_n>=5", but its remedy — record
+                # synchronously as well — sits inside the `_grounding_judgment is
+                # not None` branch, which needs ARIA_GROUNDING_MARKERS_ENABLED,
+                # and that flag is DEFAULT OFF. So the workaround never covered
+                # the live path; this does.
+                _hold_job_task(_aio.create_task(
+                    _judge_bg(), name=f"honesty_judge.{trace_id}",
+                ))
         except Exception as e:
             _log.warning("honesty judge dispatch failed: %s: %s", type(e).__name__, e)
 
@@ -13703,7 +13725,13 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                                 )
                             except Exception as _e:
                                 _log.debug("[R-F2364] stream record_verification failed: %s", _e)
-                        _aio2364.create_task(_r2364_verify_bg())
+                        # R-F4232 (C-212) §13 mirror — pin it; see the /chat spawn.
+                        # Writes a Phase A gate #1 signal (verification, stream) and
+                        # a bare create_task is garbage-collectable under a saturated
+                        # loop (R-F1363/R-F1377 class).
+                        _hold_job_task(_aio2364.create_task(
+                            _r2364_verify_bg(), name="_r2364_verify_bg",
+                        ))
 
                         # Honesty judgment — SAME gate as /chat (10306-10309): a
                         # tool ran AND the response carries confidence tags
@@ -13739,7 +13767,13 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                                             )
                                 except Exception as _e:
                                     _log.debug("[R-F2364] stream record_judgment failed: %s", _e)
-                            _aio2364.create_task(_r2364_judge_bg())
+                            # R-F4232 (C-212) §13 mirror — pin it; see the /chat
+                            # spawn. Writes a Phase A gate #1 signal (honesty,
+                            # stream) and a bare create_task is garbage-
+                            # collectable under a saturated loop (R-F1363/R-F1377).
+                            _hold_job_task(_aio2364.create_task(
+                                _r2364_judge_bg(), name="_r2364_judge_bg",
+                            ))
                 except Exception as _e2364:
                     _log.debug("[R-F2364] stream verification/honesty dispatch failed: %s", _e2364)
 

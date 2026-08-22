@@ -13464,3 +13464,94 @@ scorer and honesty surfaces — the one failure
 (`test_rf2375_phase_gates_measures_gate4_and_honest_gate3`) is in
 `docs/suite_baseline.json` and asserts gate #3 is unmeasurable, which R-F2622
 changed. Compile gate and wiring audit clean.
+
+## C-212 · the honesty axis depended on a garbage-collectable task (fixed, R-F4232)
+
+The other half of C-211. That fixed the GATE (it no longer certifies while the
+honesty axis is dark); this is why the axis was dark.
+
+### Measured live 2026-08-22, through the running server (§17)
+
+```
+GET /api/aria/honesty/stats
+-> total 55, by_status {ok 41, no_claims 10, judge_failed 4},
+   by_status_24h {}, scored_sample_size 0, lifetime_sample_size 41
+```
+
+**55 honesty judgments in the platform's entire lifetime.**
+
+### The defect is a named house class, on its third repeat
+
+`routes/aria.py` spawned the judge as a bare `_aio.create_task(_judge_bg())` with
+**no stored reference**. asyncio keeps only a WEAK reference to a task, so under a
+saturated loop it can be garbage-collected before it ever runs. This repo has
+already paid for that twice and documents it verbatim at `_CODER_BG_TASKS`
+(R-F1363):
+
+> "a fire-and-forget `_run_fix()` task with no stored ref was garbage-collected
+>  before it ever ran fix_gap — so operator /coder/request calls queued (returned
+>  a fix_id) but NEVER executed"
+
+and at `_ASYNC_JOB_TASKS` (R-F1377 — WhatsApp doc review "hitting timeout"). The
+loop was measurably in that state for months: C-95 recorded `/health.loop`
+`starved`, p95 **3264 ms**, until 2026-08-14.
+
+### R-F2420 diagnosed this correctly and fixed the wrong half
+
+Its own comment names the "ROOT CAUSE of honesty never reaching scored_n>=5" as
+the fire-and-forget task "which loses writes when the loop is saturated". Its
+remedy — also record synchronously — sits inside the `_grounding_judgment is not
+None` branch, reachable only when `ARIA_GROUNDING_MARKERS_ENABLED` is on. **That
+flag is default OFF** ("Kept OFF until the operator has reviewed the diff"). So
+the workaround never covered production, and every live honesty judgment kept
+going through the one path R-F2420 itself called lossy. A correct diagnosis, a
+remedy applied to a disabled branch, and the live path untouched.
+
+### Scope: the writers of gate #1's signals
+
+Three sites pinned with the existing `_hold_job_task` (R-F1377) — no new
+mechanism, because a seventh bespoke task set is how this class keeps recurring:
+
+* `_judge_bg` — honesty, `/chat`
+* `_r2364_judge_bg` — honesty, stream (§13 mirror)
+* `_r2364_verify_bg` — verification, stream (§13 mirror)
+
+`/chat` records verification synchronously already, so it needs no pin.
+
+**KNOWN DEBT, deliberately not fixed here:** an AST sweep found **twelve** bare
+`create_task` calls in `routes/aria.py`. The nine others (`_learn_correction_bg`,
+`_rlaif_bg`, `_crit_bg`, `_r655_absorb_bg`, `_r655_stream_absorb_bg`, `_bg_dd`,
+and three `_run`/`_bg` helpers) carry the same hazard but do not write a Phase A
+gate signal, and §26 asks for the smallest diff. They are recorded here so the
+sweep is not lost — and their continued presence is what
+`test_the_guard_can_still_see_a_bare_spawn` uses to prove the detector still
+works (R-F3858: a guard that cannot fail is not a guard).
+
+### Two mistakes I made fixing this, both worth recording
+
+1. **A scripted patch mis-indented the stream spawn by 4 spaces, moving it OUTSIDE
+   its `if (tool_context and has_confidence_tags ...)` guard** — so it would have
+   fired unconditionally. **`py_compile` passed**, because a dedent is valid
+   Python: the exact reason §11c says compile-green ≠ correct. Caught by reading
+   `cat -A` on the patched region, not by any gate.
+2. **The first guard was a line/substring scan and went brittle the moment the fix
+   wrapped the call across lines** — it reported the defect as unfixed when only
+   the formatting had changed; a later variant searched for the coroutine NAME and
+   matched its `async def`, sixty lines from the spawn. Both are now AST: an
+   `ast.Expr` whose value is the `create_task(...)` call IS the definition of
+   "nobody kept the reference". (§16/R-F3597 on line-anchored source assertions.)
+
+Separately: `_source_probe.code_only()` strips docstrings, so a class whose body
+is only a docstring (`_DDAdmissionBusy`) leaves an empty body and the stripped
+text **does not re-parse**. AST work must read `module_source`, not `module_code`.
+
+### Verification
+
+Fixture-first RED → GREEN (the two structural guards failed against the pre-fix
+tree naming the bare spawn). 10 tests, including a deterministic GC capability
+test — a pinned task still completes after its only local reference is dropped and
+`gc.collect()` is forced — deliberately NOT "assert a bare task gets collected",
+which is not deterministic and would be a flaky guard. Regression: 387 passed / 0
+failed on the task-ref, honesty, verification and §13 surfaces; 299 passed / 4
+failed across the chat path, all four in `docs/suite_baseline.json`. Boot-path
+import smoke clean.
