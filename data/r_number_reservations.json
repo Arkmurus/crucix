@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4268,
+  "next_available": 4271,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36579,6 +36579,33 @@
       "r_number": "R-F4267",
       "title": "C-228 OFSI direct adapter duplicates the canonical OFSI source row",
       "claimed_at": "2026-08-23T15:06:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4268",
+      "title": "C-229 UBO watchlist lead carries schema-mismatch and forename-only provenance",
+      "claimed_at": "2026-08-23T17:16:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4269",
+      "title": "C-230 adverse-media exclusion ledger accounts for every dropped item",
+      "claimed_at": "2026-08-23T17:16:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4270",
+      "title": "parent of record - the promoted adapter becomes the actual parent",
+      "claimed_at": "2026-08-23T17:29:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

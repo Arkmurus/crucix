@@ -14498,7 +14498,7 @@ existing fresh-and-current guard so R-F2460 still holds — a stale cached snaps
 leaves no primary-check claim. `test_rf2460_ofsi_stale_not_verified.py` was updated
 to assert the surviving intent rather than the removed key, and says so.
 
-## C-229 · a UBO-chain watchlist match treats a shared GIVEN NAME as identity evidence
+## C-229 · a UBO-chain watchlist match treats a shared GIVEN NAME as identity evidence (fixed, R-F4268)
 
 Same report. Two UK companies reached by the ownership walk were printed beside US
 FINRA-barred entities:
@@ -14532,7 +14532,7 @@ report the schema mismatch and the forename-only overlap as provenance on the le
 rather than dropping the lead. What it costs today is a customer-facing document
 naming innocent third parties next to barred US brokers.
 
-## C-230 · the same funnel is rendered twice, and the two accounts disagree
+## C-230 · the same funnel is rendered twice, and the two accounts disagree (fixed, R-F4269)
 
 Same report. `_adverse_media_materiality` returns one exclusion ledger. Two places
 render it.
@@ -14558,3 +14558,65 @@ should be the same dict. Either the two surfaces read different `materiality`
 objects (one live, one persisted) or the sweep ran twice. Establish which before
 fixing; a one-line ledger addition would close the confirmed half and leave the
 disagreement intact.
+
+### C-229 closeout (R-F4268)
+
+FIXED, and deliberately ADDITIVE — the earlier note above said "NOT FIXED IN THIS
+PASS" and predicted the safe shape; that is what was built. Nothing is suppressed,
+demoted or dropped, and a test pins that both live leads still classify AMBER and
+still appear.
+
+`classify_matches` now states the evidence and classifies nothing:
+
+* `entity_type_conflict` — reads the provider's `schema`, which `sanctions.py:1208`
+  has always carried and this module never read. Reported only for the
+  company-query/person-record direction; a person query hitting an eponymous
+  company is an ordinary lead. An ABSENT schema asserts nothing (a missing type is
+  not agreement), pinned by its own test.
+* `shared_tokens` / `query_tokens` / `candidate_tokens`, with the summary naming a
+  lone shared token verbatim.
+
+The live lines now read:
+
+    BRIAN BROCK REID (score 0.91, …, matched_via=primary_name
+      — the matched record is a PERSON while the query names a company)
+
+    STEPHEN A. KOHN & ASSOCIATES LTD. (score 0.83, …, matched_via=primary_name
+      — shares only 'stephen' with the query)
+
+**A guard in this fix's own fixture caught the first attempt.** Annotating on
+`len(shared) == 1` alone fired on `Rosoboronexport Corporation` →
+`ROSOBORONEXPORT OAO` — a genuine OFAC designation whose single shared token IS the
+whole identity of both sides. The condition now also requires each side to hold a
+distinctive token that did NOT match (`>=2` and `>=2`, the same shape R-F4172
+already uses), so a real designation is never annotated. A caveat on every line is
+wallpaper.
+
+No forename list was introduced. Deciding which given names are "too common" is a
+locale-biased judgement that rots; stating which token matched is a fact.
+
+### C-230 closeout (R-F4269)
+
+FIXED as RECONCILIATION, not as one more key — the earlier note asked for the
+mechanism of the second half to be established before fixing, and it now can be
+answered without needing it.
+
+Measured: rendering `_render_adverse_media` from the page-2 dict DOES produce "1 not
+naming this entity", which the delivered page 5 does not carry. So that surface was
+handed a materiality dict MISSING a key the sweep always returns — a legacy or
+divergently-merged blob. The mechanism remains UNESTABLISHED and is not guessed at.
+
+Adding `class_contradicted_dropped` alone would close the confirmed half and leave
+that one free to lose items silently again. The ledger now checks its own
+arithmetic — `raw == sum(exclusions) + items_for_review` — and STATES any residual:
+
+    … (125 duplicate, 5 self-referential, 0 non-adverse,
+       9 unaccounted for — the exclusion counts do not reconcile with the raw
+       total, so treat this funnel as incomplete)
+
+That closes the class: a future stage, or any absent key, can no longer drop items
+without the reader being told. Two guards keep it from becoming noise — the healthy
+live funnel stays silent, and surviving items held for review are accounted for by
+the review line rather than counted as lost (without that, the warning would fire on
+every run that actually found something, which is the loudest possible false alarm on
+the reports that matter most).

@@ -2574,15 +2574,49 @@ def _render_adverse_media(am, entity_type: str = "") -> list[str]:
         # INDEX pages onto the Mitie report as "subject-named" items. Report every
         # non-zero reason; a dropped item that is never accounted for reads as an
         # item that was never found.
-        _excl = [
-            f"{mat.get('duplicates_dropped', 0)} duplicate",
-            f"{mat.get('self_references_dropped', 0)} self-referential",
-        ]
-        if mat.get("index_pages_dropped"):
-            _excl.append(f"{mat['index_pages_dropped']} index/listing page")
-        if mat.get("subject_unnamed_dropped"):
-            _excl.append(f"{mat['subject_unnamed_dropped']} not naming this entity")
-        _excl.append(f"{mat.get('non_adverse_dropped', 0)} non-adverse")
+        # R-F4269 (C-230) — ONE table, and it must RECONCILE.
+        #
+        # `class_contradicted_dropped` (R-F3023) was missing from this list entirely,
+        # so that stage could never be reported here for any run. On the delivered
+        # Vigilo Solutions report (dd_9fe0e61e4a0c) it had dropped 8 of 139 items and
+        # this line read "(125 duplicate, 5 self-referential, 0 non-adverse)" — nine
+        # items gone with no reason given, on the page a reader uses to decide what
+        # the "nothing found" verdict is worth. The orchestrator's own key-finding
+        # rendering of the SAME dict reported all of them.
+        #
+        # Adding the key closes that, and would leave the other half open. Rendering
+        # the page-2 dict here also produces "1 not naming this entity", which the
+        # delivered page 5 does not carry — so that surface was handed a materiality
+        # dict MISSING a key the sweep always returns. The mechanism is NOT
+        # established and is not guessed at here (§22).
+        #
+        # So the ledger checks its own arithmetic instead: every raw item is either
+        # excluded by a named stage or held for review, and any residual is STATED.
+        # That closes the class — a future stage, or an absent key, can no longer
+        # lose items quietly. A ledger that cannot account for its items must say so.
+        _stages = (
+            ("duplicates_dropped", "duplicate"),
+            ("self_references_dropped", "self-referential"),
+            ("class_contradicted_dropped", "from a domain the query did not target"),
+            ("index_pages_dropped", "index/listing page"),
+            ("subject_unnamed_dropped", "not naming this entity"),
+            ("non_adverse_dropped", "non-adverse"),
+        )
+        # duplicate / self-referential / non-adverse are shown even at zero: they are
+        # the three the reader expects to see, and a silent zero reads as unreported.
+        _always = {"duplicates_dropped", "self_references_dropped", "non_adverse_dropped"}
+        _excl: list[str] = []
+        _accounted = 0
+        for _key, _label in _stages:
+            _n = mat.get(_key) or 0
+            _accounted += _n
+            if _n or _key in _always:
+                _excl.append(f"{_n} {_label}")
+        _residual = int(mat.get("raw_count", 0)) - _accounted - len(review_findings)
+        if _residual > 0:
+            _excl.append(
+                f"{_residual} unaccounted for — the exclusion counts do not reconcile "
+                "with the raw total, so treat this funnel as incomplete")
         out.append(
             f"  • After de-duplication and filtering: {mat.get('credible_count', 0)} credible "
             f"adverse item(s) from {mat.get('raw_count', 0)} raw hit(s) "

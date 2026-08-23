@@ -2614,14 +2614,29 @@
       "title": "UBO chain watchlist match ignores entity schema and given-name-only overlap",
       "claimed_at": "2026-08-23T15:36:39Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4268"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:33:38Z"
     },
     {
       "c_number": "C-230",
       "title": "adverse-media exclusion ledger omits the class-contradicted stage",
       "claimed_at": "2026-08-23T15:36:40Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4269"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:33:39Z"
+    },
+    {
+      "c_number": "C-231",
+      "title": "a promotion decision nothing consumes - the next cycle still trains from the rejected parent",
+      "claimed_at": "2026-08-23T17:29:41Z",
       "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
