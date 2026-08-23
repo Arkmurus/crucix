@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4262,
+  "next_available": 4263,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36522,6 +36522,15 @@
       "r_number": "R-F4261",
       "title": "promote vendor balance severity into degraded_reasons (dossier E1)",
       "claimed_at": "2026-08-23T12:30:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4262",
+      "title": "a failed knowledge seed is recorded as success then suppressed 30 days (dossier E2)",
+      "claimed_at": "2026-08-23T14:44:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

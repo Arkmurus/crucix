@@ -746,6 +746,35 @@ def _should_force_restart(
 LOOP_MONITOR_STALE_S = 60.0
 
 
+def _seed_ingested_something(result) -> bool | None:
+    """R-F4262 (dossier E2) — did a knowledge seed actually ingest anything?
+
+    True / False when the seeder REPORTS a count, and **None when it did not
+    say** — which the caller must not treat as success. That is the whole
+    defect: `ingest_all_sections()` catches every per-section exception,
+    returns `{"sections_ingested": 0}` without raising, and the caller read
+    "no exception" as success and stamped a **30-day** skip hash. A module
+    whose ingest failed completely was then skipped for the next month, and DD
+    Layer 4c went on stamping `source: "RAG:regional_compliance"` on report
+    content attributed to a store that may never have been filled.
+
+    Shape-agnostic on purpose. Thirteen seeders report `sections_ingested`;
+    `dd_case_library` reports `cases_ingested`. Keying on one literal name
+    would silently exempt the other, so any ``*_ingested`` integer counts and a
+    future third shape is covered without another edit.
+
+    Pure and module-level so the decision is testable without a boot.
+    """
+    if not isinstance(result, dict):
+        return None
+    counts = [v for k, v in result.items()
+              if isinstance(k, str) and k.endswith("_ingested")
+              and isinstance(v, bool) is False and isinstance(v, int)]
+    if not counts:
+        return None          # it did not say — NOT evidence that it worked
+    return sum(counts) > 0
+
+
 def _vendor_balance_degraded_reasons(vendor_balance) -> list[str]:
     """R-F4261 — turn the vendor-credit gauge into health VERDICT input.
 
@@ -4525,7 +4554,26 @@ async def lifespan(app: FastAPI):
                 # Stamp the hash on success so subsequent boots skip
                 # this module until the file changes (e.g. via a deploy
                 # that updates the law/procurement/etc. text content).
-                cur_hash = await _module_hash(modname)
+                #
+                # R-F4262 (dossier E2) — "no exception" is NOT success. Every
+                # seeder swallows its per-section failures and returns a count,
+                # so a total failure returned {"sections_ingested": 0} and this
+                # stamped a 30-DAY skip on it. The next month of boots then
+                # skipped the module entirely while DD Layer 4c kept attributing
+                # report content to its RAG namespace.
+                #
+                # `None` means the seeder did not report a count — that is "I
+                # could not tell", and it must not stamp either. The cost of
+                # being wrong is one re-seed per boot; the cost of the old
+                # behaviour was a month of silently missing knowledge.
+                _ingested = _seed_ingested_something(result)
+                if _ingested is not True:
+                    logger.warning(
+                        "[Knowledge Seed] %s: NOT stamping the 30-day skip hash "
+                        "(ingested=%s, result=%s) — it will be retried next boot",
+                        label, _ingested, str(result)[:200],
+                    )
+                cur_hash = await _module_hash(modname) if _ingested is True else ""
                 if cur_hash:
                     try:
                         await _rs.set(

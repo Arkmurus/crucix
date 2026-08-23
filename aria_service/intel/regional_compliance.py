@@ -1138,15 +1138,32 @@ async def ingest_all_sections() -> dict:
         "Regional compliance ingestion: %d/%d sections, %d total chunks",
         success, len(ALL_SECTIONS), total_chunks,
     )
-    # R-F994 — wire success to brain
+    # R-F994 — wire success to brain.
+    # R-F4262 (dossier E2) — GATED. This fired unconditionally, so an ingest
+    # that failed every single section still told the brain it had succeeded:
+    # `wire_success(summary="0/N sections ingested")`. `wire_failure` was
+    # imported on the next line and never called. A success wire that cannot
+    # fail is the same shape as the Phase A gates §1 records as "certified by
+    # an absence" — and here it certified a store that was never filled.
     from .engine_wiring import wire_success, wire_failure
-    wire_success(
-        module="regional_compliance",
-        summary=f"Regional compliance: {success}/{len(ALL_SECTIONS)} sections ingested ({total_chunks} chunks)",
-        detail=f"Sections: {success}/{len(ALL_SECTIONS)}. Chunks: {total_chunks}.",
-        confidence="ASSESSED",
-        source_id="regional_compliance:R-F994",
-    )
+    if success > 0:
+        wire_success(
+            module="regional_compliance",
+            summary=f"Regional compliance: {success}/{len(ALL_SECTIONS)} sections ingested ({total_chunks} chunks)",
+            detail=f"Sections: {success}/{len(ALL_SECTIONS)}. Chunks: {total_chunks}.",
+            confidence="ASSESSED",
+            source_id="regional_compliance:R-F994",
+        )
+    else:
+        wire_failure(
+            module="regional_compliance",
+            detail=(f"Regional compliance ingest produced NOTHING: "
+                    f"0/{len(ALL_SECTIONS)} sections, {total_chunks} chunks. "
+                    f"Per-section errors: "
+                    f"{[k for k, v in results.items() if v.get('status') == 'ERROR'][:6]}"),
+            gap_type="knowledge_gap",
+            source="regional_compliance.ingest_all_sections",
+        )
     return {
         "sections_ingested": success,
         "total_sections": len(ALL_SECTIONS),
