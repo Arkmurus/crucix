@@ -222,8 +222,16 @@ def main() -> int:
             break
     public_key = pathlib.Path.home().joinpath(".ssh", "runpod_aria.pub").read_text().strip()
     try:
-        decision = pod_of_record.decide(
-            pod_of_record.read_record(), pod_of_record.read_inventory(key))
+        # Capacity-aware: a pod on a host with no free GPU resumes WITHOUT one
+        # (measured 2026-08-23), so choosing it would buy a doomed run. This
+        # reads `machine.gpuAvailable` for the whole fleet in one free query and
+        # moves to another pod WE ALREADY OWN rather than creating a new one.
+        pods = pod_of_record.read_inventory(key)
+        capacity = (
+            pod_of_record.read_host_capacity([str(p.get("id")) for p in pods], key)
+            if pods is not None else {})
+        decision = pod_of_record.decide_with_capacity(
+            pod_of_record.read_record(), pods, capacity)
         if decision.action == pod_of_record.BLOCKED:
             # Never create on an unmeasurable fleet — that is how the 71st pod
             # appears while the 70th is idle and healthy.

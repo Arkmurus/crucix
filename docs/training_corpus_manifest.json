@@ -1,12 +1,12 @@
 {
- "recorded_at_commit": "2e211525",
+ "recorded_at_commit": "c7d71db7",
  "note": "The corpus itself is untracked by design (size). This manifest is the PIN: a training run records these sha256s so a checkpoint can be attributed to exact inputs.",
  "golden_set_prompts": 500,
  "golden_set_source": "aria-intel live store (500 entries @ /data/aria_state.db:state.value; frozen pin a07b6af760ad7f441621ab6f95541f102626ad309cd2b83d6168a13c8d81a515 count=500)",
  "contamination": "none",
  "totals": {
-  "files": 105,
-  "rows": 23309,
+  "files": 106,
+  "rows": 23373,
   "unparseable_rows": 0
  },
  "files": [
@@ -534,6 +534,13 @@
    "rows": 277,
    "unparseable_rows": 0,
    "bytes": 1373847
+  },
+  {
+   "file": "aria_tooluse_resolution_length_control_v1.jsonl",
+   "sha256": "1fa66bb61a5712306c73ce32cd291e85",
+   "rows": 64,
+   "unparseable_rows": 0,
+   "bytes": 248817
   },
   {
    "file": "aria_tooluse_resolution_novel_v1.jsonl",
