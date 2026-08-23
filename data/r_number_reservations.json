@@ -36404,9 +36404,10 @@
       "title": "sweep the alpha band where three axes have converged but resolution has not yet flipped",
       "claimed_at": "2026-08-23T09:54:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6a613450",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:06:33Z"
     },
     {
       "r_number": "R-F4250",
@@ -36472,9 +36473,10 @@
       "title": "Git Bash rewrote the remote path before the harvester saw it",
       "claimed_at": "2026-08-23T11:03:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6a613450",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:06:33Z"
     }
   ]
 }
