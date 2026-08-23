@@ -1,0 +1,142 @@
+{
+  "standard_version": "1.0.0",
+  "axes": {
+    "tooluse_adverse": {
+      "axis": "tooluse_adverse",
+      "mechanism": "llm",
+      "fundamentals": {
+        "IS-15": "llm"
+      },
+      "why": "covers IS-15, which production has no deterministic reader for"
+    },
+    "tooluse_challenge": {
+      "axis": "tooluse_challenge",
+      "mechanism": "llm",
+      "fundamentals": {
+        "IS-13": "deterministic"
+      },
+      "why": "behaviour axis \u2014 it measures the model's own conduct (refusing to rubber-stamp, contradicting a premise from evidence), which no deterministic reader can supply"
+    },
+    "tooluse_challenge_unavailable": {
+      "axis": "tooluse_challenge_unavailable",
+      "mechanism": "llm",
+      "fundamentals": {
+        "IS-13": "deterministic"
+      },
+      "why": "behaviour axis \u2014 it measures the model's own conduct (refusing to rubber-stamp, contradicting a premise from evidence), which no deterministic reader can supply"
+    },
+    "tooluse_charges": {
+      "axis": "tooluse_charges",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "FS-12": "deterministic"
+      },
+      "why": "every fundamental it covers (FS-12) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_contradiction": {
+      "axis": "tooluse_contradiction",
+      "mechanism": "llm",
+      "fundamentals": {
+        "IS-13": "deterministic",
+        "IS-15": "llm"
+      },
+      "why": "behaviour axis \u2014 it measures the model's own conduct (refusing to rubber-stamp, contradicting a premise from evidence), which no deterministic reader can supply"
+    },
+    "tooluse_insolvency": {
+      "axis": "tooluse_insolvency",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "FS-11": "deterministic"
+      },
+      "why": "every fundamental it covers (FS-11) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_multihop": {
+      "axis": "tooluse_multihop",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "EI-1": "deterministic",
+        "OC-6": "deterministic",
+        "IS-13b": "deterministic"
+      },
+      "why": "every fundamental it covers (EI-1, IS-13b, OC-6) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_news_impact": {
+      "axis": "tooluse_news_impact",
+      "mechanism": "llm",
+      "fundamentals": {
+        "IS-15": "llm"
+      },
+      "why": "covers IS-15, which production has no deterministic reader for"
+    },
+    "tooluse_ownership": {
+      "axis": "tooluse_ownership",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "OC-5": "deterministic"
+      },
+      "why": "every fundamental it covers (OC-5) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_person": {
+      "axis": "tooluse_person",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "IS-13b": "deterministic"
+      },
+      "why": "every fundamental it covers (IS-13b) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_resolution": {
+      "axis": "tooluse_resolution",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "EI-1": "deterministic",
+        "EI-2": "deterministic"
+      },
+      "why": "every fundamental it covers (EI-1, EI-2) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_trace": {
+      "axis": "tooluse_trace",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "IS-13": "deterministic"
+      },
+      "why": "every fundamental it covers (IS-13) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    },
+    "tooluse_trace_unavailable": {
+      "axis": "tooluse_trace_unavailable",
+      "mechanism": "deterministic",
+      "fundamentals": {
+        "IS-13": "deterministic"
+      },
+      "why": "every fundamental it covers (IS-13) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+    }
+  },
+  "may_block": [
+    "tooluse_adverse",
+    "tooluse_challenge",
+    "tooluse_challenge_unavailable",
+    "tooluse_contradiction",
+    "tooluse_news_impact"
+  ],
+  "advisory": [
+    "tooluse_charges",
+    "tooluse_insolvency",
+    "tooluse_multihop",
+    "tooluse_ownership",
+    "tooluse_person",
+    "tooluse_resolution",
+    "tooluse_trace",
+    "tooluse_trace_unavailable"
+  ],
+  "llm_fundamentals": [
+    "EI-3",
+    "EI-4",
+    "FS-9",
+    "IS-14",
+    "IS-15",
+    "IS-16",
+    "LR-19",
+    "LR-20",
+    "OC-7",
+    "OC-8"
+  ]
+}

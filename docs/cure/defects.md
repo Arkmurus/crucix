@@ -14885,3 +14885,70 @@ cannot be wired to only half of the gate.
 
 **Not yet done:** the promoted parent has no score on the 201-row eval. The 33 new
 rows need real inference, so establishing the new incumbent is a GPU run.
+
+## C-234 · the eval blocks promotion on work production does in code (fixed, R-F4275)
+
+R-F4257 found this for ONE axis, the expensive way. Thirteen candidates and arms
+were funded trying to move `tooluse_resolution` before anyone asked whether the
+shipped product uses the capability it measures. It does not: identity is resolved
+deterministically and the model's answer is REPLACED when identity is gated. The
+operator made the axis advisory.
+
+**That judgement is now mechanical, and it applies to eight axes, not one.**
+
+`dd_standard.QUESTIONS` gives every fundamental a `reader` — the deterministic
+function that answers it in production. **Fourteen of the twenty-four have one.**
+Where a reader exists, code answers the question and whatever the model would have
+said is not what the customer receives, so an axis over it measures a capability
+the product does not use. Worth keeping as defence in depth; not worth blocking a
+promotion over, and not worth a GPU cycle.
+
+```
+MAY BLOCK  (5): adverse, news_impact, contradiction, challenge, challenge_unavailable
+ADVISORY   (8): resolution, trace, trace_unavailable, person, multihop,
+                insolvency, charges, ownership
+```
+
+**The rule validates itself.** Applied to `tooluse_resolution` it returns
+DETERMINISTIC — independently reproducing the verdict R-F4259 reached by hand after
+thirteen funded attempts, having been told none of that reasoning. `test_rf4275`
+pins the agreement; if it ever breaks, the rule is wrong, not R-F4259.
+
+**It demotes this same session's own work, and that is recorded rather than
+quietly dropped.** R-F4272 built `tooluse_insolvency`, `tooluse_charges` and
+`tooluse_ownership` this morning. FS-11, FS-12 and OC-5 each have a deterministic
+reader, so production never asks the model to read those registers. The axes
+measure something real and stay as defence in depth — but they must not block a
+promotion, and they were not worth funding a cycle against. Building them was the
+R-F4257 mistake repeated; catching it before the GPU spend is the point of the rule.
+
+**Behaviour axes are always LLM-mechanism.** `tooluse_challenge` sits over IS-13,
+which has a reader, but what it measures is the model refusing to rubber-stamp a
+confident premise. No deterministic reader can supply conduct, and classifying it
+by its underlying question would demote the honesty behaviours that are the whole
+point of the corpus.
+
+### The two numbers that decide where the budget goes
+
+**1. On the axes that may block, the parent scores 93/94 — one row of headroom.**
+The thirteen-candidate history was a fight over defence-in-depth while the work the
+product actually uses the model for was already at ceiling. No further cycle
+against this corpus can buy anything.
+
+**2. Of the ten fundamentals where the LLM is the mechanism — EI-3, EI-4, OC-7,
+OC-8, FS-9, IS-14, IS-15, IS-16, LR-19, LR-20 — exactly ONE (IS-15) has any eval
+row at all.** The model's real job is ~90% unmeasured, and the measured tenth is
+saturated. These are judgement questions over unstructured evidence: politically
+exposed persons, convictions and regulatory penalties, source of wealth, whether
+the relationship is economically rational, group structure. That is precisely the
+"value density" the USP north star names as the gap.
+
+**This does NOT drop an axis, hide a regression or lower a threshold** — the
+§1 failure. R-F4259 already built the honest mechanism: advisory means MEASURED
+AND REPORTED, in its own column, just not blocking. This decides which axes belong
+in that column and refuses to do anything else. `UNKNOWN` is treated as a
+violation: "I could not establish that this measures work the product uses" must
+never authorise spend.
+
+Report: `docs/axis_alignment.json`. Re-run:
+`python -m scripts.train.axis_alignment`.

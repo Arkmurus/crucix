@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4275,
+  "next_available": 4276,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36652,6 +36652,16 @@
       "r_number": "R-F4274",
       "title": "the 360 eval harness - registry axes wired, split and scored",
       "claimed_at": "2026-08-23T18:09:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70221929",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:43:04Z"
+    },
+    {
+      "r_number": "R-F4275",
+      "title": "axis alignment - an axis may only block promotion where the LLM is the mechanism",
+      "claimed_at": "2026-08-23T21:20:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
