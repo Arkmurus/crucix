@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4256,
+  "next_available": 4257,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36462,6 +36462,15 @@
       "r_number": "R-F4255",
       "title": "vetting encryption could be silently off; plaintext PII reported only at erasure time",
       "claimed_at": "2026-08-23T10:59:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4256",
+      "title": "Git Bash rewrote the remote path before the harvester saw it",
+      "claimed_at": "2026-08-23T11:03:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

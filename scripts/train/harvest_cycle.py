@@ -78,6 +78,29 @@ REMOTE_ADAPTER = "/workspace/eval/aria_tooluse_dpo_adapter.tgz"
 REMOTE_DIAGNOSTICS = "/workspace/eval/aria_tooluse_curve_diagnostics.tgz"
 
 
+def repair_remote_path(remote: str) -> str:
+    """Undo Git Bash's POSIX-to-Windows rewriting of a REMOTE path (R-F4256).
+
+    MSYS rewrites any argument that looks like a POSIX path before the process
+    sees it, so `--report /workspace/eval/x.json=...` arrived as
+    `C:/Program Files/Git/workspace/eval/x.json=...`. The harvest then failed
+    on a path that exists on no machine — and it failed AFTER resuming the pod,
+    so the mistake cost a start.
+
+    The remote layout is known and always rooted at /workspace, so a mangled
+    path is repairable rather than merely detectable. Anything before
+    `/workspace/` is a local prefix that cannot belong to a remote path.
+    Callers can also set MSYS_NO_PATHCONV=1, but a tool that only works when
+    the caller remembers an environment variable is a tool that will break
+    again. AGENTS.md anti-hallucination law 14: Windows is not Linux.
+    """
+    marker = "/workspace/"
+    index = remote.find(marker)
+    if index > 0:
+        return remote[index:]
+    return remote
+
+
 def read_state(path: pathlib.Path) -> dict[str, str]:
     """The durable handoff the driver wrote before starting the cycle."""
     if not path.is_file():
@@ -251,7 +274,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--leave-running", action="store_true",
                         help="do NOT stop the pod (use only when more work follows)")
     args = parser.parse_args(argv)
-    reports = [(remote, pathlib.Path(local)) for remote, _, local in
+    reports = [(repair_remote_path(remote), pathlib.Path(local))
+               for remote, _, local in
                (item.partition("=") for item in args.report) if local]
     if args.report_out is not None:
         reports.append((REMOTE_REPORT, args.report_out))
