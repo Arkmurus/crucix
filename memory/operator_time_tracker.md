@@ -4238,3 +4238,61 @@ The peer's in-flight training files (`test_rf4274_360_harness.py`,
 **Not claimed fixed:** the boot-window contention that produces the burst still
 happens. It is transient, the store is provably fast, and chasing it is the open §28
 IO investigation.
+
+### Session close — audit, and one obligation left OPEN on purpose
+
+**Register audit, read from `origin/main` rather than the local tree** (the
+[[worktree-and-number-ledgers]] failure mode is that conflict recovery silently
+discards ship-marks, leaving deployed work reading as unfinished):
+
+```
+R-F4264..R-F4269  shipped @ c58871a7      C-225..C-230  closed
+R-F4273           shipped @ da7c350d      C-233         closed
+```
+
+All seven R-numbers carry a sha, all seven C-numbers are closed, all seven register
+headings are present in the canonical `## C-NNN · ` form, and `reserve_c_number.py
+audit` reports no collisions. Both shas verified with `git merge-base --is-ancestor`
+as genuinely on `origin/main` — restoring a fact, not asserting one.
+
+**Live:** `build_rev = R-F4273 · sha da7c350d`; zero undeployed runtime changes;
+`degraded_reasons = ['llm_vendor_credit_low_deepseek']` alone (operator: not to be
+actioned this session).
+
+#### ⚠️ §16 SUITE BASELINE REFRESH IS DUE AND WAS NOT RUN
+
+§16's refresh rule is "after every 100 R-numbers shipped, **or any session landing
+≥5 commits to `aria_service/`**". This session landed **exactly 5**
+(`d808dfae`, `417f42a2`, `55912410`, `0aad6ca3`, `2d3404bb`), so the trigger fired.
+`docs/suite_baseline.json` remains at **113 failed / 15,794 passed @ `bf680ed1`
+(2026-08-17)** and is now stale by this session's work.
+
+**It was not run, deliberately, because it could not have produced a VALID result.**
+A peer agent is running training in the shared checkout (operator, this session:
+*"other claude agent is working on training therefore isolate the head and tree
+before committing"*). §16 is explicit that a peer's writes mid-run set `VALID=NO`,
+and that `VALID=NO` means DISCARD, not publish — an invalid baseline is worse than a
+stale one, and a baseline recorded over someone else's live edits is the exact trap
+§16 records twice. Measured evidence from this same session: a 363-file subset run
+reached only 22 % in ~50 minutes under that contention, against ~20 s per chunk once
+the box was quiet.
+
+**What the regression evidence DOES cover, so the gap is bounded rather than
+unknown:** 178 test files ran across 14 chunks after the DD fixes and every consumer
+of the changed surfaces after the store fix. Nine failures, **each reproduced
+identically on a pristine `origin/main` worktree** (`rf2254`×3, `rf2817`×5,
+`rf728`×1) plus five more in the state_store suites likewise reproduced pristine
+(`redis_set_size_warning`×2, `rf1388`×2, `rf2091`×1). Zero new failures attributable
+to this session. What is missing is the *whole-suite* number, not the attribution.
+
+**Prerequisites for whoever runs it** — all three are recorded traps, not advice:
+1. A `git worktree` at the target sha, so the peer cannot move the tree under it.
+2. **`cmd //c "mklink /J .venv C:\Code\Aria\.venv"` in that worktree FIRST.** A
+   worktree has no `.venv`, and tests that shell out to `.venv/Scripts/python.exe`
+   fabricate ~30 "new" failures that read as a code regression (the R-F3791
+   environment-delta trap).
+3. Start it only after every tracked-file write is finished — `suite_baseline.py`
+   hashes the tree before and after and reports `VALID=NO` if it moved, including
+   moves you make yourself.
+
+Command: `python scripts/admin/suite_baseline.py --single-process --record`.
