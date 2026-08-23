@@ -36464,9 +36464,10 @@
       "title": "vetting encryption could be silently off; plaintext PII reported only at erasure time",
       "claimed_at": "2026-08-23T10:59:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "69496cb6",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:09:08Z"
     },
     {
       "r_number": "R-F4256",

@@ -2533,9 +2533,12 @@
       "title": "a compliance control that can be switched off without saying so",
       "claimed_at": "2026-08-23T10:59:34Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4255"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T11:09:08Z"
     }
   ]
 }
