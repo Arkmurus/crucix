@@ -4010,3 +4010,80 @@ required 168h — accruing for the first time.
    `avg_honesty_score` (C-220) — decide on data, not on principle.
 2. **Gate #7 is operator-only**: 1 of 4 qualified partners.
 3. **Balances**: DeepSeek 7.78 and falling; RunPod is the peer's lane.
+
+## Session 2026-08-23 (part 6) — R-F4259 · first promotion, and a verification sweep
+
+Operator: *"nothing is to be left undone, deep root surgery and with precision,
+ensure all is wired and enabled"*, having chosen **take the trade** and
+**sanctions × emerging regions**.
+
+### R-F4259 — the first promotion in 13 attempts
+
+`failure_correction_v1` → **162/168, adverse +2**, promoted with
+`tooluse_resolution` reclassified **ADVISORY** on the operator's decision.
+
+Implemented as an advisory AXIS, not an exemption, because "stop blocking"
+quietly becoming "stop measuring" is the §1 failure. Advisory regressions are
+still computed and printed in their **own column**; a blocking regression still
+blocks; the resolution MINIMUM cannot re-block through the back door; and
+without the declaration nothing changes — re-running the historical v1 sweep
+returns its recorded verdict unchanged. The declaration is refused without a
+written rationale, and the recorded one names who decided, when, and the
+**reversal condition**. Thresholds untouched; only the classification moved.
+It does NOT deploy — ARIA-LLM is not wired into the live chain (§16).
+
+### Item 1 (sanctions × emerging regions) — first answer: NOT a source gap
+
+`sanctions_canonical.lookup._expected_sources()` → **`['ofac_sdn',
+'eu_consolidated']`**, both **global**, not jurisdiction-scoped. And 3 of the 5
+sanctions breach cells sit on jurisdictions ARIA already has registry adapters
+for (BR, IN, BG+RO). **Nobody should go buy LatAm/Africa sanctions data.** The
+gap is learning efficacy or measurement. Next question, cheap: does the student
+loop select these cells, and does a study pass move the score?
+
+### Item 2 (free search tier) — RESOLVED, not a defect
+
+Probed from INSIDE the datacenter (a laptop probe is invalid — §27 blocks are
+IP-driven): wikipedia and wikidata **403 on a generic UA, 200 on the descriptive
+one** — R-F3863's `useragent_suffix` is deployed and working. Querying the
+deployed SearXNG: `results 10 (bing), infoboxes 1, unresponsive: [yep]`.
+**wikipedia/wikidata are ABSENT from `unresponsive_engines`** — they answer as
+an infobox, which `_infoboxes_to_results` (R-F3864) maps correctly. The
+`ratio 0.0 / 167 errors` counters are cumulative and decaying (§27d); a counter
+is not a current reading. Only `yep` is genuinely blocked, and §27 says no code
+fixes that.
+
+### Verification sweep — wired and enabled
+
+* **Nothing I shipped today is dark.** Verified precisely: across all 13 of my
+  R-numbers, **zero** files under `aria_service/` outside `tests/`. My work is
+  training tooling, tests and records; the runtime diff in the same range is the
+  peer's.
+* **Enabled flags, live in-process:** `ARIA_AUTONOMOUS_ENABLED=1`,
+  `ARIA_AUTONOMY_LEVEL=3`, `ARIA_CODER_ENABLED=1`,
+  `ARIA_OUTPUT_HARVEST_ENABLED=1`, `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`,
+  `ARIA_NON_DEGRADING_PINS=anthropic`.
+* **Gate #1** reads `pass: None`, `measurable: False`,
+  `unmeasured_signals: ['honesty_rate','verification']`, `recent_24h: 1` against
+  a threshold of 5. Behaving exactly as R-F4231 designed; verification self-
+  reverts as the peer's seed records age out. **Nothing to do.**
+* **Wiring audit:** 1700 of 2856 public functions wired. Retrofitting the rest
+  is not a session task and blanket-wiring pure functions adds noise, not
+  observability — §21a binds what SHIPS, and nothing shipped dark.
+
+### The USP lens, recorded because it is uncomfortable
+
+`golden_intel_north_star`: *"The gap is not the guard. The gap is value
+density."* Between the two agents we shipped ~33 R-numbers today and almost all
+were guards and instruments. Every one was a real defect. **But only the
+sanctions-coverage question is value-density work**, and both search and
+sanctions turned out to be healthier than believed — which means the remaining
+lever really is density, not repair.
+
+### Still open — operator only
+
+1. 🔴 **DeepSeek $7.78, `severity: low`** (~12 days at the measured run rate).
+   At zero, chat and WhatsApp go dark — 19h on 2026-08-22 at a $0.02 overdraft.
+   R-F4229 auto-releases the cooldown on top-up, so recovery is automatic.
+2. **Gate #7 — 1 of 4 design partners.** Phase A cannot exit on code alone.
+   This is the true critical path.
