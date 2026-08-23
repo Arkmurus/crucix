@@ -36484,9 +36484,10 @@
       "title": "the resolution eval axis measures a configuration that never ships",
       "claimed_at": "2026-08-23T11:17:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "59059895",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:20:08Z"
     },
     {
       "r_number": "R-F4258",
