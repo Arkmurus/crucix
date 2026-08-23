@@ -14859,3 +14859,53 @@ and `blocked` separate.
 timeouts still happens. It is transient, the store is provably fast, and chasing it
 is the open §28 IO investigation — a different and much larger piece of work. What is
 fixed is that a burst which has ended no longer reads as an outage in progress.
+
+**THE TRADE-OFF THIS MAKES — recorded because it is a real narrowing, not a free
+win.** Requiring recency buys the fix at the cost of exactly one case: a **slow
+persistent trickle** — at least `_READ_TIMEOUT_DEGRADE_AT` timeouts inside the 900 s
+window, but spaced further apart than `_READ_TIMEOUT_ACTIVE_S` — now reads green
+where the volume-only rule read amber. Measured against the shipped function rather
+than reasoned about, by seeding `_read_timeouts` at known ages and reading the real
+report:
+
+    live burst happening now (6 @ 0-60s)          count=6  last_age=  5  active=True   degraded=True
+    the C-233 case: recovered burst (6 @ ~600s)   count=6  last_age=600  active=False  degraded=False
+    blip: 2 recent only                           count=2  last_age=  3  active=True   degraded=False
+    slow trickle, 6 spaced 150s, last 150s ago    count=6  last_age=150  active=False  degraded=False   <-- the narrowing
+    slow trickle, 6 spaced 150s, last  30s ago    count=6  last_age= 30  active=True   degraded=True
+    boundary: last exactly 120s ago               count=6  last_age=120  active=True   degraded=True
+    boundary: last 121s ago                       count=6  last_age=121  active=False  degraded=False
+
+The boundary is inclusive at exactly `120`, as the constant reads. Note the practical
+consequence of the trickle row: such a burst does not read green *steadily*, it
+**oscillates** between amber and green depending on where the sampling instant falls
+relative to the last timeout — which is harder to interpret than either verdict alone.
+
+**Why this is accepted rather than patched:**
+
+* **A hard outage is not affected, and that is the load-bearing part.**
+  `state_backend.reachable` is point-in-time and drives `status: red` on its own path
+  in `main.py`, independently of this report — the timeout report only ever *upgrades*
+  green to amber. A store that has actually stopped answering is therefore caught by a
+  mechanism recency cannot mask. This report is forensic memory layered on top of
+  liveness (R-F4107 / C-140), never a substitute for it.
+* **Nothing is hidden.** `count`, `distinct_keys`, `keys_sample`, `last_age_s`,
+  `active` and `during_boot_only` all remain on `/health` for the full 900 s. The
+  trickle is still fully visible to a reader or a monitor; what it no longer does is
+  hold the whole service at `degraded`.
+* **The obvious patch is the defect.** Widening `_READ_TIMEOUT_ACTIVE_S` until the
+  trickle is covered re-admits C-233 exactly — at 700 s it would once again have
+  pinned the recovered boot burst that caused this entry. **Do not close this gap by
+  raising that constant.**
+
+**If the trickle case ever needs covering, it is a THIRD AXIS, not a longer window.**
+`active` answers "is it arriving now"; the missing question is "has it been arriving
+*across* the window" — e.g. timeouts present in both the first and last third of the
+900 s. That is the two-axes discipline R-F3873 used to keep `quarantined` and
+`blocked` separate, applied once more; collapsing it into the recency knob is what
+makes a verdict unreadable.
+
+**What would justify doing that work:** a trickle actually observed in production —
+`count >= 5` with `active: false` persisting across several `/health` samples while
+`reachable` stays true. Until that is seen, this is a theoretical gap and the §1 rule
+against tuning-by-anticipation applies. It has not been observed as of 2026-08-23.
