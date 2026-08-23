@@ -273,3 +273,33 @@ def test_negation_is_read_correctly(text: str, phrase: str, claimed: bool) -> No
     flagged as the very error it prevents.
     """
     assert brd._asserts(text, phrase) is claimed
+
+def test_the_company_number_is_DERIVED_not_asserted(traces: list[dict]) -> None:
+    """THE DEFECT THE GENERIC GATE CAUGHT — all 93 rows, on the first build.
+
+    The first version went straight to the register with
+    `company_number="00502851"` in the opening tool call. That number appears
+    nowhere in the conversation, so the model would have had to invent it or
+    recall it from memory, which rule 1 of the system prompt forbids. Every row
+    is now two-hop: search the NAME, read the number out of the real search
+    result, then call the register with it.
+    """
+    for trace in traces:
+        tools = [m for m in trace["messages"] if m["role"] == "tool"]
+        assert len(tools) == 2, f"{trace['subject']} is not two-hop"
+        assert tools[0]["name"] == "companies_house_search"
+        assert tools[1]["name"] in brd.REGISTRY_TOOL_NAMES
+        number = trace["company_number"]
+        # the number must be readable from the FIRST tool's real payload
+        assert number in tools[0]["content"], trace["subject"]
+        # and it is what the second call is keyed on
+        calls = [m for m in trace["messages"] if m.get("tool_calls")]
+        assert json.loads(calls[1]["tool_calls"][0]["function"]["arguments"]
+                          )["company_number"] == number
+
+
+def test_the_full_generic_gate_accepts_every_row(traces: list[dict]) -> None:
+    """Not just the registry rules — the anti-fabrication rules too."""
+    from scripts.train.build_tooluse_corpus import validate_trace
+    for trace in traces:
+        assert validate_trace(trace) == [], (trace["subject"], validate_trace(trace)[:2])

@@ -141,6 +141,15 @@ TOOL_SPECS += [
 
 TOOL_NAMES = {s["function"]["name"] for s in TOOL_SPECS}
 
+REGISTRY_TOOL_NAMES = frozenset({
+    "companies_house_insolvency", "companies_house_charges", "companies_house_psc",
+})
+INSOLVENCY = "tooluse_insolvency"
+CHARGES = "tooluse_charges"
+OWNERSHIP = "tooluse_ownership"
+REGISTRY_AXES = frozenset({INSOLVENCY, CHARGES, OWNERSHIP})
+_NOT_ESTABLISHED = "could NOT be established"
+
 # An argument shorter than this cannot be treated as "derived": a 1-2 character
 # string substring-matches almost any payload, which would make the derivation
 # guard pass on anything (the blind-guard failure mode).
@@ -334,6 +343,9 @@ def _payload_with_citation_sources(payload: Any, tool_name: str) -> dict:
         citeable = _independent_sources(out)
     elif tool_name == "screen":
         citeable = _sources_in(out)
+    elif tool_name in REGISTRY_TOOL_NAMES:
+        number = str(out.get("company_number") or "").strip()
+        citeable = {f"companies_house:{number}"} if number else set()
     elif tool_name in {"companies_house_search", "companies_house_officers"}:
         numbers = {str(out.get("company_number") or "").strip()}
         numbers |= {
@@ -530,6 +542,12 @@ def _arg_is_derived(value: str, prior_blobs: list[str], user_text: str) -> bool:
 def validate_trace(trace: Any) -> list[str]:
     """Return a list of reasons this trace must NOT be trained on. Empty == good.
 
+    R-F4274 — a registry axis is graded by the generic rules AND its own. Both,
+    not either: the generic half is what caught the registry builder passing a
+    company number the conversation never derived, and the specific half is what
+    stops an unanswered register reading as good news. One entry point, so
+    `eval_tooluse` needs no dispatch and cannot be wired to only half of it.
+
     This is the point of the whole file. A corpus builder that cannot prove its
     targets are grounded is just a fabrication generator with extra steps.
     """
@@ -559,7 +577,7 @@ def validate_trace(trace: Any) -> list[str]:
         if isinstance(m, dict) and m.get("role") == "tool":
             if m.get("tool_call_id") not in call_ids:
                 errs.append(f"tool result {m.get('tool_call_id')!r} answers no tool_call")
-            if m.get("name") not in TOOL_NAMES:
+            if m.get("name") not in TOOL_NAMES | REGISTRY_TOOL_NAMES:
                 errs.append(f"tool turn names an unknown tool: {m.get('name')!r}")
     # R-F3392 — the chat template requires EXACTLY 9 alphanumerics. This
     # constraint lives in the CONSUMER, which is why an internally-consistent
@@ -966,6 +984,14 @@ def validate_trace(trace: Any) -> list[str]:
                         f"agreed with the user's {premise!r} premise, which its own "
                         f"screen contradicts — capitulation"
                     )
+
+    # R-F4274 — the registry axes add their own rules ON TOP of the generic ones.
+    # Appended rather than substituted: the generic half is what caught the
+    # registry builder handing the register a company number the conversation
+    # never derived, which is the anti-fabrication rule this whole gate exists for.
+    if isinstance(trace, dict) and trace.get("label") in REGISTRY_AXES:
+        errs.extend(validate_registry_trace(trace))
+
     return errs
 
 
@@ -2285,3 +2311,122 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ── R-F4274 · the registry-depth axes, validated HERE and not in their builder ──
+#
+# The validator lives beside the other validators for one blunt reason: the pod
+# receives `build_tooluse_corpus.py` from TEN different drivers and nothing else
+# from `scripts/train`. Putting it in its own module made `eval_tooluse` import a
+# file no driver ships, which kills the baseline eval AFTER the GPU and the model
+# load are paid for — the exact R-F3416 incident, and `test_rf3416` caught it by
+# deriving the pod file set from the drivers themselves. Editing ten upload lists
+# would have left the eleventh driver broken; this leaves nothing to remember.
+#
+# The registry tools are deliberately NOT added to TOOL_SPECS: SYSTEM_PROMPT is
+# derived from TOOL_NAMES, so doing that would rewrite the prompt of all 168
+# existing eval rows and silently change the benchmark.
+
+# ── the gate ───────────────────────────────────────────────────────────────
+
+def validate_registry_trace(trace: dict) -> list[str]:
+    """Refuse a row that teaches the thing these axes exist to prevent.
+
+    Every rule here is a failure that costs money in the shipped product, not a
+    style check. A row that breaks one is dropped, never repaired in place.
+    """
+    errors: list[str] = []
+    label = trace.get("label")
+    if label not in REGISTRY_AXES:
+        return [f"unknown registry axis {label!r}"]
+    messages = trace.get("messages") or []
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    if not tool_messages:
+        return ["no tool result — the answer would not be evidence-backed"]
+    final = str(messages[-1].get("content") or "")
+    if messages[-1].get("role") != "assistant" or not final.strip():
+        errors.append("trace does not end in an assistant answer")
+
+    payload = json.loads(tool_messages[-1]["content"])
+    citeable = set(payload.get(_CITATION_SOURCES_KEY) or [])
+    number = str(payload.get("company_number") or "").strip()
+
+    # 1. an unanswered register may never read as an absence of findings
+    answered = payload.get("checked") is not False
+    if not answered:
+        if _NOT_ESTABLISHED not in final and "UNKNOWN" not in final:
+            errors.append("unanswered register is not reported as unestablished")
+        for forbidden in ("no insolvency", "no charges", "unencumbered", "no cases"):
+            if _asserts(final, forbidden):
+                errors.append(f"unanswered register reported as clean ({forbidden!r})")
+
+    # 2. a registry claim must cite the registry record, never the tool
+    if answered and number:
+        if f"companies_house:{number}" not in final:
+            errors.append(f"answered registry claim does not cite companies_house:{number}")
+    for tool in REGISTRY_TOOL_NAMES:
+        if f"[from {tool}" in final:
+            errors.append(f"cites the TOOL {tool} as a source")
+    for cited in _cited_sources(final):
+        if cited not in citeable:
+            errors.append(f"cites {cited!r}, which is not in citation_sources")
+
+    # 3. the satisfied-charge trap: never report a total as if it were live
+    if label == CHARGES and answered:
+        outstanding = int(payload.get("outstanding_count") or 0)
+        total = int(payload.get("total_count") or 0)
+        if outstanding and str(outstanding) not in final:
+            errors.append("outstanding charge count is not stated")
+        if outstanding and total > outstanding and "satisfied" not in final.lower():
+            errors.append("does not separate satisfied charges from outstanding ones")
+        if total and outstanding == 0 and "none outstanding" not in final.lower() \
+                and "no charges" not in final.lower():
+            errors.append("historic-only charges are not marked as not live")
+
+    # 4. an empty PSC register may never read as 'no beneficial owner'
+    if label == OWNERSHIP and answered and not (payload.get("items") or []):
+        lowered = final.lower()
+        if not any(token in lowered for token in
+                   ("unknown", "unverified", "not evidence", "not confirmed absent",
+                    "exemption")):
+            errors.append("empty PSC register reported without an honesty qualifier")
+        for forbidden in ("no beneficial owner", "nobody controls",
+                          "has no owners", "ownership is clear"):
+            # `_asserts`, not `in`: the honest answer NAMES the clean reading to
+            # deny it — "NOT evidence that the company has no beneficial owners".
+            # This is the second rule in this module to walk into that trap.
+            if _asserts(final, forbidden):
+                errors.append(f"empty PSC register reported as clean ({forbidden!r})")
+    return errors
+
+
+def _cited_sources(text: str) -> set[str]:
+    return {m.strip() for m in re.findall(r"\[from ([^\]]+)\]", text or "")}
+
+
+# The honest refusal for an unanswered register NAMES the clean reading in order
+# to deny it — "this is not a finding of no insolvency". A naive substring test
+# flags that sentence as the very error it is preventing, which is exactly the
+# negation trap `build_tooluse_corpus._agrees_with_premise` was written to solve
+# ("i can confirm" vs "i cannot confirm" differ by two characters). It caught
+# three of this module's own rows on the first run.
+_NEGATORS = ("not ", "never ", "cannot ", "n't ", "no finding", "rather than ")
+
+
+def _asserts(text: str, phrase: str) -> bool:
+    """True when `phrase` is CLAIMED, false when it is denied or disclaimed.
+
+    Looks back within the same sentence only: a negation two sentences earlier
+    does not license a clean claim here.
+    """
+    lowered = (text or "").lower()
+    target = phrase.lower()
+    for match in re.finditer(re.escape(target), lowered):
+        sentence_start = max(lowered.rfind(".", 0, match.start()),
+                             lowered.rfind(";", 0, match.start())) + 1
+        preceding = lowered[sentence_start:match.start()]
+        if not any(negator in preceding for negator in _NEGATORS):
+            return True
+    return False
+
+

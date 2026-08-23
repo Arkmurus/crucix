@@ -61,15 +61,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.train.build_tooluse_corpus import (  # noqa: E402
-    _CITATION_SOURCES_KEY, _call_id, _payload_with_citation_sources, _registry_cite,
+    _CITATION_SOURCES_KEY, _NOT_ESTABLISHED, _asserts, _call_id,
+    _payload_with_citation_sources, _registry_cite,
+    CHARGES, INSOLVENCY, OWNERSHIP, REGISTRY_AXES, REGISTRY_TOOL_NAMES,
+    validate_registry_trace, validate_trace,
 )
 
 CAPTURE = ROOT / "data/training/tooluse_capture_360_2026_08_23.jsonl"
 
-INSOLVENCY = "tooluse_insolvency"
-CHARGES = "tooluse_charges"
-OWNERSHIP = "tooluse_ownership"
-REGISTRY_AXES = frozenset({INSOLVENCY, CHARGES, OWNERSHIP})
 
 # The three registry reads, declared the same way the parent builder declares its
 # four. `company_number` and not a name: these registers are keyed by number, and
@@ -124,11 +123,66 @@ SYSTEM_PROMPT = (
     "nothing about other jurisdictions."
 )
 
-_NOT_ESTABLISHED = "could NOT be established"
 
 
 def _cite(number: object) -> str:
     return _registry_cite(number)
+
+
+# ── the two-hop shape ──────────────────────────────────────────────────────
+
+def _two_hop(subject: str, number: str, search: list, tool: str, arg_note: str,
+             payload: dict, answer: str, label: str, topic: str) -> dict:
+    """search the NAME, derive the NUMBER from the result, then read the register.
+
+    R-F4274 — the first version of these axes went straight to the register with
+    `company_number="00502851"` in the very first tool call. `validate_trace`
+    rejected all 93 rows and was RIGHT: that number appears nowhere in the
+    conversation, so the model would have had to invent it or recall it from
+    memory, which rule 1 of the system prompt forbids. The anti-fabrication rule
+    (`_arg_is_derived`) states the case exactly — "07524813 cannot be known
+    before the registry returns it".
+
+    Resolving first is also the honest shape of the task and the reason these
+    axes are worth training: the model has to carry an identifier it has just
+    learned from one tool into the argument of the next.
+    """
+    find = _call_id("search", number)
+    read = _call_id(tool, number)
+    return _finish({
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": _QUESTIONS[label].format(subject=subject)},
+            {"role": "assistant",
+             "content": (f"I need the registry record for {subject} before I can "
+                         f"read any register against it."),
+             "tool_calls": [{"id": find, "type": "function", "function": {
+                 "name": "companies_house_search",
+                 "arguments": json.dumps({"query": subject})}}]},
+            {"role": "tool", "tool_call_id": find, "name": "companies_house_search",
+             "content": json.dumps({"results": search or []}, ensure_ascii=False)},
+            {"role": "assistant",
+             "content": f"The registry resolves {subject} to company {number}. {arg_note}",
+             "tool_calls": [{"id": read, "type": "function", "function": {
+                 "name": tool,
+                 "arguments": json.dumps({"company_number": number})}}]},
+            {"role": "tool", "tool_call_id": read, "name": tool,
+             "content": json.dumps(payload, ensure_ascii=False)},
+            {"role": "assistant", "content": answer},
+        ],
+        "topic": topic, "label": label,
+        "subject": subject, "company_number": number,
+    })
+
+
+_QUESTIONS = {
+    INSOLVENCY: ("Has {subject} ever been subject to insolvency proceedings? "
+                 "I need this for a credit decision."),
+    CHARGES: ("Is there any security or prior claim over {subject}'s assets? "
+              "We are considering taking them as collateral."),
+    OWNERSHIP: ("Who ultimately owns or controls {subject}? I need the natural "
+                "persons behind it, not the trading name."),
+}
 
 
 # ── FS-11 · insolvency ─────────────────────────────────────────────────────
@@ -167,31 +221,13 @@ def _insolvency_answer(subject: str, number: str, payload: dict) -> str:
     )
 
 
-def build_insolvency_trace(subject: str, number: str, payload: dict) -> dict:
-    call = _call_id("insolvency", number)
-    return _finish({
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Has {subject} ever been subject to insolvency proceedings? "
-                f"I need this for a credit decision."},
-            {"role": "assistant",
-             "content": (f"I will read the Companies House insolvency register for "
-                         f"{subject} rather than answer from what I know of them."),
-             "tool_calls": [{"id": call, "type": "function", "function": {
-                 "name": "companies_house_insolvency",
-                 "arguments": json.dumps({"company_number": number})}}]},
-            {"role": "tool", "tool_call_id": call,
-             "name": "companies_house_insolvency",
-             "content": json.dumps(payload, ensure_ascii=False)},
-            {"role": "assistant",
-             "content": _insolvency_answer(subject, number, payload)},
-        ],
-        "topic": "financial_standing",
-        "label": INSOLVENCY,
-        "subject": subject,
-        "company_number": number,
-    })
+def build_insolvency_trace(subject: str, number: str, payload: dict,
+                           search: list | None = None) -> dict:
+    return _two_hop(
+        subject, number, search, "companies_house_insolvency",
+        "Now I read the insolvency register against that number.",
+        payload, _insolvency_answer(subject, number, payload),
+        INSOLVENCY, "financial_standing")
 
 
 # ── FS-12 · charges over the assets ────────────────────────────────────────
@@ -236,29 +272,13 @@ def _charges_answer(subject: str, number: str, payload: dict) -> str:
     )
 
 
-def build_charges_trace(subject: str, number: str, payload: dict) -> dict:
-    call = _call_id("charges", number)
-    return _finish({
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Is there any security or prior claim over {subject}'s assets? "
-                f"We are considering taking them as collateral."},
-            {"role": "assistant",
-             "content": (f"I will read the Companies House charges register for "
-                         f"{subject}; whether security is live is a matter of record."),
-             "tool_calls": [{"id": call, "type": "function", "function": {
-                 "name": "companies_house_charges",
-                 "arguments": json.dumps({"company_number": number})}}]},
-            {"role": "tool", "tool_call_id": call, "name": "companies_house_charges",
-             "content": json.dumps(payload, ensure_ascii=False)},
-            {"role": "assistant", "content": _charges_answer(subject, number, payload)},
-        ],
-        "topic": "financial_standing",
-        "label": CHARGES,
-        "subject": subject,
-        "company_number": number,
-    })
+def build_charges_trace(subject: str, number: str, payload: dict,
+                        search: list | None = None) -> dict:
+    return _two_hop(
+        subject, number, search, "companies_house_charges",
+        "Now I read the charges register against that number.",
+        payload, _charges_answer(subject, number, payload),
+        CHARGES, "financial_standing")
 
 
 # ── OC-5 · beneficial ownership ────────────────────────────────────────────
@@ -322,41 +342,24 @@ def _ownership_answer(subject: str, number: str, pscs: list, exemptions: dict) -
 
 
 def build_ownership_trace(subject: str, number: str, pscs: list | None,
-                          exemptions: dict | None = None) -> dict:
-    call = _call_id("psc", number)
+                          exemptions: dict | None = None,
+                          search: list | None = None) -> dict:
     if pscs is None:
-        # The register did not answer. This MUST be a distinct payload state from
-        # "answered, and empty": collapsing the two is the defect these rows exist
-        # to train against, and an earlier draft of this builder committed it by
-        # coercing None to [].
+        # The register did not answer. This MUST stay a distinct payload state
+        # from "answered, and empty": collapsing the two is the defect this axis
+        # exists to train against, and an earlier draft committed it by coercing
+        # None to [].
         payload = {"company_number": number, **_unavailable("Beneficial ownership"),
                    "items": None}
     else:
-        payload = {"company_number": number, "checked": True,
-                   "outcome": "ok", "psc_count": len(pscs), "items": pscs,
+        payload = {"company_number": number, "checked": True, "outcome": "ok",
+                   "psc_count": len(pscs), "items": pscs,
                    "exemptions": exemptions or {"checked": False}}
-    return _finish({
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Who ultimately owns or controls {subject}? I need the natural "
-                f"persons behind it, not the trading name."},
-            {"role": "assistant",
-             "content": (f"I will read the persons-with-significant-control "
-                         f"register for {subject} before naming anyone."),
-             "tool_calls": [{"id": call, "type": "function", "function": {
-                 "name": "companies_house_psc",
-                 "arguments": json.dumps({"company_number": number})}}]},
-            {"role": "tool", "tool_call_id": call, "name": "companies_house_psc",
-             "content": json.dumps(payload, ensure_ascii=False)},
-            {"role": "assistant",
-             "content": _ownership_answer(subject, number, pscs, exemptions or {})},
-        ],
-        "topic": "ownership_control",
-        "label": OWNERSHIP,
-        "subject": subject,
-        "company_number": number,
-    })
+    return _two_hop(
+        subject, number, search, "companies_house_psc",
+        "Now I read the persons-with-significant-control register against it.",
+        payload, _ownership_answer(subject, number, pscs, exemptions or {}),
+        OWNERSHIP, "ownership_control")
 
 
 # ── the citation contract, applied with THIS prompt ────────────────────────
@@ -405,109 +408,6 @@ def _finish(trace: dict) -> dict:
     return trace
 
 
-# ── the gate ───────────────────────────────────────────────────────────────
-
-def validate_registry_trace(trace: dict) -> list[str]:
-    """Refuse a row that teaches the thing these axes exist to prevent.
-
-    Every rule here is a failure that costs money in the shipped product, not a
-    style check. A row that breaks one is dropped, never repaired in place.
-    """
-    errors: list[str] = []
-    label = trace.get("label")
-    if label not in REGISTRY_AXES:
-        return [f"unknown registry axis {label!r}"]
-    messages = trace.get("messages") or []
-    tool_messages = [m for m in messages if m.get("role") == "tool"]
-    if not tool_messages:
-        return ["no tool result — the answer would not be evidence-backed"]
-    final = str(messages[-1].get("content") or "")
-    if messages[-1].get("role") != "assistant" or not final.strip():
-        errors.append("trace does not end in an assistant answer")
-
-    payload = json.loads(tool_messages[-1]["content"])
-    citeable = set(payload.get(_CITATION_SOURCES_KEY) or [])
-    number = str(payload.get("company_number") or "").strip()
-
-    # 1. an unanswered register may never read as an absence of findings
-    answered = payload.get("checked") is not False
-    if not answered:
-        if _NOT_ESTABLISHED not in final and "UNKNOWN" not in final:
-            errors.append("unanswered register is not reported as unestablished")
-        for forbidden in ("no insolvency", "no charges", "unencumbered", "no cases"):
-            if _asserts(final, forbidden):
-                errors.append(f"unanswered register reported as clean ({forbidden!r})")
-
-    # 2. a registry claim must cite the registry record, never the tool
-    if answered and number:
-        if f"companies_house:{number}" not in final:
-            errors.append(f"answered registry claim does not cite companies_house:{number}")
-    for tool in _REGISTRY_TOOLS:
-        if f"[from {tool}" in final:
-            errors.append(f"cites the TOOL {tool} as a source")
-    for cited in _cited_sources(final):
-        if cited not in citeable:
-            errors.append(f"cites {cited!r}, which is not in citation_sources")
-
-    # 3. the satisfied-charge trap: never report a total as if it were live
-    if label == CHARGES and answered:
-        outstanding = int(payload.get("outstanding_count") or 0)
-        total = int(payload.get("total_count") or 0)
-        if outstanding and str(outstanding) not in final:
-            errors.append("outstanding charge count is not stated")
-        if outstanding and total > outstanding and "satisfied" not in final.lower():
-            errors.append("does not separate satisfied charges from outstanding ones")
-        if total and outstanding == 0 and "none outstanding" not in final.lower() \
-                and "no charges" not in final.lower():
-            errors.append("historic-only charges are not marked as not live")
-
-    # 4. an empty PSC register may never read as 'no beneficial owner'
-    if label == OWNERSHIP and answered and not (payload.get("items") or []):
-        lowered = final.lower()
-        if not any(token in lowered for token in
-                   ("unknown", "unverified", "not evidence", "not confirmed absent",
-                    "exemption")):
-            errors.append("empty PSC register reported without an honesty qualifier")
-        for forbidden in ("no beneficial owner", "nobody controls",
-                          "has no owners", "ownership is clear"):
-            # `_asserts`, not `in`: the honest answer NAMES the clean reading to
-            # deny it — "NOT evidence that the company has no beneficial owners".
-            # This is the second rule in this module to walk into that trap.
-            if _asserts(final, forbidden):
-                errors.append(f"empty PSC register reported as clean ({forbidden!r})")
-    return errors
-
-
-def _cited_sources(text: str) -> set[str]:
-    return {m.strip() for m in re.findall(r"\[from ([^\]]+)\]", text or "")}
-
-
-# The honest refusal for an unanswered register NAMES the clean reading in order
-# to deny it — "this is not a finding of no insolvency". A naive substring test
-# flags that sentence as the very error it is preventing, which is exactly the
-# negation trap `build_tooluse_corpus._agrees_with_premise` was written to solve
-# ("i can confirm" vs "i cannot confirm" differ by two characters). It caught
-# three of this module's own rows on the first run.
-_NEGATORS = ("not ", "never ", "cannot ", "n't ", "no finding", "rather than ")
-
-
-def _asserts(text: str, phrase: str) -> bool:
-    """True when `phrase` is CLAIMED, false when it is denied or disclaimed.
-
-    Looks back within the same sentence only: a negation two sentences earlier
-    does not license a clean claim here.
-    """
-    lowered = (text or "").lower()
-    target = phrase.lower()
-    for match in re.finditer(re.escape(target), lowered):
-        sentence_start = max(lowered.rfind(".", 0, match.start()),
-                             lowered.rfind(";", 0, match.start())) + 1
-        preceding = lowered[sentence_start:match.start()]
-        if not any(negator in preceding for negator in _NEGATORS):
-            return True
-    return False
-
-
 # ── corpus assembly ────────────────────────────────────────────────────────
 
 def _unavailable(what: str, outcome: str = "timeout") -> dict:
@@ -525,9 +425,52 @@ def _unavailable(what: str, outcome: str = "timeout") -> dict:
     }
 
 
+# R-F4274 — which company's register is made to NOT answer, per axis.
+#
+# Three per axis, not one. The corpus first shipped with a single refusal row per
+# axis, and a subject-disjoint train/eval split then put that row on ONE side —
+# leaving the other side unable to teach, or unable to measure, the branch these
+# axes exist for. A singleton is not coverage.
+#
+# Each company refuses on exactly ONE axis and keeps its real rows on the other
+# two. That is coherent — one register timed out, the others answered — whereas
+# a real and a refused row for the SAME register would be two contradictory
+# answers to one question.
+REFUSALS: dict[str, tuple[str, ...]] = {
+    INSOLVENCY: ("01264385", "08804411", "04241161"),   # Maplin, Revolut, Bet365
+    CHARGES: ("01107406", "03772814", "00636095"),      # Iceland, Dyson, River Island
+    OWNERSHIP: ("09446231", "01721624", "08130873"),    # Monzo, Specsavers, Gymshark
+}
+
+_REFUSAL_SUBJECT = {
+    INSOLVENCY: "Insolvency", CHARGES: "Charges",
+    OWNERSHIP: "Beneficial ownership",
+}
+
+
 def build_corpus(captures: list[dict]) -> list[dict]:
-    """One trace per axis per captured company, plus the unanswered cases."""
+    """One trace per axis per captured company; designated registers refuse.
+
+    A company listed in REFUSALS for an axis emits the unanswered row for that
+    axis INSTEAD of its real one — never both, so the corpus never holds two
+    contradictory answers about the same register.
+    """
     traces: list[dict] = []
+    for record in captures:
+        number = str(record.get("company_number") or "").strip()
+        subject = str(record.get("subject") or "").strip()
+        if not number or not subject or record.get("kind") == "disqualified":
+            continue
+        name = str((record.get("resolved") or {}).get("title") or subject)
+        for axis, builder in ((INSOLVENCY, build_insolvency_trace),
+                              (CHARGES, build_charges_trace),
+                              (OWNERSHIP, build_ownership_trace)):
+            if number in REFUSALS.get(axis, ()):
+                payload = _unavailable(_REFUSAL_SUBJECT[axis])
+                search = record.get("search") or []
+                traces.append(
+                    builder(name, number, None, None, search) if axis == OWNERSHIP
+                    else builder(name, number, payload, search))
     for record in captures:
         number = str(record.get("company_number") or "").strip()
         subject = str(record.get("subject") or "").strip()
@@ -536,32 +479,114 @@ def build_corpus(captures: list[dict]) -> list[dict]:
         resolved_name = str((record.get("resolved") or {}).get("title") or subject)
 
         insolvency = record.get("insolvency")
-        if isinstance(insolvency, dict) and "_capture_error" not in insolvency:
-            traces.append(build_insolvency_trace(resolved_name, number, insolvency))
+        if isinstance(insolvency, dict) and "_capture_error" not in insolvency                 and number not in REFUSALS[INSOLVENCY]:
+            traces.append(build_insolvency_trace(resolved_name, number, insolvency,
+                                                record.get("search")))
 
         charges = record.get("charges")
-        if isinstance(charges, dict) and "_capture_error" not in charges:
-            traces.append(build_charges_trace(resolved_name, number, charges))
+        if isinstance(charges, dict) and "_capture_error" not in charges                 and number not in REFUSALS[CHARGES]:
+            traces.append(build_charges_trace(resolved_name, number, charges,
+                                             record.get("search")))
 
         psc = record.get("psc")
-        if isinstance(psc, list):
+        if isinstance(psc, list) and number not in REFUSALS[OWNERSHIP]:
             # The exemption register is what separates a LAWFULLY empty PSC
             # register (a listed company disclosing ownership under market rules)
             # from an unexplained one. Without it every empty register collapses
             # to "UNKNOWN", and the branch that matters most in production is
             # never trained.
             traces.append(build_ownership_trace(
-                resolved_name, number, psc, record.get("psc_exemptions")))
+                resolved_name, number, psc, record.get("psc_exemptions"),
+                record.get("search")))
 
-    # The refusal rows. Without these the axes would only ever reward answering,
-    # and "the register did not answer" is the case that actually loses money.
-    for subject, number, what, builder in (
-        ("MAPLIN ELECTRONICS LIMITED", "01264385", "Insolvency", build_insolvency_trace),
-        ("ICELAND FOODS LIMITED", "01107406", "Charges", build_charges_trace),
-    ):
-        traces.append(builder(subject, number, _unavailable(what)))
-    traces.append(build_ownership_trace("REVOLUT LTD", "08804411", None))
     return traces
+
+
+# ── R-F4274 · the subject-disjoint, branch-stratified split ────────────────
+
+def branch_of(trace: dict) -> str:
+    """Which decision state a row exercises. The split is stratified on THIS.
+
+    Splitting on the axis alone is not enough. `tooluse_ownership` holds four
+    different answers — named, lawfully exempt, unexplained and unreadable — and
+    a split that happened to put every exempt row on one side would leave the
+    other side unable to teach it or unable to measure it, while the per-axis row
+    counts looked perfectly balanced.
+    """
+    payload = json.loads([m for m in trace["messages"]
+                          if m["role"] == "tool"][-1]["content"])
+    final = trace["messages"][-1]["content"]
+    if payload.get("checked") is False:
+        return "unanswered"
+    if trace["label"] == INSOLVENCY:
+        return "cases" if (payload.get("cases") or []) else "none"
+    if trace["label"] == CHARGES:
+        if int(payload.get("outstanding_count") or 0):
+            return "outstanding"
+        return "historic" if int(payload.get("total_count") or 0) else "none"
+    if "ACTIVE exemption" in final:
+        return "exempt"
+    return "named" if payload.get("items") else "unexplained"
+
+
+def split_by_subject(traces: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(train, eval), disjoint by COMPANY, stratified by (axis, branch).
+
+    Companies, not rows: a company on both sides is the leak the held-out set
+    exists to prevent, and every row about one company shares its registry
+    payloads. Within each (axis, branch) cell the companies are alternated, so a
+    cell holding two or more companies is guaranteed to reach both sides. The
+    first assignment a company receives wins — later cells cannot move it — which
+    is what keeps the split subject-disjoint rather than cell-disjoint.
+    """
+    cells: dict[tuple[str, str], list[str]] = {}
+    for trace in traces:
+        cells.setdefault((trace["label"], branch_of(trace)), []).append(
+            trace["company_number"])
+
+    side: dict[str, str] = {}
+    # rarest cells first: a two-company cell has no slack, a twenty-company one has
+    for cell in sorted(cells, key=lambda c: (len(set(cells[c])), c)):
+        for index, number in enumerate(sorted(set(cells[cell]))):
+            side.setdefault(number, "train" if index % 2 == 0 else "eval")
+
+    train = [t for t in traces if side.get(t["company_number"]) == "train"]
+    held = [t for t in traces if side.get(t["company_number"]) == "eval"]
+    return train, held
+
+
+def stratification_gaps(train: list[dict], held: list[dict]) -> list[str]:
+    """Cells present overall but missing from a side. Empty is the contract."""
+    def cells(rows):
+        return {(t["label"], branch_of(t)) for t in rows}
+    everywhere, gaps = cells(train) | cells(held), []
+    for cell in sorted(everywhere):
+        total = sum(1 for t in train + held
+                    if (t["label"], branch_of(t)) == cell)
+        if total < 2:
+            continue  # a genuine singleton cannot be on both sides
+        for name, rows in (("train", train), ("eval", held)):
+            if cell not in cells(rows):
+                gaps.append(f"{cell[0]}/{cell[1]} is absent from {name} "
+                            f"({total} rows exist)")
+    overlap = ({t["company_number"] for t in train}
+               & {t["company_number"] for t in held})
+    if overlap:
+        gaps.append(f"companies on BOTH sides: {sorted(overlap)}")
+    return gaps
+
+
+def _rel(path: pathlib.Path) -> str:
+    """Display a path repo-relative when it is, verbatim when it is not.
+
+    `relative_to` RAISES on a path that is merely relative (`data/...`), which is
+    exactly how the argument arrives from the command line.
+    """
+    try:
+        absolute = path if path.is_absolute() else (pathlib.Path.cwd() / path)
+        return absolute.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -571,6 +596,10 @@ def main(argv: "list[str] | None" = None) -> int:
                         default=ROOT / "data/training/aria_tooluse_registry_depth_v1.jsonl")
     parser.add_argument("--strict", action="store_true",
                         help="refuse to write if any trace fails validation")
+    parser.add_argument("--split-dir", type=pathlib.Path, default=None,
+                        help="also write a subject-disjoint train/eval split here")
+    parser.add_argument("--merge-eval", type=pathlib.Path, default=None,
+                        help="base eval to concatenate the held-out rows onto")
     args = parser.parse_args(argv)
 
     captures = [json.loads(line) for line in
@@ -579,7 +608,10 @@ def main(argv: "list[str] | None" = None) -> int:
 
     kept, dropped = [], []
     for trace in traces:
-        errors = validate_registry_trace(trace)
+        # validate_trace, not validate_registry_trace: the eval grades through the
+        # generic gate too, and it is the generic half that caught these rows
+        # handing a register a company number the conversation never derived.
+        errors = validate_trace(trace)
         (kept if not errors else dropped).append((trace, errors))
     if dropped:
         print(f"DROPPED {len(dropped)} of {len(traces)}:")
@@ -595,9 +627,46 @@ def main(argv: "list[str] | None" = None) -> int:
             handle.write(json.dumps(trace, ensure_ascii=False) + "\n")
     import collections
     counts = collections.Counter(t["label"] for t, _ in kept)
-    print(f"\nwrote {len(kept)} traces to {args.out.relative_to(ROOT).as_posix()}")
+    print(f"\nwrote {len(kept)} traces to {_rel(args.out)}")
     for label, count in sorted(counts.items()):
         print(f"  {label:<24}{count:>4}")
+
+    if args.split_dir is None:
+        return 0
+
+    train, held = split_by_subject([t for t, _ in kept])
+    gaps = stratification_gaps(train, held)
+    if gaps:
+        # A split that strands a decision state is worse than no split: it reads
+        # as coverage and measures nothing. Refuse rather than warn.
+        print("\nREFUSING to write the split — stratification is not sound:")
+        for gap in gaps:
+            print(f"  - {gap}")
+        return 3
+
+    args.split_dir.mkdir(parents=True, exist_ok=True)
+    for name, rows in (("train", train), ("eval", held)):
+        path = args.split_dir / f"{name}.jsonl"
+        with path.open("w", encoding="utf-8", newline="\n") as handle:
+            for trace in rows:
+                handle.write(json.dumps(trace, ensure_ascii=False) + "\n")
+    print(f"\nsplit (subject-disjoint, branch-stratified) -> "
+          f"{_rel(args.split_dir)}")
+    print(f"  train {len(train):>3} rows / "
+          f"{len({t['company_number'] for t in train})} companies")
+    print(f"  eval  {len(held):>3} rows / "
+          f"{len({t['company_number'] for t in held})} companies")
+
+    if args.merge_eval is not None:
+        base = [json.loads(line) for line in
+                args.merge_eval.read_text(encoding="utf-8").splitlines() if line.strip()]
+        merged = args.split_dir / "eval_360.jsonl"
+        with merged.open("w", encoding="utf-8", newline="\n") as handle:
+            for trace in base + held:
+                handle.write(json.dumps(trace, ensure_ascii=False) + "\n")
+        print(f"  360 eval -> {_rel(merged)}: "
+              f"{len(base)} + {len(held)} = {len(base) + len(held)} rows, "
+              f"{len({t.get('label') for t in base + held})} axes")
     return 0
 
 

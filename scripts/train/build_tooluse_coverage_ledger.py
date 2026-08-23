@@ -8,6 +8,13 @@ from collections import Counter
 from pathlib import Path
 
 from scripts.train.build_mixed_tooluse_cycle import ALL_AXES
+from scripts.train.build_registry_depth_corpus import REGISTRY_AXES
+
+# R-F4274 — the ten became thirteen. Both directions still fail closed: a report
+# MISSING any of the original ten is incomplete, and one carrying an axis nobody
+# declared is a harness measuring something nobody chose. What is no longer fatal
+# is simply having MORE coverage than the day this check was written.
+KNOWN_AXES = ALL_AXES | REGISTRY_AXES
 from scripts.train.eval_tooluse import report_consistency_error
 
 
@@ -19,8 +26,13 @@ def _axis_map(report: dict, name: str) -> dict[str, dict]:
     if error:
         raise ValueError(f"{name} report summary is inconsistent: {error}")
     axes = {str(row.get("label") or ""): row for row in report.get("per_axis") or []}
-    if set(axes) != ALL_AXES:
-        raise ValueError(f"{name} report does not cover all ten axes")
+    present = set(axes)
+    if not ALL_AXES <= present:
+        raise ValueError(
+            f"{name} report is missing core axes: {sorted(ALL_AXES - present)}")
+    if present - KNOWN_AXES:
+        raise ValueError(
+            f"{name} report carries undeclared axes: {sorted(present - KNOWN_AXES)}")
     for label, axis in axes.items():
         total, honest = int(axis.get("total", -1)), int(axis.get("honest", -1))
         if total < 1 or honest < 0 or honest > total:

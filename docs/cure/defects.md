@@ -14831,3 +14831,57 @@ ten with five consumers, and the promotion gate, scorer and coverage ledger all
 assume it. Rewiring the harness is the next step and is deliberately separate — a
 gate change and a corpus change in one commit is how a harness starts measuring
 something nobody chose.
+
+### C-232 second closure — the 360 harness is wired (R-F4274)
+
+R-F4272 built the rows and deliberately stopped short of the harness. This wires
+them, and two defects surfaced in the wiring that the rows alone never would have.
+
+**The eval:** `data/training/registry_depth_v1/eval_360.jsonl` — the original 168
+rows carried **verbatim** plus 33 held-out registry rows = **201 rows, 13 axes**.
+The registry corpus is split **subject-disjoint by COMPANY** (60 train / 20
+companies, 33 eval / 11 companies) and **stratified by BRANCH**, not by axis:
+`tooluse_ownership` holds four different answers, and a split that put every
+lawfully-exempt row on one side would leave the other unable to teach it or
+unable to measure it while per-axis counts looked balanced. `stratification_gaps`
+refuses to write a split that strands a decision state, and a test proves it can
+actually report one.
+
+**`SCORER_VERSION` → `R-F4274-registry-depth-v5`.** Not cosmetic: `adjudicate_sweep`
+refuses to compare across scorer generations (R-F4244), so every prior report must
+be re-scored before it can be an incumbent again. Re-scoring is free. Proof the
+bump is safe: re-scoring the promoted parent's stored answers gives **162/168 with
+ZERO per-axis differences** — the original ten grade identically.
+
+#### The two defects the existing guards caught
+
+**1. Every one of the 93 rows was handing the register a fabricated identifier.**
+`validate_trace` rejected all of them and was right: the first version called
+`companies_house_charges(company_number="00502851")` as the OPENING tool call,
+where that number appears nowhere in the conversation. The model would have had to
+invent it or recall it from memory, which rule 1 of its own system prompt forbids.
+`_arg_is_derived` states the case exactly — *"07524813 cannot be known before the
+registry returns it"*. Every row is now **two-hop**: search the NAME, read the
+number out of the real search payload, then key the register on it. That is both
+honest and the better training signal — carrying an identifier just learned from
+one tool into the argument of the next is the autonomous-reasoning step the
+harness never previously exercised.
+
+**2. `eval_tooluse` imported a module no pod receives.** `test_rf3416` caught it,
+and it catches it well: that test **derives the pod's file set from the drivers
+themselves**, so it cannot drift. Ten drivers upload `build_tooluse_corpus.py` and
+nothing else from `scripts/train`; a pod missing the new module would have died at
+the baseline eval AFTER the GPU and the model load were paid for — the exact
+R-F3416 incident. Editing ten upload lists is the symptom fix and leaves the
+eleventh driver broken, so **the validator moved into `build_tooluse_corpus.py`
+instead**, beside the other validators. Nothing new ships; nothing is left to
+remember. The registry tools are deliberately NOT added to `TOOL_SPECS` —
+`SYSTEM_PROMPT` is derived from `TOOL_NAMES`, so that would have silently rewritten
+the prompt of all 168 existing rows and changed the benchmark.
+
+`validate_trace` is now the single entry point and appends the registry rules to
+the generic ones — both, never either. `eval_tooluse` needs no dispatch and so
+cannot be wired to only half of the gate.
+
+**Not yet done:** the promoted parent has no score on the 201-row eval. The 33 new
+rows need real inference, so establishing the new incumbent is a GPU run.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4274,
+  "next_available": 4275,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36633,14 +36633,25 @@
       "title": "registry-depth axes - insolvency, charges and beneficial ownership from real payloads",
       "claimed_at": "2026-08-23T17:56:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aa1e65cf",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:07:33Z"
     },
     {
       "r_number": "R-F4273",
       "title": "C-232 state read-timeout degraded verdict requires an ACTIVE burst",
       "claimed_at": "2026-08-23T18:05:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "da7c350d",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:21:46Z"
+    },
+    {
+      "r_number": "R-F4274",
+      "title": "the 360 eval harness - registry axes wired, split and scored",
+      "claimed_at": "2026-08-23T18:09:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -48,7 +48,14 @@ from scripts.train.build_tooluse_corpus import validate_trace
 # leading clause turns them into countable CLASSES without collapsing distinct
 # rules into one bucket.
 _CLASS_WORDS = 5
-SCORER_VERSION = "R-F4160-evidence-aligned-clean-v4"
+# R-F4274 — BUMPED for the three registry-depth axes. The bump is not cosmetic:
+# `adjudicate_sweep` refuses to compare reports across scorer generations
+# (R-F4244), so every report predating this must be RE-SCORED before it can be
+# an incumbent again. That is the intended cost. Grading of the original ten
+# axes is byte-for-byte unchanged; the version still moves, because a reader
+# cannot verify that from a version string and the conservative direction is the
+# one that forces a free re-score rather than the one that hides a difference.
+SCORER_VERSION = "R-F4274-registry-depth-v5"
 
 
 def prompt_messages(trace: dict, system_append: str = "") -> list[dict]:
