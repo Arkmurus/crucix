@@ -4087,3 +4087,91 @@ lever really is density, not repair.
    R-F4229 auto-releases the cooldown on top-up, so recovery is automatic.
 2. **Gate #7 — 1 of 4 design partners.** Phase A cannot exit on code alone.
    This is the true critical path.
+
+## Session 2026-08-23 (part 7) — R-F4264..R-F4269, C-225..C-230 · one delivered PDF, six defects
+
+Operator: *"deep review and ensure you apply laser precision approach and root
+verification to make sure we can deliver the best DD reports and facts to our
+customers"*, on `ARIA_DD_Vigilo_Solutions_Limited_dd_9fe0e61e4a0c.pdf`; then
+*"ensure you proceed and dont leave anything undone … ensure all is wired and
+enabled and live"*.
+
+**Every defect was found by reading the delivered report and then reproducing it,
+never by reading code and speculating.** Each one was RED in a fixture before the
+fix existed.
+
+| C | Defect | R |
+|---|---|---|
+| 225 | `(7 of 12 articles analysed) — 0 article(s) analysed` in one sentence. `None` results counted as analysed. All 7 fetches yielded nothing: a total article-stage failure rendered as coverage. | 4264 |
+| 226 | *"**Vigilo Security Solutions** is not found in SEC EDGAR"* — the typed name, not the registry name. EDGAR resolves a CIK BY NAME, so it can also fabricate UNKNOWN capacity for a public filer. | 4265 |
+| 227 | AMBER + *"CONTRADICTED … open them"* pointing at `memory://f02d73289407` — ARIA quoting herself. The gate ran 2 of the sweep's 6 filters while claiming parity. | 4266 |
+| 228 | 12 sanctions rows for 11 lists (OFSI twice). Guard keyed a literal the registry never uses, so it could not fire. | 4267 |
+| 229 | `STEPHEN MABBOTT LTD.` printed beside a FINRA-barred firm on the forename "Stephen". `schema` was fetched from the provider and discarded. | 4268 |
+| 230 | Page 2 reconciles to 139; page 5 loses 9 with no reason. | 4269 |
+
+### What only reconciliation could have found
+
+**C-228's second half.** Deduplicating the two OFSI rows forced them to be compared,
+and that exposed something nobody was looking for: the canonical row is derived
+BEFORE `_ofsi_hits` are appended, so a designation found on the direct OFSI list
+left the authoritative row reading **CLEAN**. A report with a real OFSI hit would
+have printed `HM Treasury OFSI — CLEAN` and `UK OFSI — HIT` in one table. Its
+fixture was RED. The merge is now one-directional: a hit may raise, nothing may
+lower a HIT.
+
+### Two self-inflicted defects, both caught by the regression sweep
+
+1. **I stole `investigate()`'s `@fail_wire` decorator** by inserting a helper above
+   it — silently un-wiring a brain hook (§21a). Caught by `test_rf1777`, ~800 tests
+   in. My first repair then stole a *different* function's decorator (8 identical
+   decorator strings in one file). An AST diff now proves no function gained or lost
+   one. Saved to memory as `text-insertion-can-steal-a-decorator`.
+2. **An 18-line comment pushed a guard past a fixed 1600-CHARACTER window** in
+   `test_rf3063` — the guard was untouched two lines below. The R-F3597/R-F3858
+   blind-guard class. Made structural (bounded by the file's own section rule,
+   RAISING rather than falling back to the whole module) rather than shrinking the
+   comment to fit.
+
+**And C-229's fix was caught by its own guard test:** annotating on
+`len(shared)==1` fired on `Rosoboronexport Corporation` → `ROSOBORONEXPORT OAO`, a
+genuine OFAC designation whose one shared token IS the whole identity of both sides.
+
+### Discipline notes worth keeping
+
+* **Two existing tests were moved to their surviving intent, never deleted.**
+  `test_rf2460` asserted the removed `"uk_ofsi"` key; it now asserts
+  `primary_adapter` on the canonical row and says not to re-green it by restoring
+  the duplicate.
+* **C-229 was fixed ADDITIVELY on purpose.** Suppressing a thin lead is the
+  never-false-clean direction; eponymous companies are a real evasion pattern. No
+  forename list was introduced — which given names are "too common" is locale-biased
+  and rots; which token matched is a fact. Both leads still classify AMBER, pinned.
+* **C-230 was fixed as RECONCILIATION, not one more key.** Adding
+  `class_contradicted_dropped` closes the confirmed half; the second half (a
+  materiality dict missing a key the sweep always returns) has an UNESTABLISHED
+  mechanism and none was invented. The ledger now checks its own arithmetic.
+
+### Verification
+
+178 test files, 14 chunks. **9 failures, every one reproduced identically on a
+pristine HEAD worktree** (`rf2254`×3, `rf2817`×5, `rf728`×1) — zero new. Both
+wiring-gate failures are recorded baseline entries and name none of my functions or
+modules. Whole-tree compile gate clean; boot-path import smoke clean (724 openapi
+paths).
+
+### Live
+
+Pushed `c58871a7` → main, dispatched `deploy-fly.yml` run **32655854661** (success),
+live `build_rev` = **`R-F4270 · sha c58871a7`**. **All seven fixes probed
+behaviourally on the deployed image** from inside the machine — not asserted from
+the commit. Post-boot, `llm_chain_exhausted` and `autonomous_loop_stalled` cleared
+as boot-transient (§11c); `rule_one.breached: false`, `brave_non_dd_grants: 0`,
+`brave_allowed_purposes: ["dd","wa"]` — the §17 WA amendment is live.
+
+### Still open — operator only
+
+1. 🔴 **DeepSeek `$6.64`, `severity: low`** (was `$7.78` earlier today). At zero,
+   chat and WhatsApp go dark — 19h on 2026-08-22 at a $0.02 overdraft. R-F4229
+   auto-releases the cooldown on top-up, so recovery is automatic once funded.
+2. `state_backend_read_timeouts` — sqlite **reachable**, 6 timeouts/900s across 5
+   unrelated keys. Pre-existing; untouched by this session's changes.
