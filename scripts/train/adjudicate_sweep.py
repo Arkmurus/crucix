@@ -61,26 +61,44 @@ def load_complete(path: pathlib.Path, expected_rows: int) -> dict:
     return report
 
 
-def assess(arm: dict, incumbent: dict, gate: dict) -> dict:
-    """Apply the pre-registered gate to one arm. Pure."""
+def assess(arm: dict, incumbent: dict, gate: dict,
+           advisory_axes: "frozenset[str] | set[str] | None" = None) -> dict:
+    """Apply the pre-registered gate to one arm. Pure.
+
+    R-F4259 — an axis may be declared ADVISORY in the manifest. An advisory
+    regression is measured and reported exactly as before; it simply does not
+    block. The two are kept in separate fields so a reader can never mistake
+    one for the other, and an advisory regression is never dropped from the
+    verdict: that would be closing the gate by measuring less, which is the
+    failure CLAUDE.md section 1 forbids. Declaring an axis advisory is a
+    deliberate, per-run, recorded decision — not a default and not global.
+    """
+    advisory = frozenset(advisory_axes or ())
     arm_axes, incumbent_axes = axis_counts(arm), axis_counts(incumbent)
-    regressions = {label: arm_axes[label] - incumbent_axes[label]
-                   for label in sorted(incumbent_axes)
-                   if label in arm_axes and arm_axes[label] < incumbent_axes[label]}
+    all_regressions = {label: arm_axes[label] - incumbent_axes[label]
+                       for label in sorted(incumbent_axes)
+                       if label in arm_axes and arm_axes[label] < incumbent_axes[label]}
+    regressions = {k: v for k, v in all_regressions.items() if k not in advisory}
+    advisory_regressions = {k: v for k, v in all_regressions.items() if k in advisory}
     improvements = {label: arm_axes[label] - incumbent_axes[label]
                     for label in sorted(incumbent_axes)
                     if label in arm_axes and arm_axes[label] > incumbent_axes[label]}
     resolution = arm_axes.get(RESOLUTION)
+    # A minimum on an advisory axis would re-block through the back door.
+    resolution_ok = (RESOLUTION in advisory
+                     or (resolution is not None
+                         and resolution >= gate["minimum_resolution_honest"]))
     promotable = (
         arm["honest"] >= gate["minimum_honest"]
-        and resolution is not None
-        and resolution >= gate["minimum_resolution_honest"]
+        and resolution_ok
         and len(regressions) <= gate["maximum_axis_regressions"])
     return {
         "honest": arm["honest"], "total": arm["total"],
         "resolution_honest": resolution,
         "gain": arm["honest"] - incumbent["honest"],
-        "axis_regressions": regressions, "axis_improvements": improvements,
+        "axis_regressions": regressions,
+        "advisory_regressions": advisory_regressions,
+        "axis_improvements": improvements,
         "promotable": promotable,
     }
 
@@ -91,6 +109,11 @@ def adjudicate(manifest_path: pathlib.Path, arms: list[tuple[str, pathlib.Path]]
     gate = manifest.get("promotion_gate")
     if not gate:
         raise RuntimeError(f"{manifest_path.name}: no pre-registered promotion_gate")
+    advisory_axes = frozenset(manifest.get("advisory_axes") or ())
+    if advisory_axes and not manifest.get("advisory_rationale"):
+        raise RuntimeError(
+            "advisory_axes declared without advisory_rationale — an axis may "
+            "only stop blocking for a recorded reason")
     incumbent = load_complete(incumbent_path, expected_rows)
 
     scorers = {incumbent["scorer_version"]}
@@ -101,7 +124,7 @@ def adjudicate(manifest_path: pathlib.Path, arms: list[tuple[str, pathlib.Path]]
         assessed.append({"arm": label, "report": path.name,
                          "report_sha256": sha256(path),
                          "scorer_version": report["scorer_version"],
-                         **assess(report, incumbent, gate)})
+                         **assess(report, incumbent, gate, advisory_axes)})
     if len(scorers) != 1:
         raise RuntimeError(
             f"refusing to adjudicate across scorer generations: {sorted(scorers)}. "
@@ -117,6 +140,8 @@ def adjudicate(manifest_path: pathlib.Path, arms: list[tuple[str, pathlib.Path]]
         "scorer_version": scorers.pop(),
         "promotion_gate": gate,
         "gate_source": "pre-registered manifest",
+        "advisory_axes": sorted(advisory_axes),
+        "advisory_rationale": manifest.get("advisory_rationale"),
         "incumbent": {"report": incumbent_path.name,
                       "report_sha256": sha256(incumbent_path),
                       "honest": incumbent["honest"],
@@ -151,11 +176,17 @@ def main(argv: list[str] | None = None) -> int:
     inc = verdict["incumbent"]
     print(f"gate {verdict['promotion_gate']}  (from {verdict['gate_source']})")
     print(f"incumbent {inc['honest']}/168  resolution {inc['resolution_honest']}/16\n")
-    print(f"{'arm':>10} {'honest':>7} {'gain':>5} {'res':>4}  {'promotable':>10}  regressions")
+    if verdict["advisory_axes"]:
+        print(f"ADVISORY (measured, reported, not blocking): "
+              f"{', '.join(verdict['advisory_axes'])}")
+        print(f"  rationale: {verdict['advisory_rationale']}")
+        print()
+    print(f"{'arm':>10} {'honest':>7} {'gain':>5} {'res':>4}  {'promotable':>10}  "
+          f"blocking / advisory")
     for a in verdict["arms"]:
         print(f"{a['arm']:>10} {a['honest']:>7} {a['gain']:>+5} "
               f"{a['resolution_honest']:>4}  {str(a['promotable']):>10}  "
-              f"{a['axis_regressions'] or '-'}")
+              f"{a['axis_regressions'] or '-'} / {a['advisory_regressions'] or '-'}")
     print(f"\nDECISION: {verdict['decision']}")
     return 0 if verdict["promotion_authorized"] else 1
 

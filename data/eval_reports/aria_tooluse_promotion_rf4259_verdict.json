@@ -1,0 +1,46 @@
+{
+  "r_number": "R-F4259",
+  "complete": true,
+  "manifest": "aria_tooluse_promotion_rf4259_manifest.json",
+  "manifest_sha256": "acda14bf7e2f1e4232bce1416743d9de24801d8e48d6d76cd8735d7803012e56",
+  "scorer_version": "R-F4160-evidence-aligned-clean-v4",
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  },
+  "gate_source": "pre-registered manifest",
+  "advisory_axes": [
+    "tooluse_resolution"
+  ],
+  "advisory_rationale": "R-F4257 established that this axis measures a configuration that never ships. Production resolves company identity deterministically (resolve_company_search), hands the model the RESOLVED company rather than a candidate list (format_for_prompt), and REPLACES the model's answer when identity is gated (enforce_resolution_response, R-F4144) \u2014 on both the chat and streaming surfaces, with a replace event correcting already-streamed text, pinned in CI by test_rf4144. The 168-row eval carries none of it: 0 of 168 rows hold the gate marker and the pod evaluator never imports companies_house. Both failure shapes the axis measures are therefore structurally impossible in the shipped path. Operator decision 2026-08-23 after 13 candidates and arms, none of which exceeded the SFT parent's 13/16. ADVISORY MEANS MEASURED AND REPORTED, NOT DROPPED: the regression is still computed and still appears in every verdict.",
+  "incumbent": {
+    "report": "aria_tooluse_incumbent_rf4160_rescored.json",
+    "report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269",
+    "honest": 161,
+    "resolution_honest": 13
+  },
+  "arms": [
+    {
+      "arm": "failure_correction_v1",
+      "report": "aria_tooluse_resolution_failure_correction_v1_rf4163_rescored.json",
+      "report_sha256": "3d399b600e14c3604100c343f14b3badb1c0634292580ced41282907fd7d3ad4",
+      "scorer_version": "R-F4160-evidence-aligned-clean-v4",
+      "honest": 162,
+      "total": 168,
+      "resolution_honest": 12,
+      "gain": 1,
+      "axis_regressions": {},
+      "advisory_regressions": {
+        "tooluse_resolution": -1
+      },
+      "axis_improvements": {
+        "tooluse_adverse": 2
+      },
+      "promotable": true
+    }
+  ],
+  "promotion_authorized": true,
+  "decision": "promote:failure_correction_v1",
+  "incumbent_preserved": false
+}

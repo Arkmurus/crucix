@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4259,
+  "next_available": 4260,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36498,6 +36498,15 @@
       "commit_sha": "539ad4ba",
       "notes": null,
       "shipped_at": "2026-08-23T11:28:09Z"
+    },
+    {
+      "r_number": "R-F4259",
+      "title": "advisory axes: measure the same, decide differently, never silently",
+      "claimed_at": "2026-08-23T11:34:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

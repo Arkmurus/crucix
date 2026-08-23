@@ -1,0 +1,30 @@
+{
+  "r_number": "R-F4259",
+  "complete": true,
+  "kind": "promotion_decision",
+  "decided_by": "operator",
+  "decided_at": "2026-08-23",
+  "strategy": "re-adjudicate the accepted candidate with tooluse_resolution advisory",
+  "training_performed": false,
+  "weights_mutated": false,
+  "candidate": "data/eval_reports/aria_tooluse_resolution_failure_correction_v1_rf4163_rescored.json",
+  "candidate_sha256": "3d399b600e14c3604100c343f14b3badb1c0634292580ced41282907fd7d3ad4",
+  "incumbent_report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269",
+  "incumbent": {
+    "honest": 161,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16
+  },
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  },
+  "advisory_axes": [
+    "tooluse_resolution"
+  ],
+  "advisory_rationale": "R-F4257 established that this axis measures a configuration that never ships. Production resolves company identity deterministically (resolve_company_search), hands the model the RESOLVED company rather than a candidate list (format_for_prompt), and REPLACES the model's answer when identity is gated (enforce_resolution_response, R-F4144) \u2014 on both the chat and streaming surfaces, with a replace event correcting already-streamed text, pinned in CI by test_rf4144. The 168-row eval carries none of it: 0 of 168 rows hold the gate marker and the pod evaluator never imports companies_house. Both failure shapes the axis measures are therefore structurally impossible in the shipped path. Operator decision 2026-08-23 after 13 candidates and arms, none of which exceeded the SFT parent's 13/16. ADVISORY MEANS MEASURED AND REPORTED, NOT DROPPED: the regression is still computed and still appears in every verdict.",
+  "reversal_condition": "If enforce_resolution_response is ever removed from a response path, or the eval adopts the production identity gate, this axis becomes load-bearing again and must be restored to blocking. test_rf4144 and test_rf4257 both fail loudly if that happens.",
+  "what_this_promotion_is": "The candidate becomes the accepted PARENT/incumbent for future training cycles. It does NOT deploy to production: ARIA-LLM is not wired into the live chain (ARIA_LLM_URL unset, CLAUDE.md section 16) and Phase A gates remain open."
+}
