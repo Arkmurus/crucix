@@ -14774,3 +14774,88 @@ Closing it means new axes with REAL captured payloads — `build_tooluse_corpus`
 hard constraint is that a tool result is never LLM-imagined, and that constraint
 holds for every row added. Capture needs `COMPANIES_HOUSE_API_KEY`, which is not on
 the dev box and is the next step.
+
+## C-233 · a recovered read-timeout burst was reported as an ongoing degradation (fixed, R-F4273)
+
+Found while closing out the last `degraded_reasons` entry on the live service after
+the C-225..C-230 deploy. `/health` at build_rev `c58871a7` said:
+
+    status           : degraded
+    degraded_reasons : ['state_backend_read_timeouts', ...]
+    state_backend    : {"backend":"sqlite","reachable":true,"status":"amber",
+                        "read_timeouts":{"count":6,"distinct_keys":5,
+                                         "last_age_s":588.5,"degraded":true}}
+
+Sampled three times over ninety seconds, the numbers contradicted the verdict:
+
+    t=20:02:11  count=6  last_age_s=588.5
+    t=20:02:56  count=6  last_age_s=633.9
+    t=20:03:42  count=6  last_age_s=679.4
+
+`count` frozen; `last_age_s` climbing exactly with wall time. One burst during boot
+warmup, nothing since, and the service still pinned at `degraded` ten minutes later.
+
+**THE STORE WAS NOT SLOW, and establishing that came first — §1 forbids treating a
+timeout as a tuning problem.** Measured in-machine against the live 630 MB /
+577,346-row database, read-only:
+
+| key that "timed out" at 5s | bytes | direct read |
+|---|---|---|
+| `crucix:aria:error_log` | 72,455 | 0.3 ms |
+| `crucix:aria:brain_hook:stats` | 9,108 | 0.0 ms |
+| `crucix:dd:last_signal_check` | 18 | 0.0 ms |
+| `aria:atlas:index:families` | 3,409 | 0.0 ms |
+| `crucix:aria:collab:cursor:aria` | 3 | 0.0 ms |
+
+Every hypothesis that would have made this a real store fault was measured and
+ruled out:
+
+* **DB bloat / slow query** — the `get()` warning literally says "DB may be bloated
+  or under WAL recovery". `SELECT COUNT(*)` over 577k rows takes 0.14 s; the five
+  keys read in under a millisecond.
+* **Head-of-line blocking behind a fat point read** — R-F4211 isolated bulk *scans*
+  to their own lane but not large point reads, so this was the strongest structural
+  candidate. The two fattest values in the entire store, `crucix:aria:neural_edges`
+  (12.59 MB) and `crucix:intel_ledger` (8.21 MB), fetch in **45 ms** and **16 ms**.
+  Nothing in the store can occupy a lane for five seconds.
+* **The read-path write flush** — `_READ_FLUSH_BUDGET_S` is 0.3 s and already
+  bounded by R-F2477, so it cannot reach 5 s.
+* **Event-loop starvation firing `wait_for` spuriously** — the §28 residual-lag
+  story made this plausible. CPU and memory PSI are flat 0.00, and the current
+  process had produced **zero** wedge stall dumps (§28: the watchdog is fed from the
+  same `elapsed` at the same 5.0 s threshold), so the loop never stalled the 5 s
+  that would fire the timer on its own. IO PSI *is* the live pressure — `full`
+  total 70.7 s since boot, avg300 3.86 % — which matches §28's surviving lead and
+  is consistent with a transient boot-warmup burst, not a steady-state fault.
+
+**THE DEFECT IS THE RULE, NOT THE THRESHOLD.** `degraded` was
+`len(recent) >= _READ_TIMEOUT_DEGRADE_AT` over the 900 s window — volume only, with
+no notion of whether the burst is still ARRIVING. Six timeouts ten minutes ago and
+six timeouts happening right now produce the same number, and only one of them is an
+outage.
+
+**This is not moving a gauge to switch off a warning light (§1).** Nothing is hidden
+and no threshold is lowered: `count`, `distinct_keys`, `keys_sample` and `last_age_s`
+are still reported for the full fifteen minutes — that forensic memory is exactly
+what R-F4107 (C-140) added and it is untouched, with its own tests still green — and
+`state_backend.status` stays amber. What changed is only whether a condition that has
+demonstrably STOPPED keeps the whole service at `degraded`. Retiring it on the
+evidence that reads are answering again is the C-41 rule: the same evidence class
+that set the latch retires it.
+
+`degraded` now requires BOTH volume and an ACTIVE burst (`last_age_s <= 120 s`), and
+each condition is proven necessary by its own test — volume alone made a recovered
+burst look live, recency alone would fire on a single blip. A live outage keeps
+producing timeouts, so `last_age_s` stays small and the signal survives; that case is
+pinned by `test_a_burst_still_arriving_is_still_a_degradation`.
+
+`during_boot_only` is reported alongside, and deliberately does NOT suppress anything
+on its own. A burst inside the ~10-minute heavy boot (§11c) and a burst in steady
+state are different findings demanding different responses, and the old rule could
+not tell them apart — the same two-axes discipline R-F3873 used to keep `quarantined`
+and `blocked` separate.
+
+**Not claimed to be fixed:** the boot-window contention that produced the six
+timeouts still happens. It is transient, the store is provably fast, and chasing it
+is the open §28 IO investigation — a different and much larger piece of work. What is
+fixed is that a burst which has ended no longer reads as an outage in progress.

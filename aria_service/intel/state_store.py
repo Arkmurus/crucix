@@ -2401,6 +2401,24 @@ _error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attem
 _READ_TIMEOUT_WINDOW_S = 900.0     # 15 min — long enough to survive a boot poll
 _READ_TIMEOUT_DEGRADE_AT = 5       # a blip is noise; the live burst was 26
 _READ_TIMEOUT_MAX = 500            # bounded: never a leak, never a lifetime tally
+# R-F4273 (C-233) — a burst is an OUTAGE only while it is still arriving.
+#
+# The 900s window is the forensic MEMORY (C-140) and must stay long. But `degraded`
+# was derived from volume alone over that whole window, so a burst that ended ten
+# minutes ago was indistinguishable from one happening right now. Measured live at
+# c58871a7: count frozen at 6 while last_age_s climbed 588 → 634 → 679 across three
+# samples, and the service was still pinned at `degraded` — after the store had been
+# answering every read for ten minutes.
+#
+# Recency is what separates the two, because an ongoing outage keeps producing
+# timeouts. This is the C-41 rule (a burst is retired by the same evidence class that
+# set it) rather than a lowered threshold: volume still has to clear DEGRADE_AT.
+_READ_TIMEOUT_ACTIVE_S = 120.0
+# §11c — the ~10-minute heavy boot legitimately contends the store. A burst there and
+# a burst in steady state are DIFFERENT findings needing different responses, and the
+# old rule could not tell them apart (the R-F3873 two-axes rule). Labelled, not hidden.
+_READ_TIMEOUT_BOOT_WINDOW_S = 900.0
+_PROCESS_START_MONO = time.monotonic()
 _read_timeouts: list[tuple[float, str]] = []
 
 
@@ -2439,18 +2457,33 @@ def read_timeout_report(window_s: float = _READ_TIMEOUT_WINDOW_S) -> dict:
                 seen.append(k)
             if len(seen) >= 10:
                 break
+        # R-F4273 — is the burst STILL ARRIVING? An ongoing outage keeps producing
+        # timeouts, so `last_age_s` stays small; a burst that stopped lets it climb.
+        active = bool(recent) and last_age is not None and last_age <= _READ_TIMEOUT_ACTIVE_S
+        # Did every one of them land inside the heavy-boot window (§11c)? Reported so
+        # a reader can tell boot contention from a steady-state store fault; it does
+        # NOT suppress anything on its own.
+        during_boot_only = bool(recent) and (
+            max(t for t, _ in recent) - _PROCESS_START_MONO <= _READ_TIMEOUT_BOOT_WINDOW_S
+        )
         return {
             "window_s": float(window_s),
             "count": len(recent),
             "distinct_keys": len({k for _, k in recent}),
             "last_age_s": last_age,
             "keys_sample": seen,
-            "degraded": len(recent) >= _READ_TIMEOUT_DEGRADE_AT,
+            "active": active,
+            "during_boot_only": during_boot_only,
+            # BOTH conditions, and each is proven necessary by its own test: volume
+            # alone made a recovered burst look live; recency alone would fire on a
+            # single blip.
+            "degraded": len(recent) >= _READ_TIMEOUT_DEGRADE_AT and active,
         }
     except Exception:      # pragma: no cover
         # Could not measure. Say so — never render an unknown as healthy (C-96).
         return {"window_s": float(window_s), "count": 0, "distinct_keys": 0,
-                "last_age_s": None, "keys_sample": [], "degraded": False,
+                "last_age_s": None, "keys_sample": [], "active": False,
+                "during_boot_only": False, "degraded": False,
                 "unmeasurable": True}
 
 
