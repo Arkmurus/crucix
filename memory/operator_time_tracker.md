@@ -3552,3 +3552,117 @@ test, or `verify_commit.py` grows an explicit, named exemption for
 adjudication/training R-numbers that touch no `aria_service/` code. The second is
 the better fix — this will recur on every training cycle — but it widens a guard,
 so it is an operator decision, not something to slip in behind a blocked push.
+
+## Session 2026-08-23 (part 3) — R-F4240..R-F4241 · the training lane, and one pod instead of seventy
+
+Operator: *"proceed with full aria training cycle … working towards full autonomy
+in reasoning and mastering her sectors in depth, follow codex last session as
+well as stop deleting pods ensure to use same pods for the training sessions"*,
+then *"proceed with serious precision and root approach in mind of making aria
+the greatest on her field"*.
+
+### The paid cycle did NOT run — RunPod balance
+
+`clientBalance $3.92`, read live from the vendor's own GraphQL, not inferred. A
+weekly cycle is $8–18 (§24). Everything up to the paid step was done; the spend
+was not attempted. **Operator action: top up RunPod.**
+
+The number that matters more: with **zero pods RUNNING** the account still billed
+`currentSpendPerHr 0.077` — **$55.44/month** — so idle storage alone was ~51h of
+runway. That is the whole balance draining while nothing trains.
+
+### Codex's last session, finished
+
+R-F4167's interpolation sweep had been stranded three days on a stopped pod the
+harvest could not get back (`not_enough_free_gpus_on_host`). Resumed the SAME
+pod; R-F4197's tool recovered **3/3 complete 168-row reports** and confirmed the
+stop. **This is the operator's instruction paying for itself** — a delete would
+have destroyed measurements a paid sweep produced.
+
+**R-F4240 — reject_all_arms.** α 0.125/0.25/0.5 → 160/159/158 honest, resolution
+**11/16** at every α, against an incumbent 161 and 13/16. The loss is flat, not
+proportional to α, so the direction is wrong on this axis rather than too strong.
+R-F4164 already rejected 0.25/0.5/0.75 of the same direction. **Interpolation is
+closed. Do not fund another α.**
+
+### The root cause, which is worth more than the tenth candidate
+
+Nine candidates, no promotion, none ever above 13/16 on resolution. Two
+hypotheses ruled out by measurement before concluding:
+
+* **sampling noise on a 16-row axis** — NO. `eval_tooluse.py:207` sends
+  `temperature 0.0` and `serve_eval_shim.py:82` sets `do_sample = temperature > 0`.
+  Greedy. Every ±1 is real behaviour.
+* **a mis-specified scorer** — NO, though it looked likely: twelve adapters
+  scored 16/16 under the old scorer and the SAME stored answers fail under
+  R-F4160. Reading the answers settles it — the scorer is right both times.
+
+The model's own output shows the defect. For `Prudential` it lists five
+candidates then says *"The first result is PRUDENTIAL PUBLIC LIMITED COMPANY"* —
+promoting the registry's first row to an answer. For `Compass` it lists
+`COMPASS LTD (11466170)` and then says *"I did not find a company with the name
+Compass that is active"* — denying the answer one line after stating it.
+
+**Not two opposite errors. One error: the selection step is never performed.**
+The model treats the candidate list as the deliverable and appends a closer never
+derived from it. That is why nine curricula all failed — they tuned *whether to
+commit*, so both poles moved together (interpolation v2 newly broke Meggitt,
+Cobham, Lockheed Martin UK Limited, all "did not select the resolved company",
+while Prudential stayed broken). Branch balance was never missing; v1 had it.
+The **rejected** side must be a plausible list-plus-closer, not a deterministic
+non-resolution. Written up in `docs/resolution_axis_root_cause_2026_08_23.md`.
+
+### R-F4241 — one pod of record, reused, nothing deleted
+
+70 pods, all EXITED, one created per cycle. Nothing ever deleted them and nothing
+ever reused one, so each cycle created the next: **"stop deleting" and "use the
+same pod" are the same fix**, and the cost comes from CREATING, not from keeping.
+
+Enforced at the ONE choke point every launcher already goes through
+(`_create_v04_pod.py`) — curating fifteen launchers is whack-a-mole. `decide()`
+is pure and tri-state: an unreadable inventory is BLOCKED, never CREATE. No
+DELETE anywhere, proven by an AST guard that is itself proven able to fail.
+Adopted `ydfgy06ik7fzca` (A40, 20 GB volume at /workspace).
+
+Two defects found by measuring rather than assuming:
+
+* the package import broke **script-mode** invocation, printing NOTHING on
+  stdout — which the launcher reads as a capacity failure: 15 retries, ~22 min,
+  "GAVE UP", real cause only on stderr.
+* the pod resumed to **RUNNING with SSH and NO GPU** (`runtime.gpus: []`, and
+  in-machine `torch.cuda.is_available()` False, no `/dev/nvidia*`). A start that
+  succeeds without the GPU is a capacity refusal wearing a success. A paid start
+  now requires the GPU **confirmed**, not un-refuted, and stops the pod when it
+  is not.
+
+Reuse's own hazard closed too: a reused `/workspace` holds the last run's
+reports, so a cycle dying before writing its own would let the harvester publish
+a stale report as this run's measurement. Evidence is moved aside, never deleted.
+
+### Peer unblock
+
+The peer agent's push failed on **my** R-F4240 having no capability test, and
+they correctly refused to widen `verify_commit.py` behind a blocked push. Wrote
+the test instead (13, mutation-proven): a verdict must re-derive from the reports
+it cites, the cited hashes must still match, all arms must share one
+`eval_sha256` and one `scorer_version`, and the gate applied must equal the gate
+registered *before* the run. It also proves the gate can **open** — every arm on
+record has been rejected, which is exactly when an always-reject bug hides.
+
+### Live at close
+
+`origin/main 7fca47c1`, verifier PASS, 230 tests green in the pre-push run.
+**No deploy — tooling, tests and eval artefacts only; no `aria_service/` runtime
+change.** §24 pre-flight re-run and recorded: 105 files / 23,309 rows,
+`CONTAMINATION=NO` against frozen pin `a07b6af7…`.
+
+### Outstanding — operator only
+
+1. **Top up RunPod** ($3.92). Nothing trains until then.
+2. **70 stopped pods cost $55.44/mo.** Not deleting any, per instruction — but
+   R-F4241 stops the fleet growing, so the number is now static rather than
+   compounding. Whether to archive the oldest is the operator's call.
+3. Two stale volume ids found and NOT touched: `runpod_cost_guard.py` and
+   `_find_running_pod.py` both reference `4vdw2zmqov`, which no longer exists.
+   The account's only network volume is `swsj40xxvl` (`aria-model-vol`, 100 GB,
+   US-KS-2). `cost_guard recover` would provision against a volume that is gone.
