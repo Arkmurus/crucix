@@ -36633,9 +36633,10 @@
       "title": "C-233 state read-timeout degraded verdict requires an ACTIVE burst",
       "claimed_at": "2026-08-23T18:05:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "da7c350d",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:20:00Z"
     }
   ]
 }

@@ -2662,8 +2662,10 @@
       "title": "a recovered read-timeout burst is reported as an ongoing degradation",
       "claimed_at": "2026-08-23T18:05:24Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
+      "status": "closed",
+      "r_numbers": [
+        "R-F4273"
+      ],
       "notes": null
     }
   ]
