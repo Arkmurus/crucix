@@ -33,7 +33,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ..intel.engine_wiring import wire_success
+from ..intel.engine_wiring import wire_failure, wire_success
 from ..intel.wire import fail_wire
 from ..vetting.models import (
     CareerEntry,
@@ -1822,8 +1822,38 @@ async def vetting_retention_ep(as_of: str | None = None, user_id: str = ""):
         })
 
     overdue = [r for r in rows if r["overdue"]]
-    wire_success(module=_MODULE,
-                 summary=f"retention reviewed: {len(overdue)} overdue of {len(rows)}")
+    # R-F4258 (C-223) — AN OVERDUE FILE IS A BREACH, NOT A SUCCESS.
+    #
+    # This reported every review through `wire_success`, including reviews that
+    # found files past their lawful disposal date. The count was in the summary
+    # STRING, but the signal TYPE was positive — so `capability_gaps`, the
+    # self-heal loop and every operator surface that reads failures saw nothing.
+    # A number published where no verdict consumes it is the C-96 defect, here
+    # sitting on a UK GDPR / BS7858 retention obligation.
+    #
+    # The review SUCCEEDING and the review FINDING something are different
+    # facts. A clean review is still a success — silence is the correct answer
+    # when nothing is overdue, and paging on every look is how an alert becomes
+    # background noise. Flood control is `record_gap`'s existing dedupe, not a
+    # new latch here: this endpoint is view-triggered and could be polled.
+    if overdue:
+        wire_failure(
+            module=_MODULE,
+            detail=(
+                f"{len(overdue)} vetting case(s) are PAST their retention due "
+                f"date and have not been disposed: "
+                f"{', '.join(r['case_id'] for r in overdue[:10])}"
+                f"{' …' if len(overdue) > 10 else ''}. Personal data held beyond "
+                f"its lawful retention period is a breach, not a backlog. "
+                f"OPERATOR ACTION: POST /api/aria/vetting/case/{{case_id}}/dispose "
+                f"for each. Disposal is MANUAL — nothing schedules it."
+            )[:600],
+            gap_type="data_protection_violation",
+            source="vetting_retention:overdue",
+        )
+    else:
+        wire_success(module=_MODULE,
+                     summary=f"retention reviewed: 0 overdue of {len(rows)}")
     return {"as_of": resolved_as_of.isoformat(), "cases": rows,
             "overdue_count": len(overdue)}
 

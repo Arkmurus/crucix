@@ -14199,3 +14199,67 @@ affirmative one, the once-per-process latch under 25 calls, the log level, the
 one-decision-point coverage of both routes, and that a throwing sink cannot change
 the control's answer. **Mutation-proven:** removing the report reddens 8. Vetting
 regression 341 passed / 0 failed. Wiring audit exits 0.
+
+## C-223 · an overdue retention file was reported as a SUCCESS (fixed, R-F4258)
+
+`GET /api/aria/vetting/retention` was, on inspection, mostly right —
+`RetentionVerdict.overdue` is correctly derived (`due <= as_of`), surfaced per row,
+and totalled into `overdue_count`. I checked three separate hypotheses against this
+module and the code beat all three; that is worth recording, because the defect
+that survived is subtler than any of them.
+
+It ended every review with:
+
+```python
+overdue = [r for r in rows if r["overdue"]]
+wire_success(module=_MODULE,
+             summary=f"retention reviewed: {len(overdue)} overdue of {len(rows)}")
+```
+
+**A file held past its lawful disposal date landed as a POSITIVE signal.** The
+count was in the summary STRING, but the signal TYPE was success — so
+`capability_gaps`, the self-heal loop and every operator surface that reads
+failures saw nothing. A number published where no verdict consumes it is the C-96
+defect, here sitting on a UK GDPR / BS7858 retention obligation.
+
+### The distinction
+
+The review SUCCEEDING and the review FINDING something are different facts. A
+clean review stays a success — silence is the correct answer when nothing is
+overdue, and paging on every look is how an alert becomes background noise (the
+R-F4024 cry-wolf rule). A test asserts the branches are that way round, because
+inverted they would page on a clean review and stay quiet on a breach.
+
+Flood control is `record_gap`'s existing dedupe, not a new latch: the endpoint is
+view-triggered and could be polled.
+
+### A NameError that would only fire on a breach
+
+`wire_failure` was referenced in the new branch and **not imported** —
+`wire_success` was the only import. `py_compile` passed, because it is a runtime
+`NameError`, **and only on the overdue path**: the signal would have raised at
+exactly the moment it mattered and never in testing. Caught by asking the §3b
+question (does this name resolve?) rather than trusting a green compile — the same
+§11c lesson C-217 records for an indentation change. A test now binds both sinks
+and is mutation-proven.
+
+### What is deliberately NOT fixed
+
+**Nothing schedules disposal.** `POST /case/{case_id}/dispose` is manual, and no
+task or loop scans for overdue cases, so this signal still only fires when someone
+looks. A background sweeper was considered and rejected as disproportionate:
+production holds **1 vetting case across 1 tenant** (measured 2026-08-23), so a
+boot-path loop would be machinery watching a near-empty set. `tasks.yaml` is also
+the wrong home — its 98 entries are LLM/research prompts with cost caps, not
+deterministic date comparisons.
+
+**The trigger to revisit is case volume.** When vetting carries real caseload, the
+`_expiry_sweeper_loop` pattern in `main.py` (singleton-guarded, brain-wired,
+interval-driven) is the model to copy — and disposal must stay operator-initiated;
+an automatic deleter of personal data is not something to add quietly.
+
+### Verification
+
+7 tests. Mutation-proven twice: removing the import reddens the resolve test, and
+the branch-order assertion pins that a clean review cannot page. Vetting regression
+319 passed / 0 failed; wiring audit 0.
