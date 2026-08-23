@@ -36413,9 +36413,10 @@
       "title": "the general harvest was only general over DPO runs",
       "claimed_at": "2026-08-23T10:03:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "99ecc6e1",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:05:05Z"
     }
   ]
 }
