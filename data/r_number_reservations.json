@@ -36374,9 +36374,10 @@
       "title": "no paid DPO cycle may run on a curriculum where length predicts the label",
       "claimed_at": "2026-08-23T07:18:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9bfe862c",
+      "notes": null,
+      "shipped_at": "2026-08-23T07:24:19Z"
     }
   ]
 }
