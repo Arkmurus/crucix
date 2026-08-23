@@ -36523,27 +36523,30 @@
       "title": "promote vendor balance severity into degraded_reasons (dossier E1)",
       "claimed_at": "2026-08-23T12:30:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aa677d05",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:09Z"
     },
     {
       "r_number": "R-F4262",
       "title": "a failed knowledge seed is recorded as success then suppressed 30 days (dossier E2)",
       "claimed_at": "2026-08-23T14:44:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "01d8d90e",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:09Z"
     },
     {
       "r_number": "R-F4263",
       "title": "date the wiring debt ledger so it can be aged (dossier E9)",
       "claimed_at": "2026-08-23T15:06:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dd3accf1",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:10Z"
     },
     {
       "r_number": "R-F4264",
