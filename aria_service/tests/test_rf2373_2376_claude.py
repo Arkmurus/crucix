@@ -130,13 +130,33 @@ def test_rf2375_phase_gates_measures_gate4_and_honest_gate3():
     assert g4.get("value") != -1
     assert isinstance(g4.get("value"), int) or g4.get("measurable") is False
 
-    # Gate #3 is honestly reported as NOT measurable (no windowed ERROR source),
-    # never a fabricated pass/fail with a -1 value.
+    # Gate #3 — R-F4238 (2026-08-23): this asserted `pass is None` /
+    # `measurable is False`, which was correct when R-F2375 was written (there
+    # was no windowed ERROR source, so "unmeasurable" was the honest answer).
+    # **R-F2622 then BUILT that source** — a durable, TTL-less error-streak
+    # anchor written at `record_error()` time — so gate #3 is now genuinely
+    # MEASURED, and the test had been standing red in docs/suite_baseline.json
+    # ever since, asserting the absence of a capability that now exists.
+    #
+    # R-F2375's surviving intent is the anti-fabrication half, and that is what
+    # is asserted now: gate #3 must never carry the -1 sentinel, and its verdict
+    # must be tri-state-honest — a real bool when the streak can be measured,
+    # None when it cannot. What it must NOT be is a number invented to fill the
+    # field. (§1: R-F2622 replaced a pass that was certified by an EMPTY ledger.)
     g3 = gates["gate_3_zero_errors"]
     assert g3.get("value") != -1
-    assert g3.get("pass") is None
-    assert g3.get("measurable") is False
+    assert g3.get("pass") in (True, False, None)
+    assert g3.get("measurable") is (g3.get("pass") is not None), (
+        "`measurable` is derived from `pass` in _gate() — they can never disagree")
+    if g3.get("pass") is not None:
+        # Measured: R-F2622 requires the streak to come from the durable anchor,
+        # and says so on the gate. A measured gate #3 with no basis would be the
+        # fabricated pass it exists to prevent.
+        assert g3.get("streak_basis"), (
+            "a MEASURED gate #3 must name what it measured the streak from")
 
     # Summary distinguishes measurable from unmeasurable (no silent fail-by-default)
     assert "measurable" in summary and "unmeasurable" in summary
-    assert summary["unmeasurable"] >= 1
+    assert summary["measurable"] + summary["unmeasurable"] == summary["total"], (
+        "every gate must be counted exactly once — R-F2375's real point is that "
+        "an unmeasurable gate is neither a pass nor a silent failure")

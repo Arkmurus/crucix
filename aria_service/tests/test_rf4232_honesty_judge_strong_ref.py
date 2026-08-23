@@ -73,6 +73,24 @@ _SIGNAL_WRITERS = {
 }
 
 
+def _bare_spawns_in(source: str) -> dict[str, str]:
+    """The detector, over ANY source — so it can be proven on a known-bad sample."""
+    import ast
+
+    tree = ast.parse(source)
+    bare: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        fn = node.value.func
+        if not (isinstance(fn, ast.Attribute) and fn.attr == "create_task"):
+            continue
+        for arg in node.value.args:
+            if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name):
+                bare[arg.func.id] = "discarded"
+    return bare
+
+
 def _bare_spawns() -> dict[str, str]:
     """AST: coroutine names passed to a create_task whose RESULT IS DISCARDED.
 
@@ -161,16 +179,49 @@ class TestTheSpawnSiteHoldsAReference:
     def test_the_guard_can_still_see_a_bare_spawn(self):
         """A guard that cannot detect the defect is not a guard (R-F3858).
 
-        This file's own sweep found TWELVE bare create_task calls in
-        routes/aria.py. The three above are fixed because they write gate #1's
-        signals; the rest are recorded in C-212 as known debt. Their continued
-        presence is what proves this detector still works.
+        This USED to assert that bare spawns still existed in routes/aria.py —
+        C-212 left nine of them as known debt, and their presence doubled as
+        proof the detector worked. R-F4237 (C-217) then pinned all seventeen, so
+        that proof evaporated: the assertion would have gone green because the
+        defect is gone, which is indistinguishable from green because the
+        detector broke. Proven on a SYNTHETIC known-bad sample instead, which
+        does not require production to carry debt forever.
+        """
+        bad = _bare_spawns_in(
+            "import asyncio\n"
+            "async def _f():\n"
+            "    pass\n"
+            "def g():\n"
+            "    asyncio.create_task(_f())\n"
+        )
+        assert "_f" in bad, (
+            "the AST detector no longer recognises a bare create_task — it is "
+            "now certifying an absence")
+
+        good = _bare_spawns_in(
+            "import asyncio\n"
+            "async def _f():\n"
+            "    pass\n"
+            "def g():\n"
+            "    _hold_job_task(asyncio.create_task(_f()))\n"
+        )
+        assert "_f" not in good, (
+            "the detector flags a PINNED spawn — it would fail on correct code")
+
+    def test_no_bare_spawn_remains_in_the_module(self):
+        """R-F4237 (C-217) — the debt C-212 recorded is now closed.
+
+        Seventeen bare `create_task` expression statements existed; C-212 said
+        twelve, because that number came from a grep and an AST sweep found five
+        more. Every one is now pinned with `_hold_job_task`. This assertion is
+        what stops the class returning one call site at a time.
         """
         bare = _bare_spawns()
-        assert bare, (
-            "the AST detector found NO bare spawns anywhere in routes/aria.py — "
-            "either every one was fixed (update this guard) or the detector "
-            "stopped matching and is now certifying an absence")
+        assert not bare, (
+            f"bare create_task(s) reintroduced in routes/aria.py: {sorted(bare)}. "
+            f"asyncio keeps only a WEAK reference, so under a saturated loop "
+            f"these are garbage-collected before they run (R-F1363/R-F1377). "
+            f"Wrap with _hold_job_task(...).")
 
 
 class TestThePinningMechanismActuallySurvivesGC:

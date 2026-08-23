@@ -13694,3 +13694,127 @@ guard that can be talked out of firing is not a guard.
 A `test_the_sweep_finds_something_to_check` companion asserts the marker scan still
 matches something, so the suite cannot pass vacuously if CLAUDE.md's headings
 change shape (§16/R-F3791: a guard whose universe is empty always certifies).
+
+## C-216 · mastery was lifted to silence an alert, not to record learning (fixed, R-F4236)
+
+The THIRD and last reading trophy, and the only one that stated its motive::
+
+    # Lift mastery on the exact starved tag (not the auto-detected ones — that
+    # would re-write to lang:* or compliance, and we explicitly need the named
+    # tag to move so the proactive alert stops repeating).
+    await update_mastery([stag], correct=True, weight=0.2)
+
+R-F2660 removed this pattern from the R-F1744 regional loop, R-F2661 from the
+R-F196 article->regional bridge, R-F2859 from its topic sibling. This one survived
+all three, **inside the per-hit loop**, so a tag could be credited twice for the
+mere existence of two search results. Nothing about comprehension was tested —
+and the comment says why: **the gauge was being moved to switch off a warning
+light.**
+
+### Why it was skipped when its siblings were fixed
+
+Starved tags (`angola_procurement`, `uk_export_control`) arrive from the proactive
+reading queue and sit **outside TOPICS**, so they are not topic x region cells and
+`_grade_researched_cell` could not express them. The honest grader existed; it just
+did not fit.
+
+R-F4236 extracts the shared tail as `_grade_researched_question` and adds
+`_grade_researched_tag`, so there is now **ONE grader with three callers** — the
+value R-F2661 stated ("so every mastery mover grades identically") but could only
+honour for callers with a topic x region pair. The existing cell question wording
+is unchanged, and a test pins that.
+
+### The justification no longer holds even on its own terms
+
+R-F163's reasoning was: the tag can never be studied, so it stays weak, so the
+alert repeats forever. **R-F211 — later than R-F163 — fixed that properly**, with
+an announce-hash dedup on a 14-day TTL (`LAST_MASTERY_PREP_HASH_KEY`,
+`ex=14*86400`). An unchanged weak set is suppressed whether or not mastery moves.
+`starved_studied` already records that the tag WAS studied, which is the honest
+artefact this branch produces.
+
+### Shape of the fix
+
+Graded **once per tag on the combined text**, not once per hit (cheaper, and
+spreading one recall result over several hits would be a fresh fabrication);
+budget-bounded via `ARIA_STARVED_GRADE_BUDGET` (default 2) exactly like R-F2661;
+tri-state `None` **skips** the update — an unmeasured tag is neither a pass nor a
+miss (R-F3483/R-F3694).
+
+**Expect topic mastery to fall** where tags were previously credited for finding
+text. That is the measure becoming earned, not a regression — the same warning §1
+carries for gate #2 after R-F2660.
+
+### Verification
+
+11 capability tests driving the REAL `reading_session()` (harness mirrored from
+test_rf2859, both search paths stubbed per R-F3318 so no live network).
+**Mutation-proven:** restoring the trophy reddens 5 of them; all 11 green on
+revert. Regression: 672 passed / 4 failed on the student, mastery, heatmap,
+reading and proactive surfaces — all four in `docs/suite_baseline.json`.
+
+## C-217 · seventeen bare `create_task` calls, not the nine C-212 recorded (fixed, R-F4237)
+
+C-212 pinned the three that write Phase A gate #1 signals and recorded the rest as
+known debt, counted by grep as nine. **An AST sweep found seventeen** — the grep
+missed multi-line and differently-aliased spawns, which is the same
+substring-vs-AST lesson C-212 itself records about its own first guard.
+
+Every one is now wrapped in `_hold_job_task` (R-F1377's existing helper — no new
+mechanism). asyncio keeps only a WEAK reference to a task, so under a saturated
+loop an unreferenced task is collected before it runs; the loop was measurably in
+that state for months (C-95: p95 3264 ms until 2026-08-14). Sites include
+`_learn_correction_bg`, `_rlaif_bg`, `_crit_bg`, the two `_r655_absorb_bg` paths,
+`_bg_dd`, `_rebuild_bg`, `_regen_self_diagnostic_bg`, both
+`_refresh_hallucination_cache` calls and the multi-page PDF ingest.
+
+**The guard that proved the detector had to change too.** C-212's
+`test_the_guard_can_still_see_a_bare_spawn` asserted bare spawns still EXISTED,
+using production debt as proof the detector worked. With the debt cleared that
+assertion would have gone green because the defect is gone — indistinguishable
+from green because the detector broke. It now proves itself on a **synthetic
+known-bad sample** plus a synthetic pinned sample (so it cannot flag correct code),
+and a new `test_no_bare_spawn_remains_in_the_module` stops the class returning one
+call site at a time.
+
+Mechanical rewrite by AST position (last-to-first so offsets stay valid): 18
+insertions / 18 deletions, whole-file compile clean, boot-path import clean.
+
+### C-217 fallout: a sibling guard was pinned to the old formatting
+
+`test_rf655_absorbs_are_fire_and_forget` matched
+`r"R-F655[^\n]*\n(?:.*\n){5,40}?\s*_aio655[s]?\.create_task"` — requiring
+`create_task` to be preceded only by whitespace. Wrapping the spawn in
+`_hold_job_task(...)` broke that, and the test reported **0 blocks found**, i.e.
+"the fire-and-forget capability is GONE", when the absorbs were spawned exactly as
+before and merely pinned.
+
+Rewritten as AST over the invariant R-F655 actually protects — the absorb
+coroutines are **scheduled and never awaited inline** — independently of how the
+call is spelled. **Mutation-proven:** replacing one spawn with
+`await _r655_absorb_bg()` still reddens it.
+
+Third time in two sessions that a source-text guard reported a defect that was
+only a reformat (C-212's own first guard, C-215's negation filter, this).
+**Assert the invariant, not the spelling.**
+
+## R-F4238 · a baseline-red test asserted gate #3 is unmeasurable, which R-F2622 changed
+
+`test_rf2375_phase_gates_measures_gate4_and_honest_gate3` asserted
+`gate_3.pass is None` and `measurable is False`. That was correct when R-F2375 was
+written — there was no windowed ERROR source, so "unmeasurable" was the honest
+answer. **R-F2622 then BUILT that source** (a durable, TTL-less error-streak anchor
+written at `record_error()` time), so gate #3 is genuinely MEASURED and the test
+had been standing red in `docs/suite_baseline.json` ever since — asserting the
+absence of a capability that now exists, and therefore unable to report anything.
+
+R-F2375's surviving intent is the anti-fabrication half, and that is what it
+asserts now: gate #3 never carries the `-1` sentinel; its verdict is
+tri-state-honest; `measurable` is derived from `pass` so the two cannot disagree;
+and a MEASURED gate #3 must name its `streak_basis` — a measured verdict with no
+basis would be exactly the pass-certified-by-an-empty-ledger R-F2622 removed. The
+summary assertion also tightened from `unmeasurable >= 1` to
+`measurable + unmeasurable == total`, which is R-F2375's real point: every gate
+counted once, an unmeasurable one neither a pass nor a silent failure.
+
+8 tests in the file pass. One fewer standing red.

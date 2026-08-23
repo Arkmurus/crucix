@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4236,
+  "next_available": 4239,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36268,6 +36268,33 @@
       "commit_sha": "1d15476c",
       "notes": null,
       "shipped_at": "2026-08-23T04:54:22Z"
+    },
+    {
+      "r_number": "R-F4236",
+      "title": "the third reading trophy: starved-tag search hits lifted topic mastery unconditionally",
+      "claimed_at": "2026-08-23T04:59:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4237",
+      "title": "pin the remaining fire-and-forget tasks in routes/aria.py",
+      "claimed_at": "2026-08-23T05:04:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4238",
+      "title": "a baseline-red test still asserted gate 3 is unmeasurable, which R-F2622 changed",
+      "claimed_at": "2026-08-23T05:08:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

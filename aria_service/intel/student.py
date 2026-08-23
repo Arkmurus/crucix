@@ -1919,7 +1919,18 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         try:
             from . import researcher as _res
             from . import knowledge as _kb
+            # R-F4236 — cost guard for the honest grade below, mirroring
+            # R-F2661's: the grader calls the local reasoning stack, so it is
+            # bounded per session. Tags beyond the budget are SKIPPED, never
+            # credited — an unmeasured tag is not a pass (CLAUDE.md §1).
+            try:
+                _starved_grade_budget = int(
+                    os.getenv("ARIA_STARVED_GRADE_BUDGET", "2") or 2)
+            except ValueError:
+                _starved_grade_budget = 2
+            _starved_grades_used = 0
             for stag in starved_queue_topics[:3]:
+                _starved_text: list[str] = []
                 # Tag-name shape: 'angola_procurement' -> 'angola procurement'
                 pretty = stag.replace("_", " ").replace(":", " ")
                 query = f"{pretty} defence procurement news 2026"
@@ -1980,16 +1991,60 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                         )
                     except Exception as _ke:
                         logger.debug("[student] starved-tag kb store failed: %s", _ke)
-                    # Lift mastery on the exact starved tag (not the
-                    # auto-detected ones — that would re-write to lang:*
-                    # or compliance, and we explicitly need the named tag
-                    # to move so the proactive alert stops repeating).
-                    await update_mastery([stag], correct=True, weight=0.2)
+                    _starved_text.append(f"{title}\n{snippet}")
                     starved_studied.append({
                         "tag": stag,
                         "title": title[:120],
                         "url": url,
                     })
+
+                # ── R-F4236 (C-216) — HONEST grade, not a participation trophy.
+                #
+                # This was `update_mastery([stag], correct=True, weight=0.2)`
+                # INSIDE the hit loop, so a tag was credited up to twice for the
+                # mere existence of a search result — measuring reading VOLUME,
+                # not comprehension. It is the THIRD instance of the trophy
+                # R-F2660 removed from the R-F1744 loop and R-F2661 from the
+                # R-F196 article path, and the last mastery mover still doing it.
+                #
+                # Its own comment gave the reason: "we explicitly need the named
+                # tag to move so the proactive alert stops repeating". That is
+                # moving the gauge to switch off the warning light — and it is no
+                # longer needed even on its own terms: R-F211 (LATER than R-F163)
+                # dedupes the mastery-prep alert on an announce hash with a
+                # 14-day TTL, so an unchanged weak set is suppressed whether or
+                # not mastery moves. `starved_studied` already records that the
+                # tag WAS studied, which is the honest thing this branch produces.
+                #
+                # Graded ONCE per tag on the combined text, not once per hit:
+                # cheaper, and one recall result spread over several hits would
+                # be a fresh fabrication. Budget-bounded like R-F2661, and a
+                # tri-state None SKIPS the update — an unmeasured tag is neither
+                # a pass nor a miss (R-F3483/R-F3694).
+                if _starved_text and _starved_grades_used < _starved_grade_budget:
+                    _sgraded = None
+                    try:
+                        from ..autonomous.tasks import _grade_researched_tag as _gtag
+                        _starved_grades_used += 1
+                        _sgraded = await _gtag(stag, "\n\n".join(_starved_text)[:4000])
+                    except Exception as _sge:
+                        logger.debug(
+                            "[student] R-F4236 honest grade skipped for %s: %s",
+                            stag, _sge,
+                        )
+                    else:
+                        if _sgraded is None:
+                            logger.info(
+                                "[student] R-F4236 starved tag %s UNMEASURED — the "
+                                "local stack could not answer; not counted either way",
+                                stag,
+                            )
+                        else:
+                            await update_mastery([stag], correct=_sgraded, weight=0.2)
+                            logger.info(
+                                "[student] R-F4236 starved tag %s -> honest mastery "
+                                "grade=%s", stag, _sgraded,
+                            )
         except Exception as _bre:
             logger.warning("[student] starved-tag branch failed: %s", _bre)
 

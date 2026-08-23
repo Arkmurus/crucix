@@ -2455,6 +2455,24 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T04:54:23Z"
+    },
+    {
+      "c_number": "C-216",
+      "title": "mastery was lifted to silence an alert, not to record learning",
+      "claimed_at": "2026-08-23T04:59:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-217",
+      "title": "nine bare create_task calls remained after C-212 fixed three",
+      "claimed_at": "2026-08-23T05:04:49Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

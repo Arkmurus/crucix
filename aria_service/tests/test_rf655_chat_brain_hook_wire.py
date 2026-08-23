@@ -110,17 +110,48 @@ def test_rf655_absorbs_are_fire_and_forget():
     user-facing response. This pattern mirrors the existing
     correction_learner / honesty_judge / rlaif / critique_collector
     background tasks in the same handlers."""
-    # Find both R-F655 absorb blocks; each must reference create_task.
-    rf655_blocks = re.findall(
-        r"R-F655[^\n]*\n(?:.*\n){5,40}?\s*_aio655[s]?\.create_task",
-        _ROUTES_SRC,
+    # R-F4237 (2026-08-23) — AST, not a regex over formatting.
+    #
+    # This was `re.findall(r"...\\s*_aio655[s]?\\.create_task", ...)`, which
+    # required `create_task` to be preceded only by whitespace. R-F4237 wrapped
+    # every fire-and-forget spawn in this module with `_hold_job_task(...)` —
+    # asyncio keeps only a WEAK reference, so an unreferenced task is collected
+    # before it runs under a saturated loop (R-F1363/R-F1377/C-217). The absorbs
+    # are still spawned exactly as before and still not awaited, but the regex
+    # matched 0 blocks and reported the capability as GONE.
+    #
+    # The invariant R-F655 actually protects is "scheduled, never awaited
+    # inline", so that is what is asserted — independently of how the call is
+    # spelled. (Same substring-vs-AST lesson C-217 records about its own guard.)
+    import ast
+
+    tree = ast.parse(_ROUTES_SRC)
+    _ABSORBS = {"_r655_absorb_bg", "_r655_stream_absorb_bg"}
+
+    spawned: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "create_task":
+            for arg in node.args:
+                if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) \
+                        and arg.func.id in _ABSORBS:
+                    spawned.add(arg.func.id)
+
+    awaited_inline = {
+        n.value.func.id for n in ast.walk(tree)
+        if isinstance(n, ast.Await) and isinstance(n.value, ast.Call)
+        and isinstance(n.value.func, ast.Name) and n.value.func.id in _ABSORBS
+    }
+
+    assert spawned == _ABSORBS, (
+        f"R-F655: expected both absorb coroutines (chat + stream) to be spawned "
+        f"as tasks; found {sorted(spawned)}. Inline awaits would add brain_hook "
+        f"fan-out latency (chromadb writes, knowledge fact extraction) to every "
+        f"chat response."
     )
-    assert len(rf655_blocks) >= 2, (
-        f"R-F655: expected 2 fire-and-forget absorb blocks (chat + stream); "
-        f"found {len(rf655_blocks)}. Inline awaits would add brain_hook "
-        "fan-out latency (chromadb writes, knowledge fact extraction) to "
-        "every chat response."
-    )
+    assert not awaited_inline, (
+        f"R-F655: {sorted(awaited_inline)} is AWAITED inline — that is the "
+        f"latency this fix exists to keep off the user-facing response.")
 
 
 def test_rf655_capability_chat_response_feeds_brain_hook(monkeypatch):

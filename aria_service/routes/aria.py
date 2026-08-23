@@ -1463,7 +1463,7 @@ async def dd_orchestrate_ep(req: Request):
                 _log.exception("async dd_orchestrate failed for %s: %s", _run_id, _e)
                 await _ddo.mark_dd_failed(_run_id, str(_e))
 
-        asyncio.create_task(_bg_dd())
+        _hold_job_task(asyncio.create_task(_bg_dd()))
         return {
             "run_id": _run_id,
             "status": "running",
@@ -2015,7 +2015,7 @@ async def admin_state_hotcold_backfill_ep(
         except Exception as _e:  # pragma: no cover — belt-and-braces
             _log.warning("hotcold backfill task failed: %s", _e)
 
-    asyncio.create_task(_run())
+    _hold_job_task(asyncio.create_task(_run()))
     return {"started": True, "page_size": page_size, "sleep_s": sleep_s,
             "reset": bool(reset), "status": await _ss.backfill_status()}
 
@@ -2202,7 +2202,7 @@ async def admin_state_hotcold_reclaim_ep(dry_run: bool = True, batch: int = 1000
         except Exception as _e:  # pragma: no cover
             _log.warning("hotcold reclaim task failed: %s", _e)
 
-    asyncio.create_task(_run())
+    _hold_job_task(asyncio.create_task(_run()))
     return {"started": True, "dry_run": bool(dry_run), "do_vacuum": bool(do_vacuum),
             "batch": batch, "sleep_s": sleep_s}
 
@@ -12806,7 +12806,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                     except Exception as e:
                         _log.warning("correction_learner bg failed: %s: %s", type(e).__name__, e)
                 import asyncio as _aio
-                _aio.create_task(_learn_correction_bg())
+                _hold_job_task(_aio.create_task(_learn_correction_bg()))
         except Exception as e:
             _log.warning("correction_learner dispatch failed: %s: %s", type(e).__name__, e)
 
@@ -12909,7 +12909,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                         )
                     except Exception as _e:
                         _log.debug("[rlaif] bg eval failed: %s", _e)
-                _aio.create_task(_rlaif_bg())
+                _hold_job_task(_aio.create_task(_rlaif_bg()))
         except Exception as e:
             _log.debug("[rlaif] dispatch failed: %s", e)
 
@@ -12933,7 +12933,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                         )
                     except Exception as _e:
                         _log.debug("[critique] bg collect failed: %s", _e)
-                _aio.create_task(_crit_bg())
+                _hold_job_task(_aio.create_task(_crit_bg()))
         except Exception as e:
             _log.debug("[critique] dispatch failed: %s", e)
 
@@ -12975,7 +12975,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                         )
                     except Exception as _e:
                         _log.debug("[R-F655] aria_chat brain_hook absorb failed: %s", _e)
-                _aio655.create_task(_r655_absorb_bg())
+                _hold_job_task(_aio655.create_task(_r655_absorb_bg()))
         except Exception as _e:
             _log.debug("[R-F655] aria_chat brain_hook dispatch failed: %s", _e)
 
@@ -13040,7 +13040,7 @@ def _fire_web_delivery_outcome(session_id: str, outcome: str, detail: str = "", 
                 ))
             except Exception:
                 pass
-        asyncio.create_task(_bg())
+        _hold_job_task(asyncio.create_task(_bg()))
     except Exception:
         pass
 
@@ -13085,7 +13085,7 @@ def _fire_chat_delivery_outcome(
                 ))
             except Exception:
                 pass
-        asyncio.create_task(_bg())
+        _hold_job_task(asyncio.create_task(_bg()))
     except Exception:
         pass
 
@@ -13671,7 +13671,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                                 )
                             except Exception as _e:
                                 _log.debug("[R-F655] aria_chat_stream brain_hook absorb failed: %s", _e)
-                        _aio655s.create_task(_r655_stream_absorb_bg())
+                        _hold_job_task(_aio655s.create_task(_r655_stream_absorb_bg()))
                 except Exception as _e:
                     _log.debug("[R-F655] aria_chat_stream brain_hook dispatch failed: %s", _e)
 
@@ -14773,10 +14773,10 @@ async def _read_document_ep_impl(request: Request):
                     # review needs TEXT (already extracted + ingested per-page above);
                     # image OCR is supplementary and the heaviest in-loop CPU. Sync
                     # callers (email/small uploads) keep image OCR.
-                    asyncio.create_task(pdf_deep_ingest.ingest_pdf_multi_page(
+                    _hold_job_task(asyncio.create_task(pdf_deep_ingest.ingest_pdf_multi_page(
                         raw_bytes, filename, source_context=source,
                         ingest_images=not bool(body.get("defer_intel")),
-                    ))
+                    )))
                 except Exception as _ingest_err:
                     _log.debug("pdf_deep_ingest dispatch failed: %s", _ingest_err)
             except ImportError:
@@ -18630,7 +18630,7 @@ async def rebuild_semantic_index_ep():
         finally:
             _semantic_rebuild_state["running"] = False
 
-    _aio.create_task(_rebuild_bg())
+    _hold_job_task(_aio.create_task(_rebuild_bg()))
 
     return {
         "ok": True,
@@ -19729,7 +19729,7 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
                     portal_id, _res.get("status"), ("len=%d" % len(_k)) if _k else "NONE",
                 )
 
-        _aio1723.create_task(_run1723())
+        _hold_job_task(_aio1723.create_task(_run1723()))
         return {"queued": True, "portal_id": portal_id, "fresh": fresh,
                 "note": "running in-app; poll vault/resolve_key for the result"}
 
@@ -27818,12 +27818,12 @@ async def diagnostic_details_ep():
                 latest["_cache_age_s"] = int(age_s)
                 latest["_stale"] = age_s >= _STALE_S
                 if age_s >= _STALE_S:
-                    asyncio.create_task(_regen_self_diagnostic_bg())
+                    _hold_job_task(asyncio.create_task(_regen_self_diagnostic_bg()))
             return latest
 
         # No cache yet (fresh boot before the 15-min task ran, or the read timed
         # out under load): never block on the ~30s run — placeholder + bg refresh.
-        asyncio.create_task(_regen_self_diagnostic_bg())
+        _hold_job_task(asyncio.create_task(_regen_self_diagnostic_bg()))
         return {
             "ok": True,
             "_regenerating": True,
@@ -28350,7 +28350,7 @@ async def hallucination_stats_ep():
         out["_cache_age_s"] = int(age)
         if age >= _HALL_TTL_S:
             out["_stale"] = True
-            asyncio.create_task(_refresh_hallucination_cache())  # refresh for next caller
+            _hold_job_task(asyncio.create_task(_refresh_hallucination_cache()))  # refresh for next caller
         return out
     # Cold cache: compute once, BOUNDED so it can never hang the proxy, then cache.
     try:
@@ -28358,7 +28358,7 @@ async def hallucination_stats_ep():
         _hall_cache = (now, result)
         return result
     except (asyncio.TimeoutError, Exception):
-        asyncio.create_task(_refresh_hallucination_cache())
+        _hold_job_task(asyncio.create_task(_refresh_hallucination_cache()))
         return {
             "summary": {},
             "self_claim_guard": {},

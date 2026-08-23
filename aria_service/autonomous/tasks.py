@@ -2629,11 +2629,45 @@ async def _grade_researched_cell(
 
     A genuine wrong answer still returns False. The gate is not softened.
     """  # noqa: D205
-    from ..intel import reasoning_router, student
     if not research_text:
         return None          # nothing to compare against — not evidence of a miss
     question = (f"What are the most important {topic.replace('_', ' ')} facts and "
                 f"recent developments for {region.replace('_', ' ')}?")
+    return await _grade_researched_question(question, research_text)
+
+
+async def _grade_researched_tag(tag: str, research_text: str) -> bool | None:
+    """R-F4236 — the same honest grade for a free-form STARVED TAG.
+
+    Starved tags (`angola_procurement`, `uk_export_control`) are not
+    topic x region cells — they arrive from the proactive reading queue and sit
+    outside TOPICS — so `_grade_researched_cell` cannot express them. They were
+    the last mastery mover still crediting `correct=True` for merely FINDING
+    text (R-F163). Same grader, same tri-state, different question.
+    """
+    if not research_text:
+        return None
+    subject = tag.replace("_", " ").replace(":", " ").strip()
+    if not subject:
+        return None
+    question = (f"What are the most important {subject} facts and recent "
+                f"developments?")
+    return await _grade_researched_question(question, research_text)
+
+
+async def _grade_researched_question(question: str, research_text: str) -> bool | None:
+    """The ONE honest grade. Tri-state: True / False / None (unmeasured).
+
+    R-F4236 extracted this from `_grade_researched_cell` so every mastery mover
+    grades identically — the value R-F2661 stated when it reused the cell grader
+    ("so every mastery mover grades identically") but could only honour for
+    callers that had a topic x region pair. The question wording of the existing
+    caller is UNCHANGED; only the shared tail moved here.
+
+    Every failure path returns None, never False: an instrument that could not
+    measure must not record ARIA getting the answer wrong (R-F3483).
+    """
+    from ..intel import reasoning_router
     try:
         local = await reasoning_router.try_local_reasoning(question)
     except Exception:
