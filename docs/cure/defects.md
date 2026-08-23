@@ -14340,3 +14340,38 @@ could never say False, this one can never say True. CLAUDE.md §1 predicted
 **Nothing was changed. No score was reset and no grader was altered** — doing
 either unilaterally would be exactly the close-the-gate-by-measuring-less
 failure §1 forbids.
+
+### C-224 — EVIDENCE CORRECTION (same day, before anyone acts on it)
+
+**The probe that produced the trace above was run in a DETACHED process and was
+invalid.** `flyctl ssh console -C python3` starts a new interpreter with no
+loaded knowledge cache — measured directly: `knowledge._cache` is `None` there,
+and `search_fact_records` returned **0 facts for every query including
+"Rosoboronexport" and "BAE Systems"** against a store holding ~533,000 facts.
+That is the §17 / R-F3853 trap ("probe the running server, not a detached
+process"), and I walked into it while investigating.
+
+**Re-run through the RUNNING server** (`POST /api/aria/reasoning/test`, from
+localhost inside the machine so the token never leaves the box). The difference
+is visible and confirms the first run was brain-less: in-server,
+`reasoning_library` returns real confidences — `0.0717` for latam_lusophone,
+`0.1112` for europe — where the detached run reported a flat `confidence: 0`.
+
+**The finding survives.** In-server, for every question tried:
+
+```
+"...compliance ... for latam lusophone?"  answered: false   (library conf 0.072)
+"...compliance ... for europe?"           answered: false   (library conf 0.111)
+"What is Rosoboronexport?"                answered: false   (grounded_reasoner abstained)
+```
+
+`answered: false` even for an entity ARIA demonstrably holds knowledge about, so
+`_grade_researched_cell` returns `None` and the grader is inert. There is also a
+real knowledge gradient (europe 0.111 > latam 0.072) — both simply sit below the
+answering threshold.
+
+**What this changes:** nothing in the conclusion, everything in how much the
+first trace should be trusted. The numbers that were always valid are the ones
+read from the sqlite store (score/sample distributions) and from git (R-F3483's
+dates) — those need no process state. Anything measured through a detached
+python3 must be re-run in-server before it is cited.
