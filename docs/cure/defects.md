@@ -14046,3 +14046,93 @@ regression 87 passed / 0 failed. Wiring audit exits 0 and now reports
 in six unrelated drift entries from other agents' work (`learning_controller`,
 `route_audit`, and four `learning/*` category changes). `panic.py` can be dropped
 from `known_dark` at the next deliberate re-baseline.
+
+## C-220 · the honesty judge scored against a TRUNCATED source and never said so (fixed, R-F4253)
+
+Found while asking the right question about gate #1's starved honesty axis — not
+"how do we add data?" but "which surfaces produce groundable claims, and are they
+all wired?"
+
+**Mapped: both gate #1 signals are written only from `/chat`, its stream fork, and
+the offline eval.** `dd_orchestrator` — ARIA's highest-stakes grounded output, the
+thing customers pay for, which produces tagged claims against retrieved evidence —
+references `honesty_judge` **zero times**, and uses `source_verifier` for its own
+report logic without ever calling `record_verification`.
+
+The obvious move is to wire DD in. **Measuring first showed that would have been a
+mistake.**
+
+### The bound that makes it a mistake
+
+`_build_judge_user_prompt` cuts the source at 8000 chars — *"aggressive truncation
+… we want it cheap. 8000 chars is plenty for typical research outputs."* Right for
+what it was written for, silent about everything else:
+
+**A claim whose supporting passage sits past the cut is judged `supported: false`,
+and that verdict is indistinguishable from a claim that was genuinely
+unsupported.** `honesty_score` feeds **25% of Phase A gate #1**, so a truncation
+artefact lands on the gate as evidence of dishonesty.
+
+It bites today. `routes/aria.py::_maybe_frame_grounding` deliberately SKIPS
+`dd_orchestrate` output ("so the two marker doctrines don't collide"), so a chat
+turn that ran a DD hands the judge an enormous context that is then cut to its
+first 8000 characters. Wiring DD directly would have manufactured false-negative
+honesty at scale — the exact defect class this session has been removing.
+
+### Recorded, deliberately NOT corrected
+
+`source_chars`, `source_chars_used`, `source_truncated` and `source_coverage` are
+**additive**: no verdict and no score changes, asserted by a test. They persist
+automatically because `record_judgment` spreads `**judgment`, so the stored history
+becomes re-readable for this.
+
+Excluding truncated judgments from `avg_honesty_score` is the arguable next step —
+an unseen passage was UNMEASURED, and §1 is emphatic that "could not measure" is
+not "measured and failed" — but that **alters a Phase A gate input**, and nothing
+in the tree has ever recorded how often truncation happens. Measure first. This is
+the same discipline C-214 applied to the seed yield, and it is why the earlier
+"unsuitable" guess needed correcting.
+
+The literal `8000` became `JUDGE_SOURCE_LIMIT`, read by the prompt builder AND the
+record, so a `truncated` flag can never disagree with the actual cut — two
+constants is the divergence class §17 records for the pricing table.
+**Mutation-proven:** changing the prompt's cut to 4000 reddens that test.
+
+The signal fires only on the genuinely misleading combination — truncated AND at
+least one unsupported claim. A truncated judgment that still scored 1.0 needs no
+attention, and an untruncated low score is a real finding the existing wiring
+already reports. Both negatives are pinned by tests, so this cannot become an
+excuse that suppresses real dishonesty.
+
+8 tests. 464 passed across the honesty, judge, scorer and calibration surfaces.
+
+## C-221 · a best-effort pinning helper raised and broke seventeen call paths (fixed, R-F4254)
+
+Fallout from R-F4237, and caught by a test that was NOT in
+`docs/suite_baseline.json` — so it was newly red and therefore mine.
+
+R-F4237 wrapped all seventeen fire-and-forget spawns with `_hold_job_task(...)`.
+Correct fix; unconsidered consequence: **the helper became part of seventeen call
+paths, so an exception inside it propagates into whatever was being spawned.**
+
+`test_rf2406_dd_rerun_lineage` stubs `asyncio.create_task` to return a plain
+`object()`, and the DD rerun route died with `AttributeError: 'object' object has
+no attribute 'add_done_callback'`. Before R-F4237 the bare result was discarded, so
+the stub was harmless.
+
+Production never takes that path — `create_task` always returns a Task — but the
+principle is one this codebase already applies to every other observability helper,
+twice today alone (`guardian/panic._report`,
+`honesty_judge._wire_truncated_judgment`):
+
+> **A mechanism that exists to protect the work must never break the work.**
+
+A caller that cannot be pinned still runs; it loses only the garbage-collection
+guarantee, which is exactly where it stood before R-F4237 — the failure degrades to
+the old behaviour rather than to an exception. The guard covers the `set.add` too,
+because a non-Task would LEAK: nothing would ever discard it.
+
+`_hold_job_task` now returns the task, so inline use reads naturally. R-F4237's
+contract is preserved, not traded away — a test asserts a real Task is still held
+while pending and still self-cleans. 4 tests; 459 passed / 4 failed on the chat +
+guardian surfaces, all four in the baseline.

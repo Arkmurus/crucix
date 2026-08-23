@@ -14156,10 +14156,39 @@ _CHAT_JOB_TTL_S = 1800  # 30m — covers an 8-min WA poll window + retries
 _ASYNC_JOB_TASKS: set = set()
 
 
-def _hold_job_task(task) -> None:
-    """Pin an async-job task (chatjob.* / readdoc.*) until it completes."""
-    _ASYNC_JOB_TASKS.add(task)
-    task.add_done_callback(_ASYNC_JOB_TASKS.discard)
+def _hold_job_task(task):
+    """Pin a background task until it completes. Returns the task it was given.
+
+    R-F4254 — MUST NOT RAISE. This is a best-effort reference holder, and
+    R-F4237 made it wrap all seventeen fire-and-forget spawns in this module, so
+    an exception here now propagates into whatever was being spawned. It did:
+    `test_rf2406_dd_rerun_lineage` stubs `asyncio.create_task` to return a plain
+    `object()`, and the DD rerun route died with
+    `AttributeError: 'object' object has no attribute 'add_done_callback'`.
+    Before R-F4237 the bare `create_task(...)` result was discarded, so the stub
+    was harmless.
+
+    Production never hits that path — `create_task` always returns a Task — but
+    the principle is the one this module applies to every other observability
+    helper: **a mechanism that exists to protect the work must never break the
+    work.** A caller that cannot be pinned still runs; it merely loses the
+    garbage-collection guarantee, which is exactly where it was before R-F4237.
+
+    Adding a non-Task to the set would ALSO leak, because nothing would ever
+    discard it — so the guard covers the add, not just the callback.
+
+    Returns the task so it can be used inline: `t = _hold_job_task(create_task(...))`.
+    """
+    try:
+        if not hasattr(task, "add_done_callback"):
+            _log.debug("[R-F4254] _hold_job_task got a non-Task (%s) — not "
+                       "pinned; the work still runs, unpinned", type(task).__name__)
+            return task
+        _ASYNC_JOB_TASKS.add(task)
+        task.add_done_callback(_ASYNC_JOB_TASKS.discard)
+    except Exception:
+        _log.debug("[R-F4254] _hold_job_task failed to pin", exc_info=True)
+    return task
 
 
 @fail_wire(module="aria", gap_type="engine_failure")

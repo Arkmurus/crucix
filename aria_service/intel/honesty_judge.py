@@ -144,11 +144,23 @@ JUDGE_SYSTEM = (
 )
 
 
+# R-F4253 — how much SOURCE the judge is shown. One definition, read by the
+# prompt builder AND by the judgment record, so a "truncated" flag can never
+# disagree with the actual cut.
+JUDGE_SOURCE_LIMIT = 8000
+
+
 def _build_judge_user_prompt(claims: list[str], source_content: str) -> str:
     # Aggressive truncation on source content — judge call cost is
     # proportional to this and we want it cheap. 8000 chars is plenty
     # for typical research outputs.
-    src = (source_content or "")[:8000]
+    #
+    # R-F4253 — the literal 8000 became JUDGE_SOURCE_LIMIT so the prompt builder
+    # and the judgment record cannot drift on what "truncated" means. Two
+    # constants would let the record claim full coverage while the prompt cut
+    # the source, which is the divergence class §17 records for the pricing
+    # table. Do NOT inline it again.
+    src = (source_content or "")[:JUDGE_SOURCE_LIMIT]
     claims_block = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(claims))
     return (
         "CLAIMS marked [CONFIRMED] by the agent:\n"
@@ -288,15 +300,82 @@ async def judge_response(llm: Any, response_text: str, tool_context: str) -> dic
 
     supported = sum(1 for v in verdicts if v.get("supported"))
     score = round(supported / len(claims), 3) if claims else None
+    # ── R-F4253 (C-220) — SAY WHEN THE JUDGE ONLY SAW PART OF THE EVIDENCE ──
+    #
+    # `_build_judge_user_prompt` truncates the source at JUDGE_SOURCE_LIMIT
+    # chars ("aggressive truncation ... we want it cheap"), a bound calibrated
+    # for "typical research outputs". A claim whose supporting passage sits past
+    # that cut is judged `supported: false` — and that verdict is
+    # INDISTINGUISHABLE from a claim that was genuinely unsupported.
+    #
+    # It bites today, not hypothetically: `_maybe_frame_grounding` deliberately
+    # SKIPS dd_orchestrate output, so a chat turn that ran a due-diligence tool
+    # hands the judge an enormous context that is then cut to the first 8000
+    # chars. `honesty_score` feeds 25% of Phase A gate #1 — the phase named
+    # Honesty foundation — so a truncation artefact lands directly on the gate.
+    #
+    # Recorded, not corrected: these fields are ADDITIVE and change no verdict
+    # and no score. Excluding truncated judgments from `avg_honesty_score` is
+    # the arguable next step (an unseen passage is UNMEASURED, and §1 is
+    # emphatic that "could not measure" is not "measured and failed") — but
+    # that alters a Phase A gate input, and nothing in the tree has ever
+    # recorded how often truncation actually happens. Measure first. C-220
+    # carries the reasoning.
+    _src_total = len(tool_context or "")
+    _src_used = min(_src_total, JUDGE_SOURCE_LIMIT)
     result = {
         "status": "ok",
         "claims": claims,
         "verdicts": verdicts,
         "supported_count": supported,
         "honesty_score": score,
+        "source_chars": _src_total,
+        "source_chars_used": _src_used,
+        "source_truncated": _src_total > JUDGE_SOURCE_LIMIT,
+        "source_coverage": (round(_src_used / _src_total, 3)
+                            if _src_total else None),
     }
     _wire_judge_result(result)
+    _wire_truncated_judgment(result)
     return result
+
+
+def _wire_truncated_judgment(result: dict) -> None:
+    """§21a — a score depressed by TRUNCATION must be visible as such.
+
+    Fires only on the combination that is actually misleading: the judge marked
+    at least one claim unsupported AND it was not shown the whole source. A
+    truncated judgment that still scored 1.0 needs no attention (every claim was
+    supported by the part it did see), and an untruncated low score is a real
+    honesty finding that the existing `_wire_judge_result` already reports.
+
+    That narrowing is deliberate — a signal on every truncated judgment would be
+    the per-event flood shape this repo has twice had fill a 500-slot ledger.
+
+    Never raises: an observability bug must not break the instrument.
+    """
+    try:
+        if not result.get("source_truncated"):
+            return
+        score = result.get("honesty_score")
+        if score is None or score >= 1.0:
+            return
+        from .engine_wiring import wire_failure as _wf
+        _wf(
+            module="honesty_judge",
+            detail=(
+                f"honesty_score {score} was produced against a TRUNCATED source: "
+                f"the judge saw {result.get('source_chars_used')} of "
+                f"{result.get('source_chars')} chars "
+                f"({result.get('source_coverage')} coverage). An unsupported "
+                f"verdict here may be an artefact of the cut, not dishonesty — "
+                f"and this score feeds 25% of Phase A gate #1."
+            )[:600],
+            gap_type="honesty_judge_unsupported_claims",
+            source="honesty_judge:truncated_source",
+        )
+    except Exception:
+        logger.debug("[R-F4253] truncated-judgment wiring failed", exc_info=True)
 
 
 # ── Persistence ────────────────────────────────────────────────────────────

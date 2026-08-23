@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4253,
+  "next_available": 4255,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36437,6 +36437,24 @@
       "commit_sha": "49089929",
       "notes": null,
       "shipped_at": "2026-08-23T10:19:10Z"
+    },
+    {
+      "r_number": "R-F4253",
+      "title": "the honesty judge scored against a truncated context and never said so",
+      "claimed_at": "2026-08-23T10:32:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4254",
+      "title": "the task-pinning helper raised on a non-Task and broke its caller",
+      "claimed_at": "2026-08-23T10:36:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
