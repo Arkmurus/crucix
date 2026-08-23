@@ -2509,18 +2509,24 @@
       "title": "an unsupported verdict caused by truncation is indistinguishable from real dishonesty",
       "claimed_at": "2026-08-23T10:32:12Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4253"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T10:50:22Z"
     },
     {
       "c_number": "C-221",
       "title": "a best-effort pinning helper raised and broke seventeen call paths",
       "claimed_at": "2026-08-23T10:41:44Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4254"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T10:50:23Z"
     }
   ]
 }

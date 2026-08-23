@@ -36443,18 +36443,20 @@
       "title": "the honesty judge scored against a truncated context and never said so",
       "claimed_at": "2026-08-23T10:32:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e07e25bf",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:50:22Z"
     },
     {
       "r_number": "R-F4254",
       "title": "the task-pinning helper raised on a non-Task and broke its caller",
       "claimed_at": "2026-08-23T10:36:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e07e25bf",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:50:22Z"
     }
   ]
 }
