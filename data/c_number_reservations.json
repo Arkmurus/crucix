@@ -2527,6 +2527,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T10:50:23Z"
+    },
+    {
+      "c_number": "C-222",
+      "title": "a compliance control that can be switched off without saying so",
+      "claimed_at": "2026-08-23T10:59:34Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

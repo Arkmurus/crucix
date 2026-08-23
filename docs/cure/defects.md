@@ -14136,3 +14136,66 @@ because a non-Task would LEAK: nothing would ever discard it.
 contract is preserved, not traded away — a test asserts a real Task is still held
 while pending and still self-cleans. 4 tests; 459 passed / 4 failed on the chat +
 guardian surfaces, all four in the baseline.
+
+## C-222 · a compliance control could be switched off in silence (fixed, R-F4255)
+
+Found working the §21b wiring debt — `vetting/` is its largest cluster (18 of 66),
+and `vetting/crypto.py` is the module that makes UK GDPR Art. 17 erasure possible
+at all.
+
+`encryption_enabled()` gates crypto-shredding. Its own docstring says the default
+is the compliant one and the switch exists *"for migrating an existing plaintext
+store, not as a routine setting."*
+
+**With it off, nothing said so.** `routes/vetting.py` and
+`routes/vetting_portal.py` both take `if encryption_enabled():` to False and write
+**plaintext identity and criminal-offence data into the append-only evidence
+store**, which exposes no delete. No log, no gap, no health surface.
+
+The consequence surfaced only at ERASURE time, via
+`retention._PLAINTEXT_RESIDUE_NOTE` — *"those artifacts are plaintext in an
+append-only store and destroying the case key does not erase them"*. That is the
+exact moment a data subject has exercised an Art. 17 right and the data is already
+durably unerasable. **A control whose failure is discovered only when you are
+legally obliged not to have failed is not a control.**
+
+### Reported at the ONE decision point
+
+Inside `encryption_enabled()`, not at the two upload sites. Curating call sites is
+whack-a-mole — R-F3946 records precisely that for the Brave DD gate, where the
+ninth route silently re-opened it. A third caller inherits this automatically, and
+a test proves both existing callers are covered **without either being touched**,
+plus asserts neither reads `ARIA_VETTING_ENCRYPT_DOCUMENTS` directly (which would
+bypass the decision point and restore the silence).
+
+### Once per process, WARNING not ERROR
+
+It is a CONFIG state, not a per-document event, and every upload calls it — a gap
+per call would be the flood shape that has twice filled a 500-slot ledger (§18
+records the same once-per-process choice for `sanctions_coverage_degraded`). A
+restart re-reports it, which is correct: the state is still true.
+
+WARNING because it is a deliberate operator setting, and R-F4248 records that an
+ERROR for an operator condition resets the Phase A gate-#3 streak. The gap names
+the consequence AND the action — unsetting the switch alone does not erase what
+was already written, so it says to purge.
+
+### What was deliberately NOT done
+
+`crypto.py` moved `no-wiring -> missing-success` in the audit, not to green.
+**No success signal was added.** "Encryption is on" is the compliant default and
+announcing it on every call would be decoration — the kind of change that satisfies
+a checker while telling a reader nothing. The failure branch is what needed a voice.
+
+Equally, the rest of `crypto.py` was left alone: it is pure primitives where every
+failure RAISES (`KeyDestroyed`, `DecryptionFailed`) rather than being swallowed, so
+its callers are the right place to report. Adding brain calls to an AES primitive
+would put I/O on a hot path to satisfy a per-module scan.
+
+### Verification
+
+16 tests, including every disabling spelling (`0/false/no/off/OFF`), every
+affirmative one, the once-per-process latch under 25 calls, the log level, the
+one-decision-point coverage of both routes, and that a throwing sink cannot change
+the control's answer. **Mutation-proven:** removing the report reddens 8. Vetting
+regression 341 passed / 0 failed. Wiring audit exits 0.

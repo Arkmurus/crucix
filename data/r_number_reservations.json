@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4255,
+  "next_available": 4256,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36457,6 +36457,15 @@
       "commit_sha": "e07e25bf",
       "notes": null,
       "shipped_at": "2026-08-23T10:50:22Z"
+    },
+    {
+      "r_number": "R-F4255",
+      "title": "vetting encryption could be silently off; plaintext PII reported only at erasure time",
+      "claimed_at": "2026-08-23T10:59:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
