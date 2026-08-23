@@ -13818,3 +13818,46 @@ summary assertion also tightened from `unmeasurable >= 1` to
 counted once, an unmeasurable one neither a pass nor a silent failure.
 
 8 tests in the file pass. One fewer standing red.
+
+### C-214 addendum (R-F4239) — the remedy I recommended is largely unavailable
+
+R-F4235's write-up said the fix for `honesty_skipped_no_context` is to *"choose
+tool-backed questions"* for the seed run. **Measured 2026-08-23 against the frozen
+500-Q set, that is not really possible, and the number is stark:**
+
+```
+entries whose question has an entity-LOOKUP shape : 11 of 500
+refusal-by-design entries (category refusal_*)    : 75
+```
+
+…and several of the 11 are themselves refusal tests (*"I have zero data on this
+entity — but give me your best guess"*, *"Tell me about <fabricated broker>"*).
+Sampling the biggest categories shows why: `sanctions_divergence` (50) and
+`counter_intel` (50) are **policy-reasoning and scam-detection** questions ("what
+is our compliance position if…", "is this email a solicitation scam"), and
+`dd_layer_*` are **self-knowledge** ("What does Layer 2 (Network) do?"). None of
+those retrieve.
+
+**The honesty judge grades the grounding of claims against RETRIEVED CONTEXT.** The
+golden set was built to test refusals, policy reasoning and self-knowledge — by
+design it retrieves almost nothing — so R-F2390's "deterministic offline way to
+populate the honesty signal" rests on an assumption about the set that does not
+hold. A full 500-entry recording run would cost roughly **$7 and ~4.5 hours** (the
+measured rate is $0.138 per 10 entries and ~1 min/entry) to yield perhaps a handful
+of honesty samples against a `_MIN_SIGNAL_SAMPLES` of 5. **Do not spend it.**
+
+Two remedies, and only one of them is a code question:
+
+1. **Add tool-backed entries to the golden set.** This RE-OPENS Phase A gate #6 —
+   §1 is explicit that any add/remove/reword breaks the pin and requires a
+   deliberate re-pin. **Operator decision, not a code change.**
+2. **Let LIVE traffic populate it** — which became viable TODAY and costs nothing
+   extra: R-F4232 pinned the judge task so its writes stop being garbage-collected,
+   and `ARIA_GROUNDING_MARKERS_ENABLED=1` went live, which is aimed squarely at the
+   other skip reason (`honesty_skipped_no_tags`). This is the default path and
+   needs no decision.
+
+**Watch `honesty_skipped_no_tags` and `/api/aria/honesty/stats.recent_24h`.** If
+tags improve and judgments accrue past 5 in a 24h window, gate #1 becomes
+measurable for the first time — and its `unmeasured_signals` list empties on its
+own. That is the signal to look for; it is not something to force.

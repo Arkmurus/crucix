@@ -3392,3 +3392,105 @@ unmeasured_signals ['honesty_rate']`, `all_pass False`.
 * A stray deploy dispatch fired against an already-live SHA when a push was rejected
   by the pre-push guard; cancelled to avoid §11c lease contention. **Dispatch only
   AFTER a push succeeds.**
+
+---
+
+## Session 2026-08-23 (part 2) — R-F4236..R-F4239, C-216..C-217 · list to zero
+
+Operator: *"nothing is to be left undone."* Every item I had recorded as outstanding
+is now closed or has been measured and reclassified.
+
+### R-F4236 / C-216 — the THIRD reading trophy, and the only one that named its motive
+
+```
+# ... we explicitly need the named tag to move so the proactive alert stops repeating
+await update_mastery([stag], correct=True, weight=0.2)
+```
+
+**Mastery was being lifted to switch off a warning light**, inside the per-hit loop,
+so a tag could be credited twice for the mere existence of two search results. It
+survived R-F2660/R-F2661/R-F2859 because starved tags sit OUTSIDE TOPICS and are not
+topic x region cells, so the honest grader could not express them.
+
+Extracted `_grade_researched_question` and added `_grade_researched_tag`: **ONE
+grader, three callers** — the value R-F2661 stated but could only honour for callers
+with a topic x region pair. Cell question wording unchanged (pinned by a test).
+Graded once per tag on combined text, budget-bounded, tri-state `None` skips.
+
+The justification had also expired: **R-F211 is LATER than R-F163** and dedupes the
+alert on an announce hash with a 14-day TTL, so an unchanged weak set is suppressed
+whether or not mastery moves.
+
+**Expect topic mastery to fall** where tags were credited for finding text — earned,
+not a regression. Mutation-proven: restoring the trophy reddens 5 of 11 tests.
+
+### R-F4237 / C-217 — seventeen bare `create_task`, not the nine C-212 recorded
+
+C-212's nine came from a grep; an **AST sweep found seventeen**. All pinned with the
+existing `_hold_job_task`. **This is a real behaviour change, not just hygiene:** work
+that was previously being silently garbage-collected now actually runs. Measured the
+consequence rather than assuming — steady state over 336 loop samples is
+`healthy, p50 0.3 ms, p95 4.7 ms`, so it did not starve the loop.
+
+C-212's detectability guard had to change with it: it used production debt as proof
+the detector worked, so clearing the debt would have made it pass *because the defect
+was gone* — indistinguishable from passing because the detector broke. Now proven on
+synthetic known-bad AND known-good samples, plus a new zero-bare-spawns assertion.
+
+**Fallout:** `test_rf655_absorbs_are_fire_and_forget` matched a regex requiring
+`create_task` to be preceded only by whitespace, so wrapping it reported the
+capability as GONE. Rewritten as AST over the real invariant (scheduled, never
+awaited inline); mutation-proven. **Third time in two sessions a source-text guard
+reported a reformat as a defect — assert the invariant, not the spelling.**
+
+### R-F4238 — one fewer standing red
+
+`test_rf2375` asserted gate #3 is unmeasurable. True when written; **R-F2622 then
+BUILT the durable error-streak anchor**, so the test had been red in the baseline ever
+since, asserting the absence of a capability that now exists. Now asserts R-F2375's
+surviving intent (no `-1` sentinel, tri-state verdict, `measurable` derived from
+`pass`, and a MEASURED gate #3 must name its `streak_basis`).
+
+### R-F4239 — I had to correct my own advice from this morning
+
+R-F4235's write-up told the next session to *"choose tool-backed questions"* for the
+honesty seed. **Measured against the frozen 500-Q set, that is not really available:**
+
+```
+entries with an entity-LOOKUP shape : 11 of 500
+refusal-by-design (refusal_*)       : 75
+```
+
+…and several of the 11 are themselves refusal tests. The big categories are
+policy-reasoning (`sanctions_divergence`, `counter_intel`) and self-knowledge
+(`dd_layer_*`) — **none of which retrieve**, and the honesty judge grades grounding
+against RETRIEVED context. A full 500-entry run would cost ≈**$7 and ~4.5 hours**
+(measured: $0.138/10 entries, ~1 min/entry) for perhaps a handful of samples against
+`_MIN_SIGNAL_SAMPLES = 5`. **I did not spend it.**
+
+So the honesty axis fills one of two ways: **add tool-backed golden entries** — which
+RE-OPENS gate #6's freeze pin and is an operator decision, not a code change — or
+**let live traffic do it**, which became viable TODAY at no extra cost (R-F4232 pinned
+the judge task; grounding markers are on, aimed at the other skip reason). The second
+is the default and needs no decision.
+
+**Watch `honesty_skipped_no_tags` and `/api/aria/honesty/stats.recent_24h`.** Once
+judgments pass 5 in a 24h window, gate #1 becomes measurable for the first time and
+its `unmeasured_signals` empties on its own.
+
+### Live at close (R-F4236 · sha dc4da158, boot complete)
+
+`degraded_reasons: ['state_backend_read_timeouts', 'operating_mode_supervised']` —
+the first is the R-F4107/C-140 instrument reporting a **boot-window burst that is
+aging out** (count static at 7, `last_age_s` growing, 900 s window), the same pattern
+seen and cleared after this morning's deploy. Loop healthy p95 4.7 ms · autonomy
+enabled/running L3, 98 tasks · chain `['deepseek']`, balance 9.39 · RULE ONE
+`breached: false`, brave `['dd','wa']`, non-DD grants 0.
+
+### Outstanding — operator decisions only, no code left undone
+
+1. **Whether to add tool-backed golden entries** (re-opens gate #6; needs a deliberate
+   re-pin afterwards) or let live traffic fill the honesty axis. Default: do nothing.
+2. **DeepSeek balance is $9.39 and reads `low`** against a $10 warn threshold. At the
+   measured ~$18.79/month DeepSeek run rate that is roughly two weeks. The gauge will
+   say so once, on transition, and it now distinguishes a recovery from a decline.

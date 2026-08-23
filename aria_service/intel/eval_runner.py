@@ -52,6 +52,7 @@ from .engine_wiring import wire_success, wire_failure
 from . import eval_judge
 
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -501,6 +502,73 @@ def _split_held_out(items: list[dict], split: str, seed: int = 42) -> list[dict]
 
 
 # ── Run ────────────────────────────────────────────────────────────────────
+
+# R-F4239 (C-214 addendum) — a question that would make ARIA actually RETRIEVE.
+# Imperative lookup/screen/investigate on a named entity. Deliberately loose: it
+# is a screen for "could this entry EVER produce tool context", not a classifier.
+_LOOKUP_SHAPE = re.compile(
+    r"\b(run a|screen|investigate|look up|search for|check whether|"
+    r"due diligence on|dd on|profile|who owns|find out)\b", re.I)
+
+
+def honesty_seed_suitability(items: list[dict]) -> dict:
+    """Can this question set populate the composite's HONESTY signal at all?
+
+    R-F4235 made a zero-honesty recording run report itself and advised
+    "choose tool-backed questions". **Measured against the frozen 500-Q set on
+    2026-08-23, that advice was largely unavailable** — 11 of 500 entries have an
+    entity-lookup shape, 75 are refusal-by-design, and the two largest categories
+    (`sanctions_divergence`, `counter_intel`, 50 each) are policy-reasoning while
+    `dd_layer_*` are self-knowledge. None of those retrieve.
+
+    That matters because the honesty judge grades the grounding of claims against
+    **RETRIEVED CONTEXT**. A set that retrieves nothing cannot produce judgments,
+    however many entries you drive — and driving all 500 costs roughly $7 and
+    ~4.5 hours (measured: $0.138 per 10, ~1 min/entry).
+
+    This exists so that is a FUNCTION CALL rather than a hand measurement someone
+    repeats every few weeks. It is deliberately pure and offline: no LLM, no
+    store, no cost.
+
+    `verdict` is tri-state-ish and conservative:
+      * ``no_data``   — empty set; says nothing about suitability.
+      * ``unsuitable``— fewer retrieving-shaped entries than the scorer's min samples,
+                        so even a perfect run cannot clear the scorer's minimum.
+      * ``possible``  — enough to be worth spending on. NOT a promise: an entry
+                        can look like a lookup and still be a refusal test.
+    """
+    # The threshold is the SCORER's, read at call time — never a copy. A second
+    # constant here would drift from autonomy_scorer._MIN_SIGNAL_SAMPLES and this
+    # function would confidently report "possible" for a set that cannot clear it.
+    try:
+        from .autonomy_scorer import _MIN_SIGNAL_SAMPLES as _min_samples
+    except Exception:
+        _min_samples = None       # could not read it — say so, never guess
+
+    total = len(items or [])
+    if not total:
+        return {"total": 0, "lookup_shaped": 0, "refusal_by_design": 0,
+                "min_samples": _min_samples, "suitable_ids": [],
+                "verdict": "no_data"}
+    lookup, refusal, ids = 0, 0, []
+    for it in items:
+        cat = str((it or {}).get("category") or "")
+        if cat.startswith("refusal_"):
+            refusal += 1
+        if _LOOKUP_SHAPE.search(str((it or {}).get("question") or "")):
+            lookup += 1
+            if len(ids) < 25:
+                ids.append((it or {}).get("id"))
+    return {
+        "total": total,
+        "lookup_shaped": lookup,
+        "refusal_by_design": refusal,
+        "min_samples": _min_samples,
+        "suitable_ids": ids,
+        "verdict": ("unknown" if _min_samples is None
+                    else "possible" if lookup >= _min_samples else "unsuitable"),
+    }
+
 
 async def run_eval(
     llm: Any, *, ids: list[str] | None = None, label: str = "", record: bool = False,
