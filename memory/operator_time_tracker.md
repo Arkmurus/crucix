@@ -4256,3 +4256,65 @@ already upload. Editing ten upload lists would have left the eleventh broken.
    LEGITIMACY_REGULATION. ARIA already has free adapters for several
    (`search_disqualified_officers` → IS-16b, `get_filing_history` /
    `fetch_accounts_figures` → FS-9/FS-10).
+
+## Session 2026-08-23 (part 8) — R-F4275/R-F4276 · what the money should actually buy
+
+Operator: *"what is the correct and robust approach, proceed with it and ensure
+aria is truly compounding and able to be fully autonomous on her reasoning and on
+track of her USP."*
+
+### The rule, and why it can be trusted
+
+**An axis may BLOCK promotion only where production does not answer the question
+in CODE.** `dd_standard.QUESTIONS` binds a `reader` to each fundamental; **14 of
+24 have one**. Where a reader exists, code answers and the model's answer is not
+what the customer receives — so the axis is defence in depth, never a blocker,
+never worth a cycle.
+
+R-F4257 reached exactly this for ONE axis, by hand, after 13 funded attempts.
+`axis_alignment` reproduces that verdict from the standard alone, told none of the
+reasoning. A test pins the agreement: **if it ever breaks, the rule is wrong, not
+R-F4259.** Result: **5 axes may block, 8 are advisory.**
+
+### It demoted this same session's own work
+
+R-F4272 built insolvency / charges / ownership axes in the morning. FS-11, FS-12
+and OC-5 each have a deterministic reader, so production never asks the model.
+They stay as defence in depth. **Building them was the R-F4257 mistake repeated;
+catching it before the GPU spend is the entire point of the rule.**
+
+### R-F4276 — I overclaimed and corrected it within the hour
+
+R-F4275 asserted the ten reader-less fundamentals are "where the model IS the
+mechanism". Never measured, and false. `assess()` on a synthetic report shows the
+standard's own wording separating the two cases: *"no sanctions screen is recorded
+on this report"* (the reader looked) vs *"no resolver is bound to this question in
+this build"* (**nobody looked**). Those ten are UNBOUND. The blocking rule was
+unaffected — it never depended on that half.
+
+### The two numbers that answer the question
+
+1. **On the axes that may block, the parent is 93/94 — one row of headroom.** The
+   13-candidate history was a fight over defence-in-depth while the model's real
+   job sat at ceiling. **No further cycle against this corpus buys anything**, so
+   the RunPod authorisation is deliberately NOT spent yet.
+2. **Of the ten unbound fundamentals, exactly one (IS-15) has any eval row.**
+
+### C-235 — filed, NOT fixed: the highest-value finding of the day
+
+IS-15's pass condition is *"a dedicated media sweep ran and a backend answered"*.
+**The DD does that on every run** — C-225/C-230 today were about that funnel's own
+accounting — and the standard renders it **NOT_RUN, "no resolver is bound"**.
+`coverage_pct` is computed over these resolutions, so the customer's report
+understates what was established, on the axis the eval measures best. Work already
+performed and paid for, not reaching the decision surface — value density in the
+literal sense the USP names. Left for a deliberate product change: a peer is active
+in `aria_service/intel`, and binding a reader to work that does NOT run would turn
+an honest NOT_RUN into a fabricated pass (C-39's failure). IS-14 and IS-16 look the
+same shape; verify the work runs before binding.
+
+### Standing
+
+Shipped today: R-F4270, R-F4271, R-F4272, R-F4274, R-F4275, R-F4276. 713-test
+sweep green; the only reds are `rf1785` (in baseline) and `rf2644`/`rf4122` (both
+pre-existing and attributed). Nothing deployed — zero runtime files touched.
