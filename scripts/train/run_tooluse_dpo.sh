@@ -227,6 +227,12 @@ assert len(r)==expected, f"expected {expected} pairs, got {len(r)}"
 assert all(x.get("chosen") and x.get("rejected") and x["chosen"]!=x["rejected"] for x in r)
 print(f"verified {expected} non-degenerate DPO pairs")
 PY
+# R-F4246 - refuse a curriculum whose label is predictable from response LENGTH.
+# R-F4243 found exactly that in the resolution set by hand, AFTER nine
+# candidates had been paid for: 30 of 32 labels recoverable from length alone,
+# in opposite directions per branch, so DPO could learn verbosity instead of
+# the decision. Finding it by hand is not a control; this runs before the spend.
+"$PYBIN" -m scripts.train.preflight_preference_confound --dpo-file "$DPO_LOCAL" || exit 3
 if [ "$DPO_EXPECTED_UPDATES" -gt 0 ]; then
   "$PYBIN" - "$EXPECTED_DPO_PAIRS" "$DPO_GRAD_ACCUM" "$DPO_EXPECTED_UPDATES" <<'PY' || exit 3
 import math, sys
