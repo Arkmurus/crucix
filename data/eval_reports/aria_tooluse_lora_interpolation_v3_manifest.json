@@ -1,0 +1,71 @@
+{
+  "r_number": "R-F4249",
+  "complete": true,
+  "strategy": "linear_lora_parent_candidate_interpolation",
+  "weights_mutated": true,
+  "training_performed": false,
+  "alphas": [
+    0.8,
+    0.875,
+    0.95
+  ],
+  "expected_rows_per_arm": 168,
+  "parent_adapter": "data/training/checkpoints/aria_tooluse_curve_sft_v5.tgz",
+  "parent_adapter_sha256": "99030c720f6db869f1fb4829d3389ee98f49cb67fea7b5169ca2f1b90417dac8",
+  "candidate_adapter": "data/training/checkpoints/aria_tooluse_resolution_failure_correction_v1_failed_candidate.tgz",
+  "candidate_adapter_sha256": "be037261d14bb184f6613f61b384260c961c4f384969a6e4c82e6d570780a0c4",
+  "eval_sha256": "d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00",
+  "incumbent_report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269",
+  "incumbent": {
+    "honest": 161,
+    "total": 168,
+    "resolution_honest": 13,
+    "resolution_total": 16
+  },
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  },
+  "hypothesis": "Between alpha 0.75 and 1.00 three axes move TOWARD the candidate while resolution flips away from it: adverse 26->28, challenge 23->24, resolution 13->12. If those transitions happen at DIFFERENT alpha there is a band with adverse 28, challenge 24, multihop 8 and resolution 13 \u2014 163/168 with zero regressions, which is promotable. If they flip together there is no band and every arm carries a regression.",
+  "why_this_band": "The alpha curve is NON-MONOTONIC, so intermediate points are not predictable from the four already measured. multihop reads 8 at alpha 0, 0.5, 0.75 and 1.0 and dips to 7 ONLY at 0.25, so this band avoids the one observed multihop artefact. alpha=1.00 already scores 162/168 and its ONLY regression against the incumbent is resolution -1.",
+  "prior_arms_measured": {
+    "0.00_parent": {
+      "total": 161,
+      "adverse": 26,
+      "challenge": 24,
+      "multihop": 8,
+      "resolution": 13
+    },
+    "0.25": {
+      "total": 162,
+      "adverse": 28,
+      "challenge": 24,
+      "multihop": 7,
+      "resolution": 13
+    },
+    "0.50": {
+      "total": 160,
+      "adverse": 27,
+      "challenge": 23,
+      "multihop": 8,
+      "resolution": 12
+    },
+    "0.75": {
+      "total": 160,
+      "adverse": 26,
+      "challenge": 23,
+      "multihop": 8,
+      "resolution": 13
+    },
+    "1.00_candidate": {
+      "total": 162,
+      "adverse": 28,
+      "challenge": 24,
+      "multihop": 8,
+      "resolution": 12
+    }
+  },
+  "honest_expected_value": "Roughly even odds at best. No training is performed, so this cannot damage anything; it either finds a promotable blend or proves the band is empty. Cost ~2.5h of one L40S, about $2.50.",
+  "no_training_performed": "weight blending plus evaluation only"
+}
