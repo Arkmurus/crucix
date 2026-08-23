@@ -2560,6 +2560,72 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-225",
+      "title": "deep research overstates articles analysed",
+      "claimed_at": "2026-08-23T15:06:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4264"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:29Z"
+    },
+    {
+      "c_number": "C-226",
+      "title": "DD financial health uses supplied name not registry legal name",
+      "claimed_at": "2026-08-23T15:06:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4265"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-227",
+      "title": "adverse citation coherence skips the sweep own self-reference filter",
+      "claimed_at": "2026-08-23T15:06:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4266"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-228",
+      "title": "OFSI double-counted in the verified sanctions source table",
+      "claimed_at": "2026-08-23T15:06:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4267"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-229",
+      "title": "UBO chain watchlist match ignores entity schema and given-name-only overlap",
+      "claimed_at": "2026-08-23T15:36:39Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-230",
+      "title": "adverse-media exclusion ledger omits the class-contradicted stage",
+      "claimed_at": "2026-08-23T15:36:40Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
