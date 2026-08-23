@@ -2638,9 +2638,12 @@
       "title": "a promotion decision nothing consumes - the next cycle still trains from the rejected parent",
       "claimed_at": "2026-08-23T17:29:41Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4270"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:39:35Z"
     }
   ]
 }

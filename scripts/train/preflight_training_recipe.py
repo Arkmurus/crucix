@@ -1,9 +1,24 @@
-"""Fail closed unless a paid training recipe matches a reviewed configuration."""
+"""Fail closed unless a paid training recipe matches a reviewed configuration.
+
+R-F4270 — `parent_mode: "accepted_adapter"` used to be a label with no referent.
+This gate approved it without knowing WHICH adapter was accepted, so a cycle
+pinned to the parent a promotion had just REPLACED passed the paid-spend check.
+The recipe must now name the adapter it continues from, and it is checked against
+`parent_of_record`.
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+import sys
 from typing import Any
+
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts.train import parent_of_record  # noqa: E402
 
 
 APPROVED_RECIPES: dict[str, dict[str, Any]] = {
@@ -172,6 +187,26 @@ def validate_recipe(recipe: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_parent(recipe: dict[str, Any]) -> list[str]:
+    """R-F4270 — does this cycle continue from the adapter that was PROMOTED?
+
+    Kept OUT of `validate_recipe` deliberately. That function is pure: it
+    compares a recipe to a reviewed constant, and eleven tests rightly pin it
+    that way. This question is stateful — it depends on which promotion is
+    current — and mixing the two would have forced every historical recipe
+    fixture to name a parent its cycle never used.
+
+    Scoped to `parent_mode: accepted_adapter`. A `diagnostic_candidate` recipe
+    forks off a REJECTED arm on purpose and must stay able to.
+    """
+    expected = APPROVED_RECIPES.get(str(recipe.get("kind")))
+    if expected is None or expected.get("parent_mode") != "accepted_adapter":
+        return []
+    refusal = parent_of_record.adapter_refusal(
+        recipe.get("parent_adapter_sha256"), parent_of_record.read_record())
+    return [refusal] if refusal else []
+
+
 def main(argv: list[str] | None = None) -> int:
     """Validate one explicit recipe supplied as JSON."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -185,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(recipe, dict):
         print("recipe must be a JSON object")
         return 3
-    errors = validate_recipe(recipe)
+    errors = validate_recipe(recipe) + validate_parent(recipe)
     if errors:
         print("training recipe REFUSED")
         for error in errors:

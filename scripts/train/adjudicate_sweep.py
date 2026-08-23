@@ -36,6 +36,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.train import parent_of_record
+
 RESOLUTION = "tooluse_resolution"
 
 
@@ -157,7 +159,10 @@ def adjudicate(manifest_path: pathlib.Path, arms: list[tuple[str, pathlib.Path]]
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", required=True, type=pathlib.Path)
-    parser.add_argument("--incumbent", required=True, type=pathlib.Path)
+    parser.add_argument("--incumbent", type=pathlib.Path, default=None,
+                        help="defaults to the parent of record (R-F4270)")
+    parser.add_argument("--incumbent-override", default=None, metavar="REASON",
+                        help="adjudicate against a superseded parent deliberately")
     parser.add_argument("--arm", action="append", required=True,
                         metavar="LABEL=REPORT",
                         help="repeatable; the arm's label and its report path")
@@ -167,8 +172,29 @@ def main(argv: list[str] | None = None) -> int:
 
     arms = [(label, pathlib.Path(path)) for label, _, path in
             (item.partition("=") for item in args.arm) if path]
-    verdict = adjudicate(args.manifest, arms, args.incumbent,
+
+    # R-F4270 — the incumbent is the PROMOTED parent, not whichever path the
+    # caller happened to type. Adjudicating a candidate against a superseded
+    # parent scores a null change as a gain, which is the same class of error
+    # R-F4244 caught across scorer generations.
+    record = parent_of_record.read_record()
+    incumbent = args.incumbent
+    if incumbent is None:
+        if record is None:
+            print("REFUSED: no parent of record and no --incumbent given "
+                  "(R-F4270)", file=sys.stderr)
+            return 3
+        incumbent = parent_of_record.record_path(record)
+    elif not args.incumbent_override:
+        refusal = parent_of_record.incumbent_refusal(incumbent, record)
+        if refusal:
+            print(f"REFUSED: {refusal}", file=sys.stderr)
+            return 3
+
+    verdict = adjudicate(args.manifest, arms, incumbent,
                          expected_rows=args.expected_rows)
+    if args.incumbent_override:
+        verdict["incumbent_override_reason"] = args.incumbent_override
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")

@@ -218,6 +218,13 @@ case "$TRAINING_RECIPE_KIND" in
     ;;
   *) log "FATAL unsupported training recipe kind: $TRAINING_RECIPE_KIND"; exit 3;;
 esac
+# R-F4270 — a cycle claiming parent_mode=accepted_adapter must NAME the adapter it
+# continues from, so the gate can check it against the parent of record. Injected
+# once here rather than into six printf templates: the adapter is chosen in one
+# place ($ADAPTER_SHA256) and this keeps it that way.
+if [ "$PARENT_MODE" = accepted_adapter ]; then
+  RECIPE_JSON="${RECIPE_JSON%\}},\"parent_adapter_sha256\":\"$ADAPTER_SHA256\"}"
+fi
 "$PYBIN" -m scripts.train.preflight_training_recipe --recipe-json "$RECIPE_JSON" || exit 3
 "$PYBIN" - "$DPO_LOCAL" "$EXPECTED_DPO_PAIRS" <<'PY' || exit 3
 import json, sys

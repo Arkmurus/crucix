@@ -14620,3 +14620,81 @@ live funnel stays silent, and surviving items held for review are accounted for 
 the review line rather than counted as lost (without that, the warning would fire on
 every run that actually found something, which is the loudest possible false alarm on
 the reports that matter most).
+
+## C-231 · a promotion nothing consumes — the next cycle still trains from the rejected parent (fixed, R-F4270)
+
+R-F4259 promoted `failure_correction_v1` (**162/168**, `adverse` +2) and its own
+manifest states the consequence in plain words: *"the candidate becomes the accepted
+PARENT/incumbent for future training cycles."* Measured 2026-08-23, **nothing in the
+tree consumed that sentence.** The decision was real, recorded, tested — and inert.
+
+Three consumers, all still pointing at the parent the promotion replaced:
+
+1. **What the next cycle trains FROM.** Every launcher pins
+   `PARENT=data/training/checkpoints/aria_tooluse_curve_sft_v5.tgz` by sha256
+   (`99030c72…`) — the rejected 161/168 parent. Thirteen funded candidates' worth of
+   progress would not have compounded; the next cycle would have re-run from the
+   thing that was just superseded.
+2. **The paid-spend gate.** `preflight_training_recipe` approves
+   `parent_mode: "accepted_adapter"` **without knowing which adapter is accepted.**
+   The label had no referent, so the gate could not tell the promoted parent from the
+   rejected one and would have approved either. A guard whose universe is empty
+   always certifies — the same shape §1 records for three Phase A gates, for the cost
+   meter reading `spent_usd: 0.0`, and for the sanctions coverage claim (C-39).
+3. **What the next candidate is adjudicated AGAINST.** `adjudicate_sweep --incumbent`
+   is a free-text path with no default. Adjudicating against 161 instead of 162
+   **scores a null change as +1** and a genuine −1 as parity. That is the same error
+   R-F4244 caught across scorer generations, in the other dimension: there the
+   baseline was stale by scorer, here it is stale by promotion.
+
+CONFIRMED by measurement, not by reading: `grep` for the incumbent report name across
+the tree returns **six files, five of them tests and one a docstring**. No code path
+consumed it. The promoted adapter's weights were on disk the whole time
+(`aria_tooluse_resolution_failure_correction_v1.tgz`, `be037261…`, 310 MB).
+
+### The fix — a referent, and two callers that consult it
+
+`scripts/train/parent_of_record.py` records the accepted parent, **derived from the
+promotion verdict and never hand-written**: adapter + sha256, report + sha256, the
+full per-axis scoreline, the advisory axes, and the verdict that authorised it. It
+re-hashes what the verdict claims, so the record cannot drift from the decision.
+
+* `preflight_training_recipe.validate_parent` refuses a paid cycle whose declared
+  parent is not the accepted one, and `run_tooluse_dpo.sh` now injects
+  `parent_adapter_sha256` from `$ADAPTER_SHA256` — one injection point, because the
+  adapter is chosen in one place and this keeps it that way.
+* `adjudicate_sweep` **defaults** `--incumbent` to the parent of record and refuses a
+  superseded one unless `--incumbent-override "<reason>"` is given. Historical
+  re-runs stay possible; they just have to say so.
+
+**Load-bearing properties, each pinned by a test:**
+
+* **An unreadable record BLOCKS.** Absence is "I could not measure whether this is
+  the accepted parent", never permission to spend.
+* **The gate can OPEN.** `test_preflight_APPROVES_the_true_accepted_parent` — a gate
+  that cannot pass carries no information (the R-F4263 lesson).
+* **`validate_recipe` stays PURE.** The first implementation put the check inside it
+  and turned eleven tests red. Those tests were right: that function compares a
+  recipe to a reviewed constant, and mixing in a stateful, disk-reading question
+  would have forced every historical recipe fixture to name a parent its cycle never
+  used. The check lives beside it and runs from `main()` — the path the launcher
+  actually calls.
+* **`diagnostic_candidate` is untouched.** Those recipes fork off a REJECTED arm on
+  purpose and must stay able to.
+* **The advisory axis travels with the parent.** The record carries
+  `advisory_axes: ["tooluse_resolution"]` and `tooluse_resolution: 12`, so "promoted
+  with resolution advisory" stays attached to the parent instead of living only in
+  the verdict. Advisory means measured and reported (R-F4259), including here.
+* **Nothing is ever deleted.** Same contract as `pod_of_record`: a superseded parent
+  is the baseline every past verdict was measured against.
+
+### Noted while sweeping, NOT fixed here
+
+`test_rf4122_resolution_failure_correction.py::test_real_builder_composes_disjoint_validator_passing_replay`
+is RED and is **not in the 2026-08-17 baseline** — so it regressed after it. It fails
+with *"DPO row 16 rejected answer passes current validator; preference evidence is
+stale"*, i.e. a curriculum's rejected side is no longer rejected by the current
+validator. Proven independent of R-F4270: it fails identically with these changes
+removed from the tree, and its import chain touches none of them. Worth its own
+C-number — a stale preference pair trains the model toward an answer we now consider
+correct.

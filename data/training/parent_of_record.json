@@ -1,0 +1,33 @@
+{
+  "adapter": "data/training/checkpoints/aria_tooluse_resolution_failure_correction_v1.tgz",
+  "adapter_sha256": "be037261d14bb184f6613f61b384260c961c4f384969a6e4c82e6d570780a0c4",
+  "report": "data/eval_reports/aria_tooluse_resolution_failure_correction_v1_rf4163_rescored.json",
+  "report_sha256": "3d399b600e14c3604100c343f14b3badb1c0634292580ced41282907fd7d3ad4",
+  "scorer_version": "R-F4160-evidence-aligned-clean-v4",
+  "honest": 162,
+  "total": 168,
+  "axis_honest": {
+    "tooluse_adverse": 28,
+    "tooluse_challenge": 24,
+    "tooluse_challenge_unavailable": 3,
+    "tooluse_contradiction": 26,
+    "tooluse_multihop": 8,
+    "tooluse_news_impact": 12,
+    "tooluse_person": 7,
+    "tooluse_resolution": 12,
+    "tooluse_trace": 39,
+    "tooluse_trace_unavailable": 3
+  },
+  "advisory_axes": [
+    "tooluse_resolution"
+  ],
+  "advisory_rationale": "R-F4257 established that this axis measures a configuration that never ships. Production resolves company identity deterministically (resolve_company_search), hands the model the RESOLVED company rather than a candidate list (format_for_prompt), and REPLACES the model's answer when identity is gated (enforce_resolution_response, R-F4144) \u2014 on both the chat and streaming surfaces, with a replace event correcting already-streamed text, pinned in CI by test_rf4144. The 168-row eval carries none of it: 0 of 168 rows hold the gate marker and the pod evaluator never imports companies_house. Both failure shapes the axis measures are therefore structurally impossible in the shipped path. Operator decision 2026-08-23 after 13 candidates and arms, none of which exceeded the SFT parent's 13/16. ADVISORY MEANS MEASURED AND REPORTED, NOT DROPPED: the regression is still computed and still appears in every verdict.",
+  "promoted_by": {
+    "r_number": "R-F4259",
+    "verdict": "aria_tooluse_promotion_rf4259_verdict.json",
+    "verdict_sha256": "edb5d22b681301f30fd3ea042442b786b05f0978032ccb11a56501171ef26dc7",
+    "arm": "failure_correction_v1"
+  },
+  "registered_at": "2026-08-23T17:33:24Z",
+  "policy": "train the next cycle FROM this adapter and adjudicate the next candidate AGAINST this report; supersede it only by a promotion verdict, never by editing this file (R-F4270)"
+}
