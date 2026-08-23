@@ -1,16 +1,34 @@
 """R-F4245 — collect a finished cycle from its pod, whatever happened locally.
 
-WHY THIS IS GENERAL AND NOT ANOTHER ONE-OFF. Long background drivers get killed
-on this machine. R-F3420 recorded it, rebuilt `tooluse_launch.sh` as
-launch-and-exit because of it, and wrote *"nothing here waits for the cycle, so
-a kill costs nothing"*. `run_tooluse_dpo.sh` — the driver every recent
-resolution cycle actually uses — still waits, and on 2026-08-23 it was killed
-~40 minutes into a paid run.
+WHY THIS IS GENERAL AND NOT ANOTHER ONE-OFF.
 
-Nothing was lost, and that is the point worth keeping: the pod side is built
-correctly. The work is detached (`setsid nohup`), a self-stop watchdog bounds
-it, and the driver writes POD_ID/HOST/PORT to a durable STATE_FILE *before*
-starting the cycle. The only casualty was the local harvest step.
+CORRECTION FIRST (R-F4247, same day): this docstring originally said the driver
+"was killed ~40 minutes into a paid run" on 2026-08-23. **That did not happen.**
+The harness stopped TRACKING the foreground task and reported it killed; the
+bash process kept running and finished normally at 07:34:30, recovering
+`intermediate=1 report=1 diagnostics=1 logs=1` and verifying the pod stopped. I
+wrote the motivation from a notification instead of from the driver's own log,
+which was still advancing the whole time.
+
+The tool is still worth having, on the evidence that is real: R-F3420 records
+long background drivers genuinely being killed on this machine, rebuilt
+`tooluse_launch.sh` as launch-and-exit because of it, and wrote *"nothing here
+waits for the cycle, so a kill costs nothing"* — while `run_tooluse_dpo.sh`, the
+driver every recent resolution cycle uses, still waits for ~40 minutes. R-F4197
+then had to hand-write a recovery for ONE pod when a harvest really did fail.
+This generalises that recovery; it does not commemorate an incident.
+
+What IS demonstrated: the pod side is built correctly. Work is detached
+(`setsid nohup`), a self-stop watchdog bounds it, and the driver writes
+POD_ID/HOST/PORT to a durable STATE_FILE *before* starting the cycle — which is
+what let this tool read the live run's handoff and pull a validated report.
+
+AND ONE THING THIS TOOL GOT WRONG, kept here because it bit on first use: run
+against a cycle whose driver was still finishing, it resumed a pod the driver
+was about to stop and pulled a half-written adapter (178 MB against the driver's
+complete 310 MB). It refused to publish it, which is the behaviour that matters,
+but it should not have raced at all. Do not run this while a driver is alive;
+check the driver's log first.
 
 R-F4197 already solved this once — for one pod, with the id, the phase and the
 three report names hardcoded. That is the shape that guarantees a fourth

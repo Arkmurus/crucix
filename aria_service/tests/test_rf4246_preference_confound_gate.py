@@ -32,11 +32,26 @@ class TestAgainstTheRealCorpora:
         assert set(result["predictive_groups"]) == {
             "ambiguous_live", "no_match", "unique_live"}
 
-    def test_the_length_controlled_rebuild_passes(self):
+    def test_the_length_controlled_rebuild_is_ALSO_blocked(self):
+        """This assertion was inverted on 2026-08-23, and the inversion is the
+        finding (R-F4247).
+
+        It originally asserted the rebuild PASSES, because the count-skew metric
+        said 0.55 everywhere. The rebuild then trained a candidate that scored
+        155/168 with resolution 9/16 — the worst resolution reading of any
+        candidate on record. Measured with separability, `unique_live` was still
+        100% classifiable by length and `no_match` 95%: the counter-examples
+        turned a monotone confound into an interval one rather than removing it.
+        A test that certified that curriculum was worse than no test.
+        """
         if not FIXED.is_file():
             pytest.skip("length-controlled curriculum unavailable")
         result = gate.analyse(gate._load_jsonl(FIXED))
-        assert result["predictive_groups"] == []
+        assert set(result["predictive_groups"]) == {"no_match", "unique_live"}
+        assert result["groups"]["unique_live"]["length_separability"] == 1.0
+        assert result["groups"]["unique_live"]["count_skew"] == 0.55, (
+            "the count skew that called a perfectly separable group balanced"
+        )
 
     def test_the_aggregate_would_have_missed_it(self):
         """The reason grouping is the whole game: across all 32 rows the skew is
@@ -46,7 +61,7 @@ class TestAgainstTheRealCorpora:
         rows = gate._load_jsonl(DEFECTIVE)
         shorter = sum(1 for r in rows if len(r["chosen"]) < len(r["rejected"]))
         overall = max(shorter, len(rows) - shorter) / len(rows)
-        assert overall < gate.LENGTH_PREDICTIVE_SHARE, (
+        assert overall < gate.LENGTH_SEPARABILITY_LIMIT, (
             "an ungrouped check would have passed the defective corpus"
         )
 
@@ -85,7 +100,7 @@ class TestTheThresholdBehaviour:
         rows = [_pair(10, 90, "axis") for _ in range(4)]
         result = gate.analyse(rows)
         assert result["groups"]["axis"]["underpowered"] is True
-        assert result["groups"]["axis"]["length_skew"] == 1.0
+        assert result["groups"]["axis"]["length_separability"] == 1.0
         assert result["predictive_groups"] == []
 
 

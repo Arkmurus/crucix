@@ -1,0 +1,46 @@
+{
+  "r_number": "R-F4243",
+  "complete": true,
+  "decision": "reject_candidate",
+  "promotion_authorized": false,
+  "incumbent_preserved": true,
+  "hypothesis": "removing the length confound from the resolution curriculum would move the axis the nine previous candidates could not",
+  "result": "REFUTED, and the intervention made the axis WORSE",
+  "candidate": {
+    "report": "aria_tooluse_resolution_length_control_v1_eval.json.failed",
+    "report_sha256": "5c86a9136c2167e3ca173e16e2ba9cc69b77a531508c4ffa34f9945554867b8a",
+    "scorer_version": "R-F4160-evidence-aligned-clean-v4",
+    "honest": 155,
+    "total": 168,
+    "resolution_honest": 9,
+    "resolution_total": 16,
+    "axis_regressions": {
+      "tooluse_contradiction": -3,
+      "tooluse_resolution": -4
+    },
+    "axis_improvements": {
+      "tooluse_adverse": 1
+    },
+    "pairs": 64
+  },
+  "incumbent": {
+    "report": "aria_tooluse_incumbent_rf4160_rescored.json",
+    "report_sha256": "1b175f2ade988a21498b4a45a811178ce1666fe49c10f967ffb44ec6abb2a269",
+    "honest": 161,
+    "resolution_honest": 13
+  },
+  "promotion_gate": {
+    "minimum_honest": 162,
+    "minimum_resolution_honest": 13,
+    "maximum_axis_regressions": 0
+  },
+  "gate_result": {
+    "honest_ok": false,
+    "resolution_ok": false,
+    "regressions_ok": false,
+    "pass": false
+  },
+  "why_it_failed": "The fix targeted the wrong statistic. R-F4243 measured a COUNT SKEW \u2014 in how many pairs is the chosen answer shorter \u2014 and drove it from 0.90 to 0.55 by adding counter-examples on the other side of the chosen length. That does not make length uninformative; it turns a monotone confound into an INTERVAL one, which is easier to learn. Measured after the fact with R-F4247's separability metric, unique_live remained 100% separable by length (chosen 151-185 tight, rejected 49-76 and 316-2656 bimodal) and no_match 95%. The eval agrees with the geometry: resolution answers grew a median +306 characters and every lost resolution row was 'did not select the resolved company' \u2014 the model avoided the newly-rejected very-short answers and took shelter in the long list.",
+  "measurement_note": "Against the stale pre-R-F4160 baseline the pod carried (155/168) this candidate reads +0 rather than -6. R-F4244 fixed that comparison; this run is the live demonstration of why it mattered.",
+  "next": "Do NOT rebuild on the count-skew metric. R-F4247's gate now blocks BOTH the original curriculum and this one. A curriculum has to reach genuine length OVERLAP per branch, not a balanced count, before it is worth another cycle."
+}

@@ -29,6 +29,7 @@ single-branch set is `underpowered`, said out loud, not quietly certified.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import pathlib
 import statistics
@@ -39,13 +40,52 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# A group where this share of pairs lean the same way is still a near-perfect
-# length classifier. Deliberately not 1.0: v1's worst branches were 0.9, and an
-# all-or-nothing test would have waved them through.
-LENGTH_PREDICTIVE_SHARE = 0.8
+# R-F4247 — the bar is SEPARABILITY, not a count skew. Calibrated against
+# chance: for 20 pairs a side drawn from the SAME length distribution, the best
+# interval still fits ~65% by luck and reaches ~72% at the 95th percentile. 0.80
+# sits clear of that noise floor while catching the 95-100% readings both real
+# curricula produced. Small groups are noisy, which is what MINIMUM_PAIRS is for.
+LENGTH_SEPARABILITY_LIMIT = 0.80
 
 # Below this a skew is noise, not evidence, and is reported as such.
 MINIMUM_PAIRS_FOR_A_SKEW = 8
+
+
+def best_interval_accuracy(chosen: list[int], rejected: list[int]) -> float:
+    """How well a rule on LENGTH ALONE can classify the pairs (R-F4247).
+
+    THIS REPLACES A COUNT-BASED SKEW THAT WAS THE WRONG STATISTIC, and it was
+    wrong in a way that cost a paid run. The skew asked "in how many pairs is
+    the chosen answer the shorter one?" — a monotone question. R-F4243's
+    counter-examples answered it (0.90 -> 0.55, "balanced") by putting rejected
+    answers on BOTH sides of the chosen ones, which does not make length
+    uninformative. It makes it an INTERVAL, which is easier to learn, not
+    harder. Measured on the curriculum that shipped:
+
+        unique_live   chosen 151-185 (tight)
+                      rejected 49-76 and 316-2656 (bimodal, straddling)
+                      count skew 0.55  ->  "balanced"
+                      separability 100% -> perfectly learnable
+
+    The eval agreed with the geometry, not with the guard: resolution answers
+    grew a median +306 characters and all four lost resolution rows were "did
+    not select the resolved company" — the model avoided the newly-rejected
+    very-short answers and took shelter in the long list.
+
+    So the question has to be the general one: can ANY rule on length separate
+    the two sets? An interval covers monotone cases too (one bound at infinity),
+    so this strictly subsumes the old measure.
+    """
+    if not chosen or not rejected:
+        return 1.0
+    total = len(chosen) + len(rejected)
+    cuts = [-1, *sorted(set(chosen) | set(rejected))]
+    best = 0.0
+    for low, high in itertools.combinations_with_replacement(cuts, 2):
+        inside = sum(1 for x in chosen if low <= x <= high)
+        outside = sum(1 for x in rejected if not low <= x <= high)
+        best = max(best, (inside + outside) / total)
+    return best
 
 
 def _load_jsonl(path: pathlib.Path) -> list[dict]:
@@ -76,20 +116,21 @@ def analyse(rows: list[dict]) -> dict:
         grouped[group].append(row)
     groups = {}
     for group, members in sorted(grouped.items()):
-        shorter = sum(1 for row in members
-                      if len(row.get("chosen") or "") < len(row.get("rejected") or ""))
-        longer = len(members) - shorter
-        skew = max(shorter, longer) / len(members)
+        chosen = [len(row.get("chosen") or "") for row in members]
+        rejected = [len(row.get("rejected") or "") for row in members]
+        shorter = sum(1 for a, b in zip(chosen, rejected) if a < b)
+        separability = best_interval_accuracy(chosen, rejected)
         groups[group] = {
             "pairs": len(members),
             "chosen_shorter": shorter,
-            "chosen_longer": longer,
-            "median_chosen": int(statistics.median(
-                len(r.get("chosen") or "") for r in members)),
-            "median_rejected": int(statistics.median(
-                len(r.get("rejected") or "") for r in members)),
-            "length_skew": round(skew, 3),
-            "length_predictive": (skew >= LENGTH_PREDICTIVE_SHARE
+            "chosen_longer": len(members) - shorter,
+            "median_chosen": int(statistics.median(chosen)),
+            "median_rejected": int(statistics.median(rejected)),
+            # Kept for continuity, and as the cautionary reading it is: this is
+            # the number that called a 100%-separable group "balanced".
+            "count_skew": round(max(shorter, len(members) - shorter) / len(members), 3),
+            "length_separability": round(separability, 3),
+            "length_predictive": (separability >= LENGTH_SEPARABILITY_LIMIT
                                   and len(members) >= MINIMUM_PAIRS_FOR_A_SKEW),
             "underpowered": len(members) < MINIMUM_PAIRS_FOR_A_SKEW,
         }
@@ -121,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         mark = "FAIL" if stats["length_predictive"] else (
             "note" if stats["underpowered"] else " ok ")
         print(f"  [{mark}] {group:<18} n={stats['pairs']:<3} "
-              f"skew={stats['length_skew']:<5} "
+              f"separability={stats['length_separability']:<5} "
+              f"(count_skew={stats['count_skew']}) "
               f"chosen {stats['median_chosen']} vs rejected {stats['median_rejected']}")
     if result["predictive_groups"]:
         print("\nBLOCKED: length alone predicts the label in "
