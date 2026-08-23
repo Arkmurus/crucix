@@ -136,7 +136,8 @@ class TestHarvestDoesNotRequireAGpu:
         monkeypatch.setattr(hc, "_pull", lambda *a, **k: False)
 
         with pytest.raises(RuntimeError):      # no report pulled — that is fine
-            hc.harvest(_write_state(tmp_path), report_out=tmp_path / "out.json",
+            hc.harvest(_write_state(tmp_path),
+                       reports=[(hc.REMOTE_REPORT, tmp_path / "out.json")],
                        adapter_out=None, diagnostics_out=None, expected_rows=168,
                        stop_attempts=1, stop_delay=0)
         assert seen.get("require_gpu") is False
@@ -155,7 +156,8 @@ class TestThePodIsAlwaysStopped:
         monkeypatch.setattr(hc, "read_sentinel", lambda h, p: "0")
         monkeypatch.setattr(hc, "_pull", lambda *a, **k: False)
         with pytest.raises(RuntimeError, match="report could not be pulled"):
-            hc.harvest(_write_state(tmp_path), report_out=tmp_path / "out.json",
+            hc.harvest(_write_state(tmp_path),
+                       reports=[(hc.REMOTE_REPORT, tmp_path / "out.json")],
                        adapter_out=None, diagnostics_out=None, expected_rows=168,
                        stop_attempts=1, stop_delay=0)
         assert stopped == ["l6o0j96gfqwqui"]
@@ -186,7 +188,57 @@ class TestPartialArtefactsNeverOverwriteGoodOnes:
         monkeypatch.setattr(hc, "read_sentinel", lambda h, p: "0")
         monkeypatch.setattr(hc, "_pull", fake_pull)
         with pytest.raises(RuntimeError):
-            hc.harvest(_write_state(tmp_path), report_out=report_out,
+            hc.harvest(_write_state(tmp_path),
+                       reports=[(hc.REMOTE_REPORT, report_out)],
                        adapter_out=None, diagnostics_out=None, expected_rows=168,
                        stop_attempts=1, stop_delay=0)
         assert json.loads(report_out.read_text(encoding="utf-8")) == {"trusted": True}
+
+
+class TestItCollectsASweepNotJustOneReport:
+    """R-F4250 — a single hardcoded remote name made the "general" harvest
+    general over DPO runs only. An interpolation sweep writes one report per
+    arm, so the tool could not collect the very next run."""
+
+    def test_every_named_report_is_pulled_and_published(self, tmp_path, monkeypatch):
+        pulled = []
+
+        def fake_pull(host, port, remote, local, **kwargs):
+            pulled.append(remote)
+            _report(local, rows=168)
+            return True
+
+        monkeypatch.setattr(hc.por, "_key", lambda: "k")
+        monkeypatch.setattr(hc.por, "_req", lambda method, path, key, body=None: (
+            (200, {"desiredStatus": "RUNNING"})))
+        monkeypatch.setattr(hc.por, "stop", lambda pod_id, key: True)
+        monkeypatch.setattr(hc, "read_sentinel", lambda h, p: "0")
+        monkeypatch.setattr(hc, "_pull", fake_pull)
+        arms = [(f"/workspace/eval/arm_{t}.json", tmp_path / f"arm_{t}.json")
+                for t in ("08", "0875", "095")]
+        outcome = hc.harvest(_write_state(tmp_path), reports=arms, adapter_out=None,
+                             diagnostics_out=None, expected_rows=168,
+                             stop_attempts=1, stop_delay=0)
+        assert pulled == [remote for remote, _ in arms]
+        assert set(outcome["reports"]) == {p.name for _, p in arms}
+        assert all(p.is_file() for _, p in arms)
+
+    def test_one_bad_arm_publishes_none_of_them(self, tmp_path, monkeypatch):
+        """A sweep is adjudicated as a set; half a set is a misleading set."""
+        def fake_pull(host, port, remote, local, **kwargs):
+            _report(local, rows=168 if "good" in remote else 23)
+            return True
+
+        monkeypatch.setattr(hc.por, "_key", lambda: "k")
+        monkeypatch.setattr(hc.por, "_req", lambda method, path, key, body=None: (
+            (200, {"desiredStatus": "RUNNING"})))
+        monkeypatch.setattr(hc.por, "stop", lambda pod_id, key: True)
+        monkeypatch.setattr(hc, "read_sentinel", lambda h, p: "0")
+        monkeypatch.setattr(hc, "_pull", fake_pull)
+        arms = [("/workspace/eval/good.json", tmp_path / "good.json"),
+                ("/workspace/eval/short.json", tmp_path / "short.json")]
+        with pytest.raises(RuntimeError):
+            hc.harvest(_write_state(tmp_path), reports=arms, adapter_out=None,
+                       diagnostics_out=None, expected_rows=168,
+                       stop_attempts=1, stop_delay=0)
+        assert not (tmp_path / "good.json").is_file()

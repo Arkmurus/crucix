@@ -168,7 +168,8 @@ def confirm_stopped(pod_id: str, key: str, *, attempts: int = 12,
     return False
 
 
-def harvest(state_file: pathlib.Path, *, report_out: pathlib.Path,
+def harvest(state_file: pathlib.Path, *,
+            reports: "list[tuple[str, pathlib.Path]]",
             adapter_out: pathlib.Path | None,
             diagnostics_out: pathlib.Path | None,
             expected_rows: int, stop_when_done: bool = True,
@@ -199,14 +200,16 @@ def harvest(state_file: pathlib.Path, *, report_out: pathlib.Path,
                 outcome["diagnostics"] = str(diagnostics_out)
         staged: list[tuple[pathlib.Path, pathlib.Path]] = []
 
-        partial = report_out.with_suffix(report_out.suffix + ".download")
-        if not _pull(host, port, REMOTE_REPORT, partial):
-            raise RuntimeError("held-out report could not be pulled")
-        report = validate_report(partial, expected_rows)
-        outcome["honest"] = report["honest"]
-        outcome["total"] = report["total"]
-        outcome["scorer_version"] = report["scorer_version"]
-        staged.append((partial, report_out))
+        outcome["reports"] = {}
+        for remote, destination in reports:
+            partial = destination.with_suffix(destination.suffix + ".download")
+            if not _pull(host, port, remote, partial):
+                raise RuntimeError(f"report could not be pulled: {remote}")
+            report = validate_report(partial, expected_rows)
+            outcome["reports"][destination.name] = {
+                "honest": report["honest"], "total": report["total"],
+                "scorer_version": report["scorer_version"]}
+            staged.append((partial, destination))
 
         if adapter_out is not None:
             partial = adapter_out.with_suffix(adapter_out.suffix + ".download")
@@ -234,14 +237,29 @@ def harvest(state_file: pathlib.Path, *, report_out: pathlib.Path,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--state-file", required=True, type=pathlib.Path)
-    parser.add_argument("--report-out", required=True, type=pathlib.Path)
+    parser.add_argument("--report-out", type=pathlib.Path, default=None,
+                        help=f"publish {REMOTE_REPORT} here (single-report runs)")
+    parser.add_argument("--report", action="append", default=[],
+                        metavar="REMOTE=LOCAL",
+                        help="repeatable; collect an explicitly named remote "
+                             "report. A sweep writes one per arm, so a single "
+                             "hardcoded name made this tool general over DPO "
+                             "runs only (R-F4250).")
     parser.add_argument("--adapter-out", type=pathlib.Path, default=None)
     parser.add_argument("--diagnostics-out", type=pathlib.Path, default=None)
     parser.add_argument("--expected-rows", type=int, default=168)
     parser.add_argument("--leave-running", action="store_true",
                         help="do NOT stop the pod (use only when more work follows)")
     args = parser.parse_args(argv)
-    outcome = harvest(args.state_file, report_out=args.report_out,
+    reports = [(remote, pathlib.Path(local)) for remote, _, local in
+               (item.partition("=") for item in args.report) if local]
+    if args.report_out is not None:
+        reports.append((REMOTE_REPORT, args.report_out))
+    if not reports:
+        print("nothing to collect: pass --report-out or --report REMOTE=LOCAL",
+              file=sys.stderr)
+        return 2
+    outcome = harvest(args.state_file, reports=reports,
                       adapter_out=args.adapter_out,
                       diagnostics_out=args.diagnostics_out,
                       expected_rows=args.expected_rows,
