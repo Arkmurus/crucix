@@ -2491,6 +2491,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T09:58:01Z"
+    },
+    {
+      "c_number": "C-219",
+      "title": "guardian panic: the worst silent failure was the one unwired branch",
+      "claimed_at": "2026-08-23T10:07:16Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

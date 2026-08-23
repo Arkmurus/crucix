@@ -13984,3 +13984,65 @@ surfaces; wiring audit 0.
 
 **Expect gate #3 to now accrue.** Its streak restarts from the last genuine ERROR;
 seven clean days from there is the earliest it can close.
+
+## C-219 · a panic SOS that reached NOBODY was invisible to the brain (fixed, R-F4252)
+
+Found while working the §21b wiring debt — `guardian/panic.py` sat in
+`docs/wiring_audit_baseline.json` as `no-wiring`, and unlike most of that ledger it
+is a **live safety path**: `POST /api/aria/guardian/panic` → `panic.trigger()`
+alerts every contact in the user's trusted circle.
+
+Its own module docstring names the failure it was built to prevent:
+
+> *"Empty-circle safe: with nobody to alert it returns a clear 'circle is empty' so
+> the user knows their SOS reached no one (**the worst silent failure to avoid**)."*
+
+**That was the one branch that reached nothing.** It returned a dict and emitted no
+log, no gap and no brain signal, so an SOS that woke nobody was invisible to ARIA
+unless a caller happened to render the return value. The success branch was equally
+dark.
+
+### Why the module's other coverage stopped short of it
+
+Every OTHER panic outcome flows through the Action Gateway, whose
+`_escalate_safety_failure` calls `record_gap` — which is why this file *looks*
+transitively covered. The empty-circle branch **returns before the gateway is ever
+reached**, so that coverage stops exactly at the most dangerous case.
+
+And the gateway reports per-CONTACT: from inside a single delivery, 0-of-3 and
+3-of-3 are indistinguishable. Nothing said whether the SOS **as a whole** reached
+the circle.
+
+§25 makes this the limit case of its own rule — *"for ANY action ARIA takes that
+produces a result for a user … she must KNOW whether the intended result was
+actually produced."*
+
+### Deliberate choices, each pinned by a test
+
+* **One signal per SOS, not one per contact** — the gateway already records each
+  delivery failure; per-contact reporting here would double-count.
+* **No debounce.** A panic is rare, so the flood shape that has twice filled a
+  500-slot ledger does not apply — and a debounce would be actively *harmful*,
+  because two SOS events in a minute is exactly when you want both.
+* **`dry_run` emits nothing.** R-F1992 established that a panic self-test must not
+  enter the production error ledger (it would reset gate #3); the same reasoning
+  covers the gap ledger. A test that pages like a real emergency trains people to
+  ignore the alert.
+* **Empty circle names a different remedy.** Its detail says the circle is EMPTY
+  and that *"adding a contact is the fix, retrying is not"* — a configuration gap
+  and a delivery fault need opposite responses, the same distinction C-212 draws
+  between a gauge fault and a vendor fault.
+* **Observability cannot break the emergency.** `_report` never raises, and a test
+  drives `trigger()` with a sink that throws to prove the SOS result survives.
+
+### Verification
+
+9 capability tests driving the REAL `trigger()` with the circle and Action Gateway
+stubbed. **Mutation-proven:** removing the empty-circle report reddens 2. Guardian
+regression 87 passed / 0 failed. Wiring audit exits 0 and now reports
+`aria_service/guardian/panic.py` as **newly WIRED**.
+
+**Baseline deliberately NOT re-recorded here.** `--update-baseline` would also sweep
+in six unrelated drift entries from other agents' work (`learning_controller`,
+`route_audit`, and four `learning/*` category changes). `panic.py` can be dropped
+from `known_dark` at the next deliberate re-baseline.
