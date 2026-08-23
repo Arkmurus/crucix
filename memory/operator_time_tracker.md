@@ -4175,3 +4175,84 @@ as boot-transient (§11c); `rule_one.breached: false`, `brave_non_dd_grants: 0`,
    auto-releases the cooldown on top-up, so recovery is automatic once funded.
 2. `state_backend_read_timeouts` — sqlite **reachable**, 6 timeouts/900s across 5
    unrelated keys. Pre-existing; untouched by this session's changes.
+
+## Session 2026-08-23 (part 7) — R-F4270..R-F4274 · the harness was the blocker
+
+Operator: *"lets push aria training, pick where you left ensure it is done with
+precision"*, then *"make sure it is you training aria no more deepseek… focus on
+360 as well as full autonomous reasoning"*, then **full autonomy on RunPod cycles
+and top-ups**. Decisions taken: I author the corpus (free, in-session, real
+payloads only — no Anthropic API, so RULE ONE is untouched), and **build the 360
+harness before spending on a cycle**.
+
+### The finding that reframed the whole thread
+
+Thirteen funded candidates had failed to promote and every post-mortem blamed
+curriculum design. **Measured from the live standard: the 168-row eval has an axis
+for 6 of ARIA's 24 fundamentals.** 152 of 168 rows (90%) sit on
+INTEGRITY_SCREENING at **150/152**, and with `tooluse_resolution` advisory there
+were **two addressable rows in the entire harness**. The candidates were not
+failing to learn — the instrument had nothing left to report. Third time this repo
+has mistaken an instrument for its subject (the Phase A gates, the cost meter,
+now the eval).
+
+### Shipped
+
+* **R-F4270 (C-231)** — the R-F4259 promotion was INERT. Every launcher still
+  pinned the rejected 161/168 parent by sha; `parent_mode: "accepted_adapter"` was
+  a label with **no referent**, so the paid-spend gate could not tell the promoted
+  parent from the one it replaced; and `adjudicate_sweep --incumbent` was free
+  text, so the next sweep would have scored **a null change as +1**. There is now a
+  parent of record, derived from the verdict, consulted by both places that spend.
+* **R-F4271 (C-232)** — the coverage ledger above, from the live registry. It
+  refuses to infer coverage from a shared resolver (pinned on OC-5, whose resolver
+  the eval already calls while no row walks a PSC chain — C-39's shape).
+* **R-F4272** — three new axes on REAL captured Companies House payloads:
+  insolvency (FS-11), charges (FS-12), beneficial ownership (OC-5). Coverage
+  **25% → 38%**.
+* **R-F4274** — the 360 eval: 201 rows, 13 axes, subject-disjoint and
+  branch-stratified split, `SCORER_VERSION` bumped (re-score proves the original
+  ten grade identically: 162/168, zero per-axis change).
+
+### Four defects of mine that the existing guards caught
+
+Worth recording because the guards earned their keep. Two were the **negation
+trap** — the honest refusal names the clean reading in order to deny it ("not a
+finding of no insolvency"), and a substring test flags the very sentence that
+prevents the error. One collapsed `None` to `[]`, making "the register did not
+answer" identical to "answered, and empty" — the exact defect the axis exists to
+train against, inside its own builder. And the biggest: **all 93 rows handed the
+register a fabricated company number**, which `validate_trace` rejected wholesale
+and was right to. Rows are now two-hop — search the name, derive the number, key
+the register on it — which is also the autonomous-reasoning step the harness never
+exercised.
+
+`test_rf3416` also caught `eval_tooluse` importing a module no pod ships. Fixed at
+root: the validator moved into `build_tooluse_corpus.py`, which all ten drivers
+already upload. Editing ten upload lists would have left the eleventh broken.
+
+### Open — next session
+
+1. **The 360 harness has no baseline.** The parent has no score on the 201-row
+   eval; the 33 new rows need real inference. `pod_tooluse_adapter_eval.sh` exists
+   but **has no driver** — nothing in the tree invokes it. Writing that driver
+   (pick a pod via `decide_with_capacity`, upload, run, harvest, stop) is the next
+   task. Capacity checked live: the pod of record's host has **0 free GPUs**, but
+   14 pods we already own sit on hosts with spare capacity. Balance $11.18,
+   operator has authorised top-ups and cycles.
+2. **Three unregistered gap types**, emitted but not in `VALID_GAP_TYPES`, so they
+   log "Unknown gap type" and demote a real signal to noise —
+   `boot_regression_check_skipped` (boot_snapshot_diff.py:179),
+   `ranking_amplification` (knowledge.py:2864), **`resolution_enforcement_failure`
+   (companies_house.py:2081)**. The third matters to the training thread: it is
+   R-F4144's signal, and R-F4259's advisory-axis decision rests on that
+   enforcement layer being observable. From R-F4136/4144/4170, days old, not mine.
+   `test_rf2644` is red and NOT in the baseline.
+3. **`test_rf4122` is red and not in the baseline** — *"DPO row 16 rejected answer
+   passes current validator; preference evidence is stale"*. A curriculum's
+   rejected side is no longer rejected by the current validator. Proven
+   independent of my work (fails identically with my changes removed).
+4. **15 fundamentals still have no eval row**, including all of
+   LEGITIMACY_REGULATION. ARIA already has free adapters for several
+   (`search_disqualified_officers` → IS-16b, `get_filing_history` /
+   `fetch_accounts_figures` → FS-9/FS-10).
