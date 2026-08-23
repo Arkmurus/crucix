@@ -74,6 +74,41 @@ def _safe_err(e: Exception) -> str:
     return f"{type(e).__name__}: {str(e)[:200]}"
 
 
+# R-F4260 (operator decision, 2026-08-23) — gate #7 is ADVISORY.
+#
+# The instruction was explicit: "do not remove it but ensure it is not blocking
+# the whole project." So it is still MEASURED and still REPORTED with its real
+# pass state; it simply no longer holds Phase A shut.
+#
+# WHY IT IS SOUND: gate #7 counts qualified design-partner conversations. It is
+# the only gate NO CODE CAN MOVE — every other gate is a live probe ARIA can
+# influence by getting better, while this one advances solely by the operator
+# talking to customers. Leaving it blocking meant Phase A could not exit however
+# good the platform got, which converts a business-development milestone into an
+# engineering stop-work order.
+#
+# WHY THE MEASUREMENT STAYS: design-partner contact is how anyone learns whether
+# Golden Intel is actually valuable — the "value density" gap the north star
+# names as the real USP problem. Deleting the gate would blind the platform to
+# its own product question. Advisory keeps the number in front of the operator
+# every time the gates are read.
+#
+# THE GUARD AGAINST THIS BECOMING "STOP MEASURING": `all_pass` now means all
+# BLOCKING gates, and `all_pass_including_advisory` preserves the ORIGINAL
+# meaning exactly, so no reader loses the strict answer. The summary names the
+# advisory gates and carries their rationale. This is the same contract R-F4259
+# established for advisory eval axes.
+ADVISORY_GATES = frozenset({"gate_7_design_partners"})
+
+ADVISORY_RATIONALE = (
+    "gate #7 (design partners) is operator-owned and uncodeable — no engineering "
+    "work can advance it, so blocking Phase A on it stops the platform for a "
+    "business-development reason. Operator decision 2026-08-23: keep measuring "
+    "and reporting it, stop gating on it. `all_pass_including_advisory` still "
+    "answers the strict question."
+)
+
+
 def _gate(
     gate_id: int,
     key: str,
@@ -94,6 +129,10 @@ def _gate(
         "value": value,
         "pass": passed,
         "measurable": passed is not None,
+        # R-F4260 — ADVISORY means measured and reported, but not blocking.
+        # Derived from one set so a gate's classification cannot drift from the
+        # summary that acts on it.
+        "advisory": key in ADVISORY_GATES,
         "evidence": evidence,
     }
     rec.update(extras)
@@ -469,6 +508,12 @@ async def compute_phase_gates() -> dict:
     measurable = [g for g in gates.values() if g.get("pass") is not None]
     passed = sum(1 for g in measurable if g.get("pass"))
     unmeasurable = len(gates) - len(measurable)
+    # R-F4260 — the BLOCKING subset. Advisory gates keep every field they had;
+    # they are only excluded from the tally that decides whether Phase A is
+    # exitable. `all_pass_including_advisory` below preserves the strict answer.
+    blocking = [g for g in gates.values() if not g.get("advisory")]
+    blocking_measurable = [g for g in blocking if g.get("pass") is not None]
+    blocking_passed = sum(1 for g in blocking_measurable if g.get("pass"))
     return {
         "gates": gates,
         "summary": {
@@ -476,6 +521,10 @@ async def compute_phase_gates() -> dict:
             "measurable": len(measurable),
             "unmeasurable": unmeasurable,
             "total": len(gates),
+            "blocking_total": len(blocking),
+            "blocking_passed": blocking_passed,
+            "advisory_gates": sorted(ADVISORY_GATES),
+            "advisory_rationale": ADVISORY_RATIONALE,
             # R-F2639: `all_pass` means PHASE A IS EXITABLE, so it must require
             # every gate measured AND passing. The prior form (passed ==
             # len(measurable)) read True whenever the measurable subset passed —
@@ -483,7 +532,12 @@ async def compute_phase_gates() -> dict:
             # of survivors could report all_pass=true on the PUBLIC endpoint.
             # The field name is what a reader acts on; "all the ones we managed
             # to measure passed" is not "all pass".
-            "all_pass": unmeasurable == 0 and passed == len(gates),
+            # R-F4260: `all_pass` is now over the BLOCKING gates — that is what
+            # "Phase A is exitable" means once a gate is advisory. The strict
+            # all-seven answer is preserved verbatim below so nothing is lost.
+            "all_pass": (len(blocking) - len(blocking_measurable)) == 0
+                        and blocking_passed == len(blocking),
+            "all_pass_including_advisory": unmeasurable == 0 and passed == len(gates),
             "all_measurable_pass": len(measurable) > 0 and passed == len(measurable),
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
