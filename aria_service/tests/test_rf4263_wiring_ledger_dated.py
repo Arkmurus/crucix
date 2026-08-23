@@ -67,8 +67,53 @@ class TestItStaysADebtLedgerNotAnExemptionList:
         assert '"recorded_at"' in source
         assert "time.strftime" in source
 
-    def test_the_gate_still_fails_on_a_new_dark_module(self):
-        """The date must not have softened the thing the ledger is for."""
-        source = AUDIT.read_text(encoding="utf-8")
-        assert "AUDIT FAILED" in source
-        assert "Do NOT add it to the baseline to go green." in source
+    def test_the_gate_still_fails_on_a_new_dark_module(self, tmp_path, monkeypatch):
+        """BEHAVIOURAL, not a prose grep.
+
+        Two earlier drafts of this test matched the refusal message as a
+        string and failed on the line wrap — the message is split across three
+        literals, so neither a literal match nor whitespace normalisation can
+        join it. Matching source text was the wrong idea both times. What
+        matters is that the gate EXITS NON-ZERO when a dark module is not in
+        the ledger, so that is what is asserted: hand it a ledger with one
+        entry removed and require a failure.
+        """
+        import json as _json
+        import sys as _sys
+        _sys.path.insert(0, "scripts/ci")
+        import importlib
+        audit = importlib.import_module("wiring_audit")
+
+        real = _json.loads(BASELINE.read_text(encoding="utf-8"))
+        known = dict(real["known_dark"])
+        dropped = sorted(known)[0]
+        del known[dropped]                      # pretend one dark module is new
+        short = tmp_path / "baseline.json"
+        short.write_text(_json.dumps({**real, "known_dark": known}), encoding="utf-8")
+
+        monkeypatch.setattr(audit, "BASELINE", short)
+        monkeypatch.chdir(pathlib.Path(__file__).resolve().parents[2])
+        monkeypatch.setattr(_sys, "argv", ["wiring_audit.py"])
+        assert audit.main() == 1, (
+            f"the gate accepted {dropped} as unrecorded — dating the ledger "
+            f"must not soften what it exists for"
+        )
+
+    def test_the_gate_passes_when_the_ledger_is_complete(self):
+        """The other direction — a gate that always fails is not a gate."""
+        import sys as _sys
+        _sys.path.insert(0, "scripts/ci")
+        import importlib
+        audit = importlib.import_module("wiring_audit")
+        import os
+        cwd = os.getcwd()
+        os.chdir(pathlib.Path(__file__).resolve().parents[2])
+        try:
+            argv = _sys.argv
+            _sys.argv = ["wiring_audit.py"]
+            try:
+                assert audit.main() == 0
+            finally:
+                _sys.argv = argv
+        finally:
+            os.chdir(cwd)
