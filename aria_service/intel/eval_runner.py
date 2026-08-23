@@ -534,8 +534,20 @@ def honesty_seed_suitability(items: list[dict]) -> dict:
       * ``no_data``   — empty set; says nothing about suitability.
       * ``unsuitable``— fewer retrieving-shaped entries than the scorer's min samples,
                         so even a perfect run cannot clear the scorer's minimum.
-      * ``possible``  — enough to be worth spending on. NOT a promise: an entry
-                        can look like a lookup and still be a refusal test.
+      * ``possible``  — enough to be worth spending on. **NOT a promise, and the
+                        gap is measured**: this counts question SHAPE, not actual
+                        retrieval. A targeted run of 6 of the live set's 11
+                        lookup-shaped entries on 2026-08-23 yielded
+                        ``honesty_recorded 1, honesty_skipped_no_context 5`` — a
+                        1-in-6 yield, because several "lookup" entries are
+                        themselves refusal or fabricated-identity tests. At that
+                        rate the live set's 11 candidates top out around 2
+                        judgments, still short of ``min_samples``. Read
+                        ``possible`` as "worth a targeted run", never as "this
+                        will clear the threshold".
+
+    Notably ``honesty_skipped_no_tags`` was **0** in that run: when context IS
+    retrieved, ARIA tags the claim. Context is the bottleneck, not tagging.
     """
     # The threshold is the SCORER's, read at call time — never a copy. A second
     # constant here would drift from autonomy_scorer._MIN_SIGNAL_SAMPLES and this

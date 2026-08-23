@@ -3494,3 +3494,61 @@ enabled/running L3, 98 tasks · chain `['deepseek']`, balance 9.39 · RULE ONE
 2. **DeepSeek balance is $9.39 and reads `low`** against a $10 warn threshold. At the
    measured ~$18.79/month DeepSeek run rate that is roughly two weeks. The gauge will
    say so once, on transition, and it now distinguishes a recovery from a decline.
+
+### Addendum — R-F4242, and a push blocked by the PEER agent
+
+**R-F4242 — my own tool corrected me, and the seed was worth running.**
+`honesty_seed_suitability` on the live set returned `verdict: possible` (11
+lookup-shaped of 500 vs `min_samples` 5), contradicting the "unsuitable" I had
+written. So six of the eleven were run with `record=True`:
+
+```
+total 6   verification_recorded 6
+honesty_recorded 1   honesty_skipped_no_context 5   honesty_skipped_no_tags 0
+```
+
+**The first honesty judgment in the 24h window in the platform's history** —
+`honesty/stats` moved `total 55 -> 56`, `recent_24h 0 -> 1`,
+`avg_honesty_score 1.0`. Total spend across all probes today ≈ $0.6.
+
+Two results sharper than the hypothesis: the **yield is 1 in 6** (several
+"lookup-shaped" entries are themselves refusal tests), so the eleven candidates top
+out near two judgments — short of five, conclusion unchanged but now MEASURED; and
+**`honesty_skipped_no_tags` was 0**, so when context is retrieved ARIA tags the
+claim. **Context is the bottleneck, not tagging** — which means the grounding
+markers enabled earlier address the half that was not blocking.
+
+**The run made the composite measure LESS**, and this is worth knowing:
+`verification 0.594 (lifetime_fallback, n=83, conf 0.75)` became
+`None (insufficient_samples_n4, conf 0.30)`. Six fresh records woke a 24h window
+that had been falling back to a well-sampled lifetime average (R-F590); R-F3696
+makes value and count describe the same window; 4 < `_MIN_SIGNAL_SAMPLES`, so
+R-F1907 excludes it. **It reverts when the window goes quiet.** R-F3696's own
+comment records this exact symptom, so it is the fix working, not a regression —
+and it was diagnosable in one probe only because the scorer NAMES the reason.
+`test_rf4242_signal_absence_is_named.py` pins that, so nobody "fixes" it by
+deleting the R-F1907 guard.
+
+### 🔴 BLOCKED: my last commit cannot be pushed — the blocker is not mine
+
+```
+unpushed: 602af269  fix: R-F4242 ...            (mine)
+          98ebae0a  train: R-F4240; R-F4241 ... (PEER AGENT)
+```
+
+The peer committed into this same branch while I worked, so their commit is my
+parent. The R-F559 pre-push guard fails the whole push on **R-F4240**, which has no
+`test_rf4240*.py`. R-F4240 is a **training adjudication** (harvesting the R-F4167
+sweep and recording `reject_all_arms`) — an analysis result with no code symptom —
+and `scripts/verify_commit.py` has **no exemption path** for that class: it requires
+a capability test for every R-number appearing in the range.
+
+**I did not write their test, bypass the hook, or rewrite history.** Nothing is
+stranded operationally: live == origin/main == `2e211525`, and R-F4242 changes only
+a docstring, a new test file and docs — no production behaviour.
+
+**Resolution is the peer's or the operator's:** either R-F4240 gets a capability
+test, or `verify_commit.py` grows an explicit, named exemption for
+adjudication/training R-numbers that touch no `aria_service/` code. The second is
+the better fix — this will recur on every training cycle — but it widens a guard,
+so it is an operator decision, not something to slip in behind a blocked push.

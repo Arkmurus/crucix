@@ -13861,3 +13861,60 @@ Two remedies, and only one of them is a code question:
 tags improve and judgments accrue past 5 in a 24h window, gate #1 becomes
 measurable for the first time — and its `unmeasured_signals` list empties on its
 own. That is the signal to look for; it is not something to force.
+
+### C-214 addendum 2 (R-F4242) — the yield, measured end to end
+
+The R-F4239 addendum above said the golden set is unsuitable. **My own tool
+disagreed and was right to**: `honesty_seed_suitability` on the live set returns
+`total 500, lookup_shaped 11, refusal_by_design 75, verdict **possible**` — 11
+candidates against a `min_samples` of 5 makes a *targeted* run worth trying, even
+though running all 500 never was. Correcting the overstatement.
+
+So it was run. Six of the eleven, `record=True`:
+
+```
+total 6   verification_recorded 6
+honesty_recorded 1   honesty_skipped_no_context 5   honesty_skipped_no_tags 0
+```
+
+**The first honesty judgment in the 24h window in the platform's history** —
+`/api/aria/honesty/stats` moved `total 55 -> 56`, `recent_24h 0 -> 1`,
+`avg_honesty_score 1.0`. Cost ≈ $0.6 including the earlier probes.
+
+Two findings, both sharper than the hypothesis:
+
+1. **The yield is 1 in 6, not 6 in 6.** Several "lookup-shaped" entries are
+   themselves refusal or fabricated-identity tests. At that rate the eleven
+   candidates top out around **two** judgments — still short of five. So the
+   conclusion stands, now measured rather than estimated, and
+   `honesty_seed_suitability`'s docstring carries the number so `possible` is
+   never read as "this will clear the threshold".
+2. **`honesty_skipped_no_tags` was 0.** When context IS retrieved, ARIA tags the
+   claim. **Context is the bottleneck, not tagging** — which means
+   `ARIA_GROUNDING_MARKERS_ENABLED` addresses the half that was not blocking.
+
+### And the counter-intuitive part: the run made the composite measure LESS
+
+```
+before: verification 0.594  source avg_grounded_rate:lifetime_fallback  n=83  confidence 0.75
+after : verification None   source insufficient_samples_n4              n=4   confidence 0.30
+        gate_1.unmeasured_signals ['honesty_rate', 'verification']
+```
+
+Writing six verification records REMOVED a well-sampled signal. Nothing is broken:
+`avg_grounded_rate` falls back to the lifetime average only while the 24h window is
+quiet (R-F590); the seed woke that window; R-F3696 made `effective_sample_size`
+co-computed with the rate so value and count always describe the SAME window; the
+window honestly holds 4, below `_MIN_SIGNAL_SAMPLES`, so R-F1907 excludes it. **It
+reverts once the window goes quiet again.** R-F3696's own comment records this
+exact symptom ("zeroed 45% of the composite and pinned gate #1 at confidence
+0.30"), so this is the fix working, not the bug returning.
+
+It was diagnosable in one probe **only because the scorer NAMES the reason**
+(`insufficient_samples_n4`) rather than reporting a bare `None`.
+`test_rf4242_signal_absence_is_named.py` pins that, plus a negative control that a
+well-sampled signal is still used, R-F3696's same-window invariant, and that gate
+#1 lists BOTH dark axes rather than only the first — because a future reader who
+sees confidence collapse after a recording run and cannot see why is one step from
+deleting the R-F1907 guard, which exists because a single 0.0 sample once deflated
+the composite from ~0.804 to 0.6028.

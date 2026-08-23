@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4242,
+  "next_available": 4243,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36314,14 +36314,25 @@
       "title": "record the R-F4167 interpolation sweep verdict",
       "claimed_at": "2026-08-23T05:49:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "98ebae0a",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:07:16Z"
     },
     {
       "r_number": "R-F4241",
       "title": "one durable training pod of record: reuse, never create a 71st, never delete",
       "claimed_at": "2026-08-23T05:49:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "98ebae0a",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:07:16Z"
+    },
+    {
+      "r_number": "R-F4242",
+      "title": "measure the honesty seed yield end to end; correct the suitability verdict semantics",
+      "claimed_at": "2026-08-23T06:20:30Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
