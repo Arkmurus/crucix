@@ -101,6 +101,25 @@ APPROVED_RECIPES: dict[str, dict[str, Any]] = {
         "load_in_4bit": True,
         "parent_mode": "accepted_adapter",
     },
+    # R-F4243 — same hyperparameters as the boundary recipe above, deliberately.
+    # The only intended difference between the two runs is the curriculum (32 ->
+    # 64 pairs, each original pair gaining a length counter-example), so every
+    # other knob is held identical and the optimizer-step count simply follows
+    # the pair count: ceil(64/2) micro-batches / 4 accumulation = 8 steps.
+    "tooluse_dpo_length_controlled_accepted_continuation": {
+        "runner": "scripts/train/pod_tooluse_dpo.sh",
+        "base_model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "epochs": 1,
+        "beta": 0.3,
+        "learning_rate": 2e-6,
+        "batch_size": 2,
+        "gradient_accumulation_steps": 4,
+        "expected_optimizer_steps": 8,
+        "max_sequence_length": 4096,
+        "max_gradient_norm": 0.3,
+        "load_in_4bit": True,
+        "parent_mode": "accepted_adapter",
+    },
     "tooluse_dpo_protected_frontier_continuation": {
         "runner": "scripts/train/pod_tooluse_dpo.sh",
         "base_model": "mistralai/Mistral-7B-Instruct-v0.3",
