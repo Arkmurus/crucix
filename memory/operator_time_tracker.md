@@ -3165,3 +3165,123 @@ interval, on the vendor's own `is_available` — so
 `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` is an accelerator, not a
 requirement. That is the half of this that used to need a human to remember an admin
 endpoint existed.
+
+---
+
+## Session 2026-08-22 (part 2) — R-F4231..R-F4232, C-211..C-212 · north-star pass
+
+Operator: *"continue with root surgery precision and ensure all is wired and
+enabled, we need to be on track of the USP and north star, ARIA needs to be
+compounding and growing."*
+
+### First: §20's own open step points at a file that has never existed
+
+`memory/platform_buildout_north_star.md` — named in §1 AND §20 as a binding
+session-open read — **is not in the repo and never has been**
+(`git log --diff-filter=A` empty, `--diff-filter=D` empty). The real documents are
+`docs/golden_intel_north_star_2026_07_14.md` (USP: Golden Intel as the decision
+signal layer; the named gap is **value density**, not guards) and
+`docs/aria_source_coverage_north_star_2026_07_14.md`. A mandatory step certified by
+an absence — the R-F3099 shape, in the ritual itself. **Not fixed this session; the
+pointer needs correcting in §1/§20.**
+
+### What is actually holding the north-star gate down — it is NOT capability
+
+`GET /health/composite`, live:
+
+```
+signals : mastery 0.838   verification 0.594   honesty_rate  NULL
+weights : 0.30            0.45                 0.25
+composite 0.6916  (= (0.3*0.838 + 0.45*0.594) / 0.75)   -> gate #1 "pass: false"
+```
+
+Mastery is fine (`overall 0.866 / core 0.838 / headline 0.838`). **The honesty axis
+is dark**, and `/api/aria/honesty/stats` — read through the RUNNING server (§17) —
+says why: **55 honesty judgments in the platform's entire lifetime**,
+`by_status_24h {}`, `scored_sample_size 0`.
+
+### R-F4231 / C-211 — gate #1 could certify Phase A with honesty unmeasured
+
+R-F2665's comment claims the gate closes only with *"both honesty signals present
+with real samples"*. It enforced `confidence >= 0.60`, where confidence is a
+**fraction of WEIGHT**. Honesty is 0.25, so mastery + verification alone give 0.75
+and the guard stays quiet. It was calibrated for the mastery-ONLY case (0.30) and
+**went inert the moment verification started reporting**. Proven, not argued: the
+new test fails against the pre-fix tree with `assert True is None` — a 0.75
+composite with **zero** honesty samples returned `pass: True`. Only arithmetic
+(0.6916 < 0.71) was preventing it, in the phase named *Honesty foundation*.
+
+Worse, the comparison was undefined in both directions: the score is renormalised
+over measured signals, the target is defined over the full set. At honesty
+0.0/0.5/1.0 the true composite is 0.519/0.644/**0.769** — it **straddles 0.71**, so
+the reported `false` was as unfounded as a `true`.
+
+Fix: `pass` is tri-state (§1/R-F2639) — `None`/unknown with `unmeasured_signals`
+naming the dark axis. Measures MORE, does not clamp; cannot help Phase A exit
+(`all_pass` already needs `unmeasurable == 0`). **Live-verified:**
+`{'value': 0.692, 'pass': None, 'measurable': False, 'unmeasured_signals':
+['honesty_rate']}`, summary `unmeasurable: 1, all_pass: False`.
+
+### R-F4232 / C-212 — and why the axis was dark
+
+The judge was spawned as a bare `create_task` with **no stored reference**. asyncio
+holds only a weak ref, so a saturated loop can collect it before it runs — the
+R-F1363 (`_CODER_BG_TASKS`) / R-F1377 (`_ASYNC_JOB_TASKS`) class, already paid for
+twice in the same file. The loop WAS saturated for months (C-95: p95 3264 ms until
+2026-08-14).
+
+**R-F2420 diagnosed this exactly and fixed the wrong half** — its remedy (also
+record synchronously) sits behind `ARIA_GROUNDING_MARKERS_ENABLED`, which is
+**default OFF**. So the workaround never covered production.
+
+Pinned three sites with the existing helper: `_judge_bg` (chat), plus
+`_r2364_judge_bg` and `_r2364_verify_bg` on the stream fork (§13). Recorded as
+known debt: **twelve** bare `create_task` calls exist in `routes/aria.py`; the nine
+others write no gate signal and are left, deliberately, as the detector's own proof
+it can still fire.
+
+### Two mistakes I made, both recorded in C-212 because they generalise
+
+1. A scripted patch **mis-indented the stream spawn by 4 spaces, moving it outside
+   its `if` guard** so it would have fired unconditionally — and **`py_compile`
+   passed**, because a dedent is valid Python (§11c: compile-green ≠ correct).
+   Caught by `cat -A`, not by a gate.
+2. The first guard was a substring scan and went brittle the moment the fix wrapped
+   the call across lines; a later variant matched the coroutine's `async def` sixty
+   lines from the spawn. Both are AST now.
+
+Also found: `_source_probe.code_only()` strips docstrings, so a docstring-only class
+body (`_DDAdmissionBusy`) leaves an empty block and the stripped text **does not
+re-parse**. AST work must use `module_source`.
+
+### CLAUDE.md corrections
+
+* §1's *"STILL OPEN (R-F2661)"* was **STALE** — that fix shipped. Replaced with the
+  **third** trophy, which is live and on a different axis: the R-F163 starved-tag
+  branch lifts TOPIC mastery `correct=True, weight=0.2` for a bare search hit, and
+  its own comment gives the reason — *"so the proactive alert stops repeating"*.
+  That is moving the gauge to switch off the warning light. It inflates
+  `overall_mastery` (0.866) but not today's `headline` (0.838 = min, core-bound), so
+  it is not currently moving gate #1. R-F211 later added announce-hash dedup with a
+  **14-day** TTL, which independently solves the repetition it was justified by.
+* §1's R-F2665 line now records C-211 and warns against "fixing" a future `unknown`
+  by lowering `MIN_CONFIDENCE`.
+
+### Verified live on the shipped build (R-F4232 · sha 1492bf04)
+
+autonomy `enabled/running, L3, 98 tasks, tick 46s` · loop healthy p95 1.0 ms ·
+RULE ONE `breached: false`, anthropic DD-only, brave `['dd','wa']`, non-DD grants 0
+· vendor-balance gauge live. `state_backend_read_timeouts` and
+`autonomous_loop_stalled` both appeared during boot and **cleared on their own** —
+measured, not assumed.
+
+### 🔴 STILL BLOCKED ON THE OPERATOR
+
+1. **DeepSeek top-up** — gauge still reads `-0.02 exhausted`. General chat + WA stay
+   down; DD unaffected. Everything else this session is ready for it: once the chain
+   serves, honesty judgments accrue (now on a pinned task) and gate #1 becomes
+   measurable for the first time.
+2. **`ARIA_GROUNDING_MARKERS_ENABLED` is a staged, operator-pending activation**
+   (R-F2391, default OFF pending operator review of the diff + eval-measured
+   grounding rate). Turning it on adds the SYNCHRONOUS honesty write beside the
+   background one. Not flipped without a decision — it changes live chat framing.
