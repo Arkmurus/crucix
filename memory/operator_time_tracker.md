@@ -3712,3 +3712,105 @@ record instead of creating one per run — 70 pods were found EXITED at $0.077/h
 idle storage. Expect a reuse; the pod currently resumes WITHOUT a GPU (host
 capacity) and a paid start now refuses rather than billing for a pod that cannot
 train.
+
+## Session 2026-08-23 (part 4) — R-F4243..R-F4247 · the cycle ran, and refuted me
+
+Operator funded RunPod ($13.86) and directed *"root laser precision for every
+training cycle, ensure you have 360 overview"*.
+
+### The cycle: RAN, REJECTED — $0.85
+
+On the **reused** pod `l6o0j96gfqwqui` (L40S). **Still 70 pods; no 71st created**
+— R-F4241 end-to-end through a real paid run.
+
+| axis | cand | inc | delta |
+|---|---|---|---|
+| tooluse_resolution | **9** | 13 | **−4** |
+| tooluse_contradiction | 23 | 26 | **−3** |
+| tooluse_adverse | 27 | 26 | +1 |
+| **total** | **155** | **161** | **−6** |
+
+Gate: ≥162 honest, ≥13 resolution, 0 regressions. Failed all three. **9/16 is the
+worst resolution reading on record** — worse than the 11/16 of the curriculum it
+was built to repair.
+
+### The cause was MY metric (R-F4247)
+
+R-F4243 measured a **count skew** — in how many pairs is chosen shorter — and
+drove it 0.90 → 0.55. That answers a *monotone* question. Putting rejections on
+both sides of the chosen length converts a monotone confound into an **interval**
+one, which is easier to learn. Measured after:
+
+```
+unique_live   chosen 151-185 (tight)
+              rejected 49-76 AND 316-2656 (bimodal, straddling)
+              count skew 0.55 -> "balanced"
+              separability 100% -> perfectly learnable
+no_match      separability 95%
+```
+
+The eval agreed with the geometry, not the guard: resolution answers grew a
+median **+306 chars** and every lost resolution row was *"did not select the
+resolved company"* — the model fled the newly-rejected very-short answers into
+the long list. **I gave the confound a new shape and called it removed.**
+
+Metric is now separability (best interval accuracy on length alone), calibrated
+against chance (65% median / 72% p95 for n=20 a side from one distribution), and
+it **blocks both curricula**. A test assertion is inverted by this and the
+inversion IS the finding — it had certified the bad curriculum.
+
+### R-F4244 — the retention gate could certify a null change
+
+Found by chasing a baseline number that did not match the incumbent (155/168 vs
+161/168). The pinned baseline carries `scorer_version: None`; the SAME stored
+answers re-score to 161/13. Candidates are graded with the current scorer, so
+every one got **+6 aggregate and +2 protected-axis** free. Every structural check
+is blind by construction — completeness, consistency, axis set and row surface
+are all identical across a re-grade.
+
+Swept all 168-row reports: **10 pass the shipped gate and fail an honest
+same-scorer one**, including *the incumbent against itself* and *the baseline's
+own answers re-graded*, both certified `positive_curve`. Comparability now fails
+closed. **Demonstrated live**: this candidate reads **+0** against the stale
+baseline instead of −6.
+
+### R-F4241 amended — reuse ANY pod we own
+
+Production contradicted the one-pod design within an hour: the pod of record's
+A40 host had `gpuAvailable: 0`, it resumed GPU-less, R-F4241 refused (correctly)
+— leaving a funded balance with nothing able to train. `machine.gpuAvailable` is
+free and published on a stopped pod: **38 of our 70** sit on hosts with a spare
+GPU. Now moves to another pod we own. A test caught a real bug: a RUNNING pod
+already holds its GPU, so its host reads 0 legitimately.
+
+### R-F4246 — no paid DPO cycle on a confounded curriculum
+
+Runs in `run_tooluse_dpo.sh` **before pod creation**. Grouping is the whole game:
+the aggregate skew was 0.69 (passing) while per-branch it was 0.9–1.0.
+
+### CORRECTION — the driver was never killed
+
+I reported it as fact and built R-F4245's motivation on it. The harness stopped
+**tracking** the foreground task; the process ran to completion at 07:34:30,
+recovered every artefact and verified the pod stopped. I wrote it from a
+notification instead of the driver's own log, which was advancing throughout.
+`harvest_cycle.py` still stands on real evidence (R-F3420's recorded kills,
+R-F4197's hand-written recovery) and its own first-use flaw is recorded: run
+against a live driver it raced and pulled a half-written adapter (178 MB vs
+310 MB), then refused to publish it.
+
+### Live at close
+
+`origin/main` 8820ee4a+, 70 pods, **none running**, idle burn $0.077/hr, balance
+$13.01. No deploy — tooling, tests, docs and eval artefacts only; the only
+`aria_service/` runtime delta to live is a docstring.
+
+### Recommendation
+
+**Stop the training lane here.** Do not fund a tenth candidate on a metric I have
+been wrong about twice in one day. The open question is whether length is the
+binding constraint at all — it was a real confound (95–100% separable) but
+removing its monotone form made things worse, and `tooluse_contradiction` fell 3
+points from a resolution-only curriculum, so 64 narrow pairs are disturbing axes
+they never targeted. That points at scale and interference. The incumbent
+(161/13) is untouched.

@@ -126,20 +126,60 @@ error) in **5 of 10** `unique_live` rows.
 cause.** It is stated that way deliberately: the paragraph it replaces was
 asserted with more confidence than its evidence carried.
 
-## What to train instead
+## What was tried, and what it cost — RUN AND REJECTED, same day
 
-Break the correlation rather than making answers unnatural — a selection really
-is shorter than a clarification, and that is fine as long as length is not
-*sufficient* to pick the winner:
+The recommendation this section originally made was **built, funded and
+refuted**. Recording the whole arc, because the failure is more instructive than
+the proposal was.
 
-1. **Add a length-matched counter-example to every branch.** For `unique_live`, a
-   SHORT rejected (a terse false denial) so brevity stops being the winning
-   feature. For the other three, a LONG rejected (a full list plus a first-row
-   default) so verbosity stops being it.
-2. **Cover both failure shapes in every branch**, not 2-of-10 in the one where it
-   matters most.
-3. Keep what v1 already got right — branch balance, held-out subjects excluded,
-   chosen must pass `validate_trace` and rejected must fail it.
+The plan was: add a length-matched counter-example to every branch — a SHORT
+rejected for `unique_live`, a LONG one for the others — so length would stop
+being sufficient to pick the winner. R-F4243 did exactly that (32 → 64 pairs),
+the count skew fell from 0.90/1.00 to 0.55 everywhere, and the cycle ran.
+
+**Result: 155/168, resolution 9/16, against an incumbent 161 and 13.** Two axis
+regressions (resolution −4, contradiction −3) against a gate permitting zero.
+**That is the worst resolution reading of any candidate on record** — worse than
+the 11/16 produced by the curriculum it was meant to repair.
+
+**The metric was wrong, and it was wrong in a way that guaranteed this.** A count
+skew asks a *monotone* question: in how many pairs is the chosen answer shorter?
+Adding rejections on the other side of the chosen length answers that question
+without making length uninformative — it converts a monotone confound into an
+**interval** one, which is easier to learn. Measured afterwards with R-F4247's
+separability metric:
+
+| branch | count skew | separability |
+|---|---|---|
+| `unique_live` | 0.55 "balanced" | **100%** |
+| `no_match` | 0.55 "balanced" | **95%** |
+| `ambiguous_live` | 0.55 | 78% |
+
+`unique_live` chosen answers sit in 151–185; the rejections sit at 49–76 **and**
+316–2656, straddling them. Perfectly classifiable, and the count said balanced.
+
+The eval agrees with the geometry rather than the guard: resolution answers grew
+a median **+306 characters**, and every lost resolution row was *"did not select
+the resolved company"*. The model avoided the newly-rejected very-short answers
+and took shelter in the long list.
+
+## What to train instead — revised
+
+1. **Do not rebuild on a count skew.** `preflight_preference_confound` now
+   measures separability and **blocks both** the original curriculum and the
+   rebuild. Neither is fit to spend on.
+2. A curriculum must reach genuine length **overlap** per branch — the chosen and
+   rejected distributions must interleave, not merely balance in count.
+3. The two failure shapes still need covering in every branch (the first-row
+   default appeared in only 2 of 10 `ambiguous_live` rows), and v1's real
+   strengths still hold: branch balance, held-out subjects excluded, chosen
+   passes `validate_trace` and rejected fails it.
+4. **The honest open question is whether length is the binding constraint at
+   all.** It was a real confound — 95–100% separable — but removing its monotone
+   form made things worse, which is evidence that something else dominates.
+   `tooluse_contradiction` also fell 3 points from a resolution-only curriculum,
+   so 64 narrow pairs are disturbing axes they never targeted. That points at
+   scale and interference, not just at the confound.
 
 ## Cost note
 
