@@ -14263,3 +14263,80 @@ an automatic deleter of personal data is not something to add quietly.
 7 tests. Mutation-proven twice: removing the import reddens the resolve test, and
 the branch-order assertion pins that a clean review cannot page. Vetting regression
 319 passed / 0 failed; wiring audit 0.
+
+## C-224 · the mastery grader asks the local stack a question it is designed to abstain on
+
+**Found 2026-08-23 by probing gate #2's floor cell directly. Settled by trace.**
+
+Gate #2's heatmap floor reads **0.055** against a 0.70 target, and the worst
+cells carry 200+ samples each. Two hypotheses were tested and REFUTED before
+this one: it is not the R-F3971 Jaccard grader (heavily-sampled cells are the
+*healthiest* — 0.876 median at 100–199 samples), and it is not region-specific
+(`compliance:europe`, median 0.856, behaves identically to
+`compliance:latam_lusophone`, median 0.450).
+
+### The mechanism
+
+`_grade_researched_cell` grades a cell by asking the LOCAL reasoning stack:
+
+> "What are the most important {topic} facts and recent developments for
+> {region}?"
+
+and counting the cell correct only if `try_local_reasoning` **answers**. Probed
+live on aria-intel, that call returns `answered: False` for every cell tried —
+damaged and healthy alike — and the trace shows why:
+
+```
+symbolic_reasoner   matched: false, confidence: 0
+reasoning_library   deferred (grounded_first_contract)
+local_brain         matched: false
+grounded_reasoner   matched: false, abstained: true
+reasoning_library   matched: false, confidence: 0
+escalate_to: cloud_llm
+```
+
+**The router is working exactly as designed.** An open-ended knowledge question
+is precisely what the local stages are built to abstain on and escalate. So the
+grader tests a capability the architecture deliberately does not put at that
+layer.
+
+### Why that produced the floor, and why the floor is now frozen
+
+* **Before R-F3483 (2026-07-30)** every branch of the grader returned `False`,
+  so this abstention — documented in `reasoning_router` as a ROUTING signal
+  meaning "no local source was confident" — was recorded as ARIA answering
+  WRONG. `update_regional_mastery` has **no floor clamp** (unlike
+  `update_mastery`), so the EWMA decayed without bound: 0.5·(1−0.015)^n = 0.055
+  at n ≈ 146.
+* **Since R-F3483** the same signal returns `None`, which SKIPS the update. The
+  damage stops — and so does any recovery. **The grader is now inert: it cannot
+  move mastery in either direction for any cell.**
+
+Gate #2 therefore cannot close through this path however much ARIA studies. The
+numbers are frozen at values written by a defect that has since been fixed.
+
+### The uncomfortable shape
+
+R-F2660 replaced a participation trophy (`correct=True` whenever research merely
+returned text) with this grader. Both are broken, in opposite directions: one
+could never say False, this one can never say True. CLAUDE.md §1 predicted
+"EXPECT THE HONEST FLOOR TO DROP" — it dropped to 0.055 and stopped moving.
+
+### Options — operator decision, NOT taken here
+
+1. **Grade against a layer that can answer.** The retrieval/knowledge layer, or
+   the same cloud path the router escalates to. The grader's stated intent —
+   "its answer overlaps the research findings" — does not require the *local*
+   stack specifically.
+2. **Re-base the frozen cells.** Defensible on the same precedent as R-F4163
+   (rescoring reports after a scorer correction) and R-F4244 (refusing
+   cross-scorer baselines): these values were produced by an instrument later
+   found broken, and they cannot self-correct. This is NOT "measuring less" —
+   it is discarding measurements taken with a known-faulty instrument. It still
+   needs a deliberate, recorded decision.
+3. **Reclassify gate #2 as advisory** (the R-F4260 pattern) if neither is worth
+   doing now.
+
+**Nothing was changed. No score was reset and no grader was altered** — doing
+either unilaterally would be exactly the close-the-gate-by-measuring-less
+failure §1 forbids.

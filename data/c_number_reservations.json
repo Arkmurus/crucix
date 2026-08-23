@@ -2551,6 +2551,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T11:28:09Z"
+    },
+    {
+      "c_number": "C-224",
+      "title": "the mastery grader asks the local stack a question it is designed to abstain on",
+      "claimed_at": "2026-08-23T12:19:57Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
