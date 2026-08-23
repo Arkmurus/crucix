@@ -36504,9 +36504,10 @@
       "title": "advisory axes: measure the same, decide differently, never silently",
       "claimed_at": "2026-08-23T11:34:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49609164",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:37:39Z"
     }
   ]
 }
