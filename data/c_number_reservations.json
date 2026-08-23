@@ -2680,6 +2680,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T21:22:48Z"
+    },
+    {
+      "c_number": "C-235",
+      "title": "the DD runs a media sweep the standard reports as NOT_RUN",
+      "claimed_at": "2026-08-23T21:25:16Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

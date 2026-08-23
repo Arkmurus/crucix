@@ -14952,3 +14952,51 @@ never authorise spend.
 
 Report: `docs/axis_alignment.json`. Re-run:
 `python -m scripts.train.axis_alignment`.
+
+## C-235 · the DD runs a media sweep its own standard reports as NOT_RUN
+
+**Not fixed here — filed with the evidence, because the fix is a product change in
+`aria_service/intel/` and a peer agent is active in that tree.**
+
+`dd_standard` declares IS-15 (negative news, allegations and reputational red
+flags) with `pass_condition="A dedicated media sweep ran and a backend answered"`,
+`resolvers=("web_search",)` and **`reader=None`**. A question with no reader takes
+the `_unbuilt` branch, which renders:
+
+```
+IS-15  NOT_RUN  "no resolver is bound to this question in this build"
+```
+
+**The DD pipeline performs exactly that sweep on every run.** C-225 and C-230
+(both closed today) are about the adverse-media funnel's own accounting — 139 raw
+items, 125 duplicates collapsed, credible items graded. The work happens, is paid
+for, and the standard cannot credit it.
+
+VERIFIED BEHAVIOURALLY, not from a code read: `assess()` was called on a synthetic
+report carrying a completed sweep (`adverse_media.searched=True, backend=brave,
+raw_items=139`). IS-15 still returned NOT_RUN with the unbound reason. The
+distinction is crisp and is the standard's own wording:
+
+| question | reason | meaning |
+|---|---|---|
+| IS-13 | "no sanctions screen is recorded on this report" | the reader LOOKED |
+| FS-11 | "no register result is on this report" | the reader LOOKED |
+| IS-15 | "no resolver is bound to this question in this build" | **nobody looked** |
+
+**Why this matters more than a training cycle.** `coverage_pct` and the cluster
+counts are computed over these resolutions, so a customer's report understates
+what was actually established — and on the one axis the eval has always measured
+best. This is value density in the literal sense the USP north star means: work
+already performed and already paid for, not reaching the decision surface.
+
+**Same shape, likely same fix, NOT yet verified:** IS-14 (PEP) declares
+`resolvers=("sanctions", "rca_screening")` with `reader=None`, and
+`rca_screening.py` exists in the tree. IS-16 declares `("idv", "web_search")`.
+Establish for each whether the work actually runs before binding anything — an
+unbound question is honest, and binding a reader to work that does NOT happen
+would convert an honest NOT_RUN into a fabricated pass, which is the C-39 failure.
+
+**The remedy the standard itself prints** is the right one: *"bind a source to
+IS-15 (candidates: web_search)"*. The reader must derive its state from the sweep
+that actually ran, and must return NOT_RUN when no sweep is on the report — so a
+DD that skipped the sweep still reads NOT_RUN rather than inheriting a pass.

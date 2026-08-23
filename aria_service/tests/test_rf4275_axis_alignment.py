@@ -153,3 +153,39 @@ def test_the_ten_unserved_fundamentals_are_named() -> None:
     # and only ONE of them has any eval row at all today
     covered = {f for a, e in fc.AXIS_COVERAGE.items() for f in e["fundamentals"]}
     assert llm_only & covered == {"IS-15"}
+
+
+# -- R-F4276 · the correction -----------------------------------------------
+
+def test_unbound_is_not_the_same_as_answered_by_the_model() -> None:
+    """R-F4275 first claimed the ten reader-less fundamentals are "where the
+    model IS the mechanism". That was never measured, and it is false.
+
+    `dd_standard.assess` distinguishes the two cases in its own words: a bound
+    reader that looked and found nothing says "no sanctions screen is recorded on
+    this report"; an unbound question says "no resolver is bound to this question
+    in this build". The second means NOBODY answers it — the model included.
+    """
+    from aria_service.intel import dd_standard as ds
+    report = {"subject": {"name": "TEST LTD", "jurisdiction": "GB"},
+              "adverse_media": {"searched": True, "backend": "brave",
+                                "raw_items": 139, "credible_items": 0}}
+    rows = {r["question_id"]: r for r in ds.assess(report, tier="ENHANCED")["resolutions"]}
+
+    assert "no resolver is bound" in rows["IS-15"]["reason"]
+    assert "no resolver is bound" not in rows["IS-13"]["reason"]
+    assert aa.is_unbound("IS-15") is True
+    assert aa.is_unbound("IS-13") is False
+
+
+def test_an_axis_over_an_unbound_fundamental_says_so() -> None:
+    """tooluse_adverse may block, but the reader must be told IS-15 is unbound."""
+    verdict = aa.axis_mechanism("tooluse_adverse")
+    assert verdict["mechanism"] == aa.NOT_DETERMINISTIC
+    assert verdict["unbound"] == ["IS-15"]
+    assert "aspiration" in verdict["why"]
+
+
+def test_the_legacy_name_still_resolves() -> None:
+    """`LLM` was the wrong NAME for the class; callers must not break."""
+    assert aa.LLM == aa.NOT_DETERMINISTIC

@@ -1,4 +1,5 @@
-"""R-F4275 — an axis may only BLOCK promotion where the LLM is the mechanism.
+"""R-F4275 — an axis may only BLOCK promotion where production does not
+answer the question in CODE. (R-F4276 corrected the claim below.)
 
 R-F4257 discovered this the expensive way, for one axis. Thirteen candidates and
 arms were funded trying to move `tooluse_resolution`, and the finding that closed
@@ -18,12 +19,26 @@ An eval axis over such a question therefore measures a capability the product
 does not use. It is worth keeping as defence in depth; it is not worth blocking a
 promotion over, and it is certainly not worth funding a GPU cycle to move.
 
-Where no reader exists — IS-14 (PEP), IS-15 (negative news), IS-16 (convictions
-and penalties), LR-19 (source of wealth), LR-20 (economic rationale), OC-7 (group
-structure), FS-9 (overdue filings), EI-3, EI-4, OC-8 — the model IS the
-mechanism. Those are judgement questions over unstructured evidence, they are
-where value density lives (`docs/golden_intel_north_star_2026_07_14.md`), and
-they are the only place a training cycle can buy the product anything.
+⚠️ **R-F4276 — the first version of this paragraph claimed those ten are "where
+the model IS the mechanism". THAT WAS NOT MEASURED AND IS FALSE.** Running
+`dd_standard.assess` against a synthetic report shows the honest three-way split:
+
+    IS-13 -> NOT_RUN "no sanctions screen is recorded on this report"
+    IS-15 -> NOT_RUN "no resolver is bound to this question in this build"
+
+The first means the reader LOOKED and found nothing on that report. The second
+means **nothing answers the question at all** — not code, not the model. The ten
+reader-less fundamentals (EI-3, EI-4, OC-7, OC-8, FS-9, IS-14, IS-15, IS-16,
+LR-19, LR-20) are UNBOUND, and an axis over one of them measures an ASPIRATION.
+
+That is a PRODUCT gap, not a training target, and closing it is worth more than a
+cycle: IS-15's pass condition is *"a dedicated media sweep ran and a backend
+answered"*, which the DD pipeline already does on every run — the work is being
+performed and the standard cannot credit it (C-235).
+
+The BLOCKING rule is unaffected and never depended on the wrong half: where code
+answers a question, the model's answer is not what the customer receives, so an
+axis over it is defence in depth and must not block or justify GPU spend.
 
 THE VALIDATION, and it is why this rule can be trusted: applied to
 `tooluse_resolution` it returns DETERMINISTIC — **independently reproducing the
@@ -60,9 +75,24 @@ from scripts.train.fundamentals_coverage import (  # noqa: E402
     AXIS_COVERAGE, BEHAVIOUR,
 )
 
-LLM = "llm"                    # the model is the mechanism — may block
-DETERMINISTIC = "deterministic"  # code answers this in production — advisory only
-UNKNOWN = "unknown"            # could not measure; never silently "may block"
+# R-F4276 CORRECTION. The first version of this module called the non-reader
+# class "llm" and asserted "the model IS the mechanism". That was NOT measured and
+# it is not true in general. `dd_standard.assess` was run against a synthetic
+# report and the honest picture is three-way, not two:
+#
+#   IS-13 -> NOT_RUN "no sanctions screen is recorded on this report"   reader LOOKED
+#   IS-15 -> NOT_RUN "no resolver is bound to this question in this build"  NOBODY looked
+#
+# A fundamental without a reader is UNBOUND — nothing answers it, the model
+# included. What survives is the BLOCKING rule, which never depended on the wrong
+# half: an axis may block only where production does not answer the question in
+# CODE, because where code answers it the model's answer is not what ships.
+NOT_DETERMINISTIC = "not_deterministic"  # code does not answer it — may block
+DETERMINISTIC = "deterministic"          # code answers it in production — advisory only
+UNKNOWN = "unknown"                      # could not measure; never silently "may block"
+
+# Kept so existing callers and reports do not break; the NAME was the error.
+LLM = NOT_DETERMINISTIC
 
 
 def fundamental_mechanism(fid: str) -> str:
@@ -75,7 +105,23 @@ def fundamental_mechanism(fid: str) -> str:
     question = QUESTIONS_BY_ID.get(fid)
     if question is None:
         return UNKNOWN
-    return DETERMINISTIC if getattr(question, "reader", None) is not None else LLM
+    return (DETERMINISTIC if getattr(question, "reader", None) is not None
+            else NOT_DETERMINISTIC)
+
+
+def is_unbound(fid: str) -> bool:
+    """Nothing answers this question in this build — not code, not the model.
+
+    `dd_standard` renders it NOT_RUN with "no resolver is bound to this question
+    in this build", which is honest and must never read as clear. An axis over an
+    unbound fundamental is measuring an ASPIRATION: worth knowing, and a product
+    gap to close, but not evidence the model's behaviour there reaches a customer.
+    """
+    question = QUESTIONS_BY_ID.get(fid)
+    if question is None:
+        return False
+    return (getattr(question, "reader", None) is None
+            and getattr(question, "established_by", "") != "SUPPLIED")
 
 
 def axis_mechanism(axis: str) -> dict:
@@ -98,11 +144,17 @@ def axis_mechanism(axis: str) -> dict:
                 "why": "names a fundamental the standard does not have"}
     # ANY judgement question makes the axis judgement work. An axis that touches
     # even one question production cannot answer in code is exercising the model.
-    if any(m == LLM for m in per.values()):
-        return {"axis": axis, "mechanism": LLM, "fundamentals": per,
-                "why": "covers " + ", ".join(sorted(f for f, m in per.items()
-                                                    if m == LLM))
-                       + ", which production has no deterministic reader for"}
+    if any(m == NOT_DETERMINISTIC for m in per.values()):
+        loose = sorted(f for f, m in per.items() if m == NOT_DETERMINISTIC)
+        unbound = sorted(f for f in loose if is_unbound(f))
+        why = ("covers " + ", ".join(loose)
+               + ", which production has no deterministic reader for")
+        if unbound:
+            why += (" — and " + ", ".join(unbound) + " is UNBOUND (nothing "
+                    "answers it in this build, so this axis measures an "
+                    "aspiration until a resolver is bound)")
+        return {"axis": axis, "mechanism": NOT_DETERMINISTIC, "fundamentals": per,
+                "unbound": unbound, "why": why}
     return {"axis": axis, "mechanism": DETERMINISTIC, "fundamentals": per,
             "why": "every fundamental it covers (" + ", ".join(sorted(per))
                    + ") is answered in production by a deterministic reader, so "

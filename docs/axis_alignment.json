@@ -3,15 +3,18 @@
   "axes": {
     "tooluse_adverse": {
       "axis": "tooluse_adverse",
-      "mechanism": "llm",
+      "mechanism": "not_deterministic",
       "fundamentals": {
-        "IS-15": "llm"
+        "IS-15": "not_deterministic"
       },
-      "why": "covers IS-15, which production has no deterministic reader for"
+      "unbound": [
+        "IS-15"
+      ],
+      "why": "covers IS-15, which production has no deterministic reader for \u2014 and IS-15 is UNBOUND (nothing answers it in this build, so this axis measures an aspiration until a resolver is bound)"
     },
     "tooluse_challenge": {
       "axis": "tooluse_challenge",
-      "mechanism": "llm",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic"
       },
@@ -19,7 +22,7 @@
     },
     "tooluse_challenge_unavailable": {
       "axis": "tooluse_challenge_unavailable",
-      "mechanism": "llm",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic"
       },
@@ -35,10 +38,10 @@
     },
     "tooluse_contradiction": {
       "axis": "tooluse_contradiction",
-      "mechanism": "llm",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic",
-        "IS-15": "llm"
+        "IS-15": "not_deterministic"
       },
       "why": "behaviour axis \u2014 it measures the model's own conduct (refusing to rubber-stamp, contradicting a premise from evidence), which no deterministic reader can supply"
     },
@@ -62,11 +65,14 @@
     },
     "tooluse_news_impact": {
       "axis": "tooluse_news_impact",
-      "mechanism": "llm",
+      "mechanism": "not_deterministic",
       "fundamentals": {
-        "IS-15": "llm"
+        "IS-15": "not_deterministic"
       },
-      "why": "covers IS-15, which production has no deterministic reader for"
+      "unbound": [
+        "IS-15"
+      ],
+      "why": "covers IS-15, which production has no deterministic reader for \u2014 and IS-15 is UNBOUND (nothing answers it in this build, so this axis measures an aspiration until a resolver is bound)"
     },
     "tooluse_ownership": {
       "axis": "tooluse_ownership",

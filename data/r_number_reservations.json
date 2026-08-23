@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4276,
+  "next_available": 4277,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36662,6 +36662,16 @@
       "r_number": "R-F4275",
       "title": "axis alignment - an axis may only block promotion where the LLM is the mechanism",
       "claimed_at": "2026-08-23T21:20:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "845bb16d",
+      "notes": null,
+      "shipped_at": "2026-08-23T21:23:09Z"
+    },
+    {
+      "r_number": "R-F4276",
+      "title": "correct R-F4275 overclaim - unbound is not the same as LLM-answered",
+      "claimed_at": "2026-08-23T21:25:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
