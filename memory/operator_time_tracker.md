@@ -3814,3 +3814,83 @@ removing its monotone form made things worse, and `tooluse_contradiction` fell 3
 points from a resolution-only curriculum, so 64 narrow pairs are disturbing axes
 they never targeted. That points at scale and interference. The incumbent
 (161/13) is untouched.
+
+## Session 2026-08-23 (part 5) — R-F4249..R-F4257 · the answer was not a training run
+
+Operator funded a second cycle and asked for "grip and 360 view", then "root
+precision and robustness".
+
+### R-F4249 — the alpha band, pre-registered and rejected ($1.17)
+
+Chosen from the full curve, not intuition. Between α 0.75 and 1.00 three axes
+move TOWARD the candidate while resolution moves away; if they flip at different
+α there is a promotable window. Registered 0.8 / 0.875 / 0.95 **before** launch,
+pinned in the manifest AND the runner (which refuses any other set).
+
+**Three of four predictions held exactly** — adverse 28 (+2), challenge 24,
+multihop 8 (the band avoided the α=0.25 artefact by design). The fourth was
+wrong: resolution does not transition, it **dips**.
+
+```
+alpha        0    0.25   0.50   0.75   0.80   0.875   0.95   1.00
+resolution  13      13     12     13     11      11     12     12
+```
+
+The interior sits BELOW both endpoints. I had written non-monotonicity into the
+manifest to justify sampling the band, then reasoned about resolution as if it
+were monotone anyway. Non-monotonicity does not merely make interior points
+unpredictable — it means a blend can be worse than either endpoint, which makes
+"find the window between two transitions" the wrong model.
+
+`adjudicate_sweep` verdict: **reject_all_arms**, exit 1.
+
+### R-F4257 — THE ANSWER: the axis measures a configuration that never ships
+
+Verified behaviourally: `resolve_company_search` fails closed on ambiguity and
+still resolves an unambiguous query; `format_for_prompt` hands the model
+**`Company: COMPASS LTD (11466170)`** — the resolved company, **no candidate
+list** — or an explicit identity gate; `enforce_resolution_response` (R-F4144)
+**replaces** an answer that picks anyway. On BOTH surfaces: `chat_ep` and the
+streaming `_event_generator`, which reassigns the buffered text and yields a
+`replace` event. `test_rf4144` pins both in CI.
+
+The eval carries none of it — **0 of 168** rows hold the gate marker, and the
+pod evaluator never imports `companies_house`. So both failure shapes the axis
+measures are **structurally impossible in the shipped path**.
+
+**Cost of the misdirection: 13 candidates and arms, none above the parent's
+13/16**, while `failure_correction_v1` sits at 162/168 with `adverse` +2
+(reproduced at four alphas) and its ONLY regression on this axis.
+
+```
+as adjudicated today            promotable = False
+if resolution were not gated    promotable = True
+```
+
+**NO GATE WAS CHANGED.** The counter-argument (defence in depth) is recorded
+fairly; enforcement is four layers deep, which weakens it. The trade is an
+operator decision.
+
+### Tooling shipped, each because my own prior work was narrower than claimed
+
+* **R-F4250** — R-F4245's "general" harvest hardcoded one report name, so it
+  could not collect the very next run. Now a list of (remote, local) pairs,
+  all-or-nothing across arms.
+* **R-F4251** — I hand-wrote the verdict three times in one day. `adjudicate_sweep`
+  derives it; validated by REPRODUCING the R-F4164 and R-F4240 verdicts exactly.
+* **R-F4256** — Git Bash rewrote `/workspace/...` to
+  `C:/Program Files/Git/workspace/...` before the harvester saw it, failing
+  AFTER a pod resume. Repaired at the CLI boundary; law 14, Windows is not Linux.
+
+### Live at close
+
+70 pods, **none running**, no 71st ever created. Balance $11.68 → see below.
+No deploy — tooling, tests, docs and eval artefacts only.
+
+### Recommendation
+
+**Stop funding cycles against `tooluse_resolution`** — settled by measurement.
+Point the budget at `contradiction` (26/27), `adverse` (26/28), `multihop` (8/9):
+the axes where the LLM is the only mechanism. If the operator takes the
+promotion trade, re-register the gate with resolution reclassified as advisory,
+recorded deliberately with the R-F4257 evidence attached — never quietly dropped.
