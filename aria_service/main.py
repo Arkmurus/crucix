@@ -746,6 +746,64 @@ def _should_force_restart(
 LOOP_MONITOR_STALE_S = 60.0
 
 
+def _vendor_balance_degraded_reasons(vendor_balance) -> list[str]:
+    """R-F4261 — turn the vendor-credit gauge into health VERDICT input.
+
+    Same shape as `_loop_degraded_reasons` one function below, and the same
+    lesson: `/health` published `llm_chain.vendor_balance` and never read it.
+    Measured 2026-08-23: `deepseek.total_balance 7.61` against
+    `warn_threshold_usd 10.0`, stamped `severity: "low"`, sitting beside
+    `status: "operational"`, `degraded_reasons: []` and a self-diagnostic
+    reporting 76 pass / 0 warn / 0 fail — in the SAME payload. General chat runs
+    on a chain of depth 1, so exhaustion is a full chat + WhatsApp outage: the
+    19-hour incident C-209 was written about, which happened at an overdraft of
+    two cents while every headline field read green.
+
+    R-F4229 built the gauge and got its tri-state right. What it did not do is
+    give any verdict the power to say so. A number three levels deep that no
+    verdict consumes is the C-96 shape exactly.
+
+    Two reasons, both MEASURED, one per affected vendor so an operator knows
+    WHICH account to top up:
+
+    - ``llm_vendor_credit_exhausted_{vendor}`` — the vendor is refusing, measured
+      from its own body. This is an outage cause, not a warning.
+    - ``llm_vendor_credit_low_{vendor}`` — below the warn threshold and still
+      serving. Deliberately degraded rather than silent: on a depth-1 chain the
+      gap between "low" and "dark" is hours, and R-F4229's own default exists to
+      give warning BEFORE zero.
+
+    `unknown` is deliberately NOT a reason. It covers `unreadable` (could not
+    ask), `unsupported` (Anthropic publishes no balance endpoint — by design,
+    not a fault) and `never_observed` (not yet polled). Flagging it would make
+    `degraded_reasons` permanently non-empty on Anthropic alone, and a verdict
+    that always fires is one nobody reads — the same reasoning that keeps `busy`
+    out of the loop reasons. It is also the R-F4229 doctrine: "I could not ask"
+    must never render as a measurement, in EITHER direction.
+
+    Pure and module-level so the decision is testable without standing up the
+    app. Never raises: a health endpoint that 500s because its own gauge is odd
+    is worse than one that reports nothing, and each vendor is read
+    independently so one malformed entry cannot suppress a readable neighbour.
+    """
+    reasons: list[str] = []
+    if not isinstance(vendor_balance, dict):
+        return reasons
+    for vendor, reading in sorted(vendor_balance.items()):
+        try:
+            if not isinstance(reading, dict):
+                continue
+            sev = str(reading.get("severity") or "").lower()
+            name = str(vendor).strip().lower() or "unknown_vendor"
+            if sev == "exhausted":
+                reasons.append(f"llm_vendor_credit_exhausted_{name}")
+            elif sev == "low":
+                reasons.append(f"llm_vendor_credit_low_{name}")
+        except Exception:      # pragma: no cover - defensive
+            continue
+    return reasons
+
+
 def _loop_degraded_reasons(loop_health) -> list[str]:
     """R-F4024 (C-96) — turn the event-loop gauge into health VERDICT input.
 
@@ -5675,6 +5733,11 @@ async def health():
         _degraded_reasons.append("self_diagnostic_red")
     # R-F4024 (C-96) — the loop gauge is RIGHT THERE in this payload; read it.
     _degraded_reasons.extend(_loop_degraded_reasons(_loop_health))
+    # R-F4261 — and so is the vendor-credit gauge. Same lesson, same payload:
+    # `severity: "low"` at $7.61 on a depth-1 chain read as `operational` with
+    # an empty reasons list until this line existed.
+    _degraded_reasons.extend(
+        _vendor_balance_degraded_reasons((llm_chain or {}).get("vendor_balance")))
 
     return {
         "loop": _loop_health,

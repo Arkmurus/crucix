@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4261,
+  "next_available": 4262,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36513,6 +36513,15 @@
       "r_number": "R-F4260",
       "title": "gate 7 becomes advisory: Phase A stops blocking on an operator-only gate",
       "claimed_at": "2026-08-23T11:50:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4261",
+      "title": "promote vendor balance severity into degraded_reasons (dossier E1)",
+      "claimed_at": "2026-08-23T12:30:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
