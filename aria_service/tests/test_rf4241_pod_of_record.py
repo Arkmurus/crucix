@@ -46,6 +46,56 @@ class TestNeverCreateWhenReuseIsPossible:
         assert decision.pod_id == "ydfgy06ik7fzca"
 
 
+class TestCapacityMovesToAnotherPodWeOwnRatherThanCreating:
+    """Measured within an hour of this module shipping: the pod of record's
+    host reported `gpuAvailable: 0`, it resumed with no GPU, and refusing left
+    a funded balance with nothing able to train. 38 of the 70 pods we already
+    own were on hosts with a spare GPU."""
+
+    FLEET = [_pod("ydfgy06ik7fzca", "EXITED"),
+             {**_pod("l6o0j96gfqwqui", "EXITED"), "lastStartedAt": "2026-08-19 12:50"},
+             {**_pod("older", "EXITED"), "lastStartedAt": "2026-08-01 09:00"}]
+
+    def test_the_pod_of_record_is_kept_when_its_host_can_seat_it(self):
+        capacity = {"ydfgy06ik7fzca": 1, "l6o0j96gfqwqui": 5}
+        decision = por.decide_with_capacity(RECORD, self.FLEET, capacity)
+        assert decision.pod_id == "ydfgy06ik7fzca"
+        assert "displaced_pod_of_record" not in decision.evidence
+
+    def test_a_full_host_moves_to_another_pod_we_already_own(self):
+        capacity = {"ydfgy06ik7fzca": 0, "l6o0j96gfqwqui": 5, "older": 2}
+        decision = por.decide_with_capacity(RECORD, self.FLEET, capacity)
+        assert decision.action == por.RESUME
+        assert decision.pod_id == "l6o0j96gfqwqui", "most recently used first"
+        assert decision.evidence["displaced_pod_of_record"] == "ydfgy06ik7fzca"
+
+    def test_a_full_host_never_escalates_into_creating(self):
+        capacity = {"ydfgy06ik7fzca": 0, "l6o0j96gfqwqui": 5}
+        assert por.decide_with_capacity(
+            RECORD, self.FLEET, capacity).action != por.CREATE
+
+    def test_no_host_anywhere_blocks_rather_than_creating(self):
+        capacity = {pod["id"]: 0 for pod in self.FLEET}
+        decision = por.decide_with_capacity(RECORD, self.FLEET, capacity)
+        assert decision.action == por.BLOCKED
+        assert "retry rather than creating" in decision.reason
+
+    def test_unknown_capacity_is_not_treated_as_available(self):
+        """None means the provider did not answer. Paying to start on an
+        unmeasured host is the guess this module exists to avoid."""
+        capacity = {"ydfgy06ik7fzca": 0, "l6o0j96gfqwqui": None, "older": None}
+        assert por.decide_with_capacity(
+            RECORD, self.FLEET, capacity).action == por.BLOCKED
+
+    def test_an_unreadable_inventory_still_blocks_regardless_of_capacity(self):
+        assert por.decide_with_capacity(RECORD, None, {}).action == por.BLOCKED
+
+    def test_a_running_pod_of_record_is_still_reused(self):
+        fleet = [_pod("ydfgy06ik7fzca", "RUNNING")]
+        assert por.decide_with_capacity(
+            RECORD, fleet, {"ydfgy06ik7fzca": 0}).action == por.REUSE
+
+
 class TestUnreadableIsNeverPermission:
     """'I could not measure' must not become 'nothing exists, go create one'."""
 

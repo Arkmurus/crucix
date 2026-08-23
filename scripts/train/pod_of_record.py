@@ -30,11 +30,15 @@ WHAT THIS MODULE REFUSES TO DO
   * It never reports a decision without the evidence that produced it. Every
     Decision carries the observed status, so a CREATE can be audited afterwards.
 
-WHAT IT DOES NOT SOLVE, STATED PLAINLY. A reused pod is pinned to one host
-machine, so a busy host can refuse to start it — that is the exact error that
-blocked R-F4167. Reuse therefore trades a rare hard stop for a fleet that stops
-growing. The answer to a refusal is to retry, or to tell the operator; it is NOT
-to quietly create a new pod, because that is the behaviour being fixed.
+THE HOST-CAPACITY PROBLEM, AND WHY ONE POD WAS THE WRONG UNIT. A reused pod is
+pinned to one host, so a busy host refuses it — the exact error that blocked
+R-F4167, and it recurred within an hour of this module shipping: the A40 host
+had `gpuAvailable: 0`, the pod resumed with no GPU, and the honest refusal left
+a funded balance with nothing able to train. The instruction was "use the same
+pods", not "use one pod". `decide_with_capacity` reads the free
+`machine.gpuAvailable` the provider already publishes — 38 of our 70 pods sit on
+hosts with a spare GPU — and moves to another pod WE ALREADY OWN rather than
+creating one. Creating is still the last resort, and still has to be earned.
 """
 from __future__ import annotations
 
@@ -114,6 +118,67 @@ def decide(record: dict | None, pods: list[dict] | None) -> Decision:
     return Decision(BLOCKED, pod_id,
                     f"pod of record is in an unrecognised state: {status or 'EMPTY'}",
                     status)
+
+
+def decide_with_capacity(record: dict | None, pods: list[dict] | None,
+                         capacity: dict[str, int | None]) -> Decision:
+    """`decide`, but able to pick a DIFFERENT pod we already own.
+
+    R-F4241 first shipped assuming one pod of record and nothing else. That was
+    too narrow, and production said so within the hour: the A40 host had
+    `gpuAvailable: 0`, the pod resumed GPU-less, and the honest refusal left the
+    operator with a funded balance and nothing able to train.
+
+    The instruction was "use the same pods", not "use one pod". We own 70, and a
+    free read of `machine.gpuAvailable` says **38 of them sit on hosts with a
+    spare GPU**. So reuse means: keep the pod of record when its host can seat
+    it, otherwise move to another pod WE ALREADY HAVE, most recently used first.
+    Creating stays the last resort and still has to be earned.
+
+    `capacity` maps pod id -> free GPUs on that pod's host, or None where the
+    provider did not answer. Unknown is never treated as available: paying to
+    start a pod on an unmeasured host is the guess this whole module exists to
+    avoid, and there are measured alternatives.
+    """
+    base = decide(record, pods)
+    if base.action in {BLOCKED, CREATE} or pods is None:
+        return base
+    if base.action == REUSE:
+        # Already RUNNING, so it already HOLDS a GPU. `gpuAvailable` counts what
+        # is free on the host EXCLUDING that one, so a healthy working pod
+        # legitimately reads 0 — and an earlier version of this check abandoned
+        # it mid-flight for a stopped pod elsewhere. Capacity governs whether we
+        # can ACQUIRE a GPU, never whether we still have one.
+        return base
+    if (capacity.get(base.pod_id) or 0) >= 1:
+        return base
+    incumbent = base.pod_id
+    candidates = [
+        pod for pod in pods
+        if _status(pod) == "EXITED"
+        and str(pod.get("id")) != incumbent
+        and (capacity.get(str(pod.get("id"))) or 0) >= 1
+    ]
+    if not candidates:
+        return Decision(
+            BLOCKED, incumbent,
+            f"pod of record {incumbent} is on a host with no free GPU, and no "
+            f"other pod we own is on one either — this is host capacity, so "
+            f"retry rather than creating another pod",
+            base.observed_status,
+            {"fleet_size": len(pods), "hosts_with_free_gpu": 0})
+    candidates.sort(key=lambda pod: str(pod.get("lastStartedAt")
+                                        or pod.get("createdAt") or ""),
+                    reverse=True)
+    chosen = str(candidates[0].get("id"))
+    return Decision(
+        RESUME, chosen,
+        f"pod of record {incumbent} is on a host with no free GPU; reusing "
+        f"{chosen}, which we already own and whose host has "
+        f"{capacity.get(chosen)} free",
+        "EXITED",
+        {"displaced_pod_of_record": incumbent,
+         "candidates_with_free_gpu": len(candidates)})
 
 
 def is_transient_start_failure(detail: str) -> bool:
@@ -202,6 +267,38 @@ def gpu_count(payload: dict | None) -> int | None:
         return len(runtime["gpus"])
     count = pod.get("gpuCount")
     return int(count) if isinstance(count, int) else None
+
+
+def read_host_capacity(pod_ids: list[str], key: str) -> dict[str, int | None]:
+    """Free GPUs on each pod's HOST — a free read, before paying to start.
+
+    The provider publishes `machine.gpuAvailable` on a stopped pod. Reading it
+    turns "start it and see" (two minutes and a billed minute each) into one
+    batched query for the whole fleet. Same lesson as every other time this
+    repo went looking for a signal the vendor was already handing over.
+    """
+    out: dict[str, int | None] = {pod_id: None for pod_id in pod_ids}
+    for start in range(0, len(pod_ids), 20):
+        chunk = pod_ids[start:start + 20]
+        query = "query { " + " ".join(
+            f'p{i}: pod(input:{{podId:"{pid}"}}) '
+            f'{{ id machine {{ gpuAvailable }} }}'
+            for i, pid in enumerate(chunk)) + " }"
+        request = urllib.request.Request(
+            f"{GRAPHQL}?api_key={urllib.parse.quote(key)}",
+            data=json.dumps({"query": query}).encode(),
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "aria-pod-of-record/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except (urllib.error.URLError, ValueError, OSError):
+            continue  # leave this chunk as None — unknown, never "available"
+        for value in (payload.get("data") or {}).values():
+            if isinstance(value, dict) and value.get("id"):
+                machine = value.get("machine") or {}
+                out[value["id"]] = machine.get("gpuAvailable")
+    return out
 
 
 def read_gpu_count(pod_id: str, key: str) -> int | None:
@@ -332,7 +429,10 @@ def main() -> int:
         return 0
 
     key = _key()
-    decision = decide(read_record(), read_inventory(key))
+    pods = read_inventory(key)
+    capacity = (read_host_capacity([str(p.get("id")) for p in pods], key)
+                if pods is not None else {})
+    decision = decide_with_capacity(read_record(), pods, capacity)
     if args.command in {"status", "decide"}:
         print(json.dumps(decision.as_dict(), indent=2))
         return 0 if decision.action != BLOCKED else 1
