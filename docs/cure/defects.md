@@ -15000,3 +15000,71 @@ would convert an honest NOT_RUN into a fabricated pass, which is the C-39 failur
 IS-15 (candidates: web_search)"*. The reader must derive its state from the sweep
 that actually ran, and must return NOT_RUN when no sweep is on the report — so a
 DD that skipped the sweep still reads NOT_RUN rather than inheriting a pass.
+
+### C-235 closure — IS-15 is bound to the sweep that already runs (R-F4277)
+
+`_read_adverse_media` binds IS-15 to `report.adverse_media`. Fixture-first: the
+suite went **11 failed / 4 passed → 15 passed**, and the 4 that already passed are
+the never-false-clean guards, which had to stay green through the fix.
+
+**The fields are not a matter of taste.** R-F2791 had already established that
+`templates_run` alone *"certified sweeps in which every backend call failed"*, and
+named `templates_searched` + `search_backends_answered` as the pair a consumer must
+read. IS-15's own `pass_condition` — *"A dedicated media sweep ran AND a backend
+answered"* — is written in exactly those terms, so this reader implements a
+contract the standard already stated rather than inventing one.
+
+Six states, each a different sentence to the reader:
+
+| record | state |
+|---|---|
+| no `adverse_media` block | NOT_RUN — nobody swept |
+| `error` / `ok: False` | ATTEMPTED_INCONCLUSIVE |
+| `status: in_progress` (R-F2657 defers it; a restart can strand it) | ATTEMPTED_INCONCLUSIVE |
+| templates entered, **no backend answered** | NOT_RUN — the R-F2791 case |
+| findings present | CORROBORATED (≥2 origin domains) else SINGLE_SOURCE |
+| `partial`/`timed_out` **and nothing found** | ATTEMPTED_INCONCLUSIVE |
+| swept, a backend answered, nothing found | SINGLE_SOURCE |
+
+Two judgement calls, both conservative. **A truncated sweep's silence is not
+evidence of absence** — its findings are real and are reported, but "we ran out of
+time before finding anything" is not "there is nothing". And **a clean sweep is
+SINGLE_SOURCE however many backends answered**: two backends returning nothing is
+ONE observation of absence, and CORROBORATED is reserved for ≥2 independent origins
+that actually said something.
+
+**Wiring:** `assess()` — the caller — already carries
+`@fail_wire(module="dd_standard", gap_type="engine_failure")`, and it converts a
+raising reader into NOT_RUN rather than a pass. None of the 13 existing readers are
+individually wired; this one matches that pattern deliberately, because the wire
+belongs at the engine boundary and decorating a pure classifier adds noise, not
+observability.
+
+## C-237 · reader-presence demoted an axis on its own, and the gate would have dissolved (fixed, R-F4278)
+
+R-F4275 shipped a rule reading "an axis may block only where production does not
+answer the question in CODE", implemented as *reader is None*. **Binding a reader to
+IS-15 an hour later demoted `tooluse_adverse` and `tooluse_news_impact` on the
+spot**, leaving three blocking axes — and the reductio is that binding readers to
+the remaining unbound questions, which is exactly the product work C-235 recommends,
+would eventually leave **nothing able to block at all**. A gate that dissolves as
+the product improves is not a gate.
+
+The proxy was wrong in a specific, nameable way: **a reader answers the QUESTION; it
+does not stop the model's narrative reaching the customer.** What R-F4257 actually
+established for resolution is far stronger — `enforce_resolution_response` REPLACES
+the model's answer on both response surfaces and yields a `{"type":"replace"}` event
+so already-streamed text is corrected. That is *override* evidence, and nothing else
+in the eval has it.
+
+So reader-presence now makes an axis an **advisory CANDIDATE**; demoting it requires
+the R-F4257-style evidence recorded in `OUTPUT_OVERRIDDEN`, which today holds exactly
+one entry. Result: **advisory = {tooluse_resolution}**, reproducing R-F4259 and
+nothing more. Conservative in the safe direction — an unproven axis keeps blocking,
+so promotion gets harder, never easier. Tests pin that stripping the evidence makes
+resolution block again, and that every override entry carries real, R-numbered
+evidence.
+
+**This is the second overclaim corrected in the same rule in one session** (R-F4276
+was the first). Both had the same shape: a mechanical proxy asserted as a fact about
+the product. The rule is now narrower and states what it cannot prove.

@@ -2686,9 +2686,24 @@
       "title": "the DD runs a media sweep the standard reports as NOT_RUN",
       "claimed_at": "2026-08-23T21:25:16Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4277"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T21:52:43Z"
+    },
+    {
+      "c_number": "C-237",
+      "title": "reader-presence demoted an axis on its own",
+      "claimed_at": "2026-08-23T21:52:31Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4278"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T21:52:43Z"
     }
   ]
 }

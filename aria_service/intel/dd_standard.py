@@ -932,6 +932,135 @@ def _register_reader(*, sources: tuple[str, ...], gap_needles: tuple[str, ...],
     return _read
 
 
+
+def _sweep_count(value: object) -> int:
+    """A count from the sweep record, or 0 when it is not a usable number.
+
+    Defensive on purpose: every branch that consumes these decides whether a
+    CLEAN LINE is allowed, so a malformed record must degrade to "nothing was
+    established", never raise past the caller or coerce into a pass.
+    """
+    try:
+        n = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+def _read_adverse_media(r: dict, q: "Question") -> Resolution:
+    """R-F4277 (C-235) — IS-15 is answered by the sweep the DD already runs.
+
+    Until this reader existed IS-15 took the `_unbuilt` branch and rendered
+    NOT_RUN "no resolver is bound to this question in this build", while the
+    adverse-media sweep ran on the same report, cost real search spend, and wrote
+    its result to `report.adverse_media`. `coverage_pct` is computed over these
+    resolutions, so the customer's report understated what had been established —
+    on the discipline most likely to carry the finding they are paying for.
+
+    THE ONLY DANGEROUS DIRECTION IS A FABRICATED CLEAN LINE, so the fields this
+    reads are not a matter of taste. **R-F2791 established that `templates_run`
+    alone certified sweeps in which every backend call failed** and named
+    `templates_searched` + `search_backends_answered` as the pair a consumer must
+    read. IS-15's own `pass_condition` — "A dedicated media sweep ran AND a
+    backend answered" — is written in exactly those terms, so this reader is
+    implementing a contract the standard already stated rather than inventing one.
+
+    The states, worst first, and each is a different sentence to the reader:
+
+      * no `adverse_media` block            -> NOT_RUN, nobody swept
+      * `error` / `ok: False`               -> ATTEMPTED_INCONCLUSIVE, the sweep failed
+      * `status: in_progress`               -> ATTEMPTED_INCONCLUSIVE (R-F2657 defers
+        the sweep to a follow-up; a restart can leave it unfinished forever, and
+        an unfinished sweep is not a clean one)
+      * searched or answered < 1            -> NOT_RUN, templates were entered but
+        nothing actually answered (the R-F2791 case)
+      * findings present                    -> answered; CORROBORATED on >=2 distinct
+        origin domains, else SINGLE_SOURCE
+      * `partial`/`timed_out` and NOTHING found -> ATTEMPTED_INCONCLUSIVE. Findings
+        from a truncated sweep are real and are reported; its SILENCE is not.
+        "We ran out of time before finding anything" is not "there is nothing".
+      * swept, backends answered, nothing found -> SINGLE_SOURCE
+
+    A clean sweep is SINGLE_SOURCE however many backends answered. Two backends
+    returning nothing is ONE observation of absence, not two independent origins;
+    calling it CORROBORATED would overstate negative evidence, and CORROBORATED
+    is reserved for ">=2 INDEPENDENT origins" that actually said something.
+    """
+    am = (r or {}).get("adverse_media")
+    if not isinstance(am, dict) or not am:
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="no adverse-media sweep is on this report",
+            remedy="run the adverse-media discipline for this subject")
+
+    error = str(am.get("error") or "").strip()
+    if error or am.get("ok") is False:
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=f"the adverse-media sweep failed: {error[:110]}"
+                   if error else "the adverse-media sweep did not complete",
+            remedy="re-run the adverse-media sweep; this is not a clear result")
+
+    if str(am.get("status") or "").strip().lower() == "in_progress":
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason="the adverse-media sweep was deferred to a follow-up and has "
+                   "not completed",
+            remedy="wait for the follow-up to merge, or re-run it; an unfinished "
+                   "sweep is not a clear result")
+
+    searched = _sweep_count(am.get("templates_searched"))
+    answered = _sweep_count(am.get("search_backends_answered"))
+    findings = [f for f in (am.get("findings") or []) if isinstance(f, dict)]
+
+    if searched < 1 or answered < 1:
+        entered = _sweep_count(am.get("templates_run"))
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason=(f"the sweep entered {entered} template(s) but no search "
+                    f"backend answered — nothing was actually screened"),
+            remedy="re-run the adverse-media sweep once a search backend is "
+                   "available; entered templates are not a screen (R-F2791)")
+
+    if findings:
+        origins = tuple(sorted({_origin_of(f) for f in findings if _origin_of(f)}))
+        state = (EvidenceState.CORROBORATED.value if len(origins) >= 2
+                 else EvidenceState.SINGLE_SOURCE.value)
+        return Resolution(
+            q.id, state,
+            reason="; ".join(str(f.get("title") or "")[:70] for f in findings[:2]),
+            origins=origins)
+
+    if am.get("partial") or am.get("timed_out"):
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=(f"the sweep was stopped by its deadline after "
+                    f"{searched} template(s) and found nothing — a truncated "
+                    f"sweep's silence is not evidence of absence"),
+            remedy="re-run the adverse-media sweep to completion before relying "
+                   "on a clean result")
+
+    return Resolution(
+        q.id, EvidenceState.SINGLE_SOURCE.value,
+        reason=(f"a dedicated media sweep ran across {searched} template(s), "
+                f"{answered} search backend(s) answered, and no credible adverse "
+                f"coverage was returned"),
+        origins=("adverse_media_sweep",))
+
+
+def _origin_of(finding: dict) -> str:
+    """The outlet a finding came from — the unit of independence for IS-15."""
+    from urllib.parse import urlsplit
+    url = str(finding.get("source_url") or finding.get("url") or "").strip()
+    if not url:
+        return str(finding.get("source_class") or "").strip()
+    try:
+        host = urlsplit(url).netloc.lower()
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1149,7 +1278,7 @@ QUESTIONS: tuple[Question, ...] = (
        established_by=EstablishedBy.DATA.value,
        text="Negative news, allegations and reputational red flags",
        pass_condition="A dedicated media sweep ran and a backend answered",
-       resolvers=("web_search",), reader=None),
+       resolvers=("web_search",), reader=_read_adverse_media),
     _q(id="IS-16", fundamental=16, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.ENHANCED.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.HYBRID.value,

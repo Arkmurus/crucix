@@ -87,12 +87,44 @@ from scripts.train.fundamentals_coverage import (  # noqa: E402
 # included. What survives is the BLOCKING rule, which never depended on the wrong
 # half: an axis may block only where production does not answer the question in
 # CODE, because where code answers it the model's answer is not what ships.
+# R-F4278 — READER PRESENCE IS A CANDIDATE, NOT A DEMOTION.
+#
+# Binding a reader to IS-15 (R-F4277) demoted `tooluse_adverse` and
+# `tooluse_news_impact` on the spot, leaving three blocking axes — and the
+# reductio is that binding readers to the remaining unbound questions, which is
+# GOOD product work, would eventually leave nothing able to block at all. A gate
+# that dissolves as the product improves is not a gate.
+#
+# The proxy was wrong in a specific way: a reader answers the QUESTION, it does
+# not stop the model's narrative reaching the customer. What R-F4257 actually
+# established for resolution was far stronger — `enforce_resolution_response`
+# REPLACES the model's answer on both response surfaces, so whatever it said is
+# genuinely not what shipped. That is override evidence, and nothing else in the
+# eval has it.
+#
+# So: reader-presence makes an axis a CANDIDATE for advisory; demoting it needs
+# the R-F4257-style evidence recorded in OUTPUT_OVERRIDDEN. Conservative in the
+# safe direction — an unproven axis keeps blocking, which makes promotion harder,
+# never easier.
 NOT_DETERMINISTIC = "not_deterministic"  # code does not answer it — may block
 DETERMINISTIC = "deterministic"          # code answers it in production — advisory only
 UNKNOWN = "unknown"                      # could not measure; never silently "may block"
 
 # Kept so existing callers and reports do not break; the NAME was the error.
 LLM = NOT_DETERMINISTIC
+
+
+#: Axes where the model's answer is DEMONSTRABLY not what the customer receives.
+#: One entry per axis, each naming the override and where it was measured. This is
+#: the only thing that turns a candidate into an advisory axis.
+OUTPUT_OVERRIDDEN: dict[str, str] = {
+    "tooluse_resolution":
+        "enforce_resolution_response (R-F4144) REPLACES the model's answer when "
+        "identity is gated, on BOTH the chat and streaming surfaces, and yields a "
+        "{'type':'replace'} event so already-streamed text is corrected; pinned in "
+        "CI by test_rf4144. Measured in R-F4257: 0 of 168 eval rows carry the "
+        "production gate marker and the pod evaluator never imports companies_house.",
+}
 
 
 def fundamental_mechanism(fid: str) -> str:
@@ -155,10 +187,22 @@ def axis_mechanism(axis: str) -> dict:
                     "aspiration until a resolver is bound)")
         return {"axis": axis, "mechanism": NOT_DETERMINISTIC, "fundamentals": per,
                 "unbound": unbound, "why": why}
-    return {"axis": axis, "mechanism": DETERMINISTIC, "fundamentals": per,
-            "why": "every fundamental it covers (" + ", ".join(sorted(per))
-                   + ") is answered in production by a deterministic reader, so "
-                     "the model's answer is not what the customer receives"}
+    covered = ", ".join(sorted(per))
+    override = OUTPUT_OVERRIDDEN.get(axis)
+    if override:
+        return {"axis": axis, "mechanism": DETERMINISTIC, "fundamentals": per,
+                "advisory_candidate": True, "override_evidence": override,
+                "why": f"every fundamental it covers ({covered}) has a "
+                       f"deterministic reader AND the model's answer is overridden: "
+                       f"{override}"}
+    return {"axis": axis, "mechanism": NOT_DETERMINISTIC, "fundamentals": per,
+            "advisory_candidate": True, "override_evidence": None,
+            "why": f"every fundamental it covers ({covered}) has a deterministic "
+                   f"reader, so this is a CANDIDATE for advisory — but no evidence "
+                   f"is recorded that the model's answer fails to reach the "
+                   f"customer, and a reader answers the question without silencing "
+                   f"the narrative. It keeps blocking until that is measured "
+                   f"(R-F4278)"}
 
 
 def classify_all() -> dict[str, dict]:

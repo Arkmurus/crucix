@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4277,
+  "next_available": 4279,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36672,6 +36672,25 @@
       "r_number": "R-F4276",
       "title": "correct R-F4275 overclaim - unbound is not the same as LLM-answered",
       "claimed_at": "2026-08-23T21:25:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "065f5333",
+      "notes": null,
+      "shipped_at": "2026-08-23T21:27:04Z"
+    },
+    {
+      "r_number": "R-F4277",
+      "title": "bind IS-15 to the adverse-media sweep that already runs",
+      "claimed_at": "2026-08-23T21:34:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4278",
+      "title": "reader-presence is a candidate not a demotion - the rule needed override evidence",
+      "claimed_at": "2026-08-23T21:38:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

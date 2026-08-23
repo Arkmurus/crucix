@@ -39,23 +39,50 @@ def test_the_rule_reproduces_the_rf4259_decision() -> None:
     assert "tooluse_resolution" in aa.recommended_advisory()
 
 
-def test_the_axes_that_may_block_are_the_judgement_ones() -> None:
-    blocking = {a for a, v in aa.classify_all().items() if v["mechanism"] == aa.LLM}
-    assert blocking == {
-        "tooluse_adverse", "tooluse_news_impact", "tooluse_contradiction",
-        "tooluse_challenge", "tooluse_challenge_unavailable"}
+def test_only_resolution_is_advisory_and_only_on_evidence() -> None:
+    """R-F4278 - reader-presence alone demotes NOTHING.
 
-
-def test_r_f4272s_own_axes_are_demoted_by_this_rule() -> None:
-    """Recorded deliberately: the rule demotes what the same session built.
-
-    The registry-depth axes read a register honestly — a real capability — but
-    FS-11, FS-12 and OC-5 each have a deterministic reader, so production never
-    asks the model. They stay as defence in depth and must not block a promotion
-    or justify a GPU cycle.
+    The first version returned five may-block axes on reader-presence alone.
+    Binding a reader to IS-15 then demoted tooluse_adverse on the spot, and the
+    reductio is that binding readers to the remaining unbound questions - which
+    is GOOD product work - would eventually leave nothing able to block. A gate
+    that dissolves as the product improves is not a gate.
     """
-    for axis in ("tooluse_insolvency", "tooluse_charges", "tooluse_ownership"):
-        assert aa.axis_mechanism(axis)["mechanism"] == aa.DETERMINISTIC, axis
+    advisory = {a for a, v in aa.classify_all().items()
+                if v["mechanism"] == aa.DETERMINISTIC}
+    assert advisory == {"tooluse_resolution"}
+    assert set(aa.OUTPUT_OVERRIDDEN) == {"tooluse_resolution"}
+
+
+def test_reader_backed_axes_are_candidates_not_demotions() -> None:
+    """The registry-depth axes this session built ARE reader-backed candidates.
+
+    R-F4275 demoted them outright. R-F4278 corrected that: a reader answers the
+    QUESTION without silencing the model's narrative, so a candidate keeps
+    blocking until someone MEASURES that its output does not reach the customer.
+    Conservative in the safe direction - promotion gets harder, never easier.
+    """
+    for axis in ("tooluse_insolvency", "tooluse_charges", "tooluse_ownership",
+                 "tooluse_trace", "tooluse_person"):
+        verdict = aa.axis_mechanism(axis)
+        assert verdict["advisory_candidate"] is True, axis
+        assert verdict["override_evidence"] is None, axis
+        assert verdict["mechanism"] == aa.NOT_DETERMINISTIC, axis
+
+
+def test_a_demotion_cannot_happen_without_recorded_evidence(monkeypatch) -> None:
+    """Strip the evidence and resolution must start blocking again."""
+    monkeypatch.setattr(aa, "OUTPUT_OVERRIDDEN", {})
+    assert aa.axis_mechanism("tooluse_resolution")["mechanism"] == aa.NOT_DETERMINISTIC
+    assert aa.recommended_advisory() == []
+
+
+def test_every_override_entry_carries_real_evidence() -> None:
+    """An override with no evidence is the exemption this rule exists to refuse."""
+    for axis, evidence in aa.OUTPUT_OVERRIDDEN.items():
+        assert axis in fc.AXIS_COVERAGE, axis
+        assert len(str(evidence)) > 120, axis
+        assert "R-F" in str(evidence), axis
 
 
 # -- the classification itself ----------------------------------------------
@@ -73,26 +100,36 @@ def test_behaviour_axes_are_llm_even_over_a_reader_backed_question() -> None:
     assert "conduct" in verdict["why"]
 
 
-def test_one_judgement_question_is_enough_to_make_an_axis_judgement_work() -> None:
-    """tooluse_contradiction covers IS-13 (reader) and IS-15 (none)."""
-    verdict = aa.axis_mechanism("tooluse_contradiction")
-    assert verdict["fundamentals"] == {"IS-13": aa.DETERMINISTIC, "IS-15": aa.LLM}
-    assert verdict["mechanism"] == aa.LLM
+def test_one_reader_less_question_is_enough_to_keep_an_axis_blocking(monkeypatch) -> None:
+    """The mixed branch, exercised directly.
 
-
-def test_the_classification_follows_the_LIVE_standard(monkeypatch) -> None:
-    """Attaching a reader to a fundamental must move its axis to advisory.
-
-    This is the event the rule exists to notice, so it is read live and never
-    from a copy. `tooluse_adverse` may block only while IS-15 has no reader.
+    No shipped axis mixes a reader-backed and a reader-less fundamental today -
+    tooluse_contradiction did until R-F4277 bound IS-15 - so the branch is
+    covered with a synthetic declaration rather than left untested.
     """
-    assert aa.axis_mechanism("tooluse_adverse")["mechanism"] == aa.LLM
-    is15 = QUESTIONS_BY_ID["IS-15"]
-    patched = dict(QUESTIONS_BY_ID)
-    patched["IS-15"] = type("Q", (), {"id": "IS-15", "cluster": is15.cluster,
-                                      "reader": lambda *a: None})()
-    monkeypatch.setattr(aa, "QUESTIONS_BY_ID", patched)
-    assert aa.axis_mechanism("tooluse_adverse")["mechanism"] == aa.DETERMINISTIC
+    monkeypatch.setitem(fc.AXIS_COVERAGE, "tooluse_synthetic_mixed",
+                        {"kind": fc.FUNDAMENTAL,
+                         "fundamentals": ("IS-13", "IS-14"),
+                         "why": "synthetic: one bound question, one unbound"})
+    verdict = aa.axis_mechanism("tooluse_synthetic_mixed")
+    assert verdict["fundamentals"] == {"IS-13": aa.DETERMINISTIC,
+                                       "IS-14": aa.NOT_DETERMINISTIC}
+    assert verdict["mechanism"] == aa.NOT_DETERMINISTIC
+    assert verdict["unbound"] == ["IS-14"]
+
+
+def test_binding_a_reader_makes_a_candidate_but_does_NOT_demote() -> None:
+    """THE R-F4278 LESSON, pinned on the axis that taught it.
+
+    IS-15 is now reader-backed (R-F4277 bound it to the sweep that already runs),
+    so tooluse_adverse is a CANDIDATE - and it still blocks, because nothing has
+    measured that the model's adverse narrative fails to reach the customer.
+    """
+    assert aa.fundamental_mechanism("IS-15") == aa.DETERMINISTIC
+    verdict = aa.axis_mechanism("tooluse_adverse")
+    assert verdict["advisory_candidate"] is True
+    assert verdict["mechanism"] == aa.NOT_DETERMINISTIC
+    assert "keeps blocking" in verdict["why"]
 
 
 def test_an_unclassifiable_axis_is_never_allowed_to_block() -> None:
@@ -106,10 +143,9 @@ def test_an_unclassifiable_axis_is_never_allowed_to_block() -> None:
 def test_blocking_violations_catches_a_misaligned_gate() -> None:
     violations = aa.blocking_violations(
         {"tooluse_resolution", "tooluse_trace", "tooluse_adverse"})
-    assert len(violations) == 2
+    assert len(violations) == 1
     assert any("tooluse_resolution" in v for v in violations)
-    assert any("tooluse_trace" in v for v in violations)
-    assert not any("tooluse_adverse" in v for v in violations)
+    assert not any("tooluse_trace" in v for v in violations)
 
 
 def test_an_aligned_gate_passes_cleanly() -> None:
@@ -120,7 +156,8 @@ def test_an_aligned_gate_passes_cleanly() -> None:
 
 def test_every_declared_axis_is_classifiable() -> None:
     for axis in fc.AXIS_COVERAGE:
-        assert aa.axis_mechanism(axis)["mechanism"] in (aa.LLM, aa.DETERMINISTIC), axis
+        assert aa.axis_mechanism(axis)["mechanism"] in (
+            aa.NOT_DETERMINISTIC, aa.DETERMINISTIC), axis
 
 
 # -- the measurement that decides where money goes ---------------------------
@@ -138,21 +175,23 @@ def test_the_parent_has_one_row_of_headroom_where_it_matters() -> None:
     verdicts = aa.classify_all()
     honest = total = 0
     for axis in report["per_axis"]:
-        if verdicts.get(axis["label"], {}).get("mechanism") == aa.LLM:
+        if verdicts.get(axis["label"], {}).get("mechanism") == aa.NOT_DETERMINISTIC:
             honest += int(axis["honest"])
             total += int(axis["total"])
-    assert (honest, total) == (93, 94)
+    # everything except the one EVIDENCED advisory axis; headroom is still tiny
+    assert (honest, total) == (150, 152)
+    assert total - honest == 2
 
 
 def test_the_ten_unserved_fundamentals_are_named() -> None:
     """Where a cycle CAN still buy something — this is the target list."""
-    llm_only = {fid for fid in QUESTIONS_BY_ID
-                if aa.fundamental_mechanism(fid) == aa.LLM}
-    assert llm_only == {"EI-3", "EI-4", "OC-7", "OC-8", "FS-9",
-                        "IS-14", "IS-15", "IS-16", "LR-19", "LR-20"}
-    # and only ONE of them has any eval row at all today
+    unbound = {fid for fid in QUESTIONS_BY_ID
+               if aa.fundamental_mechanism(fid) == aa.NOT_DETERMINISTIC}
+    # IS-15 dropped off this list when R-F4277 bound it - the product improving
+    assert unbound == {"EI-3", "EI-4", "OC-7", "OC-8", "FS-9",
+                       "IS-14", "IS-16", "LR-19", "LR-20"}
     covered = {f for a, e in fc.AXIS_COVERAGE.items() for f in e["fundamentals"]}
-    assert llm_only & covered == {"IS-15"}
+    assert not (unbound & covered), "an unbound fundamental now has an eval axis"
 
 
 # -- R-F4276 · the correction -----------------------------------------------
@@ -167,23 +206,25 @@ def test_unbound_is_not_the_same_as_answered_by_the_model() -> None:
     in this build". The second means NOBODY answers it — the model included.
     """
     from aria_service.intel import dd_standard as ds
-    report = {"subject": {"name": "TEST LTD", "jurisdiction": "GB"},
-              "adverse_media": {"searched": True, "backend": "brave",
-                                "raw_items": 139, "credible_items": 0}}
+    report = {"subject": {"name": "TEST LTD", "jurisdiction": "GB"}}
     rows = {r["question_id"]: r for r in ds.assess(report, tier="ENHANCED")["resolutions"]}
 
-    assert "no resolver is bound" in rows["IS-15"]["reason"]
+    # IS-14 is still unbound: NOBODY looked.
+    assert "no resolver is bound" in rows["IS-14"]["reason"]
+    # IS-13 has a reader that LOOKED and found nothing on this report.
     assert "no resolver is bound" not in rows["IS-13"]["reason"]
-    assert aa.is_unbound("IS-15") is True
+    # IS-15 was unbound when R-F4276 was written; R-F4277 bound it, and the
+    # reason it now gives names what was actually missing.
+    assert "no resolver is bound" not in rows["IS-15"]["reason"]
+    assert aa.is_unbound("IS-14") is True
     assert aa.is_unbound("IS-13") is False
+    assert aa.is_unbound("IS-15") is False
 
 
-def test_an_axis_over_an_unbound_fundamental_says_so() -> None:
-    """tooluse_adverse may block, but the reader must be told IS-15 is unbound."""
-    verdict = aa.axis_mechanism("tooluse_adverse")
-    assert verdict["mechanism"] == aa.NOT_DETERMINISTIC
-    assert verdict["unbound"] == ["IS-15"]
-    assert "aspiration" in verdict["why"]
+def test_is15_is_no_longer_unbound() -> None:
+    """R-F4277 bound it to the sweep that already runs (C-235)."""
+    assert aa.is_unbound("IS-15") is False
+    assert aa.is_unbound("IS-14") is True
 
 
 def test_the_legacy_name_still_resolves() -> None:

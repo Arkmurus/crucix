@@ -5,12 +5,11 @@
       "axis": "tooluse_adverse",
       "mechanism": "not_deterministic",
       "fundamentals": {
-        "IS-15": "not_deterministic"
+        "IS-15": "deterministic"
       },
-      "unbound": [
-        "IS-15"
-      ],
-      "why": "covers IS-15, which production has no deterministic reader for \u2014 and IS-15 is UNBOUND (nothing answers it in this build, so this axis measures an aspiration until a resolver is bound)"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (IS-15) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_challenge": {
       "axis": "tooluse_challenge",
@@ -30,65 +29,74 @@
     },
     "tooluse_charges": {
       "axis": "tooluse_charges",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "FS-12": "deterministic"
       },
-      "why": "every fundamental it covers (FS-12) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (FS-12) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_contradiction": {
       "axis": "tooluse_contradiction",
       "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic",
-        "IS-15": "not_deterministic"
+        "IS-15": "deterministic"
       },
       "why": "behaviour axis \u2014 it measures the model's own conduct (refusing to rubber-stamp, contradicting a premise from evidence), which no deterministic reader can supply"
     },
     "tooluse_insolvency": {
       "axis": "tooluse_insolvency",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "FS-11": "deterministic"
       },
-      "why": "every fundamental it covers (FS-11) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (FS-11) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_multihop": {
       "axis": "tooluse_multihop",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "EI-1": "deterministic",
         "OC-6": "deterministic",
         "IS-13b": "deterministic"
       },
-      "why": "every fundamental it covers (EI-1, IS-13b, OC-6) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (EI-1, IS-13b, OC-6) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_news_impact": {
       "axis": "tooluse_news_impact",
       "mechanism": "not_deterministic",
       "fundamentals": {
-        "IS-15": "not_deterministic"
+        "IS-15": "deterministic"
       },
-      "unbound": [
-        "IS-15"
-      ],
-      "why": "covers IS-15, which production has no deterministic reader for \u2014 and IS-15 is UNBOUND (nothing answers it in this build, so this axis measures an aspiration until a resolver is bound)"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (IS-15) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_ownership": {
       "axis": "tooluse_ownership",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "OC-5": "deterministic"
       },
-      "why": "every fundamental it covers (OC-5) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (OC-5) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_person": {
       "axis": "tooluse_person",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13b": "deterministic"
       },
-      "why": "every fundamental it covers (IS-13b) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (IS-13b) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_resolution": {
       "axis": "tooluse_resolution",
@@ -97,48 +105,53 @@
         "EI-1": "deterministic",
         "EI-2": "deterministic"
       },
-      "why": "every fundamental it covers (EI-1, EI-2) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": "enforce_resolution_response (R-F4144) REPLACES the model's answer when identity is gated, on BOTH the chat and streaming surfaces, and yields a {'type':'replace'} event so already-streamed text is corrected; pinned in CI by test_rf4144. Measured in R-F4257: 0 of 168 eval rows carry the production gate marker and the pod evaluator never imports companies_house.",
+      "why": "every fundamental it covers (EI-1, EI-2) has a deterministic reader AND the model's answer is overridden: enforce_resolution_response (R-F4144) REPLACES the model's answer when identity is gated, on BOTH the chat and streaming surfaces, and yields a {'type':'replace'} event so already-streamed text is corrected; pinned in CI by test_rf4144. Measured in R-F4257: 0 of 168 eval rows carry the production gate marker and the pod evaluator never imports companies_house."
     },
     "tooluse_trace": {
       "axis": "tooluse_trace",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic"
       },
-      "why": "every fundamental it covers (IS-13) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (IS-13) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     },
     "tooluse_trace_unavailable": {
       "axis": "tooluse_trace_unavailable",
-      "mechanism": "deterministic",
+      "mechanism": "not_deterministic",
       "fundamentals": {
         "IS-13": "deterministic"
       },
-      "why": "every fundamental it covers (IS-13) is answered in production by a deterministic reader, so the model's answer is not what the customer receives"
+      "advisory_candidate": true,
+      "override_evidence": null,
+      "why": "every fundamental it covers (IS-13) has a deterministic reader, so this is a CANDIDATE for advisory \u2014 but no evidence is recorded that the model's answer fails to reach the customer, and a reader answers the question without silencing the narrative. It keeps blocking until that is measured (R-F4278)"
     }
   },
   "may_block": [
     "tooluse_adverse",
     "tooluse_challenge",
     "tooluse_challenge_unavailable",
-    "tooluse_contradiction",
-    "tooluse_news_impact"
-  ],
-  "advisory": [
     "tooluse_charges",
+    "tooluse_contradiction",
     "tooluse_insolvency",
     "tooluse_multihop",
+    "tooluse_news_impact",
     "tooluse_ownership",
     "tooluse_person",
-    "tooluse_resolution",
     "tooluse_trace",
     "tooluse_trace_unavailable"
+  ],
+  "advisory": [
+    "tooluse_resolution"
   ],
   "llm_fundamentals": [
     "EI-3",
     "EI-4",
     "FS-9",
     "IS-14",
-    "IS-15",
     "IS-16",
     "LR-19",
     "LR-20",
