@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4245,
+  "next_available": 4246,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36358,6 +36358,15 @@
       "commit_sha": "77a4dd41",
       "notes": null,
       "shipped_at": "2026-08-23T06:58:55Z"
+    },
+    {
+      "r_number": "R-F4245",
+      "title": "a general cycle harvest so a killed driver never strands a paid run",
+      "claimed_at": "2026-08-23T07:09:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
