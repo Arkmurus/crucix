@@ -866,6 +866,66 @@ def normalise_for_similarity(name) -> str:
     return " ".join(sorted(tokens))
 
 
+# ── R-F4268 (C-229) — SAY WHAT THE MATCH RESTS ON ──────────────────────────
+#
+# The delivered Vigilo Solutions report (dd_9fe0e61e4a0c) printed two innocent UK
+# companies beside US FINRA-barred entities, with nothing on the line to show how
+# thin the evidence was:
+#
+#   BRIAN REID LTD.      -> BRIAN BROCK REID (score 0.91, us_finra_barred)
+#   STEPHEN MABBOTT LTD. -> STEPHEN A. KOHN & ASSOCIATES LTD. (score 0.83)
+#
+# The first matched a COMPANY query to a PERSON record. The second shares exactly
+# one meaningful token with the query — the forename "Stephen".
+#
+# THIS IS ADDITIVE AND MUST STAY THAT WAY. Demoting or dropping these is the
+# never-false-clean direction: eponymous companies are a real evasion pattern, and
+# the UBO walk already labels them UNVERIFIED without moving the verdict. Deciding
+# which forenames are "too common" would also need a locale-biased name list that
+# rots. So state the EVIDENCE and classify nothing.
+#
+# `schema` is the sharper half and was being thrown away: sanctions.py carries
+# `"schema": raw.get("schema")` on EVERY match and nothing here read it. It is the
+# only signal in the record that distinguishes a person from a company.
+_PERSON_SCHEMAS: frozenset[str] = frozenset({"person"})
+_ORG_SCHEMAS: frozenset[str] = frozenset({
+    "company", "organization", "organisation", "legalentity", "publicbody",
+    "asset", "airplane", "vessel",
+})
+
+
+def _query_looks_corporate(query: str) -> bool:
+    """True when the QUERY carries a company-law suffix (ltd, gmbh, srl, …).
+
+    Deliberately suffix-based, not a guess about the words: a suffix is a legal
+    form the registrar assigned, which is evidence. Absence of one is NOT evidence
+    that the query names a person — many companies trade without a suffix — so the
+    caller must only ever use this to report, never to demote.
+    """
+    if not query:
+        return False
+    import re as _re
+    return any(t in _CORP_SUFFIXES
+               for t in _re.split(r"[^a-zA-Z0-9]+", query.casefold()) if t)
+
+
+def _entity_type_conflict(query_name: str, match: dict) -> str:
+    """A short, neutral statement of a query/record type disagreement, or ''.
+
+    Returns '' when the provider published no `schema` — an ABSENT type is not
+    agreement, and asserting one from silence is the fabrication class this repo
+    records repeatedly. Only the company-query/person-record direction is
+    reported: a person query hitting an eponymous company is an ordinary and often
+    correct lead, so flagging it would be noise.
+    """
+    schema = str((match or {}).get("schema") or "").strip().casefold()
+    if not schema:
+        return ""
+    if schema in _PERSON_SCHEMAS and _query_looks_corporate(query_name):
+        return "the matched record is a PERSON while the query names a company"
+    return ""
+
+
 def _name_overlap(query: str, candidate: str) -> int:
     """Number of meaningful tokens shared between query and candidate."""
     q_tokens = _tokenize_entity_name(query)
@@ -1212,6 +1272,13 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "matched_token": m.get("matched_token") or candidate_name,
             "match_path":   m.get("match_path") or "",
             "match_url":    m.get("url") or "",
+            # R-F4268 — what the match actually rests on, as evidence a reader can
+            # act on without opening the provider. Machine-readable so a renderer
+            # never has to parse the prose summary.
+            "shared_tokens": sorted(_shared_tokens),
+            "query_tokens": sorted(_query_tokens),
+            "candidate_tokens": sorted(_candidate_tokens),
+            "entity_type_conflict": _entity_type_conflict(query_name, m),
         })
         if SEVERITY_RANK[final_severity] > worst_rank:
             worst = final_severity
@@ -1244,10 +1311,28 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             _path_str = f", matched_via={_mp_field}"
         if _mp_url:
             _path_str += f" [verify: {_mp_url}]"
+        # R-F4268 — name the thinness when there is any. Kept RARE on purpose: a
+        # caveat on every line is wallpaper, and a real designation shares several
+        # distinctive tokens and needs none. Reported, never acted on.
+        _thin: list[str] = []
+        _pm_shared = pm.get("shared_tokens") or []
+        # One shared token is only THIN when each side has a distinctive token that
+        # did NOT match. "Rosoboronexport Corporation" -> "ROSOBORONEXPORT OAO"
+        # shares one token because that token IS the whole identity of both — a real
+        # designation, and annotating it would be the wallpaper this avoids. Caught
+        # by this fix's own guard test. Same >=2/>=2 shape the R-F4172
+        # low-distinctiveness rule already uses a few lines up.
+        if (len(_pm_shared) == 1
+                and len(pm.get("query_tokens") or []) >= 2
+                and len(pm.get("candidate_tokens") or []) >= 2):
+            _thin.append(f"shares only '{_pm_shared[0]}' with the query")
+        if pm.get("entity_type_conflict"):
+            _thin.append(pm["entity_type_conflict"])
+        _thin_str = f" — {'; '.join(_thin)}" if _thin else ""
         parts.append(
             f"{pm['name']} (score {pm['score']:.2f}, topics: {topics_str}"
             f"{', lists: ' + lists_str if lists_str else ''}"
-            f"{_path_str})"
+            f"{_path_str}{_thin_str})"
         )
     summary = "; ".join(parts)
     if len(worst_matches) > 3:
