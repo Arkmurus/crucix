@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4244,
+  "next_available": 4245,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36343,6 +36343,15 @@
       "r_number": "R-F4243",
       "title": "resolution DPO pairs let length predict the label; break the confound",
       "claimed_at": "2026-08-23T06:35:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4244",
+      "title": "the on-pod retention gate compares across scorer generations",
+      "claimed_at": "2026-08-23T06:50:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

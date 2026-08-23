@@ -52,11 +52,23 @@ def test_calibration_has_deterministic_equal_axis_quotas() -> None:
     assert len(indices) == 30
 
 
-def _report(counts: dict[str, int], total_each: int = 3) -> dict:
+# R-F4244 — both sides must declare the SAME scorer generation. Comparing
+# honest counts across scorers measures the scorer, not the model, and the
+# gate now refuses to. These fixtures pin progression semantics, so they carry
+# a matching version; the refusal itself is pinned in
+# test_rf4244_scorer_comparability.py.
+_SCORER = "test-scorer-v1"
+
+
+def _report(counts: dict[str, int], total_each: int = 3,
+            scorer: str | None = _SCORER) -> dict:
     per = [{"label": k, "honest": v, "total": total_each} for k, v in counts.items()]
     total = total_each * len(counts)
-    return {"complete": True, "total": total, "honest": sum(counts.values()),
-            "per_axis": per, "rows": [{}] * total}
+    report = {"complete": True, "total": total, "honest": sum(counts.values()),
+              "per_axis": per, "rows": [{}] * total}
+    if scorer is not None:
+        report["scorer_version"] = scorer
+    return report
 
 
 def test_curve_requires_strict_gain_and_zero_axis_regressions() -> None:
@@ -212,6 +224,7 @@ def test_staged_pod_can_execute_the_real_curve_gate(tmp_path: Path) -> None:
         "honest": 1,
         "per_axis": [{"label": "axis", "total": 1, "honest": 1}],
         "rows": rows,
+        "scorer_version": _SCORER,   # R-F4244 — comparability precondition
     }
     before = tmp_path / "before.json"
     after = tmp_path / "after.json"

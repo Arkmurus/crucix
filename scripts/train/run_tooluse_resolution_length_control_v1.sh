@@ -8,14 +8,21 @@
 # this asks whether removing the length confound (32 -> 64 pairs, every pair
 # gaining a twin whose rejection sits on the other side of the length divide)
 # moves the axis the nine previous candidates could not.
+#
+# R-F4244 — both baselines are now the CURRENT-scorer rescores. The previously
+# pinned ones carried no scorer_version and read 155/168 where the same answers
+# score 161/168 today, handing every candidate a +6 aggregate and +2
+# protected-axis head start. The gate refuses that comparison now; these pins
+# are what let it run at all. The calibration probe is unchanged at 17/30 — the
+# bias was in the held-out set only.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$BASH_SOURCE")/../.."; pwd); cd "$ROOT"
 hash(){ sha256sum "$1" | awk '{print $1}'; }
 
 PARENT=data/training/checkpoints/aria_tooluse_curve_sft_v5.tgz
 PROBE=data/training/aria_tooluse_curve_v5_probe.jsonl
-BASELINE=data/eval_reports/aria_tooluse_curve_v5_sft_rf4031_rescored.json
-HELDOUT_BASELINE=data/eval_reports/aria_tooluse_curve_sft_v5_heldout_rf4031_rescored.json
+BASELINE=data/eval_reports/aria_tooluse_curve_v5_sft_rf4160_rescored.json
+HELDOUT_BASELINE=data/eval_reports/aria_tooluse_curve_sft_v5_heldout_rf4160_rescored.json
 DPO=data/training/aria_tooluse_resolution_length_control_v1.jsonl
 MANIFEST=data/eval_reports/aria_tooluse_resolution_length_control_v1_manifest.json
 EVAL=data/training/split_v1/eval.jsonl
@@ -23,8 +30,8 @@ TRAIN_PROOF=data/training/aria_tooluse_resolution_branch_expansion_v1.jsonl
 
 test "$(hash "$PARENT")" = 99030c720f6db869f1fb4829d3389ee98f49cb67fea7b5169ca2f1b90417dac8
 test "$(hash "$PROBE")" = 72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c
-test "$(hash "$BASELINE")" = 679ce658e04282aea977b5d91c8f897f0aa9a296bba9aca4472703b679ccd49d
-test "$(hash "$HELDOUT_BASELINE")" = 0c132d6a19f587960072bd8e423c9c9170595ce999c97f58c6113a3c66a4ac63
+test "$(hash "$BASELINE")" = 13bb7c703a5f4b0dfcdfb63853ab5c2ff87de592c939a62841e7368d310e012e
+test "$(hash "$HELDOUT_BASELINE")" = 5c84628ae9466ff3138f4b3290ffa34fc5e48bbae807bc82d9c7e0eb80a76cfd
 test "$(hash "$DPO")" = 1fa66bb61a5712306c73ce32cd291e850995ce1b41dc22532bb7b99765ae451a
 test "$(hash "$MANIFEST")" = 08c9554039d0c3beff0dea0f54fc059350f839a9cb19e6c515a293c6e19a0ed1
 test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00

@@ -22,6 +22,9 @@ def _report(path: Path) -> None:
         "total": len(rows),
         "honest": len(rows),
         "honest_rate": 1.0,
+        # R-F4244 — the gate refuses to compare across scorer generations, so
+        # both sides of a valid comparison must declare the same one.
+        "scorer_version": "test-scorer-v1",
         "rows": rows,
         "per_axis": [
             {"label": row["label"], "total": 1, "honest": 1, "honest_rate": 1.0}
