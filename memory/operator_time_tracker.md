@@ -3529,7 +3529,7 @@ and it was diagnosable in one probe only because the scorer NAMES the reason.
 `test_rf4242_signal_absence_is_named.py` pins that, so nobody "fixes" it by
 deleting the R-F1907 guard.
 
-### 🔴 BLOCKED: my last commit cannot be pushed — the blocker is not mine
+### ~~🔴 BLOCKED: my last commit cannot be pushed~~ — RESOLVED, see below
 
 ```
 unpushed: 602af269  fix: R-F4242 ...            (mine)
@@ -3666,3 +3666,49 @@ change.** §24 pre-flight re-run and recorded: 105 files / 23,309 rows,
    `_find_running_pod.py` both reference `4vdw2zmqov`, which no longer exists.
    The account's only network volume is `swsj40xxvl` (`aria-model-vol`, 100 GB,
    US-KS-2). `cost_guard recover` would provision against a volume that is gone.
+
+### RESOLVED (same day) — and the peer's argument changed my recommendation
+
+`origin/main` is `7fca47c1`; my `5001a445` went up with it. The peer owned R-F4240
+and cleared it by **writing the test, not taking the exemption I had leaned
+toward** — and they were right.
+
+**The argument I had missed:** an adjudication's *verdict JSON* is itself the
+artefact at risk, so re-deriving it from its own harvested reports satisfies §3c
+literally, not by analogy. I was treating "no `aria_service/` diff" as the
+discriminator; the real question is whether there is a user-visible outcome to
+assert. There is — **a recorded verdict that quietly disagrees with its own
+evidence**, read long after anyone would re-derive the reports it cites. A named
+exemption would have made that class permanently unassertable, which is worse than
+the friction it removes.
+
+`test_rf4240_interpolation_verdict.py` re-derives the decision from the 168-row
+reports and the PRE-REGISTERED gate: cited sha256s must still match, every arm must
+share one `eval_sha256` and one `scorer_version` (R-F4160's rescore made
+cross-scorer comparison a live hazard), and the gate applied must equal the gate
+registered before the run. **Its best assertion is that the gate can OPEN** — every
+arm on record has been rejected, so an always-reject bug would sit there
+indefinitely looking like correct pessimism, the same certify-by-absence shape this
+repo keeps finding. Mutation-proven.
+
+**Standing guidance for the next adjudication R-number: point it at that file's
+`promotable()` helper. Do NOT add a named exemption to `verify_commit.py`.**
+
+**Deploy status:** no deploy needed. The only non-test change between live
+(`2e211525`) and `7fca47c1` is a docstring in `eval_runner.py`, so live is
+behaviourally current. Verified `status: operational, degraded_reasons: []`, loop
+p95 1.1 ms over 600 samples, autonomy L3 with 98 tasks, RULE ONE clean, 83 of this
+session's tests green.
+
+**Verified my own outstanding claim** rather than leaving it asserted: the
+verification-signal displacement DOES self-revert. `source_verifier` line ~854 is
+`if rolling_rate_24h is not None: 24h_window; elif lifetime_rate is not None:
+lifetime_fallback` — so once the six seed records age out of the 24h window
+(~23h from 08:00 UTC 2026-08-23) it returns to the lifetime baseline (n≈83). Not a
+lasting regression.
+
+**From RunPod (peer, R-F4241):** `_create_v04_pod.py` now resumes a durable pod of
+record instead of creating one per run — 70 pods were found EXITED at $0.077/hr of
+idle storage. Expect a reuse; the pod currently resumes WITHOUT a GPU (host
+capacity) and a paid start now refuses rather than billing for a pod that cannot
+train.
