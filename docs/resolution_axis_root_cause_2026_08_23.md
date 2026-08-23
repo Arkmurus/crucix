@@ -72,25 +72,76 @@ broke `Meggitt`, `Cobham`, `Lockheed Martin UK Limited`, all "did not select the
 resolved company"); push the other way and `Prudential` stays broken. Both poles
 move together because neither is the defect.
 
+## CORRECTION — the first version of this section was wrong (R-F4243)
+
+**It read: "what is missing is the rejected side: it must reject a *plausible*
+list-plus-closer answer, not a deterministic non-resolution." That is false, and
+it was inferred from the `rejection_policy` string in the manifest instead of
+from the curriculum file.** Measured against
+`data/training/aria_tooluse_resolution_boundary_dpo_v1.jsonl`: **31 of 32 rows
+carry their ORIGINAL rejected completion**, and those are exactly the
+list-plus-closer shape the paragraph claimed was absent. Only **one** row hit
+`_harden_resolution_rejection`. v1's contrast was right in form:
+
+- `unique_live` (Diploma) — chosen: *"DIPLOMA PLC (03899848) … is the active
+  company whose name resolves to Diploma. I will proceed on company number
+  03899848."* · rejected: the bare 5-item list.
+- `ambiguous_live` (Spectris) — chosen: *"I cannot safely say which company you
+  mean … Which of these is the subject?"* · rejected: the list, then *"I did not
+  find a company named 'Spectris' with a registered office in the UK."* — which
+  is the Compass failure shape exactly.
+
+So the curriculum was not making the mistake it was accused of. Acting on that
+paragraph would have rebuilt something already correct and left the real defect
+untouched.
+
+## What the measurement actually shows
+
+**Length predicts the label, and it points in OPPOSITE directions per branch.**
+
+| branch | n | median chosen | median rejected | chosen shorter |
+|---|---|---|---|---|
+| `unique_live` | 10 | 155 | 354 | **9 / 10** |
+| `ambiguous_live` | 10 | 480 | 320 | 0 / 10 |
+| `no_match` | 10 | 446 | 355 | 1 / 10 |
+| `dissolved_only` | 2 | 508 | 394 | 0 / 2 |
+
+In 30 of 32 rows the label is recoverable from length alone. DPO can drive its
+loss down by learning *"be terse when a single company matches, be expansive
+otherwise"* without ever learning to perform a selection — and 22 of the 32 rows
+push toward LONGER, so the net gradient favours the expansive, list-shaped
+answer.
+
+**That predicts the regressions actually observed.** Interpolation v2 newly broke
+`Meggitt`, `Cobham` and `Lockheed Martin UK Limited` — all of them
+*"did not select the resolved company"*, i.e. the model got more verbose and
+stopped committing. The length confound and the failure mode agree.
+
+Coverage of the two failure shapes is also thin and uneven — measured by regex
+over the rejected side: the first-row default (the `Prudential` error) appears in
+only **2 of 10** `ambiguous_live` rows, and the false denial (the `Compass`
+error) in **5 of 10** `unique_live` rows.
+
+**This is a hypothesis with a mechanism and matching evidence, not an established
+cause.** It is stated that way deliberately: the paragraph it replaces was
+asserted with more confidence than its evidence carried.
+
 ## What to train instead
 
-The contrast in the preference data must be **list + unjustified closer**
-(rejected) against **an explicit decision carrying its own justification**
-(chosen) — held constant across all four decision states, so the gradient
-teaches *performing the selection* rather than *leaning one way*:
+Break the correlation rather than making answers unnatural — a selection really
+is shorter than a clarification, and that is fine as long as length is not
+*sufficient* to pick the winner:
 
-- `unique_live` → name the company and the number, and say what made it unique.
-- `ambiguous_live` → ask which one, and name the candidates that forced the ask.
-- `no_match` → say nothing matched, and say what was searched.
-- `dissolved_only` → name it and state the status.
+1. **Add a length-matched counter-example to every branch.** For `unique_live`, a
+   SHORT rejected (a terse false denial) so brevity stops being the winning
+   feature. For the other three, a LONG rejected (a full list plus a first-row
+   default) so verbosity stops being it.
+2. **Cover both failure shapes in every branch**, not 2-of-10 in the one where it
+   matters most.
+3. Keep what v1 already got right — branch balance, held-out subjects excluded,
+   chosen must pass `validate_trace` and rejected must fail it.
 
-`build_resolution_boundary_dpo.py` already emits balanced branches
-(`unique_live: 10, ambiguous_live: 10, no_match: 10, dissolved_only: 2`), so the
-**branch balance was never the missing piece** — v1 had it and still scored
-11/16. What is missing is the rejected side: it must reject a *plausible*
-list-plus-closer answer, not a deterministic non-resolution. Check
-`rejection_policy` in the manifest before spending; v1's reads
-`retain_validator_failing_else_deterministic_non_resolution`.
+## Cost note
 
 ## Cost note
 
