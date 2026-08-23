@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4251,
+  "next_available": 4253,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36417,6 +36417,24 @@
       "commit_sha": "99ecc6e1",
       "notes": null,
       "shipped_at": "2026-08-23T10:05:05Z"
+    },
+    {
+      "r_number": "R-F4251",
+      "title": "adjudicate a sweep with a tool, not by hand-writing the verdict each time",
+      "claimed_at": "2026-08-23T10:06:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4252",
+      "title": "a panic SOS that reached nobody was invisible to the brain",
+      "claimed_at": "2026-08-23T10:07:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
