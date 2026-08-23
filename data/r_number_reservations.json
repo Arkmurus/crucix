@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4271,
+  "next_available": 4272,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36606,6 +36606,16 @@
       "r_number": "R-F4270",
       "title": "parent of record - the promoted adapter becomes the actual parent",
       "claimed_at": "2026-08-23T17:29:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:40:36Z"
+    },
+    {
+      "r_number": "R-F4271",
+      "title": "360 coverage ledger - which of the Twenty Fundamentals the eval can see",
+      "claimed_at": "2026-08-23T17:46:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

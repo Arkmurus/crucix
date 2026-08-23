@@ -1,0 +1,192 @@
+{
+  "standard_version": "1.0.0",
+  "fundamentals_total": 24,
+  "fundamentals_covered": 6,
+  "fundamentals_uncovered": [
+    "EI-3",
+    "EI-4",
+    "FS-10",
+    "FS-11",
+    "FS-12",
+    "FS-9",
+    "IS-14",
+    "IS-16",
+    "IS-16b",
+    "IS-17a",
+    "IS-17b",
+    "IS-17c",
+    "LR-18",
+    "LR-19",
+    "LR-20",
+    "OC-5",
+    "OC-7",
+    "OC-8"
+  ],
+  "coverage_fraction": 0.25,
+  "covered_by": {
+    "EI-1": [
+      "tooluse_multihop",
+      "tooluse_resolution"
+    ],
+    "EI-2": [
+      "tooluse_resolution"
+    ],
+    "EI-3": [],
+    "EI-4": [],
+    "FS-10": [],
+    "FS-11": [],
+    "FS-12": [],
+    "FS-9": [],
+    "IS-13": [
+      "tooluse_challenge",
+      "tooluse_challenge_unavailable",
+      "tooluse_contradiction",
+      "tooluse_trace",
+      "tooluse_trace_unavailable"
+    ],
+    "IS-13b": [
+      "tooluse_multihop",
+      "tooluse_person"
+    ],
+    "IS-14": [],
+    "IS-15": [
+      "tooluse_adverse",
+      "tooluse_contradiction",
+      "tooluse_news_impact"
+    ],
+    "IS-16": [],
+    "IS-16b": [],
+    "IS-17a": [],
+    "IS-17b": [],
+    "IS-17c": [],
+    "LR-18": [],
+    "LR-19": [],
+    "LR-20": [],
+    "OC-5": [],
+    "OC-6": [
+      "tooluse_multihop"
+    ],
+    "OC-7": [],
+    "OC-8": []
+  },
+  "by_cluster": {
+    "EXISTENCE_IDENTITY": {
+      "total": 4,
+      "covered": 2,
+      "uncovered": [
+        "EI-3",
+        "EI-4"
+      ]
+    },
+    "FINANCIAL_STANDING": {
+      "total": 4,
+      "covered": 0,
+      "uncovered": [
+        "FS-10",
+        "FS-11",
+        "FS-12",
+        "FS-9"
+      ]
+    },
+    "INTEGRITY_SCREENING": {
+      "total": 9,
+      "covered": 3,
+      "uncovered": [
+        "IS-14",
+        "IS-16",
+        "IS-16b",
+        "IS-17a",
+        "IS-17b",
+        "IS-17c"
+      ]
+    },
+    "LEGITIMACY_REGULATION": {
+      "total": 3,
+      "covered": 0,
+      "uncovered": [
+        "LR-18",
+        "LR-19",
+        "LR-20"
+      ]
+    },
+    "OWNERSHIP_CONTROL": {
+      "total": 4,
+      "covered": 1,
+      "uncovered": [
+        "OC-5",
+        "OC-7",
+        "OC-8"
+      ]
+    }
+  },
+  "axis_rows": {
+    "tooluse_adverse": 28,
+    "tooluse_challenge": 24,
+    "tooluse_challenge_unavailable": 3,
+    "tooluse_contradiction": 27,
+    "tooluse_multihop": 9,
+    "tooluse_news_impact": 12,
+    "tooluse_person": 7,
+    "tooluse_resolution": 16,
+    "tooluse_trace": 39,
+    "tooluse_trace_unavailable": 3
+  },
+  "behaviour_axes": [
+    "tooluse_challenge",
+    "tooluse_challenge_unavailable",
+    "tooluse_contradiction"
+  ],
+  "eval_rows": 168,
+  "headroom_by_cluster": {
+    "EXISTENCE_IDENTITY": {
+      "axes": [
+        "tooluse_multihop",
+        "tooluse_resolution"
+      ],
+      "honest": 20,
+      "total": 25,
+      "headroom": 5
+    },
+    "FINANCIAL_STANDING": {
+      "axes": [],
+      "honest": 0,
+      "total": 0,
+      "headroom": 0,
+      "no_eval_rows": true
+    },
+    "INTEGRITY_SCREENING": {
+      "axes": [
+        "tooluse_adverse",
+        "tooluse_challenge",
+        "tooluse_challenge_unavailable",
+        "tooluse_contradiction",
+        "tooluse_multihop",
+        "tooluse_news_impact",
+        "tooluse_person",
+        "tooluse_trace",
+        "tooluse_trace_unavailable"
+      ],
+      "honest": 150,
+      "total": 152,
+      "headroom": 2
+    },
+    "LEGITIMACY_REGULATION": {
+      "axes": [],
+      "honest": 0,
+      "total": 0,
+      "headroom": 0,
+      "no_eval_rows": true
+    },
+    "OWNERSHIP_CONTROL": {
+      "axes": [
+        "tooluse_multihop"
+      ],
+      "honest": 8,
+      "total": 9,
+      "headroom": 1
+    }
+  },
+  "report": "aria_tooluse_resolution_failure_correction_v1_rf4163_rescored.json",
+  "report_honest": 162,
+  "report_total": 168
+}

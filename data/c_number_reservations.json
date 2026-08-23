@@ -2644,6 +2644,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T17:39:35Z"
+    },
+    {
+      "c_number": "C-232",
+      "title": "the tool-use eval cannot see two of ARIA five DD clusters",
+      "claimed_at": "2026-08-23T17:46:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4271"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:49:41Z"
     }
   ]
 }

@@ -14698,3 +14698,79 @@ validator. Proven independent of R-F4270: it fails identically with these change
 removed from the tree, and its import chain touches none of them. Worth its own
 C-number — a stale preference pair trains the model toward an answer we now consider
 correct.
+
+## C-232 · the tool-use eval cannot see two of ARIA's five DD clusters (measured, R-F4271)
+
+Thirteen funded candidates in a row failed to promote. Every post-mortem blamed
+curriculum design — the length confound (R-F4243), the interpolation direction
+(R-F4240), the rejected-side shape (R-F4122). One of them was right about its own
+curriculum. None of them asked what the harness could see.
+
+**Measured 2026-08-23 from the live standard, not from a doc.** ARIA's due-diligence
+standard (`dd_standard.QUESTIONS`, v1.0.0) is **24 questions across five clusters**.
+The 168-row tool-use eval has an axis for **6 of them — 25%**:
+
+```
+cluster                   covered   rows  honest  headroom
+EXISTENCE_IDENTITY         2/4        25      20         5
+FINANCIAL_STANDING         0/4         0       0         0
+INTEGRITY_SCREENING        3/9       152     150         2
+LEGITIMACY_REGULATION      0/3         0       0         0
+OWNERSHIP_CONTROL          1/4         9       8         1
+```
+
+**152 of 168 rows — 90% — sit on INTEGRITY_SCREENING, which stands at 150/152.**
+Eighteen fundamentals have no eval row at all: EI-3, EI-4, FS-9, FS-10, FS-11,
+FS-12, IS-14, IS-16, IS-16b, IS-17a, IS-17b, IS-17c, LR-18, LR-19, LR-20, OC-5,
+OC-7, OC-8. Two entire clusters — everything financial, everything regulatory — are
+unmeasured.
+
+Read the rows and the cause is plain: all 168 declare the same **four tools**
+(`companies_house_search`, `companies_house_officers`, `screen`, `web_search`) and
+every question is a sanctions, adverse-media or identity question. The harness was
+built for the screening cluster and has been at ceiling there for some time.
+
+**So the standing explanation was inverted.** With the advisory axis excluded there
+are **two addressable rows in the entire eval**. No curriculum can show a gain
+against two rows; the candidates were not failing to learn, the instrument had
+nothing left to report. This is the third time this repo has mistaken an instrument
+for its subject — the Phase A gates certified by an absence (§1), the cost meter
+reading `spent_usd: 0.0` (§17), and now a saturated eval read as thirteen failed
+curricula.
+
+**ARIA already has real, free adapters for most of what is unmeasured**, which is
+what makes this fixable without buying anything: `get_insolvency` (FS-11),
+`get_charges` (FS-12), `get_psc` / `walk_psc_ownership` (OC-5, OC-7),
+`search_disqualified_officers` (IS-16b), `get_filing_history` and
+`fetch_accounts_figures` (FS-9, FS-10). The Companies House API is free.
+
+### The instrument — `scripts/train/fundamentals_coverage.py`
+
+It states coverage as a number, from the live registry, and refuses three things
+this repo has been burned by:
+
+* **It never infers coverage from a shared resolver.** Pinned on a real collision:
+  OC-5 declares resolver `companies_house`, the same family the eval already calls,
+  yet **not one row walks a PSC chain**. Inferring from overlap would stamp the UBO
+  chain as measured — C-39 exactly, where one successful call certified eight lists
+  that were never queried. Coverage is DECLARED per axis, with a recorded `why`, and
+  the declaration is what gets audited.
+* **A new fundamental cannot hide.** The registry is iterated live, so a 25th
+  question appears as UNCOVERED on the next run instead of falling outside the
+  denominator. A declaration naming a question the standard no longer has is an
+  ERROR — otherwise DELETING a question would make coverage look better.
+* **A new axis cannot claim coverage by omission.** An undeclared eval axis is an
+  error, never "covers nothing" and never "covers everything".
+
+`kind` keeps the two things an axis can be apart. `tooluse_challenge` and
+`tooluse_contradiction` test cross-cutting honesty, not a DD question; 51 rows of
+refusing-to-rubber-stamp must never read as financial-standing breadth.
+
+Ledger: `docs/fundamentals_coverage.json`. Re-run:
+`python -m scripts.train.fundamentals_coverage --report <168-row report>`.
+
+**NOT FIXED HERE, and deliberately:** this measures the gap, it does not close it.
+Closing it means new axes with REAL captured payloads — `build_tooluse_corpus`'s
+hard constraint is that a tool result is never LLM-imagined, and that constraint
+holds for every row added. Capture needs `COMPANIES_HOUSE_API_KEY`, which is not on
+the dev box and is the next step.
