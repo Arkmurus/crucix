@@ -36384,9 +36384,10 @@
       "title": "count skew was the wrong statistic: measure length separability, not which side is shorter",
       "claimed_at": "2026-08-23T07:32:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "589c4e53",
+      "notes": null,
+      "shipped_at": "2026-08-23T07:38:03Z"
     }
   ]
 }
