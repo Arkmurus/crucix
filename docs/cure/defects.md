@@ -14774,3 +14774,60 @@ Closing it means new axes with REAL captured payloads — `build_tooluse_corpus`
 hard constraint is that a tool result is never LLM-imagined, and that constraint
 holds for every row added. Capture needs `COMPANIES_HOUSE_API_KEY`, which is not on
 the dev box and is the next step.
+
+### C-232 first closure — three of the eighteen (R-F4272)
+
+`scripts/train/build_registry_depth_corpus.py` adds the first three missing axes,
+built on REAL Companies House payloads captured from inside aria-intel
+(`data/training/tooluse_capture_360_2026_08_23.jsonl`, 44 records, free API, public record):
+
+| axis | fundamental | rows |
+|---|---|---|
+| `tooluse_insolvency` | FS-11 past or current insolvency | 32 |
+| `tooluse_charges` | FS-12 security, liens, prior claims | 32 |
+| `tooluse_ownership` | OC-5 the natural persons ultimately in control | 32 |
+
+Coverage moves **6/24 (25%) → 9/24 (38%)**; FINANCIAL_STANDING 0/4 → 2/4,
+OWNERSHIP_CONTROL 1/4 → 2/4.
+
+**What they grade is the honesty property, not registry trivia.** ARIA's
+deterministic layer already separates an ANSWER from a non-answer —
+`ANSWERED_OUTCOMES` is exactly `{ok, not_found}`, and `_unchecked` states in the
+payload *"NOT established — re-check required, this is not a clear result"*. The
+model has never been graded on that distinction outside sanctions. Three failure
+shapes, each a real way to lose money:
+
+1. **Silent-clean** — the register did not answer and the answer reports nothing
+   adverse. Three refusal rows carry the genuine `_unchecked` payload.
+2. **The satisfied-charge trap** — SHB Realisations (formerly BHS) has 51 charges
+   of which **6 are outstanding**; Greggs has 40 of which **0** are. "51 charges"
+   and "no charges" are each wrong for one of them.
+3. **Empty register read as no owner** — all four states of a PSC register are
+   trained from real data: named controllers (with the corporate-chain caveat),
+   **9 rows with a genuine ACTIVE exemption** (lawful, "NOT an indication of
+   concealment"), 3 unexplained-empty, and 1 unreadable.
+
+**Two defects of mine that the gate caught, both the same trap.** The honest
+refusal NAMES the clean reading in order to deny it — *"this is not a finding of
+no insolvency"*, *"NOT evidence that the company has no beneficial owners"* — and
+a naive substring test flags exactly the sentence that prevents the error. That is
+the negation trap `build_tooluse_corpus._agrees_with_premise` documents ("i can
+confirm" vs "i cannot confirm" differ by two characters). `_asserts` now reads
+negation within the sentence, and is parametrised in both directions, including
+the case where a denial two sentences earlier must NOT license a clean claim.
+
+A third: the unanswered-ownership row coerced `None` to `[]`, making "the register
+did not answer" byte-identical to "answered, and empty" — the precise defect the
+axis exists to train against, inside the builder for it.
+
+**Provenance is asserted, not assumed:** a test re-reads the capture file and
+requires every answered payload to match the real capture for that company, and
+another asserts zero subject overlap with the 56 eval / 161 train subjects.
+
+**Still uncovered (15):** EI-3, EI-4, FS-9, FS-10, IS-14, IS-16, IS-16b, IS-17a,
+IS-17b, IS-17c, LR-18, LR-19, LR-20, OC-7, OC-8. **The rows are built but NOT yet
+wired into the eval:** `ALL_AXES` in `build_mixed_tooluse_cycle` is a fixed set of
+ten with five consumers, and the promotion gate, scorer and coverage ledger all
+assume it. Rewiring the harness is the next step and is deliberately separate — a
+gate change and a corpus change in one commit is how a harness starts measuring
+something nobody chose.

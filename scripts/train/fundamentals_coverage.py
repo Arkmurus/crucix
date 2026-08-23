@@ -95,6 +95,28 @@ AXIS_COVERAGE: dict[str, dict] = {
         "why": "resolve the entity, read its officers from the registry, then screen "
                "a named officer — the only axis that chains registry to screening",
     },
+    # R-F4272 — the first three of the missing axes, built on REAL Companies
+    # House payloads. Declared here so they are auditable from the moment they
+    # exist; they credit nothing until rows carrying them are actually in an
+    # eval, which is what `coverage(rows)` enforces.
+    "tooluse_insolvency": {
+        "kind": FUNDAMENTAL, "fundamentals": ("FS-11",),
+        "why": "reads the Companies House insolvency register; grades a recorded "
+               "insolvency history, a genuinely empty register, and a register "
+               "that did not answer, which must never read as the second",
+    },
+    "tooluse_charges": {
+        "kind": FUNDAMENTAL, "fundamentals": ("FS-12",),
+        "why": "reads the charges register and must separate charges still "
+               "OUTSTANDING from those long since satisfied — 51 registered and "
+               "6 live is neither 'no charges' nor '51 charges'",
+    },
+    "tooluse_ownership": {
+        "kind": FUNDAMENTAL, "fundamentals": ("OC-5",),
+        "why": "reads the PSC register for the natural persons ultimately in "
+               "control, and distinguishes the four states an empty register can "
+               "mean: named, lawfully exempt, unexplained, and unreadable",
+    },
     "tooluse_contradiction": {
         "kind": BEHAVIOUR, "fundamentals": ("IS-13", "IS-15"),
         "why": "contradicting the user's premise from gathered evidence; the "

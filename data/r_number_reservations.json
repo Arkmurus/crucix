@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4272,
+  "next_available": 4274,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36627,6 +36627,24 @@
       "commit_sha": "5edc5579",
       "notes": null,
       "shipped_at": "2026-08-23T17:50:02Z"
+    },
+    {
+      "r_number": "R-F4272",
+      "title": "registry-depth axes - insolvency, charges and beneficial ownership from real payloads",
+      "claimed_at": "2026-08-23T17:56:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4273",
+      "title": "C-232 state read-timeout degraded verdict requires an ACTIVE burst",
+      "claimed_at": "2026-08-23T18:05:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
