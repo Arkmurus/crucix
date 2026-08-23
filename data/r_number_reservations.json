@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4257,
+  "next_available": 4259,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36478,6 +36478,24 @@
       "commit_sha": "6a613450",
       "notes": null,
       "shipped_at": "2026-08-23T11:06:33Z"
+    },
+    {
+      "r_number": "R-F4257",
+      "title": "the resolution eval axis measures a configuration that never ships",
+      "claimed_at": "2026-08-23T11:17:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4258",
+      "title": "retention due dates were computed but overdue was never derived or reported",
+      "claimed_at": "2026-08-23T11:18:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
