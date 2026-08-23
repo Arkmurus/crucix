@@ -1,12 +1,12 @@
 {
- "recorded_at_commit": "0db2ab25",
+ "recorded_at_commit": "2e211525",
  "note": "The corpus itself is untracked by design (size). This manifest is the PIN: a training run records these sha256s so a checkpoint can be attributed to exact inputs.",
  "golden_set_prompts": 500,
  "golden_set_source": "aria-intel live store (500 entries @ /data/aria_state.db:state.value; frozen pin a07b6af760ad7f441621ab6f95541f102626ad309cd2b83d6168a13c8d81a515 count=500)",
  "contamination": "none",
  "totals": {
-  "files": 45,
-  "rows": 18149,
+  "files": 105,
+  "rows": 23309,
   "unparseable_rows": 0
  },
  "files": [
@@ -200,6 +200,20 @@
    "bytes": 561890
   },
   {
+   "file": "aria_tooluse_base_balanced_v1_dpo.jsonl",
+   "sha256": "52fcbee8f0eada830fa9b5337606dbf4",
+   "rows": 51,
+   "unparseable_rows": 0,
+   "bytes": 196927
+  },
+  {
+   "file": "aria_tooluse_base_balanced_v2_dpo.jsonl",
+   "sha256": "209b47c0fdffec09e8435917ca501cf0",
+   "rows": 50,
+   "unparseable_rows": 0,
+   "bytes": 199950
+  },
+  {
    "file": "aria_tooluse_challenge_v1.jsonl",
    "sha256": "7eae5d76ed2fd85a3513f79937be34e3",
    "rows": 116,
@@ -207,11 +221,200 @@
    "bytes": 447242
   },
   {
+   "file": "aria_tooluse_citation_contract_v10.jsonl",
+   "sha256": "0e83c8a69198770f48ffcbdf5c072c08",
+   "rows": 594,
+   "unparseable_rows": 0,
+   "bytes": 3541953
+  },
+  {
+   "file": "aria_tooluse_citation_contract_v8.jsonl",
+   "sha256": "f5bdbdb419cff3fa9cf58b85d217124e",
+   "rows": 350,
+   "unparseable_rows": 0,
+   "bytes": 1874260
+  },
+  {
+   "file": "aria_tooluse_citation_contract_v8.reproduced.jsonl",
+   "sha256": "190c9ae15a7f594f779d419c38551b1c",
+   "rows": 350,
+   "unparseable_rows": 0,
+   "bytes": 1874610
+  },
+  {
+   "file": "aria_tooluse_citation_contract_v9.jsonl",
+   "sha256": "5b3635d89d19cd93110d45608c0b95fb",
+   "rows": 438,
+   "unparseable_rows": 0,
+   "bytes": 2474641
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_dpo.jsonl",
+   "sha256": "bc04f9d3aee713b9411e51376fc817c7",
+   "rows": 5,
+   "unparseable_rows": 0,
+   "bytes": 14843
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_dpo_rescored.jsonl",
+   "sha256": "ad86629b29de0c556ddca943eefb1ed1",
+   "rows": 1,
+   "unparseable_rows": 0,
+   "bytes": 3993
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_v2_dpo.jsonl",
+   "sha256": "bde5814cacff379af20623a7c064ec69",
+   "rows": 7,
+   "unparseable_rows": 0,
+   "bytes": 55013
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_v2_dpo_rescored.jsonl",
+   "sha256": "15a5bb00e2b0a463e1207434d240f0cd",
+   "rows": 1,
+   "unparseable_rows": 0,
+   "bytes": 6231
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_v3_delta_dpo.jsonl",
+   "sha256": "2e657bb45c308c1d9a577186890ada9c",
+   "rows": 4,
+   "unparseable_rows": 0,
+   "bytes": 30091
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_v3_disjoint_dpo.jsonl",
+   "sha256": "7bb73249af5d460227f3c4d85d37d599",
+   "rows": 41,
+   "unparseable_rows": 0,
+   "bytes": 176575
+  },
+  {
+   "file": "aria_tooluse_citation_phoenix_v3_retention_dpo.jsonl",
+   "sha256": "32f15517b0a26b716c91c5f1d2003d8e",
+   "rows": 57,
+   "unparseable_rows": 0,
+   "bytes": 238331
+  },
+  {
+   "file": "aria_tooluse_contradiction_fresh_v3.jsonl",
+   "sha256": "88ad66d0d28b8edc4e2c775185d75950",
+   "rows": 14,
+   "unparseable_rows": 0,
+   "bytes": 109416
+  },
+  {
+   "file": "aria_tooluse_contradiction_novel_v1.jsonl",
+   "sha256": "5ad9f4622ee6235bd41171b9baa993c3",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 127050
+  },
+  {
+   "file": "aria_tooluse_contradiction_novel_v2.jsonl",
+   "sha256": "e72c2202662d6fb3f8f25a9740a3a165",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 125384
+  },
+  {
+   "file": "aria_tooluse_contradiction_novel_v3.jsonl",
+   "sha256": "d9ea60bb4fdb52c3a9abc989107325fd",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 124068
+  },
+  {
    "file": "aria_tooluse_contradiction_v1.jsonl",
    "sha256": "3b5fc8ced49264490a1bb2fd309d03bd",
    "rows": 89,
    "unparseable_rows": 0,
    "bytes": 651910
+  },
+  {
+   "file": "aria_tooluse_curve_v2_dpo.jsonl",
+   "sha256": "58ea445342ddd226a2a92477992f8dee",
+   "rows": 47,
+   "unparseable_rows": 0,
+   "bytes": 185635
+  },
+  {
+   "file": "aria_tooluse_curve_v2_probe.jsonl",
+   "sha256": "72b7eca2a90db4d1e3a6a4448a2d17f3",
+   "rows": 30,
+   "unparseable_rows": 0,
+   "bytes": 160120
+  },
+  {
+   "file": "aria_tooluse_curve_v2_sft.jsonl",
+   "sha256": "787445b6ce2dc54ed199837e360f7c2a",
+   "rows": 206,
+   "unparseable_rows": 0,
+   "bytes": 1042855
+  },
+  {
+   "file": "aria_tooluse_curve_v5_dpo.jsonl",
+   "sha256": "9425cb41de48d4e54522663174fd34d2",
+   "rows": 53,
+   "unparseable_rows": 0,
+   "bytes": 208240
+  },
+  {
+   "file": "aria_tooluse_curve_v5_probe.jsonl",
+   "sha256": "72b7eca2a90db4d1e3a6a4448a2d17f3",
+   "rows": 30,
+   "unparseable_rows": 0,
+   "bytes": 160120
+  },
+  {
+   "file": "aria_tooluse_curve_v5_sft.jsonl",
+   "sha256": "6c8c466ba5abb1ed6a614a7d1160cffe",
+   "rows": 230,
+   "unparseable_rows": 0,
+   "bytes": 1102593
+  },
+  {
+   "file": "aria_tooluse_dpo_v2.jsonl",
+   "sha256": "a9ac5575b901e8f3274b71d6b9cbeb62",
+   "rows": 12,
+   "unparseable_rows": 0,
+   "bytes": 113176
+  },
+  {
+   "file": "aria_tooluse_dpo_v2_complete.jsonl",
+   "sha256": "53f9a3747cce5dd4b3f6ad859635eb3c",
+   "rows": 14,
+   "unparseable_rows": 0,
+   "bytes": 125333
+  },
+  {
+   "file": "aria_tooluse_dpo_v3.jsonl",
+   "sha256": "e24c45129f4e0af81d8eafbfa2b60cea",
+   "rows": 8,
+   "unparseable_rows": 0,
+   "bytes": 60685
+  },
+  {
+   "file": "aria_tooluse_dpo_v4.jsonl",
+   "sha256": "3b600cbefbfd8536300cb8991a656ed9",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 136000
+  },
+  {
+   "file": "aria_tooluse_fresh_v1_challenge_dpo.jsonl",
+   "sha256": "1c5074f7972bf69efd0d0e3f96c5e2d1",
+   "rows": 44,
+   "unparseable_rows": 0,
+   "bytes": 123450
+  },
+  {
+   "file": "aria_tooluse_mixed_retention_v1.jsonl",
+   "sha256": "0ee75916be8d7073d197af267e79002b",
+   "rows": 24,
+   "unparseable_rows": 0,
+   "bytes": 146753
   },
   {
    "file": "aria_tooluse_multihop_v1.jsonl",
@@ -228,11 +431,123 @@
    "bytes": 257110
   },
   {
+   "file": "aria_tooluse_novel_contradiction_dpo.jsonl",
+   "sha256": "c2d53952f8bf0211fab51a2b78304ca7",
+   "rows": 4,
+   "unparseable_rows": 0,
+   "bytes": 37840
+  },
+  {
+   "file": "aria_tooluse_novel_contradiction_dpo_v2.jsonl",
+   "sha256": "59003994e03b40c99db4468a276004f3",
+   "rows": 4,
+   "unparseable_rows": 0,
+   "bytes": 37322
+  },
+  {
+   "file": "aria_tooluse_novel_resolution_dpo_v1.jsonl",
+   "sha256": "c5b45401db6154fafec9f6110a60382e",
+   "rows": 9,
+   "unparseable_rows": 0,
+   "bytes": 36311
+  },
+  {
+   "file": "aria_tooluse_person_delta_dpo_v1.jsonl",
+   "sha256": "b19a28ca433a3cafdb71345eb9b053c6",
+   "rows": 6,
+   "unparseable_rows": 0,
+   "bytes": 22605
+  },
+  {
    "file": "aria_tooluse_person_v1.jsonl",
    "sha256": "569458a8750542a42604dbacfe1ea004",
    "rows": 30,
    "unparseable_rows": 0,
    "bytes": 87368
+  },
+  {
+   "file": "aria_tooluse_positive_replay_v7.jsonl",
+   "sha256": "d1a911010b2eb3ba708840c7ce250918",
+   "rows": 350,
+   "unparseable_rows": 0,
+   "bytes": 1757476
+  },
+  {
+   "file": "aria_tooluse_protected_contract_dpo_v1.jsonl",
+   "sha256": "3c75636cfbac34acbd84351188db11bf",
+   "rows": 47,
+   "unparseable_rows": 0,
+   "bytes": 205944
+  },
+  {
+   "file": "aria_tooluse_protected_dpo_v1.jsonl",
+   "sha256": "c48d9130528fe375e258d28d5dc8ef3f",
+   "rows": 20,
+   "unparseable_rows": 0,
+   "bytes": 122314
+  },
+  {
+   "file": "aria_tooluse_protected_positive_v1.jsonl",
+   "sha256": "a0466f9a8c602196c64d7f21e78e807c",
+   "rows": 20,
+   "unparseable_rows": 0,
+   "bytes": 96886
+  },
+  {
+   "file": "aria_tooluse_protected_positive_v1_resolution_dpo.jsonl",
+   "sha256": "03a2c86da1d7f3c006ded6c37b599bd0",
+   "rows": 8,
+   "unparseable_rows": 0,
+   "bytes": 30418
+  },
+  {
+   "file": "aria_tooluse_resolution_balanced_dpo_v1.jsonl",
+   "sha256": "fa5a774c8b2fc7033b48b3ed37cef49b",
+   "rows": 35,
+   "unparseable_rows": 0,
+   "bytes": 136669
+  },
+  {
+   "file": "aria_tooluse_resolution_boundary_dpo_v1.jsonl",
+   "sha256": "e998e1e7c77ba762ba75af55acd26df5",
+   "rows": 32,
+   "unparseable_rows": 0,
+   "bytes": 127271
+  },
+  {
+   "file": "aria_tooluse_resolution_branch_expansion_dpo.jsonl",
+   "sha256": "42d9d8cc0077242e1402b069db50993a",
+   "rows": 23,
+   "unparseable_rows": 0,
+   "bytes": 91262
+  },
+  {
+   "file": "aria_tooluse_resolution_branch_expansion_v1.jsonl",
+   "sha256": "e87b085c3fae6c10b4d0afdca252979c",
+   "rows": 35,
+   "unparseable_rows": 0,
+   "bytes": 167092
+  },
+  {
+   "file": "aria_tooluse_resolution_failure_correction_v1.jsonl",
+   "sha256": "d98f8de3307120e26ae80cbd2e17c572",
+   "rows": 277,
+   "unparseable_rows": 0,
+   "bytes": 1373847
+  },
+  {
+   "file": "aria_tooluse_resolution_novel_v1.jsonl",
+   "sha256": "8d73af836a503277af158a5775d15ec4",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 73062
+  },
+  {
+   "file": "aria_tooluse_resolution_positive_replay_v1.jsonl",
+   "sha256": "c8bcd4487281882f0221cf41113d50d0",
+   "rows": 254,
+   "unparseable_rows": 0,
+   "bytes": 1294756
   },
   {
    "file": "aria_tooluse_resolution_v1.jsonl",
@@ -324,6 +639,111 @@
    "rows": 35,
    "unparseable_rows": 0,
    "bytes": 23800781
+  },
+  {
+   "file": "tooluse_base_balanced_v1_queue.jsonl",
+   "sha256": "bfaf61a3447b7687bedc12defde1507f",
+   "rows": 90,
+   "unparseable_rows": 0,
+   "bytes": 493145
+  },
+  {
+   "file": "tooluse_base_balanced_v2_person_delta.jsonl",
+   "sha256": "8460ad079a22c2837ba09a71e6c46de0",
+   "rows": 10,
+   "unparseable_rows": 0,
+   "bytes": 30216
+  },
+  {
+   "file": "tooluse_base_balanced_v2_queue.jsonl",
+   "sha256": "6ba510c2489e046e5a1488352fd38fc6",
+   "rows": 100,
+   "unparseable_rows": 0,
+   "bytes": 523271
+  },
+  {
+   "file": "tooluse_citation_phoenix_generation_queue.jsonl",
+   "sha256": "6ba510c2489e046e5a1488352fd38fc6",
+   "rows": 100,
+   "unparseable_rows": 0,
+   "bytes": 523271
+  },
+  {
+   "file": "tooluse_citation_phoenix_v2_generation_queue.jsonl",
+   "sha256": "ddfa3eb36f189750feb5a03decfeb668",
+   "rows": 88,
+   "unparseable_rows": 0,
+   "bytes": 517160
+  },
+  {
+   "file": "tooluse_dpo_generation_v2.jsonl",
+   "sha256": "485073947be8ad1651878c0f14213ef2",
+   "rows": 155,
+   "unparseable_rows": 0,
+   "bytes": 1029041
+  },
+  {
+   "file": "tooluse_dpo_generation_v2_remaining.jsonl",
+   "sha256": "0f35673311a23c2996db607a7b3141be",
+   "rows": 13,
+   "unparseable_rows": 0,
+   "bytes": 83841
+  },
+  {
+   "file": "tooluse_dpo_generation_v3.jsonl",
+   "sha256": "485073947be8ad1651878c0f14213ef2",
+   "rows": 155,
+   "unparseable_rows": 0,
+   "bytes": 1029041
+  },
+  {
+   "file": "tooluse_dpo_generation_v4.jsonl",
+   "sha256": "485073947be8ad1651878c0f14213ef2",
+   "rows": 155,
+   "unparseable_rows": 0,
+   "bytes": 1029041
+  },
+  {
+   "file": "tooluse_fresh_v1_generation_queue.jsonl",
+   "sha256": "d75b726f69ed0fb47415d7be97a88dd7",
+   "rows": 46,
+   "unparseable_rows": 0,
+   "bytes": 177051
+  },
+  {
+   "file": "tooluse_fresh_v2_generation_queue.jsonl",
+   "sha256": "0ed7dcac2e815c549b1e75e5ceee0ecb",
+   "rows": 143,
+   "unparseable_rows": 0,
+   "bytes": 856247
+  },
+  {
+   "file": "tooluse_hard_contradiction_queue.jsonl",
+   "sha256": "c9a9352fcc01d305bd70310ed7b22f7a",
+   "rows": 9,
+   "unparseable_rows": 0,
+   "bytes": 64881
+  },
+  {
+   "file": "tooluse_novel_resolution_generation_queue.jsonl",
+   "sha256": "df0f3671a42ede8f41d60db98f6f56a2",
+   "rows": 15,
+   "unparseable_rows": 0,
+   "bytes": 68732
+  },
+  {
+   "file": "tooluse_positive_v6_queue.jsonl",
+   "sha256": "e8ed7d25ce549a6e4dcac6fb7ba9d696",
+   "rows": 120,
+   "unparseable_rows": 0,
+   "bytes": 654883
+  },
+  {
+   "file": "tooluse_protected_axis_recovery_queue.jsonl",
+   "sha256": "0d5f0d0506377ebcfa8ae9b337efa9fd",
+   "rows": 96,
+   "unparseable_rows": 0,
+   "bytes": 582624
   }
  ]
 }

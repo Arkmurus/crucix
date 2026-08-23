@@ -110,6 +110,17 @@ done
 [ "$ok" -ge 3 ] || die "SSH never stabilised"
 sleep 10
 
+# R-F4241 - the pod is now REUSED rather than created fresh (see
+# scripts/train/pod_of_record.py), so /workspace may already hold the PREVIOUS
+# run's reports and completion sentinel. A cycle that dies before writing its
+# own report would otherwise let the harvester publish a stale measurement as
+# this run's. Move that evidence aside - never delete it - before any work
+# starts. Harmless on a genuinely new pod, where there is nothing to move.
+ARCHIVE_CMD=$("$PYBIN" -m scripts.train.pod_of_record archive-command) \
+  || die "could not build the prior-run archive command"
+TSSH -p "$PORT" root@"$HOST" "$ARCHIVE_CMD" | grep -q ARCHIVED \
+  || die "prior-run evidence was not archived - refusing to start work that could be confused with it"
+
 RSCP(){ local s="$1" d="$2" t; for t in 1 2 3 4 5; do
   timeout 120 scp -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -P "$PORT" "$s" root@"$HOST":"$d" 2>/dev/null && return 0
   log "scp retry $t $(basename "$s")"; sleep 10; done; return 1; }

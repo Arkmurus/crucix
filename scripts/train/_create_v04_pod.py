@@ -23,6 +23,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# R-F4241 — the launchers invoke this file as a SCRIPT (`python
+# scripts/train/_create_v04_pod.py`), so sys.path[0] is scripts/train and the
+# package import below cannot resolve on its own. Without this the import
+# raised ModuleNotFoundError, the script printed NOTHING on stdout, and the
+# launcher read that empty line as a capacity failure — 15 retries, ~22 minutes,
+# then "GAVE UP", with the real cause visible only on stderr. Resolve the repo
+# root explicitly rather than relying on how we happened to be invoked.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from scripts.train import pod_of_record  # noqa: E402 — needs the path above
+
 # Valid enum strings only (a single invalid one => schema reject, not capacity).
 # R-F2037: ARIA_POD_GPUS env overrides the list (e.g. force A100-80 for vLLM
 # colocate, which needs >=70GB) — comma-separated valid enum strings.
@@ -190,7 +201,20 @@ def create_pod(api_key: str, public_key: str) -> str:
 
 
 def main() -> int:
-    """Load local credentials, create one pod, and report honest failure detail."""
+    """Return a pod to work on: REUSE the pod of record, or create one.
+
+    R-F4241 — every launcher in this tree reaches a GPU through this script, so
+    this is the ONE decision point where "reuse, do not accumulate" can be made
+    true for all of them. Curating which launcher reuses would be whack-a-mole;
+    the fifteenth launcher would silently create a 71st pod.
+
+    A create still happens when the pod of record is genuinely gone, and the new
+    pod is registered as the record so the NEXT run reuses it. There is
+    deliberately no environment flag to force a fresh pod: an exception you can
+    switch on from a shell script is not a rule, and this exact behaviour was
+    already the thing being fixed. To move to a different pod, adopt it
+    explicitly (`python -m scripts.train.pod_of_record adopt --pod-id ...`).
+    """
     key = ""
     for line in pathlib.Path(".env").read_text().splitlines():
         if line.startswith("RUNPOD_API_KEY="):
@@ -198,7 +222,29 @@ def main() -> int:
             break
     public_key = pathlib.Path.home().joinpath(".ssh", "runpod_aria.pub").read_text().strip()
     try:
-        print(create_pod(key, public_key))
+        decision = pod_of_record.decide(
+            pod_of_record.read_record(), pod_of_record.read_inventory(key))
+        if decision.action == pod_of_record.BLOCKED:
+            # Never create on an unmeasurable fleet — that is how the 71st pod
+            # appears while the 70th is idle and healthy.
+            print(f"[pod-create] BLOCKED: {decision.reason}", file=sys.stderr)
+            return 1
+        if decision.action == pod_of_record.REUSE:
+            print(f"[pod-create] reusing pod of record {decision.pod_id} "
+                  f"(already running)", file=sys.stderr)
+            print(decision.pod_id)
+            return 0
+        if decision.action == pod_of_record.RESUME:
+            print(f"[pod-create] resuming pod of record {decision.pod_id} "
+                  f"(was {decision.observed_status})", file=sys.stderr)
+            pod_of_record.start_and_wait(decision.pod_id, key)
+            print(decision.pod_id)
+            return 0
+        print(f"[pod-create] creating a pod: {decision.reason}", file=sys.stderr)
+        pod_id = create_pod(key, public_key)
+        pod_of_record.write_record(
+            pod_id, f"created because {decision.reason} (R-F4241)")
+        print(pod_id)
         return 0
     except Exception as exc:  # noqa: BLE001 — CLI boundary must preserve category
         print(f"[pod-create] {exc}", file=sys.stderr)

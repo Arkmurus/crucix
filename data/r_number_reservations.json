@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4240,
+  "next_available": 4242,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36308,6 +36308,24 @@
       "commit_sha": "dc4da158",
       "notes": null,
       "shipped_at": "2026-08-23T05:39:26Z"
+    },
+    {
+      "r_number": "R-F4240",
+      "title": "record the R-F4167 interpolation sweep verdict",
+      "claimed_at": "2026-08-23T05:49:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4241",
+      "title": "one durable training pod of record: reuse, never create a 71st, never delete",
+      "claimed_at": "2026-08-23T05:49:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

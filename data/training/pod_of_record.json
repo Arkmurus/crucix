@@ -1,0 +1,6 @@
+{
+  "pod_id": "ydfgy06ik7fzca",
+  "note": "NVIDIA A40, 20GB volume at /workspace, proven to retain /workspace/eval across a 3-day stop (R-F4167 harvest, 2026-08-23). Operator directive 2026-08-23: stop deleting pods, reuse the same pod for training sessions.",
+  "registered_at": "2026-08-23T05:53:41Z",
+  "policy": "reuse this pod; never DELETE any pod; create only when this one is absent or terminated (R-F4241)"
+}
