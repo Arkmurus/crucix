@@ -3,7 +3,7 @@
   "reservations": [
     {
       "c_number": "C-01",
-      "title": "Every Python dependency is unpinned — P1",
+      "title": "Every Python dependency is unpinned \u2014 P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -12,7 +12,7 @@
     },
     {
       "c_number": "C-02",
-      "title": "~~Stripe is an undeclared dynamic import~~ — **RETRACTED, NOT A DEFECT**",
+      "title": "~~Stripe is an undeclared dynamic import~~ \u2014 **RETRACTED, NOT A DEFECT**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -21,7 +21,7 @@
     },
     {
       "c_number": "C-03",
-      "title": "Document-extraction degradation is DARK — P1 — **FIXED (R-F3723)**",
+      "title": "Document-extraction degradation is DARK \u2014 P1 \u2014 **FIXED (R-F3723)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -30,7 +30,7 @@
     },
     {
       "c_number": "C-04",
-      "title": "~~`undici` undeclared~~ — **RETRACTED, downgraded to a note**",
+      "title": "~~`undici` undeclared~~ \u2014 **RETRACTED, downgraded to a note**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -39,7 +39,7 @@
     },
     {
       "c_number": "C-05",
-      "title": "Two WhatsApp listeners — BOTH LIVE BY DESIGN, not a stale twin — P2",
+      "title": "Two WhatsApp listeners \u2014 BOTH LIVE BY DESIGN, not a stale twin \u2014 P2",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -48,7 +48,7 @@
     },
     {
       "c_number": "C-06",
-      "title": "An unused second WA deployment configuration — P2 (Phase 4.3)",
+      "title": "An unused second WA deployment configuration \u2014 P2 (Phase 4.3)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -57,7 +57,7 @@
     },
     {
       "c_number": "C-07",
-      "title": "Singleton/lease coverage on background work is thin — LEAD",
+      "title": "Singleton/lease coverage on background work is thin \u2014 LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -66,7 +66,7 @@
     },
     {
       "c_number": "C-08",
-      "title": "31 forever-loops with no statically visible sleep — LEAD",
+      "title": "31 forever-loops with no statically visible sleep \u2014 LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -75,7 +75,7 @@
     },
     {
       "c_number": "C-09",
-      "title": "~~No vulnerability scanning possible~~ — **CLOSED 2026-08-05**",
+      "title": "~~No vulnerability scanning possible~~ \u2014 **CLOSED 2026-08-05**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -84,106 +84,1370 @@
     },
     {
       "c_number": "C-10",
-      "title": "Orphan stores cannot be detected without a live key-space scan — P1 (method gap)",
+      "title": "Orphan stores cannot be detected without a live key-space scan \u2014 P1 (method gap)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-100",
+      "title": "security audit joins the whole corpus and holds the GIL for seconds",
+      "claimed_at": "2026-08-16T11:21:21Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4032"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T11:36:03Z"
+    },
+    {
+      "c_number": "C-101",
+      "title": "security audit CHECK 3 suppressed by a corpus-wide heuristic \u2014 could not fail",
+      "claimed_at": "2026-08-16T11:58:47Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4035"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T12:06:54Z"
+    },
+    {
+      "c_number": "C-102",
+      "title": "security audit findings never reached the brain",
+      "claimed_at": "2026-08-16T13:22:21Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4038"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T13:27:39Z"
+    },
+    {
+      "c_number": "C-103",
+      "title": "sidecar throttle is inoperative; every compaction writes 410MB twice",
+      "claimed_at": "2026-08-16T13:39:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4039"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T13:49:59Z"
+    },
+    {
+      "c_number": "C-104",
+      "title": "health asserted at import under unregistered module names",
+      "claimed_at": "2026-08-16T14:10:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4042"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T15:02:59Z"
+    },
+    {
+      "c_number": "C-105",
+      "title": "compaction age trigger reintroduces the C-95 O(graph) amplification",
+      "claimed_at": "2026-08-16T15:28:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4045"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T15:35:49Z"
+    },
+    {
+      "c_number": "C-106",
+      "title": "absorb() modules absent from the topic registry route to general",
+      "claimed_at": "2026-08-16T15:40:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4046"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T16:07:35Z"
+    },
+    {
+      "c_number": "C-107",
+      "title": "8 standing red tests carry no information; several pin superseded contracts",
+      "claimed_at": "2026-08-16T16:10:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4048"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T17:04:54Z"
+    },
+    {
+      "c_number": "C-108",
+      "title": "five learning modules run but their work is dark to the brain",
+      "claimed_at": "2026-08-16T17:19:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4052"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T18:19:58Z"
+    },
+    {
+      "c_number": "C-109",
+      "title": "the Auto-allowed (24h) column reports two numbers that are not 24h",
+      "claimed_at": "2026-08-16T17:43:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4068"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:35Z"
     },
     {
       "c_number": "C-11",
-      "title": "Dependency vulnerabilities — the C-09 gap, now MEASURED — P1",
+      "title": "Dependency vulnerabilities \u2014 the C-09 gap, now MEASURED \u2014 P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-110",
+      "title": "Domain Freshness cannot report a stale domain and every curated domain has been evicted",
+      "claimed_at": "2026-08-16T17:43:50Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4067"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:34Z"
+    },
+    {
+      "c_number": "C-111",
+      "title": "the chat audit trail lost 37% of its entries and the chain check cannot see the break",
+      "claimed_at": "2026-08-16T17:43:50Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4070",
+        "R-F4079"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:48Z"
+    },
+    {
+      "c_number": "C-112",
+      "title": "calibration ground truth is two structural zeros and it writes them into mastery hourly",
+      "claimed_at": "2026-08-16T17:43:51Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4066"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:34Z"
+    },
+    {
+      "c_number": "C-113",
+      "title": "the mastery headline is ceiling-saturated and floor-clamped and says neither",
+      "claimed_at": "2026-08-16T17:43:51Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4063",
+        "R-F4076"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:33Z"
+    },
+    {
+      "c_number": "C-114",
+      "title": "the brain page renders three unmeasured states as measured health",
+      "claimed_at": "2026-08-16T17:43:52Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4072"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:36Z"
+    },
+    {
+      "c_number": "C-115",
+      "title": "the resilience verdict counts providers that cannot serve general traffic",
+      "claimed_at": "2026-08-16T17:44:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4071"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:36Z"
+    },
+    {
+      "c_number": "C-116",
+      "title": "System Health paints DEFERRED as failure and drops it from the tally",
+      "claimed_at": "2026-08-16T17:44:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4061"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:32Z"
+    },
+    {
+      "c_number": "C-117",
+      "title": "brain-page readings with no age no window or a decommissioned backend's name",
+      "claimed_at": "2026-08-16T17:44:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4065"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:33Z"
+    },
+    {
+      "c_number": "C-118",
+      "title": "Brave has two disagreeing meters and no failure rate",
+      "claimed_at": "2026-08-16T17:44:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4064"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:33Z"
+    },
+    {
+      "c_number": "C-119",
+      "title": "a failed brain panel can read Loading forever",
+      "claimed_at": "2026-08-16T17:44:13Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4062"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:32Z"
     },
     {
       "c_number": "C-12",
-      "title": "The duplicate-route guard had gone blind — P0 — **FIXED (R-F3791, 2026-08-08)**",
+      "title": "The duplicate-route guard had gone blind \u2014 P0 \u2014 **FIXED (R-F3791, 2026-08-08)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-120",
+      "title": "administrative disable reported as a quality failure (R-F3703 class)",
+      "claimed_at": "2026-08-16T18:32:17Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4056"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T18:41:44Z"
+    },
+    {
+      "c_number": "C-121",
+      "title": "reading queue never drains \u2014 94 pending, 0 processed",
+      "claimed_at": "2026-08-16T19:15:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4057"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:22:14Z"
+    },
+    {
+      "c_number": "C-122",
+      "title": "cost-free learning preview off, so its own approval gate can never open",
+      "claimed_at": "2026-08-16T19:39:23Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4060"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:42:45Z"
+    },
+    {
+      "c_number": "C-123",
+      "title": "the builtin-shadow guard blocks 31 false positives and CI never runs it",
+      "claimed_at": "2026-08-16T19:00:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4069"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:14:35Z"
+    },
+    {
+      "c_number": "C-125",
+      "title": "journal is O(writes) but only needs to be O(distinct records)",
+      "claimed_at": "2026-08-16T19:57:30Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4073"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:58:55Z"
+    },
+    {
+      "c_number": "C-126",
+      "title": "hourly sanctions designation watch fails as unsupported tool kind",
+      "claimed_at": "2026-08-16T19:57:30Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4074"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T19:58:55Z"
+    },
+    {
+      "c_number": "C-127",
+      "title": "a reservation lost to a concurrent merge is invisible until after commit",
+      "claimed_at": "2026-08-16T20:14:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4077"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:25:25Z"
+    },
+    {
+      "c_number": "C-128",
+      "title": "prompt_toolkit undeclared: CLI terminal degraded and its tests uncollectable",
+      "claimed_at": "2026-08-16T20:31:59Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4079"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:49:41Z"
+    },
+    {
+      "c_number": "C-129",
+      "title": "secret gate scanned worktrees; three more reds hidden by the abort",
+      "claimed_at": "2026-08-16T20:40:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4080"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T20:49:42Z"
     },
     {
       "c_number": "C-13",
-      "title": "The \"36 new failures\" were mostly not regressions — P1 — **CLOSED (R-F3795…R-F3812, 2026-08-09)**",
+      "title": "The \"36 new failures\" were mostly not regressions \u2014 P1 \u2014 **CLOSED (R-F3795\u2026R-F3812, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-130",
+      "title": "ARIA can render a page but cannot inspect it for security analysis",
+      "claimed_at": "2026-08-16T20:52:33Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4082"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-16T21:00:49Z"
+    },
+    {
+      "c_number": "C-131",
+      "title": "empty search results were labelled a failure rate",
+      "claimed_at": "2026-08-16T21:11:37Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4083"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:52Z"
+    },
+    {
+      "c_number": "C-132",
+      "title": "a task named HOURLY runs every six hours",
+      "claimed_at": "2026-08-17T03:25:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4085"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T03:46:33Z"
+    },
+    {
+      "c_number": "C-133",
+      "title": "a control test pinned to a premise the register outgrew at C-39",
+      "claimed_at": "2026-08-17T03:38:03Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4086"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T03:46:34Z"
+    },
+    {
+      "c_number": "C-134",
+      "title": "53% of LLM spend is bucketed 'uncategorized' and the ledger keeps no caller identity",
+      "claimed_at": "2026-08-17T03:51:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4087"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T04:10:24Z"
+    },
+    {
+      "c_number": "C-136",
+      "title": "the attribution fix named the decorator, masking 30 real callers",
+      "claimed_at": "2026-08-17T04:37:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4090"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T04:50:13Z"
+    },
+    {
+      "c_number": "C-137",
+      "title": "the unscoped labels render unflagged, so the panel looks healthier than before",
+      "claimed_at": "2026-08-17T04:58:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4092"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:52Z"
+    },
+    {
+      "c_number": "C-138",
+      "title": "the external ledger persisted a verdict without its evidence (R-F4094)",
+      "claimed_at": null,
+      "claimed_by": "backfill:register",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4094"
+      ],
+      "notes": "imported from a defects.md heading (R-F3878); never reserved",
+      "closed_at": "2026-08-19T11:27:48Z"
+    },
+    {
+      "c_number": "C-139",
+      "title": "attribution skip-prefixes matched without a module boundary (R-F4095)",
+      "claimed_at": null,
+      "claimed_by": "backfill:register",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4095"
+      ],
+      "notes": "imported from a defects.md heading (R-F3878); never reserved",
+      "closed_at": "2026-08-19T11:27:48Z"
     },
     {
       "c_number": "C-14",
-      "title": "ARIA crawled and absorbed pornography — P0 — **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**",
+      "title": "ARIA crawled and absorbed pornography \u2014 P0 \u2014 **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-140",
+      "title": "state_backend health surface has no memory of store read timeouts",
+      "claimed_at": "2026-08-17T07:01:48Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4107"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:09Z"
+    },
+    {
+      "c_number": "C-141",
+      "title": "intel_ledger rewrites the whole 35MB ledger every 2s debounce (C-95 port)",
+      "claimed_at": "2026-08-17T07:01:48Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4108"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
+    },
+    {
+      "c_number": "C-142",
+      "title": "intel_ledger off-host snapshot writes 8MB to the volume it backs up (C-98 port)",
+      "claimed_at": "2026-08-17T07:01:48Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4109"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
+    },
+    {
+      "c_number": "C-143",
+      "title": "intel_ledger orphans mkstemp tmp files on kill \u2014 382MB, no reclaim",
+      "claimed_at": "2026-08-17T07:01:48Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4110"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:10Z"
+    },
+    {
+      "c_number": "C-144",
+      "title": "chat_audit_log non-strict head read forks the chain (R-F3711 port)",
+      "claimed_at": "2026-08-17T07:01:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4111"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
+    },
+    {
+      "c_number": "C-145",
+      "title": "metered stream records 0 tokens when inner stream skips on_done",
+      "claimed_at": "2026-08-17T07:01:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4112"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
+    },
+    {
+      "c_number": "C-146",
+      "title": "brain_hook neural= log reads neural_ok before the neural lane runs",
+      "claimed_at": "2026-08-17T07:01:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4113"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
+    },
+    {
+      "c_number": "C-147",
+      "title": "style_learner grounded-only gate has a 0 percent live pass rate",
+      "claimed_at": "2026-08-17T07:01:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4114"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:11Z"
+    },
+    {
+      "c_number": "C-148",
+      "title": "self_coder drops 145 of 146 gaps with no counter",
+      "claimed_at": "2026-08-17T07:01:50Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4115"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:12Z"
+    },
+    {
+      "c_number": "C-149",
+      "title": "MONITOR-POLYMARKET-GEO burns 4 runs a day on an operator-clearable blocker",
+      "claimed_at": "2026-08-17T07:01:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     },
     {
       "c_number": "C-15",
-      "title": "Residual live signals — triaged 2026-08-10, two dissolved on inspection",
+      "title": "Residual live signals \u2014 triaged 2026-08-10, two dissolved on inspection",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-152",
+      "title": "a store read failure wipes the whole freshness tracker on the next write",
+      "claimed_at": "2026-08-17T07:10:10Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4097"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T07:20:32Z"
+    },
+    {
+      "c_number": "C-153",
+      "title": "the freshness tracker skips writes on an unreadable store and tells nobody",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4101"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:23Z"
+    },
+    {
+      "c_number": "C-154",
+      "title": "the stolen-decorator gate watches one file, so the same theft shipped elsewhere",
+      "claimed_at": "2026-08-17T07:56:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4102"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:24Z"
+    },
+    {
+      "c_number": "C-155",
+      "title": "three wiring gates stood red, so the gate that should catch a stolen decorator carried no information",
+      "claimed_at": "2026-08-17T08:04:46Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4103"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T08:26:24Z"
+    },
+    {
+      "c_number": "C-156",
+      "title": "chat_audit_log head read-modify-write is unsynchronised (C-144 second mechanism)",
+      "claimed_at": "2026-08-17T09:40:33Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-157",
+      "title": "engine wires task success unconditionally, discarding execute_task status",
+      "claimed_at": "2026-08-17T09:40:33Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4116"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T09:47:12Z"
+    },
+    {
+      "c_number": "C-158",
+      "title": "rf2157 brain_hook stats coalescing: deterministic cross-suite flake reproducer",
+      "claimed_at": "2026-08-17T09:40:33Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-159",
+      "title": "the secret-scan gate is red on two synthetic fixtures, so it cannot catch a real leak",
+      "claimed_at": "2026-08-17T10:23:59Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4117"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:07:53Z"
     },
     {
       "c_number": "C-16",
-      "title": "CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**",
+      "title": "CI was red on every commit \u2014 two secret checkers, one file \u2014 **FIXED (R-F3827)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-160",
+      "title": "three public functions shipped dark after the wiring gate went green",
+      "claimed_at": "2026-08-17T11:08:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4125"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:34Z"
+    },
+    {
+      "c_number": "C-161",
+      "title": "a blocked scraped source paints an organ RED, reserving no severity for paid dependencies",
+      "claimed_at": "2026-08-17T11:41:03Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4126"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:34Z"
+    },
+    {
+      "c_number": "C-162",
+      "title": "organ nodes hardcode an empty r_numbers, so hover can never show the audit trail",
+      "claimed_at": "2026-08-17T12:30:14Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4127"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:35Z"
+    },
+    {
+      "c_number": "C-163",
+      "title": "the coverage matrix reads 867/867 gaps and cannot say why",
+      "claimed_at": "2026-08-17T13:00:47Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4128"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:33:35Z"
+    },
+    {
+      "c_number": "C-164",
+      "title": "a cold-boot coverage build is cached for an hour and served as fact",
+      "claimed_at": "2026-08-17T13:54:10Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4129"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T15:40:38Z"
+    },
+    {
+      "c_number": "C-165",
+      "title": "loop starvation and state-store read timeouts share one root: chroma fsyncs in rollback-journal mode",
+      "claimed_at": "2026-08-17T17:19:45Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4130"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:03:17Z"
+    },
+    {
+      "c_number": "C-166",
+      "title": "residual loop stalls are GIL-held ranking over 566k facts, not IO",
+      "claimed_at": "2026-08-17T18:12:01Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4138",
+        "R-F4141",
+        "R-F4143"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T07:49:45Z"
+    },
+    {
+      "c_number": "C-167",
+      "title": "is_cacheable has a dead branch, a docstring that contradicts it, and a test that cannot fail",
+      "claimed_at": "2026-08-17T18:25:45Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4132"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T18:41:37Z"
+    },
+    {
+      "c_number": "C-168",
+      "title": "recall returns facts matching no query word, ranked by re-absorption count",
+      "claimed_at": "2026-08-17T18:57:17Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4133"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T19:02:32Z"
+    },
+    {
+      "c_number": "C-169",
+      "title": "entity_resolver prior-facts lookup dead since inception: wrong function signature, swallowed",
+      "claimed_at": "2026-08-17T20:00:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4135"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-17T20:24:26Z"
     },
     {
       "c_number": "C-17",
-      "title": "The §16 CI gate is WIRED and PROVEN FIRING — with two known flaky tests",
+      "title": "The \u00a716 CI gate is WIRED and PROVEN FIRING \u2014 with two known flaky tests",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-170",
+      "title": "premise_verifier blocks the event loop: a 0.5ms sync call became 2.2s when a corpus scan was added under it",
+      "claimed_at": "2026-08-18T04:55:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4138"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T05:32:25Z"
+    },
+    {
+      "c_number": "C-171",
+      "title": "the G4 on-loop vaccine matches only bare names, so it is blind to every real call site",
+      "claimed_at": "2026-08-18T06:21:29Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4141"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T06:29:30Z"
+    },
+    {
+      "c_number": "C-172",
+      "title": "cold transformers import + model load on the event loop via _get_embedder in async stats",
+      "claimed_at": "2026-08-18T07:11:17Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4143"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T07:17:25Z"
+    },
+    {
+      "c_number": "C-173",
+      "title": "the G4 denylist is hand-maintained, so it only catches primitives someone remembered",
+      "claimed_at": "2026-08-18T07:57:47Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4146"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T08:09:02Z"
+    },
+    {
+      "c_number": "C-174",
+      "title": "ranking amplification alert uses a cumulative threshold, so it fires on every long-lived process",
+      "claimed_at": "2026-08-18T08:21:35Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4148"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T08:38:44Z"
+    },
+    {
+      "c_number": "C-175",
+      "title": "CRLF-contaminated fly secrets silently disable the email reader and mislead the auth diagnostic",
+      "claimed_at": "2026-08-18T14:53:52Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4152"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T15:19:28Z"
+    },
+    {
+      "c_number": "C-176",
+      "title": "aria_coder current_task frozen at starting up; registry advertises it as live state",
+      "claimed_at": "2026-08-18T15:35:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4154"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T15:45:16Z"
+    },
+    {
+      "c_number": "C-177",
+      "title": "the learning loop cannot close: mark_prevented has no internal caller and the predictor penalises forever",
+      "claimed_at": "2026-08-18T15:35:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4156"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T20:48:42Z"
+    },
+    {
+      "c_number": "C-178",
+      "title": "lpush never migrates a legacy list blob, so every actively-written list strands its old blob forever",
+      "claimed_at": "2026-08-18T16:27:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4157"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-18T21:01:10Z"
+    },
+    {
+      "c_number": "C-179",
+      "title": "DD tests read a machine-global dd_vault.db, so list_reports tests fail on a polluted box",
+      "claimed_at": "2026-08-18T21:16:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4158"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T07:13:24Z"
     },
     {
       "c_number": "C-18",
-      "title": "The primary search backend served NOISE as success — P0 — **FIXED (R-F3844)**",
+      "title": "The primary search backend served NOISE as success \u2014 P0 \u2014 **FIXED (R-F3844)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Node/JS tier security audit — 10 findings, all FIXED (R-F3831…R-F3840, 2026-08-10)']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Node/JS tier security audit \u2014 10 findings, all FIXED (R-F3831\u2026R-F3840, 2026-08-10)']"
+    },
+    {
+      "c_number": "C-180",
+      "title": "1720 entries in 38 stranded list blobs are unreachable via lrange; reconcile them back",
+      "claimed_at": "2026-08-19T07:44:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4161"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T07:51:10Z"
+    },
+    {
+      "c_number": "C-181",
+      "title": "tests share a machine-global dd_vault singleton; isolate it at the class level",
+      "claimed_at": "2026-08-19T07:52:46Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4162"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T11:11:04Z"
+    },
+    {
+      "c_number": "C-182",
+      "title": "reasoning escalation refused by a clock guard written for the old budget-doubling retry",
+      "claimed_at": "2026-08-19T11:41:25Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4168"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T12:22:54Z"
+    },
+    {
+      "c_number": "C-183",
+      "title": "ARIA introspection renders an uninformative 0.00 as a measured success rate",
+      "claimed_at": "2026-08-19T11:57:30Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4169"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T12:22:54Z"
+    },
+    {
+      "c_number": "C-184",
+      "title": "the R-F251 boot regression guard diffs a snapshot taken on an unfinished load",
+      "claimed_at": "2026-08-19T12:25:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4170"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T13:16:59Z"
+    },
+    {
+      "c_number": "C-185",
+      "title": "neural edges read non-strict at boot: a store timeout reads as zero edges and fires a false R-F251 regression",
+      "claimed_at": "2026-08-19T13:16:05Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4173"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T13:52:13Z"
+    },
+    {
+      "c_number": "C-186",
+      "title": "a single shared generic token produced a false HARD STOP with a SAR recommendation",
+      "claimed_at": "2026-08-19T13:27:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4172"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-20T10:33:07Z"
+    },
+    {
+      "c_number": "C-187",
+      "title": "the screen-contradiction detector is wired but blind: it prose-matches canonical names against OpenSanctions labels",
+      "claimed_at": "2026-08-19T13:56:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4175"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-20T10:12:20Z"
+    },
+    {
+      "c_number": "C-188",
+      "title": "the neural graph birth date is reset whenever init repairs a falsy born on a populated graph",
+      "claimed_at": "2026-08-19T14:21:19Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-189",
+      "title": "classify_match issues blocking verdicts without consulting is_corroborated_match, the module's own blocking gate",
+      "claimed_at": "2026-08-19T14:31:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4177"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T14:37:52Z"
     },
     {
       "c_number": "C-19",
-      "title": "Noise reached a CUSTOMER-FACING DD report — P0 — **REMEDIATED (R-F3849)**",
+      "title": "Noise reached a CUSTOMER-FACING DD report \u2014 P0 \u2014 **REMEDIATED (R-F3849)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['The C-18 XSS residual, measured and gated — **CLOSED (R-F3845, 2026-08-11)**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['The C-18 XSS residual, measured and gated \u2014 **CLOSED (R-F3845, 2026-08-11)**']"
+    },
+    {
+      "c_number": "C-190",
+      "title": "attempt 0 overruns its per-call ceiling so the escalation reserve is not actually reserved",
+      "claimed_at": "2026-08-19T14:52:14Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4179"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T15:47:07Z"
+    },
+    {
+      "c_number": "C-191",
+      "title": "corroboration similarity is measured on raw names so shared legal forms inflate it and word order deflates it",
+      "claimed_at": "2026-08-19T15:00:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4178"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-19T15:04:29Z"
+    },
+    {
+      "c_number": "C-192",
+      "title": "heavy-graph barrier can never open; metabolism dark",
+      "claimed_at": "2026-08-21T07:54:04Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4213"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:28:27Z"
+    },
+    {
+      "c_number": "C-193",
+      "title": "a parked metabolism is invisible on every health surface",
+      "claimed_at": "2026-08-21T08:17:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4214"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:50:50Z"
+    },
+    {
+      "c_number": "C-194",
+      "title": "in-process TestClient lifespan wedges the suite",
+      "claimed_at": "2026-08-21T08:31:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4214"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T08:33:52Z"
+    },
+    {
+      "c_number": "C-195",
+      "title": "a malformed tuning knob kills boot or darkens a watchdog in main.py",
+      "claimed_at": "2026-08-21T09:09:04Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4215"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T09:28:55Z"
+    },
+    {
+      "c_number": "C-196",
+      "title": "a country name disables live search in chat",
+      "claimed_at": "2026-08-21T09:37:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4216"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:01:37Z"
+    },
+    {
+      "c_number": "C-197",
+      "title": "WA Brave access keeps being reverted by the doc that states Rule One",
+      "claimed_at": "2026-08-21T10:08:01Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4217"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:47:49Z"
+    },
+    {
+      "c_number": "C-198",
+      "title": "a permanently red UBO test asserted pre-identity-gate semantics",
+      "claimed_at": "2026-08-21T10:51:36Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4218"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T10:54:43Z"
+    },
+    {
+      "c_number": "C-199",
+      "title": "facts recalled from ARIA's own index produce zero citations",
+      "claimed_at": "2026-08-21T10:56:41Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4219"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T11:19:27Z"
     },
     {
       "c_number": "C-20",
-      "title": "The interpolation guard now covers EVERY page in public/ — **R-F3850, 2026-08-11**",
+      "title": "The interpolation guard now covers EVERY page in public/ \u2014 **R-F3850, 2026-08-11**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
+    },
+    {
+      "c_number": "C-200",
+      "title": "stream fork passes an empty tool_context while citing the rule it breaks",
+      "claimed_at": "2026-08-21T11:22:36Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4220"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T11:45:08Z"
+    },
+    {
+      "c_number": "C-201",
+      "title": "tool output reaches the LLM via the message, so no extractor ever read it",
+      "claimed_at": "2026-08-21T11:51:38Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4221"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T12:09:28Z"
+    },
+    {
+      "c_number": "C-202",
+      "title": "admission control asks redundancy, dispatch asks servability; they disagree",
+      "claimed_at": "2026-08-21T12:25:46Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4222"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T13:41:41Z"
+    },
+    {
+      "c_number": "C-203",
+      "title": "PDF renders the key-findings summary and the same findings again in their layer",
+      "claimed_at": "2026-08-21T14:35:53Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4223"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T14:46:46Z"
+    },
+    {
+      "c_number": "C-204",
+      "title": "quality-grading fixtures hand-rolled, so a new metric key blinded 18 tests",
+      "claimed_at": "2026-08-21T15:11:06Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4224"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:22:57Z"
+    },
+    {
+      "c_number": "C-205",
+      "title": "a red test asserts the opposite of the R-F2413 earned-flag guarantee",
+      "claimed_at": "2026-08-21T15:14:06Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4225"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:22:57Z"
+    },
+    {
+      "c_number": "C-206",
+      "title": "a section-7 no-delete guard went blind when its function was split",
+      "claimed_at": "2026-08-21T15:23:58Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4226"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T15:43:00Z"
+    },
+    {
+      "c_number": "C-207",
+      "title": "one fact rendered as two retained leads because dedup matched exact strings",
+      "claimed_at": "2026-08-21T15:54:59Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4227"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T16:19:43Z"
+    },
+    {
+      "c_number": "C-208",
+      "title": "a GREEN-not-downgraded guard went blind when its fixture stopped answering any question",
+      "claimed_at": "2026-08-21T16:13:07Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4228"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-21T16:18:04Z"
+    },
+    {
+      "c_number": "C-209",
+      "title": "ARIA is blind to her LLM vendor's prepaid balance; the cost meter cannot see it",
+      "claimed_at": "2026-08-22T12:42:29Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4229"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-22T13:39:35Z"
     },
     {
       "c_number": "C-21",
-      "title": "The four surfaces C-20 left uncovered — **CLOSED (R-F3851/R-F3852, 2026-08-11)**",
+      "title": "The four surfaces C-20 left uncovered \u2014 **CLOSED (R-F3851/R-F3852, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -191,26 +1455,346 @@
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
     {
+      "c_number": "C-210",
+      "title": "R-F4229's balance poll hung off complete() only; stream() was a dark fork",
+      "claimed_at": "2026-08-22T13:14:36Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4230"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-22T13:39:35Z"
+    },
+    {
+      "c_number": "C-211",
+      "title": "Phase A gate 1 can certify with the honesty axis entirely unmeasured",
+      "claimed_at": "2026-08-22T13:59:23Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4231"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T04:12:18Z"
+    },
+    {
+      "c_number": "C-212",
+      "title": "the honesty axis depended on a garbage-collectable fire-and-forget task",
+      "claimed_at": "2026-08-22T15:53:25Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4232"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T04:12:19Z"
+    },
+    {
+      "c_number": "C-213",
+      "title": "a severity transition signal ignored direction, so a recovery read as a new failure",
+      "claimed_at": "2026-08-23T04:21:40Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4233"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T04:54:23Z"
+    },
+    {
+      "c_number": "C-214",
+      "title": "a recording eval achieved 0% of its stated purpose silently for weeks",
+      "claimed_at": "2026-08-23T04:36:21Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4235"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T04:54:23Z"
+    },
+    {
+      "c_number": "C-215",
+      "title": "a binding session-open read pointed at a file that has never existed",
+      "claimed_at": "2026-08-23T04:43:56Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4234"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T04:54:23Z"
+    },
+    {
+      "c_number": "C-216",
+      "title": "mastery was lifted to silence an alert, not to record learning",
+      "claimed_at": "2026-08-23T04:59:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4236"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T05:39:26Z"
+    },
+    {
+      "c_number": "C-217",
+      "title": "nine bare create_task calls remained after C-212 fixed three",
+      "claimed_at": "2026-08-23T05:04:49Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4237"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T05:39:27Z"
+    },
+    {
+      "c_number": "C-218",
+      "title": "a signal about an operator condition reset a Phase A exit gate",
+      "claimed_at": "2026-08-23T09:48:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4248"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T09:58:01Z"
+    },
+    {
+      "c_number": "C-219",
+      "title": "guardian panic: the worst silent failure was the one unwired branch",
+      "claimed_at": "2026-08-23T10:07:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4252"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T10:19:10Z"
+    },
+    {
       "c_number": "C-22",
-      "title": "SearXNG's surviving engine was serving a soft-404 page as ten results — **CLOSED (R-F3853, 2026-08-11)**",
+      "title": "SearXNG's surviving engine was serving a soft-404 page as ten results \u2014 **CLOSED (R-F3853, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Deep review of C-19..C-21 — one more live XSS, four analyser blind spots — **R-F3855, 2026-08-11**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Deep review of C-19..C-21 \u2014 one more live XSS, four analyser blind spots \u2014 **R-F3855, 2026-08-11**']"
+    },
+    {
+      "c_number": "C-220",
+      "title": "an unsupported verdict caused by truncation is indistinguishable from real dishonesty",
+      "claimed_at": "2026-08-23T10:32:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4253"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T10:50:22Z"
+    },
+    {
+      "c_number": "C-221",
+      "title": "a best-effort pinning helper raised and broke seventeen call paths",
+      "claimed_at": "2026-08-23T10:41:44Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4254"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T10:50:23Z"
+    },
+    {
+      "c_number": "C-222",
+      "title": "a compliance control that can be switched off without saying so",
+      "claimed_at": "2026-08-23T10:59:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4255"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T11:09:08Z"
+    },
+    {
+      "c_number": "C-223",
+      "title": "a retention policy with no overdue signal and no executor",
+      "claimed_at": "2026-08-23T11:18:41Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4258"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T11:28:09Z"
+    },
+    {
+      "c_number": "C-224",
+      "title": "the mastery grader asks the local stack a question it is designed to abstain on",
+      "claimed_at": "2026-08-23T12:19:57Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-225",
+      "title": "deep research overstates articles analysed",
+      "claimed_at": "2026-08-23T15:06:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4264"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:29Z"
+    },
+    {
+      "c_number": "C-226",
+      "title": "DD financial health uses supplied name not registry legal name",
+      "claimed_at": "2026-08-23T15:06:42Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4265"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-227",
+      "title": "adverse citation coherence skips the sweep own self-reference filter",
+      "claimed_at": "2026-08-23T15:06:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4266"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-228",
+      "title": "OFSI double-counted in the verified sanctions source table",
+      "claimed_at": "2026-08-23T15:06:43Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4267"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:05:30Z"
+    },
+    {
+      "c_number": "C-229",
+      "title": "UBO chain watchlist match ignores entity schema and given-name-only overlap",
+      "claimed_at": "2026-08-23T15:36:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4268"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:33:38Z"
     },
     {
       "c_number": "C-23",
-      "title": "Task-list closeout — five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)",
+      "title": "Task-list closeout \u2014 five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Two blind spots in the search stack, both found by asking \"what is NOT measured?\" — **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Two blind spots in the search stack, both found by asking \"what is NOT measured?\" \u2014 **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**']"
+    },
+    {
+      "c_number": "C-230",
+      "title": "adverse-media exclusion ledger omits the class-contradicted stage",
+      "claimed_at": "2026-08-23T15:36:40Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4269"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:33:39Z"
+    },
+    {
+      "c_number": "C-231",
+      "title": "a promotion decision nothing consumes - the next cycle still trains from the rejected parent",
+      "claimed_at": "2026-08-23T17:29:41Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4270"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:39:35Z"
+    },
+    {
+      "c_number": "C-232",
+      "title": "the tool-use eval cannot see two of ARIA five DD clusters",
+      "claimed_at": "2026-08-23T17:46:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4271"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T17:49:41Z"
+    },
+    {
+      "c_number": "C-233",
+      "title": "a recovered read-timeout burst is reported as an ongoing degradation",
+      "claimed_at": "2026-08-23T18:05:24Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4273"
+      ],
+      "notes": null
+    },
+    {
+      "c_number": "C-234",
+      "title": "the eval blocks promotion on work production does deterministically",
+      "claimed_at": "2026-08-23T21:20:31Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4275"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T21:22:48Z"
+    },
+    {
+      "c_number": "C-235",
+      "title": "the DD runs a media sweep the standard reports as NOT_RUN",
+      "claimed_at": "2026-08-23T21:25:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4277"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T21:52:43Z"
+    },
+    {
+      "c_number": "C-237",
+      "title": "reader-presence demoted an axis on its own",
+      "claimed_at": "2026-08-23T21:52:31Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4278"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T21:52:43Z"
     },
     {
       "c_number": "C-24",
-      "title": "360 aria-web review — three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)",
+      "title": "360 aria-web review \u2014 three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -219,7 +1803,7 @@
     },
     {
       "c_number": "C-25",
-      "title": "Both of the previous session's \"open, honestly\" items were the SAME defect, one layer down — **CLOSED (R-F3873, R-F3874, 2026-08-11)**",
+      "title": "Both of the previous session's \"open, honestly\" items were the SAME defect, one layer down \u2014 **CLOSED (R-F3873, R-F3874, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "closed",
@@ -265,7 +1849,7 @@
     },
     {
       "c_number": "C-29",
-      "title": "Registry reliability EMA is structurally blind — producer writes DD layer-name topic keys, consumer reads catalogue topic tags (intersection = 1 of 12)",
+      "title": "Registry reliability EMA is structurally blind \u2014 producer writes DD layer-name topic keys, consumer reads catalogue topic tags (intersection = 1 of 12)",
       "claimed_at": "2026-08-11T22:18:03Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -278,7 +1862,7 @@
     },
     {
       "c_number": "C-30",
-      "title": "wiring_monitor M3 is INVERTED — zero WA disconnect signals fires wire_failure, so a healthy listener reports as permanently failing",
+      "title": "wiring_monitor M3 is INVERTED \u2014 zero WA disconnect signals fires wire_failure, so a healthy listener reports as permanently failing",
       "claimed_at": "2026-08-12T06:16:24Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -290,7 +1874,7 @@
     },
     {
       "c_number": "C-31",
-      "title": "wiring_monitor M4 greps Node-tier files that do not exist in the Python image — reports the Node brain wire unwired because it cannot see it",
+      "title": "wiring_monitor M4 greps Node-tier files that do not exist in the Python image \u2014 reports the Node brain wire unwired because it cannot see it",
       "claimed_at": "2026-08-12T06:16:25Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -302,7 +1886,7 @@
     },
     {
       "c_number": "C-32",
-      "title": "web_atlas reliability EMA is a ONE-WAY RATCHET — record_correction has no caller, so scores can only rise and auto-suspend is unreachable",
+      "title": "web_atlas reliability EMA is a ONE-WAY RATCHET \u2014 record_correction has no caller, so scores can only rise and auto-suspend is unreachable",
       "claimed_at": "2026-08-12T06:16:25Z",
       "claimed_by": "claude",
       "status": "open",
@@ -311,7 +1895,7 @@
     },
     {
       "c_number": "C-33",
-      "title": "Node feed-health reliability is in-memory only — resets to zero on every restart while the page presents it as reliability",
+      "title": "Node feed-health reliability is in-memory only \u2014 resets to zero on every restart while the page presents it as reliability",
       "claimed_at": "2026-08-12T06:38:31Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -324,7 +1908,7 @@
     },
     {
       "c_number": "C-34",
-      "title": "pre-commit hook is FAIL-OPEN on 'checker did not run' — in a worktree the venv is absent, python resolves to the Windows Store shim, and every check is silently skipped",
+      "title": "pre-commit hook is FAIL-OPEN on 'checker did not run' \u2014 in a worktree the venv is absent, python resolves to the Windows Store shim, and every check is silently skipped",
       "claimed_at": "2026-08-12T06:45:16Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -336,7 +1920,7 @@
     },
     {
       "c_number": "C-35",
-      "title": "DD reliability producer requires Finding.url and ignores the [from url] provenance that origin_key/registrable_domain already read — ~127 sites invisible",
+      "title": "DD reliability producer requires Finding.url and ignores the [from url] provenance that origin_key/registrable_domain already read \u2014 ~127 sites invisible",
       "claimed_at": "2026-08-12T06:52:51Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -348,7 +1932,7 @@
     },
     {
       "c_number": "C-36",
-      "title": "a POSITIVE-ONLY counter is surfaced as reliability and feeds an auto-suspend path — the number cannot fall, so the label and the consumer both overclaim",
+      "title": "a POSITIVE-ONLY counter is surfaced as reliability and feeds an auto-suspend path \u2014 the number cannot fall, so the label and the consumer both overclaim",
       "claimed_at": "2026-08-12T07:58:58Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -361,7 +1945,7 @@
     },
     {
       "c_number": "C-37",
-      "title": "brain/stats success_rate cannot distinguish a failure-only module from one failing every call — 8 modules read as 0.0 and several are 0.0 by construction",
+      "title": "brain/stats success_rate cannot distinguish a failure-only module from one failing every call \u2014 8 modules read as 0.0 and several are 0.0 by construction",
       "claimed_at": "2026-08-12T09:07:23Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1086,7 +2670,7 @@
     },
     {
       "c_number": "C-97",
-      "title": "R-F4022's own journal failure branches are logger-only (dark) — a durability risk the brain cannot see",
+      "title": "R-F4022's own journal failure branches are logger-only (dark) \u2014 a durability risk the brain cannot see",
       "claimed_at": "2026-08-14T14:48:49Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1119,1591 +2703,6 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T10:34:06Z"
-    },
-    {
-      "c_number": "C-100",
-      "title": "security audit joins the whole corpus and holds the GIL for seconds",
-      "claimed_at": "2026-08-16T11:21:21Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4032"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T11:36:03Z"
-    },
-    {
-      "c_number": "C-101",
-      "title": "security audit CHECK 3 suppressed by a corpus-wide heuristic — could not fail",
-      "claimed_at": "2026-08-16T11:58:47Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4035"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T12:06:54Z"
-    },
-    {
-      "c_number": "C-102",
-      "title": "security audit findings never reached the brain",
-      "claimed_at": "2026-08-16T13:22:21Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4038"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T13:27:39Z"
-    },
-    {
-      "c_number": "C-103",
-      "title": "sidecar throttle is inoperative; every compaction writes 410MB twice",
-      "claimed_at": "2026-08-16T13:39:56Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4039"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T13:49:59Z"
-    },
-    {
-      "c_number": "C-104",
-      "title": "health asserted at import under unregistered module names",
-      "claimed_at": "2026-08-16T14:10:34Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4042"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T15:02:59Z"
-    },
-    {
-      "c_number": "C-105",
-      "title": "compaction age trigger reintroduces the C-95 O(graph) amplification",
-      "claimed_at": "2026-08-16T15:28:18Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4045"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T15:35:49Z"
-    },
-    {
-      "c_number": "C-106",
-      "title": "absorb() modules absent from the topic registry route to general",
-      "claimed_at": "2026-08-16T15:40:55Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4046"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T16:07:35Z"
-    },
-    {
-      "c_number": "C-107",
-      "title": "8 standing red tests carry no information; several pin superseded contracts",
-      "claimed_at": "2026-08-16T16:10:43Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4048"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T17:04:54Z"
-    },
-    {
-      "c_number": "C-108",
-      "title": "five learning modules run but their work is dark to the brain",
-      "claimed_at": "2026-08-16T17:19:55Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4052"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T18:19:58Z"
-    },
-    {
-      "c_number": "C-109",
-      "title": "the Auto-allowed (24h) column reports two numbers that are not 24h",
-      "claimed_at": "2026-08-16T17:43:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4068"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:35Z"
-    },
-    {
-      "c_number": "C-110",
-      "title": "Domain Freshness cannot report a stale domain and every curated domain has been evicted",
-      "claimed_at": "2026-08-16T17:43:50Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4067"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:34Z"
-    },
-    {
-      "c_number": "C-111",
-      "title": "the chat audit trail lost 37% of its entries and the chain check cannot see the break",
-      "claimed_at": "2026-08-16T17:43:50Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4070",
-        "R-F4079"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:48Z"
-    },
-    {
-      "c_number": "C-112",
-      "title": "calibration ground truth is two structural zeros and it writes them into mastery hourly",
-      "claimed_at": "2026-08-16T17:43:51Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4066"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:34Z"
-    },
-    {
-      "c_number": "C-113",
-      "title": "the mastery headline is ceiling-saturated and floor-clamped and says neither",
-      "claimed_at": "2026-08-16T17:43:51Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4063",
-        "R-F4076"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:33Z"
-    },
-    {
-      "c_number": "C-114",
-      "title": "the brain page renders three unmeasured states as measured health",
-      "claimed_at": "2026-08-16T17:43:52Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4072"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:36Z"
-    },
-    {
-      "c_number": "C-115",
-      "title": "the resilience verdict counts providers that cannot serve general traffic",
-      "claimed_at": "2026-08-16T17:44:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4071"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:36Z"
-    },
-    {
-      "c_number": "C-116",
-      "title": "System Health paints DEFERRED as failure and drops it from the tally",
-      "claimed_at": "2026-08-16T17:44:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4061"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:32Z"
-    },
-    {
-      "c_number": "C-117",
-      "title": "brain-page readings with no age no window or a decommissioned backend's name",
-      "claimed_at": "2026-08-16T17:44:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4065"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:33Z"
-    },
-    {
-      "c_number": "C-118",
-      "title": "Brave has two disagreeing meters and no failure rate",
-      "claimed_at": "2026-08-16T17:44:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4064"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:33Z"
-    },
-    {
-      "c_number": "C-119",
-      "title": "a failed brain panel can read Loading forever",
-      "claimed_at": "2026-08-16T17:44:13Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4062"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:32Z"
-    },
-    {
-      "c_number": "C-120",
-      "title": "administrative disable reported as a quality failure (R-F3703 class)",
-      "claimed_at": "2026-08-16T18:32:17Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4056"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T18:41:44Z"
-    },
-    {
-      "c_number": "C-121",
-      "title": "reading queue never drains — 94 pending, 0 processed",
-      "claimed_at": "2026-08-16T19:15:00Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4057"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T19:22:14Z"
-    },
-    {
-      "c_number": "C-122",
-      "title": "cost-free learning preview off, so its own approval gate can never open",
-      "claimed_at": "2026-08-16T19:39:23Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4060"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T19:42:45Z"
-    },
-    {
-      "c_number": "C-123",
-      "title": "the builtin-shadow guard blocks 31 false positives and CI never runs it",
-      "claimed_at": "2026-08-16T19:00:00Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4069"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:14:35Z"
-    },
-    {
-      "c_number": "C-125",
-      "title": "journal is O(writes) but only needs to be O(distinct records)",
-      "claimed_at": "2026-08-16T19:57:30Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4073"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T19:58:55Z"
-    },
-    {
-      "c_number": "C-126",
-      "title": "hourly sanctions designation watch fails as unsupported tool kind",
-      "claimed_at": "2026-08-16T19:57:30Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4074"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T19:58:55Z"
-    },
-    {
-      "c_number": "C-127",
-      "title": "a reservation lost to a concurrent merge is invisible until after commit",
-      "claimed_at": "2026-08-16T20:14:55Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4077"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:25:25Z"
-    },
-    {
-      "c_number": "C-128",
-      "title": "prompt_toolkit undeclared: CLI terminal degraded and its tests uncollectable",
-      "claimed_at": "2026-08-16T20:31:59Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4079"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:49:41Z"
-    },
-    {
-      "c_number": "C-129",
-      "title": "secret gate scanned worktrees; three more reds hidden by the abort",
-      "claimed_at": "2026-08-16T20:40:56Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4080"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T20:49:42Z"
-    },
-    {
-      "c_number": "C-130",
-      "title": "ARIA can render a page but cannot inspect it for security analysis",
-      "claimed_at": "2026-08-16T20:52:33Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4082"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-16T21:00:49Z"
-    },
-    {
-      "c_number": "C-131",
-      "title": "empty search results were labelled a failure rate",
-      "claimed_at": "2026-08-16T21:11:37Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4083"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T18:07:52Z"
-    },
-    {
-      "c_number": "C-132",
-      "title": "a task named HOURLY runs every six hours",
-      "claimed_at": "2026-08-17T03:25:34Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4085"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T03:46:33Z"
-    },
-    {
-      "c_number": "C-133",
-      "title": "a control test pinned to a premise the register outgrew at C-39",
-      "claimed_at": "2026-08-17T03:38:03Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4086"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T03:46:34Z"
-    },
-    {
-      "c_number": "C-134",
-      "title": "53% of LLM spend is bucketed 'uncategorized' and the ledger keeps no caller identity",
-      "claimed_at": "2026-08-17T03:51:39Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4087"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T04:10:24Z"
-    },
-    {
-      "c_number": "C-136",
-      "title": "the attribution fix named the decorator, masking 30 real callers",
-      "claimed_at": "2026-08-17T04:37:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4090"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T04:50:13Z"
-    },
-    {
-      "c_number": "C-137",
-      "title": "the unscoped labels render unflagged, so the panel looks healthier than before",
-      "claimed_at": "2026-08-17T04:58:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4092"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T18:07:52Z"
-    },
-    {
-      "c_number": "C-138",
-      "title": "the external ledger persisted a verdict without its evidence (R-F4094)",
-      "claimed_at": null,
-      "claimed_by": "backfill:register",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4094"
-      ],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved",
-      "closed_at": "2026-08-19T11:27:48Z"
-    },
-    {
-      "c_number": "C-139",
-      "title": "attribution skip-prefixes matched without a module boundary (R-F4095)",
-      "claimed_at": null,
-      "claimed_by": "backfill:register",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4095"
-      ],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved",
-      "closed_at": "2026-08-19T11:27:48Z"
-    },
-    {
-      "c_number": "C-140",
-      "title": "state_backend health surface has no memory of store read timeouts",
-      "claimed_at": "2026-08-17T07:01:48Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4107"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:09Z"
-    },
-    {
-      "c_number": "C-141",
-      "title": "intel_ledger rewrites the whole 35MB ledger every 2s debounce (C-95 port)",
-      "claimed_at": "2026-08-17T07:01:48Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4108"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:10Z"
-    },
-    {
-      "c_number": "C-142",
-      "title": "intel_ledger off-host snapshot writes 8MB to the volume it backs up (C-98 port)",
-      "claimed_at": "2026-08-17T07:01:48Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4109"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:10Z"
-    },
-    {
-      "c_number": "C-143",
-      "title": "intel_ledger orphans mkstemp tmp files on kill — 382MB, no reclaim",
-      "claimed_at": "2026-08-17T07:01:48Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4110"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:10Z"
-    },
-    {
-      "c_number": "C-144",
-      "title": "chat_audit_log non-strict head read forks the chain (R-F3711 port)",
-      "claimed_at": "2026-08-17T07:01:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4111"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:11Z"
-    },
-    {
-      "c_number": "C-145",
-      "title": "metered stream records 0 tokens when inner stream skips on_done",
-      "claimed_at": "2026-08-17T07:01:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4112"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:11Z"
-    },
-    {
-      "c_number": "C-146",
-      "title": "brain_hook neural= log reads neural_ok before the neural lane runs",
-      "claimed_at": "2026-08-17T07:01:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4113"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:11Z"
-    },
-    {
-      "c_number": "C-147",
-      "title": "style_learner grounded-only gate has a 0 percent live pass rate",
-      "claimed_at": "2026-08-17T07:01:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4114"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:11Z"
-    },
-    {
-      "c_number": "C-148",
-      "title": "self_coder drops 145 of 146 gaps with no counter",
-      "claimed_at": "2026-08-17T07:01:50Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4115"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:12Z"
-    },
-    {
-      "c_number": "C-149",
-      "title": "MONITOR-POLYMARKET-GEO burns 4 runs a day on an operator-clearable blocker",
-      "claimed_at": "2026-08-17T07:01:50Z",
-      "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
-    },
-    {
-      "c_number": "C-152",
-      "title": "a store read failure wipes the whole freshness tracker on the next write",
-      "claimed_at": "2026-08-17T07:10:10Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4097"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T07:20:32Z"
-    },
-    {
-      "c_number": "C-153",
-      "title": "the freshness tracker skips writes on an unreadable store and tells nobody",
-      "claimed_at": "2026-08-17T07:56:55Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4101"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T08:26:23Z"
-    },
-    {
-      "c_number": "C-154",
-      "title": "the stolen-decorator gate watches one file, so the same theft shipped elsewhere",
-      "claimed_at": "2026-08-17T07:56:55Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4102"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T08:26:24Z"
-    },
-    {
-      "c_number": "C-155",
-      "title": "three wiring gates stood red, so the gate that should catch a stolen decorator carried no information",
-      "claimed_at": "2026-08-17T08:04:46Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4103"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T08:26:24Z"
-    },
-    {
-      "c_number": "C-156",
-      "title": "chat_audit_log head read-modify-write is unsynchronised (C-144 second mechanism)",
-      "claimed_at": "2026-08-17T09:40:33Z",
-      "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
-    },
-    {
-      "c_number": "C-157",
-      "title": "engine wires task success unconditionally, discarding execute_task status",
-      "claimed_at": "2026-08-17T09:40:33Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4116"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T09:47:12Z"
-    },
-    {
-      "c_number": "C-158",
-      "title": "rf2157 brain_hook stats coalescing: deterministic cross-suite flake reproducer",
-      "claimed_at": "2026-08-17T09:40:33Z",
-      "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
-    },
-    {
-      "c_number": "C-159",
-      "title": "the secret-scan gate is red on two synthetic fixtures, so it cannot catch a real leak",
-      "claimed_at": "2026-08-17T10:23:59Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4117"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T18:07:53Z"
-    },
-    {
-      "c_number": "C-160",
-      "title": "three public functions shipped dark after the wiring gate went green",
-      "claimed_at": "2026-08-17T11:08:56Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4125"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T15:33:34Z"
-    },
-    {
-      "c_number": "C-161",
-      "title": "a blocked scraped source paints an organ RED, reserving no severity for paid dependencies",
-      "claimed_at": "2026-08-17T11:41:03Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4126"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T15:33:34Z"
-    },
-    {
-      "c_number": "C-162",
-      "title": "organ nodes hardcode an empty r_numbers, so hover can never show the audit trail",
-      "claimed_at": "2026-08-17T12:30:14Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4127"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T15:33:35Z"
-    },
-    {
-      "c_number": "C-163",
-      "title": "the coverage matrix reads 867/867 gaps and cannot say why",
-      "claimed_at": "2026-08-17T13:00:47Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4128"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T15:33:35Z"
-    },
-    {
-      "c_number": "C-164",
-      "title": "a cold-boot coverage build is cached for an hour and served as fact",
-      "claimed_at": "2026-08-17T13:54:10Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4129"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T15:40:38Z"
-    },
-    {
-      "c_number": "C-165",
-      "title": "loop starvation and state-store read timeouts share one root: chroma fsyncs in rollback-journal mode",
-      "claimed_at": "2026-08-17T17:19:45Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4130"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T18:03:17Z"
-    },
-    {
-      "c_number": "C-166",
-      "title": "residual loop stalls are GIL-held ranking over 566k facts, not IO",
-      "claimed_at": "2026-08-17T18:12:01Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4138",
-        "R-F4141",
-        "R-F4143"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T07:49:45Z"
-    },
-    {
-      "c_number": "C-167",
-      "title": "is_cacheable has a dead branch, a docstring that contradicts it, and a test that cannot fail",
-      "claimed_at": "2026-08-17T18:25:45Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4132"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T18:41:37Z"
-    },
-    {
-      "c_number": "C-168",
-      "title": "recall returns facts matching no query word, ranked by re-absorption count",
-      "claimed_at": "2026-08-17T18:57:17Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4133"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T19:02:32Z"
-    },
-    {
-      "c_number": "C-169",
-      "title": "entity_resolver prior-facts lookup dead since inception: wrong function signature, swallowed",
-      "claimed_at": "2026-08-17T20:00:16Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4135"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-17T20:24:26Z"
-    },
-    {
-      "c_number": "C-170",
-      "title": "premise_verifier blocks the event loop: a 0.5ms sync call became 2.2s when a corpus scan was added under it",
-      "claimed_at": "2026-08-18T04:55:00Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4138"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T05:32:25Z"
-    },
-    {
-      "c_number": "C-171",
-      "title": "the G4 on-loop vaccine matches only bare names, so it is blind to every real call site",
-      "claimed_at": "2026-08-18T06:21:29Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4141"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T06:29:30Z"
-    },
-    {
-      "c_number": "C-172",
-      "title": "cold transformers import + model load on the event loop via _get_embedder in async stats",
-      "claimed_at": "2026-08-18T07:11:17Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4143"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T07:17:25Z"
-    },
-    {
-      "c_number": "C-173",
-      "title": "the G4 denylist is hand-maintained, so it only catches primitives someone remembered",
-      "claimed_at": "2026-08-18T07:57:47Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4146"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T08:09:02Z"
-    },
-    {
-      "c_number": "C-174",
-      "title": "ranking amplification alert uses a cumulative threshold, so it fires on every long-lived process",
-      "claimed_at": "2026-08-18T08:21:35Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4148"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T08:38:44Z"
-    },
-    {
-      "c_number": "C-175",
-      "title": "CRLF-contaminated fly secrets silently disable the email reader and mislead the auth diagnostic",
-      "claimed_at": "2026-08-18T14:53:52Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4152"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T15:19:28Z"
-    },
-    {
-      "c_number": "C-176",
-      "title": "aria_coder current_task frozen at starting up; registry advertises it as live state",
-      "claimed_at": "2026-08-18T15:35:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4154"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T15:45:16Z"
-    },
-    {
-      "c_number": "C-177",
-      "title": "the learning loop cannot close: mark_prevented has no internal caller and the predictor penalises forever",
-      "claimed_at": "2026-08-18T15:35:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4156"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T20:48:42Z"
-    },
-    {
-      "c_number": "C-178",
-      "title": "lpush never migrates a legacy list blob, so every actively-written list strands its old blob forever",
-      "claimed_at": "2026-08-18T16:27:42Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4157"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-18T21:01:10Z"
-    },
-    {
-      "c_number": "C-179",
-      "title": "DD tests read a machine-global dd_vault.db, so list_reports tests fail on a polluted box",
-      "claimed_at": "2026-08-18T21:16:16Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4158"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T07:13:24Z"
-    },
-    {
-      "c_number": "C-180",
-      "title": "1720 entries in 38 stranded list blobs are unreachable via lrange; reconcile them back",
-      "claimed_at": "2026-08-19T07:44:34Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4161"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T07:51:10Z"
-    },
-    {
-      "c_number": "C-181",
-      "title": "tests share a machine-global dd_vault singleton; isolate it at the class level",
-      "claimed_at": "2026-08-19T07:52:46Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4162"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T11:11:04Z"
-    },
-    {
-      "c_number": "C-182",
-      "title": "reasoning escalation refused by a clock guard written for the old budget-doubling retry",
-      "claimed_at": "2026-08-19T11:41:25Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4168"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T12:22:54Z"
-    },
-    {
-      "c_number": "C-183",
-      "title": "ARIA introspection renders an uninformative 0.00 as a measured success rate",
-      "claimed_at": "2026-08-19T11:57:30Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4169"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T12:22:54Z"
-    },
-    {
-      "c_number": "C-184",
-      "title": "the R-F251 boot regression guard diffs a snapshot taken on an unfinished load",
-      "claimed_at": "2026-08-19T12:25:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4170"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T13:16:59Z"
-    },
-    {
-      "c_number": "C-185",
-      "title": "neural edges read non-strict at boot: a store timeout reads as zero edges and fires a false R-F251 regression",
-      "claimed_at": "2026-08-19T13:16:05Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4173"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T13:52:13Z"
-    },
-    {
-      "c_number": "C-186",
-      "title": "a single shared generic token produced a false HARD STOP with a SAR recommendation",
-      "claimed_at": "2026-08-19T13:27:42Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4172"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-20T10:33:07Z"
-    },
-    {
-      "c_number": "C-187",
-      "title": "the screen-contradiction detector is wired but blind: it prose-matches canonical names against OpenSanctions labels",
-      "claimed_at": "2026-08-19T13:56:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4175"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-20T10:12:20Z"
-    },
-    {
-      "c_number": "C-188",
-      "title": "the neural graph birth date is reset whenever init repairs a falsy born on a populated graph",
-      "claimed_at": "2026-08-19T14:21:19Z",
-      "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
-    },
-    {
-      "c_number": "C-189",
-      "title": "classify_match issues blocking verdicts without consulting is_corroborated_match, the module's own blocking gate",
-      "claimed_at": "2026-08-19T14:31:18Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4177"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T14:37:52Z"
-    },
-    {
-      "c_number": "C-190",
-      "title": "attempt 0 overruns its per-call ceiling so the escalation reserve is not actually reserved",
-      "claimed_at": "2026-08-19T14:52:14Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4179"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T15:47:07Z"
-    },
-    {
-      "c_number": "C-191",
-      "title": "corroboration similarity is measured on raw names so shared legal forms inflate it and word order deflates it",
-      "claimed_at": "2026-08-19T15:00:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4178"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-19T15:04:29Z"
-    },
-    {
-      "c_number": "C-192",
-      "title": "heavy-graph barrier can never open; metabolism dark",
-      "claimed_at": "2026-08-21T07:54:04Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4213"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T08:28:27Z"
-    },
-    {
-      "c_number": "C-193",
-      "title": "a parked metabolism is invisible on every health surface",
-      "claimed_at": "2026-08-21T08:17:34Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4214"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T08:50:50Z"
-    },
-    {
-      "c_number": "C-194",
-      "title": "in-process TestClient lifespan wedges the suite",
-      "claimed_at": "2026-08-21T08:31:56Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4214"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T08:33:52Z"
-    },
-    {
-      "c_number": "C-195",
-      "title": "a malformed tuning knob kills boot or darkens a watchdog in main.py",
-      "claimed_at": "2026-08-21T09:09:04Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4215"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T09:28:55Z"
-    },
-    {
-      "c_number": "C-196",
-      "title": "a country name disables live search in chat",
-      "claimed_at": "2026-08-21T09:37:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4216"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T10:01:37Z"
-    },
-    {
-      "c_number": "C-197",
-      "title": "WA Brave access keeps being reverted by the doc that states Rule One",
-      "claimed_at": "2026-08-21T10:08:01Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4217"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T10:47:49Z"
-    },
-    {
-      "c_number": "C-198",
-      "title": "a permanently red UBO test asserted pre-identity-gate semantics",
-      "claimed_at": "2026-08-21T10:51:36Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4218"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T10:54:43Z"
-    },
-    {
-      "c_number": "C-199",
-      "title": "facts recalled from ARIA's own index produce zero citations",
-      "claimed_at": "2026-08-21T10:56:41Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4219"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T11:19:27Z"
-    },
-    {
-      "c_number": "C-200",
-      "title": "stream fork passes an empty tool_context while citing the rule it breaks",
-      "claimed_at": "2026-08-21T11:22:36Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4220"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T11:45:08Z"
-    },
-    {
-      "c_number": "C-201",
-      "title": "tool output reaches the LLM via the message, so no extractor ever read it",
-      "claimed_at": "2026-08-21T11:51:38Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4221"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T12:09:28Z"
-    },
-    {
-      "c_number": "C-202",
-      "title": "admission control asks redundancy, dispatch asks servability; they disagree",
-      "claimed_at": "2026-08-21T12:25:46Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4222"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T13:41:41Z"
-    },
-    {
-      "c_number": "C-203",
-      "title": "PDF renders the key-findings summary and the same findings again in their layer",
-      "claimed_at": "2026-08-21T14:35:53Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4223"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T14:46:46Z"
-    },
-    {
-      "c_number": "C-204",
-      "title": "quality-grading fixtures hand-rolled, so a new metric key blinded 18 tests",
-      "claimed_at": "2026-08-21T15:11:06Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4224"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T15:22:57Z"
-    },
-    {
-      "c_number": "C-205",
-      "title": "a red test asserts the opposite of the R-F2413 earned-flag guarantee",
-      "claimed_at": "2026-08-21T15:14:06Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4225"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T15:22:57Z"
-    },
-    {
-      "c_number": "C-206",
-      "title": "a section-7 no-delete guard went blind when its function was split",
-      "claimed_at": "2026-08-21T15:23:58Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4226"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T15:43:00Z"
-    },
-    {
-      "c_number": "C-207",
-      "title": "one fact rendered as two retained leads because dedup matched exact strings",
-      "claimed_at": "2026-08-21T15:54:59Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4227"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T16:19:43Z"
-    },
-    {
-      "c_number": "C-208",
-      "title": "a GREEN-not-downgraded guard went blind when its fixture stopped answering any question",
-      "claimed_at": "2026-08-21T16:13:07Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4228"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-21T16:18:04Z"
-    },
-    {
-      "c_number": "C-209",
-      "title": "ARIA is blind to her LLM vendor's prepaid balance; the cost meter cannot see it",
-      "claimed_at": "2026-08-22T12:42:29Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4229"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-22T13:39:35Z"
-    },
-    {
-      "c_number": "C-210",
-      "title": "R-F4229's balance poll hung off complete() only; stream() was a dark fork",
-      "claimed_at": "2026-08-22T13:14:36Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4230"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-22T13:39:35Z"
-    },
-    {
-      "c_number": "C-211",
-      "title": "Phase A gate 1 can certify with the honesty axis entirely unmeasured",
-      "claimed_at": "2026-08-22T13:59:23Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4231"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T04:12:18Z"
-    },
-    {
-      "c_number": "C-212",
-      "title": "the honesty axis depended on a garbage-collectable fire-and-forget task",
-      "claimed_at": "2026-08-22T15:53:25Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4232"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T04:12:19Z"
-    },
-    {
-      "c_number": "C-213",
-      "title": "a severity transition signal ignored direction, so a recovery read as a new failure",
-      "claimed_at": "2026-08-23T04:21:40Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4233"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T04:54:23Z"
-    },
-    {
-      "c_number": "C-214",
-      "title": "a recording eval achieved 0% of its stated purpose silently for weeks",
-      "claimed_at": "2026-08-23T04:36:21Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4235"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T04:54:23Z"
-    },
-    {
-      "c_number": "C-215",
-      "title": "a binding session-open read pointed at a file that has never existed",
-      "claimed_at": "2026-08-23T04:43:56Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4234"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T04:54:23Z"
-    },
-    {
-      "c_number": "C-216",
-      "title": "mastery was lifted to silence an alert, not to record learning",
-      "claimed_at": "2026-08-23T04:59:11Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4236"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T05:39:26Z"
-    },
-    {
-      "c_number": "C-217",
-      "title": "nine bare create_task calls remained after C-212 fixed three",
-      "claimed_at": "2026-08-23T05:04:49Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4237"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T05:39:27Z"
-    },
-    {
-      "c_number": "C-218",
-      "title": "a signal about an operator condition reset a Phase A exit gate",
-      "claimed_at": "2026-08-23T09:48:42Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4248"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T09:58:01Z"
-    },
-    {
-      "c_number": "C-219",
-      "title": "guardian panic: the worst silent failure was the one unwired branch",
-      "claimed_at": "2026-08-23T10:07:16Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4252"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T10:19:10Z"
-    },
-    {
-      "c_number": "C-220",
-      "title": "an unsupported verdict caused by truncation is indistinguishable from real dishonesty",
-      "claimed_at": "2026-08-23T10:32:12Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4253"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T10:50:22Z"
-    },
-    {
-      "c_number": "C-221",
-      "title": "a best-effort pinning helper raised and broke seventeen call paths",
-      "claimed_at": "2026-08-23T10:41:44Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4254"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T10:50:23Z"
-    },
-    {
-      "c_number": "C-222",
-      "title": "a compliance control that can be switched off without saying so",
-      "claimed_at": "2026-08-23T10:59:34Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4255"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T11:09:08Z"
-    },
-    {
-      "c_number": "C-223",
-      "title": "a retention policy with no overdue signal and no executor",
-      "claimed_at": "2026-08-23T11:18:41Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4258"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T11:28:09Z"
-    },
-    {
-      "c_number": "C-224",
-      "title": "the mastery grader asks the local stack a question it is designed to abstain on",
-      "claimed_at": "2026-08-23T12:19:57Z",
-      "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
-    },
-    {
-      "c_number": "C-225",
-      "title": "deep research overstates articles analysed",
-      "claimed_at": "2026-08-23T15:06:42Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4264"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:05:29Z"
-    },
-    {
-      "c_number": "C-226",
-      "title": "DD financial health uses supplied name not registry legal name",
-      "claimed_at": "2026-08-23T15:06:42Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4265"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:05:30Z"
-    },
-    {
-      "c_number": "C-227",
-      "title": "adverse citation coherence skips the sweep own self-reference filter",
-      "claimed_at": "2026-08-23T15:06:43Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4266"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:05:30Z"
-    },
-    {
-      "c_number": "C-228",
-      "title": "OFSI double-counted in the verified sanctions source table",
-      "claimed_at": "2026-08-23T15:06:43Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4267"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:05:30Z"
-    },
-    {
-      "c_number": "C-229",
-      "title": "UBO chain watchlist match ignores entity schema and given-name-only overlap",
-      "claimed_at": "2026-08-23T15:36:39Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4268"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:33:38Z"
-    },
-    {
-      "c_number": "C-230",
-      "title": "adverse-media exclusion ledger omits the class-contradicted stage",
-      "claimed_at": "2026-08-23T15:36:40Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4269"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:33:39Z"
-    },
-    {
-      "c_number": "C-231",
-      "title": "a promotion decision nothing consumes - the next cycle still trains from the rejected parent",
-      "claimed_at": "2026-08-23T17:29:41Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4270"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:39:35Z"
-    },
-    {
-      "c_number": "C-232",
-      "title": "the tool-use eval cannot see two of ARIA five DD clusters",
-      "claimed_at": "2026-08-23T17:46:39Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4271"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T17:49:41Z"
-    },
-    {
-      "c_number": "C-233",
-      "title": "a recovered read-timeout burst is reported as an ongoing degradation",
-      "claimed_at": "2026-08-23T18:05:24Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4273"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T18:21:47Z"
-    },
-    {
-      "c_number": "C-234",
-      "title": "the eval blocks promotion on work production does deterministically",
-      "claimed_at": "2026-08-23T21:20:31Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4275"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T21:22:48Z"
-    },
-    {
-      "c_number": "C-235",
-      "title": "the DD runs a media sweep the standard reports as NOT_RUN",
-      "claimed_at": "2026-08-23T21:25:16Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4277"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T21:52:43Z"
-    },
-    {
-      "c_number": "C-237",
-      "title": "reader-presence demoted an axis on its own",
-      "claimed_at": "2026-08-23T21:52:31Z",
-      "claimed_by": "claude",
-      "status": "closed",
-      "r_numbers": [
-        "R-F4278"
-      ],
-      "notes": null,
-      "closed_at": "2026-08-23T21:52:43Z"
     }
   ]
 }

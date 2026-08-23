@@ -4176,6 +4176,126 @@ as boot-transient (§11c); `rule_one.breached: false`, `brave_non_dd_grants: 0`,
 2. `state_backend_read_timeouts` — sqlite **reachable**, 6 timeouts/900s across 5
    unrelated keys. Pre-existing; untouched by this session's changes.
 
+### Addendum — R-F4273 / C-233 · the last degraded reason
+
+Operator: *"lets move forward with degraded reason ensure it is dealt with with
+laser pricision all is wired and enabled"*, and then, mid-work: *"other claude agent
+is working on training therefore isolate the head and tree before committing"*.
+
+**The store was not slow, and proving that came before touching anything.** §1
+forbids treating a timeout as a tuning problem, so every structural hypothesis was
+measured in-machine against the live 630 MB / 577,346-row DB and ruled out:
+
+| hypothesis | measurement | verdict |
+|---|---|---|
+| DB bloat (what `get()`'s own warning blames) | `COUNT(*)` 577k rows = 0.14 s; all five timed-out keys read in ≤0.3 ms | out |
+| Head-of-line blocking behind a fat point read (R-F4211 isolated scans, not point reads) | `neural_edges` 12.59 MB = **45 ms**, `intel_ledger` 8.21 MB = **16 ms** | out |
+| Read-path write flush | `_READ_FLUSH_BUDGET_S` = 0.3 s, already bounded | out |
+| Loop starvation firing `wait_for` (the §28 lead) | CPU/memory PSI flat 0.00; **zero** wedge dumps this process | out |
+
+IO PSI *is* the live pressure (`full` 70.7 s since boot), consistent with transient
+boot warmup — not a store fault.
+
+**The defect was the rule, not the threshold.** `degraded` was volume-only over a
+900 s window with no notion of whether the burst was still ARRIVING. Sampling
+`/health` three times over 90 s showed `count` frozen at 6 while `last_age_s` climbed
+588 → 634 → 679: one boot burst, nothing since, still pinned at `degraded`.
+
+Nothing was hidden and no threshold lowered — `count`, `keys_sample` and `last_age_s`
+still report for the full 15 minutes (R-F4107 / C-140's forensic memory, its tests
+still green) and `state_backend.status` stays amber. `degraded` now needs volume AND
+an active burst; `during_boot_only` labels boot contention rather than suppressing it
+(the R-F3873 two-axes rule).
+
+**Verified end-to-end on the live service through the transition** — the only thing
+that proves the verdict tracks reality and not a timer:
+
+```
+20:23:07  last_age= 19.1  active=True   degraded=True   ← live burst, correctly degrades
+20:24:08  last_age= 80.8  active=True   degraded=True   ← still inside the 120s window
+20:25:09  last_age=142.0  active=False  degraded=False  ← retired; reason left the list
+```
+
+`degraded_reasons` is now `['llm_vendor_credit_low_deepseek']` alone.
+
+### Isolation, and what it cost
+
+Committed from a `git worktree` at `origin/main`, never the shared checkout. Two
+things this caught that a shared commit would have hidden:
+
+* The R-F559 pre-push gate **rejected R-F4273 as unreserved** — the reservation lived
+  in the shared checkout's ledger, and a number is only claimed by a PUSHED allocator
+  commit. Correct behaviour, and exactly why the gate is fail-closed.
+* Copying the shared ledger wholesale to satisfy it carried the peer's **R-F4272 and
+  R-F4274**, and the gate then demanded capability tests for THEIR numbers. Reverted.
+  The right answer was to publish only my two entries and **advance `next_available`
+  to 4275**, which protects the peer's numbers without claiming their work. `peek`
+  confirms C-234 / R-F4275 afterwards.
+
+The peer's in-flight training files (`test_rf4274_360_harness.py`,
+`data/training/aria_tooluse_registry_depth_v1.jsonl`) were never staged.
+
+**Not claimed fixed:** the boot-window contention that produces the burst still
+happens. It is transient, the store is provably fast, and chasing it is the open §28
+IO investigation.
+
+### Session close — audit, and one obligation left OPEN on purpose
+
+**Register audit, read from `origin/main` rather than the local tree** (the
+[[worktree-and-number-ledgers]] failure mode is that conflict recovery silently
+discards ship-marks, leaving deployed work reading as unfinished):
+
+```
+R-F4264..R-F4269  shipped @ c58871a7      C-225..C-230  closed
+R-F4273           shipped @ da7c350d      C-233         closed
+```
+
+All seven R-numbers carry a sha, all seven C-numbers are closed, all seven register
+headings are present in the canonical `## C-NNN · ` form, and `reserve_c_number.py
+audit` reports no collisions. Both shas verified with `git merge-base --is-ancestor`
+as genuinely on `origin/main` — restoring a fact, not asserting one.
+
+**Live:** `build_rev = R-F4273 · sha da7c350d`; zero undeployed runtime changes;
+`degraded_reasons = ['llm_vendor_credit_low_deepseek']` alone (operator: not to be
+actioned this session).
+
+#### ⚠️ §16 SUITE BASELINE REFRESH IS DUE AND WAS NOT RUN
+
+§16's refresh rule is "after every 100 R-numbers shipped, **or any session landing
+≥5 commits to `aria_service/`**". This session landed **exactly 5**
+(`d808dfae`, `417f42a2`, `55912410`, `0aad6ca3`, `2d3404bb`), so the trigger fired.
+`docs/suite_baseline.json` remains at **113 failed / 15,794 passed @ `bf680ed1`
+(2026-08-17)** and is now stale by this session's work.
+
+**It was not run, deliberately, because it could not have produced a VALID result.**
+A peer agent is running training in the shared checkout (operator, this session:
+*"other claude agent is working on training therefore isolate the head and tree
+before committing"*). §16 is explicit that a peer's writes mid-run set `VALID=NO`,
+and that `VALID=NO` means DISCARD, not publish — an invalid baseline is worse than a
+stale one, and a baseline recorded over someone else's live edits is the exact trap
+§16 records twice. Measured evidence from this same session: a 363-file subset run
+reached only 22 % in ~50 minutes under that contention, against ~20 s per chunk once
+the box was quiet.
+
+**What the regression evidence DOES cover, so the gap is bounded rather than
+unknown:** 178 test files ran across 14 chunks after the DD fixes and every consumer
+of the changed surfaces after the store fix. Nine failures, **each reproduced
+identically on a pristine `origin/main` worktree** (`rf2254`×3, `rf2817`×5,
+`rf728`×1) plus five more in the state_store suites likewise reproduced pristine
+(`redis_set_size_warning`×2, `rf1388`×2, `rf2091`×1). Zero new failures attributable
+to this session. What is missing is the *whole-suite* number, not the attribution.
+
+**Prerequisites for whoever runs it** — all three are recorded traps, not advice:
+1. A `git worktree` at the target sha, so the peer cannot move the tree under it.
+2. **`cmd //c "mklink /J .venv C:\Code\Aria\.venv"` in that worktree FIRST.** A
+   worktree has no `.venv`, and tests that shell out to `.venv/Scripts/python.exe`
+   fabricate ~30 "new" failures that read as a code regression (the R-F3791
+   environment-delta trap).
+3. Start it only after every tracked-file write is finished — `suite_baseline.py`
+   hashes the tree before and after and reports `VALID=NO` if it moved, including
+   moves you make yourself.
+
+Command: `python scripts/admin/suite_baseline.py --single-process --record`.
 ## Session 2026-08-23 (part 7) — R-F4270..R-F4274 · the harness was the blocker
 
 Operator: *"lets push aria training, pick where you left ensure it is done with
