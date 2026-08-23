@@ -3894,3 +3894,119 @@ Point the budget at `contradiction` (26/27), `adverse` (26/28), `multihop` (8/9)
 the axes where the LLM is the only mechanism. If the operator takes the
 promotion trade, re-register the gate with resolution reclassified as advisory,
 recorded deliberately with the R-F4257 evidence attached — never quietly dropped.
+
+---
+
+## Session 2026-08-23 (part 3) — R-F4248..R-F4258, C-218..C-223 · close
+
+Operator: *"proceed with root surgery for all and ensure it is wired and enabled"*,
+with training explicitly out of scope (peer agent's lane) and gate #7 set aside.
+
+### Six defects, every one found by measuring rather than assuming
+
+**R-F4248 / C-218 — my own signals were resetting a Phase A exit gate.** Gate #3
+read `value: 0, pass: false`; `/api/aria/health/error-streak` showed the single
+`log:error` in the 7-day window was **mine** (R-F4235's zero-honesty message).
+`is_reset_type` counts `log:error` and advances R-F2622's durable anchor, so an
+observability signal about the golden set's composition reset the streak. Two
+signals shipped that day had it — the other being an exhausted vendor balance,
+an operator condition recurring on every poll. Both now WARNING. **Third instance
+of a class §1 records twice** (R-F2663, R-F2668), reproduced while building the
+instruments meant to prevent absences going unnoticed — which is the argument for
+a guard over a careful habit.
+
+**R-F4252 / C-219 — a panic SOS that reached nobody was invisible.**
+`guardian/panic.py`'s own docstring names the empty-circle case *"the worst silent
+failure to avoid"*, and it was the ONE branch reaching nothing. Every other panic
+outcome flows through the Action Gateway's `record_gap` — the empty-circle branch
+**returns before the gateway is reached**, so the transitive coverage stopped
+exactly at the most dangerous case. The gateway also reports per-CONTACT: from
+inside one delivery, 0-of-3 and 3-of-3 are indistinguishable. **Verified live** by
+firing a real SOS: the gap now lands naming the reason and that adding a contact —
+not retrying — is the fix.
+
+**R-F4253 / C-220 — the honesty judge scored against a truncated source.** Mapping
+gate #1's writers showed both signals come only from `/chat`, its stream fork and
+the offline eval; `dd_orchestrator` reaches `honesty_judge` **zero times**. The
+obvious move was to wire DD in. Measuring first showed that would be a mistake:
+`_build_judge_user_prompt` cuts evidence at 8000 chars, so a claim whose support
+sits past the cut is judged `supported: false` — **indistinguishable from real
+dishonesty**, feeding 25% of gate #1. It bites today because
+`_maybe_frame_grounding` deliberately skips DD output. Recorded (additive fields,
+no score changed) rather than corrected; excluding truncated judgments from the
+average alters a gate input and nothing had ever measured how often truncation
+happens.
+
+**R-F4254 / C-221 — my own fallout.** R-F4237 put `_hold_job_task` on seventeen
+call paths, so an exception inside it propagated into whatever was being spawned.
+Caught by a test NOT in the baseline, therefore mine. A mechanism that exists to
+protect the work must never break the work.
+
+**R-F4255 / C-222 — a compliance control switchable off in silence.**
+`ARIA_VETTING_ENCRYPT_DOCUMENTS=0` makes both upload routes write plaintext
+identity and criminal-offence data into an append-only store with no delete, and
+nothing said so — the consequence surfaced only at ERASURE time, when the data is
+already undeletable. Reported at the ONE decision point (R-F3946's lesson), once
+per process, WARNING not ERROR (R-F4248's lesson, applied immediately).
+**Production verified in-process:** env UNSET, `encryption_enabled() True`, latch
+False — the compliant default is live and correctly silent.
+
+**R-F4258 / C-223 — a breach recorded as a success.** `GET /vetting/retention`
+derives `overdue` correctly and totals it — I tested three hypotheses against that
+module and the code beat all three. What survived: it ended EVERY review with
+`wire_success`, so a file past its lawful disposal date landed as a positive
+signal and no failure-reading surface saw it. And inside my own fix,
+`wire_failure` was **referenced but not imported** — a runtime NameError that
+would fire ONLY on the overdue path, i.e. only when it mattered.
+
+### What I deliberately did NOT do, and why
+
+* **No golden-set edit for gate #1.** It degrades a PASSING gate (#6's freeze pin)
+  and touches the peer's eval surface — and per C-220 the honesty axis would have
+  been fed corrupted evidence anyway. Live traffic is the honest route and is
+  materially better now (judge task pinned, markers on, truncation visible).
+* **No disposal scheduler.** Production holds **1 vetting case, 1 tenant** — a
+  boot-path loop would watch a near-empty set. `tasks.yaml` is the wrong home (98
+  LLM prompts with cost caps, not date comparisons). Trigger to revisit is case
+  volume; `_expiry_sweeper_loop` is the model; **disposal must stay
+  operator-initiated** — an automatic deleter of personal data is not something to
+  add quietly.
+* **No fake success signal** on `crypto.py` to green the wiring checker, and no
+  brain calls inside AES primitives whose failures already RAISE.
+* **No change to the state-store read-timeout path.** I suspected timeouts were
+  cached as measured absences; they are not — `_cacheable` is scoped strictly to
+  `error_log` keys because R-F2477/R-F3707 already found a cached `None` blinding
+  the DD report index. Correct as written.
+* **No gate-#2 work.** Measured: the floor is `min()` at 0.055 and hidden cells
+  enter at `INITIAL_MASTERY 0.5`, so revealing them would not move the gate. §1's
+  note predates the floor dropping. It is an honest capability gap now, not a code
+  defect.
+
+### Honest limits on verification
+
+The retention **overdue branch was not exercised live** — the single production
+case reads `due_date: null` ("screening in progress"), so it cannot be overdue
+even at `as_of 2099`. That is `retention.py` correctly refusing to guess a date.
+The NameError risk that branch carried IS closed live (both sinks bound in the
+running process).
+
+### Live at close
+
+`R-F4258 · sha 539ad4ba` · **`status: operational`, `degraded_reasons: []`** ·
+autonomy enabled/running L3, 98 tasks · chain `['deepseek']`, balance 7.78 ·
+RULE ONE `breached: false`, brave `['dd','wa']`, non-DD grants 0 · loop healthy ·
+`origin/main` 4327b863, nothing unpushed, **18 R-numbers shipped, 15 C-numbers
+closed, no collisions**, agent bridge clear.
+
+**Gate #3 has survived six deploys since R-F4248** and stands at 5.25h of a
+required 168h — accruing for the first time.
+
+### Standing for the next session
+
+1. **Gate #1 honesty axis** — watch `honesty_skipped_no_tags` and
+   `/api/aria/honesty/stats.recent_24h`. Once judgments pass 5 in a 24h window the
+   axis becomes measurable and gate #1's `unmeasured_signals` empties on its own.
+   The evidence-led follow-up is whether truncated judgments should leave
+   `avg_honesty_score` (C-220) — decide on data, not on principle.
+2. **Gate #7 is operator-only**: 1 of 4 qualified partners.
+3. **Balances**: DeepSeek 7.78 and falling; RunPod is the peer's lane.
