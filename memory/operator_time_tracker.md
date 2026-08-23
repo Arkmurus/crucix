@@ -3285,3 +3285,110 @@ measured, not assumed.
    (R-F2391, default OFF pending operator review of the diff + eval-measured
    grounding rate). Turning it on adds the SYNCHRONOUS honesty write beside the
    background one. Not flipped without a decision — it changes live chat framing.
+
+---
+
+## Session 2026-08-23 — R-F4233..R-F4235, C-213..C-215 · top-up verified, item 2 live
+
+Operator: *"deepseek is done and number 2 proceed as well as ensure nothing is left
+undone."*
+
+### 1. The top-up landed — and R-F4229 paid for itself on its first real event
+
+```
+[R-F4229] deepseek vendor balance RESTORED (9.97 USD, vendor says available=True)
+— releasing the billing cooldown with 20794s remaining, no LLM call spent
+```
+
+It released a hard cooldown with **5.8 hours still to run**, on the vendor's own
+evidence, spending nothing. Without it ARIA would have stayed dark for another 5.8h
+*after* the operator paid — the §17 self-sustaining trap, closed. Chain live:
+`active ['deepseek']`, serving, `can_dispatch True`, `llm_chain_exhausted` gone.
+
+### 2. `ARIA_GROUNDING_MARKERS_ENABLED=1` — LIVE and verified at the process
+
+Set with a plain `flyctl secrets set` (§17: `--stage` does NOT apply). Verified not
+from `secrets list` but by reading **`/proc/717/environ` of the running
+`python -m aria_service.main`** → `GROUNDING='1'`. That is the check the autonomy
+secret drifted past for months.
+
+### 3. R-F4233 / C-213 — my own gauge told the operator to redo what they just did
+
+**51 seconds** after the top-up it emitted *"vendor balance low … OPERATOR ACTION:
+top up the deepseek account"*. Every word true, the whole thing misleading.
+`exhausted -> low` is a RECOVERY that has not cleared the threshold; `ok -> low` is
+a balance falling toward zero — same level, opposite events, only one is a call to
+action. `_SEVERITY_RANK` now carries direction; `unknown` is deliberately unranked
+so a gauge outage cannot read as an improvement. Three tests pin that a falling
+balance, a first `low`, and any fall into `exhausted` STILL demand a top-up — all
+three passed before the fix, so nothing was weakened.
+
+### 4. R-F4234 / C-215 — §20 told every session to read a file that never existed
+
+`memory/platform_buildout_north_star.md`: `git log --diff-filter=A` **and** `=D`
+both empty. Never added, never deleted. The first binding instruction of every
+session was unperformable, and a missing file reads as "nothing to see". Re-pointed
+at the real docs (`docs/golden_intel_north_star_2026_07_14.md` — the USP, whose
+named gap is **value density, not guards**).
+
+**The guard I added for it was itself blind on its first version** — it skipped any
+line containing "never existed", so a correction note could sit on the instruction
+line, and in CLAUDE.md it did. Mutation proved it: re-adding the phantom to the §20
+bullet still PASSED. Fixed **in the DATA, not the check** — notes now live on their
+own lines and instruction lines are checked unconditionally, no exemption. Re-mutated
+after hardening: 2 fail, both green on revert.
+
+### 5. R-F4235 / C-214 — the offline gate-#1 populate recorded ZERO honesty for weeks
+
+Chasing why the honesty axis is dark, I found a run labelled `rf-gate1-honesty-seed`
+sitting in the store:
+
+```
+total 30    verification_recorded 30    honesty_recorded 0
+```
+
+Thirty LLM-driven chat turns paid for, half the purpose achieved, the other half
+**zero** — in a summary field no verdict consumes. C-96 verbatim. My own 10-entry
+repeat spent **$0.138** and recorded nothing either.
+
+**The skip is CORRECT**: the gate needs tool context AND a confidence tag, and the
+stored responses show memory-served answers, the R-F2406 grounding repair correctly
+refusing, and a "no PDF attached" clarification. With no retrieved context there is
+nothing to ground against. The defect was that the skip was invisible and
+undifferentiated.
+
+Now two counters with opposite remedies, plus an ERROR + `wire_failure` when a
+`record=True` run yields zero honesty. **Verified live** on a 2-entry run:
+
+```
+verification_recorded 2   honesty_recorded 0
+honesty_skipped_no_context 1     honesty_skipped_no_tags 1
+```
+
+…and both the ERROR line and the capability gap landed. First time the reason has
+ever been visible.
+
+### Live at close (R-F4233 · sha 1d15476c, boot complete)
+
+`degraded_reasons: ['operating_mode_supervised']` only · autonomy enabled/running
+L3, 98 tasks · chain `['deepseek']`, balance 9.69 · RULE ONE `breached: false`,
+brave `['dd','wa']`, non-DD grants 0 · gate #1 `value 0.69, pass None,
+unmeasured_signals ['honesty_rate']`, `all_pass False`.
+
+### What is NOT done, stated plainly
+
+* **Gate #1 will keep reading `unknown`.** R-F4235 makes the emptiness diagnosable;
+  it does not fill it. The measured split says the remedy is twofold: aim a seed run
+  at **tool-backed** golden questions, and improve **confidence tagging** on sourced
+  claims (which is what the grounding markers enabled today should move). Re-run a
+  `record=True` eval in a few days and read `honesty_skipped_no_tags`.
+* **The R-F163 starved-tag trophy is still live** — topic mastery lifted
+  `correct=True, weight=0.2` for a bare search hit, justified in-code by *"so the
+  proactive alert stops repeating"*. Not moving gate #1 today (headline is
+  core-bound at 0.838 vs overall 0.866), and R-F211's 14-day announce dedup already
+  solves the repetition it was justified by. Honest-grade it or drop it.
+* **Nine bare `create_task` calls remain in `routes/aria.py`** (C-212 known debt).
+  None writes a gate signal.
+* A stray deploy dispatch fired against an already-live SHA when a push was rejected
+  by the pre-push guard; cancelled to avoid §11c lease contention. **Dispatch only
+  AFTER a push succeeds.**
