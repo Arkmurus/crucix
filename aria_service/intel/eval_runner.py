@@ -947,7 +947,20 @@ async def run_eval(
         _why = (f"{_skip_no_ctx} answered without tool context (memory/refusal — "
                 f"nothing to ground against), {_skip_no_tags} tool-backed but "
                 f"carrying no confidence tag")
-        logger.error(
+        # R-F4248 (C-218) — WARNING, not ERROR. `error_streak.is_reset_type`
+        # counts `log:error` and resets the durable Phase A gate-#3 anchor
+        # (0 fly ERRORs / 7 days). MEASURED: this exact line reset the streak on
+        # 2026-08-23 and was the ONLY log:error in the 7-day window
+        # (`level_breakdown_7d: {log:warning: 199, log:error: 1}`) — a signal
+        # about the golden set's composition set a Phase A EXIT GATE back to
+        # zero. Worse, a zero-honesty populate is the EXPECTED outcome on the
+        # current set (measured yield 1 in 6), so the gate could never accrue
+        # seven clean days while anyone ran a recording eval.
+        #
+        # R-F2663 / R-F2668 are the same class and §1 records the same remedy.
+        # The `wire_failure` below is the reporting channel §21a asks for; the
+        # log level is not. Nothing is hidden by this change.
+        logger.warning(
             "[R-F4235] recording eval '%s' populated ZERO honesty judgments "
             "(%d entries, %d verification recorded): %s. Phase A gate #1's "
             "honesty axis (25%%) stays UNMEASURED.",

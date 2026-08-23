@@ -706,7 +706,24 @@ class FallbackProvider(LLMProvider):
             reading = await self._read_vendor_balance(provider)
             self._wire_balance_transition(provider.name, reading)
             if reading.is_exhausted:
-                logger.error(
+                # R-F4248 (C-218) — WARNING, not ERROR, and the level is
+                # load-bearing. `error_streak.is_reset_type` counts `log:error`
+                # and resets the DURABLE Phase A gate-#3 anchor (0 fly ERRORs
+                # / 7 days). An empty vendor balance is an operator/vendor
+                # condition, not an application fault, and it recurs on every
+                # poll transition — so logging it at ERROR would reset the
+                # 7-day streak every time a balance ran out, making the gate
+                # un-closeable by a condition the code cannot fix.
+                #
+                # That is the R-F2663 / R-F2668 class exactly, and §1 records
+                # the same remedy: "a generous background timeout + WARNING
+                # (not ERROR; `is_reset_type` excludes `log:warning`) so the
+                # streak can accrue".
+                #
+                # Nothing is hidden by this: `_wire_balance_transition` above
+                # already carried it to the brain as a gap, which is what §21a
+                # requires. The log LEVEL is not the reporting channel.
+                logger.warning(
                     "[R-F4229] %s prepaid vendor balance EXHAUSTED (%s) — "
                     "general chat will fail until the account is topped up",
                     provider.name, reading.describe(),

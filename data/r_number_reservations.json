@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4248,
+  "next_available": 4249,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36388,6 +36388,15 @@
       "commit_sha": "589c4e53",
       "notes": null,
       "shipped_at": "2026-08-23T07:38:03Z"
+    },
+    {
+      "r_number": "R-F4248",
+      "title": "two observability ERRORs I added reset the gate-3 streak",
+      "claimed_at": "2026-08-23T09:48:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

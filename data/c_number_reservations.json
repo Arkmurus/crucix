@@ -2479,6 +2479,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T05:39:27Z"
+    },
+    {
+      "c_number": "C-218",
+      "title": "a signal about an operator condition reset a Phase A exit gate",
+      "claimed_at": "2026-08-23T09:48:42Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

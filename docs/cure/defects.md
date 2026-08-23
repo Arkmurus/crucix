@@ -13918,3 +13918,69 @@ well-sampled signal is still used, R-F3696's same-window invariant, and that gat
 sees confidence collapse after a recording run and cannot see why is one step from
 deleting the R-F1907 guard, which exists because a single 0.0 sample once deflated
 the composite from ~0.804 to 0.6028.
+
+## C-218 · a signal about an OPERATOR condition reset a Phase A exit gate (fixed, R-F4248)
+
+Found by asking why gate #3 read `value: 0, pass: false` at session close.
+`GET /api/aria/health/error-streak`, live 2026-08-23:
+
+```
+last_error: {"type": "log:error",
+             "message": "[R-F4235] recording eval '...' populated ZERO honesty
+                         judgments (5 entries, 5 verification recorded) ...",
+             "file": "aria_service/intel/eval_runner.py", "function": "run_eval"}
+last_error_age_hours: 3.5
+level_breakdown_7d: {"log:warning": 199, "log:error": 1}
+phase_a_gate_3_pass: false    threshold_days: 7
+```
+
+**That single `log:error` was mine, and it reset Phase A exit gate #3 to zero.**
+`error_streak.is_reset_type` counts `log:error` and advances the durable anchor
+R-F2622 built, so the "0 fly ERRORs / 7 days" streak restarted because an
+observability signal described the composition of the golden set.
+
+Two signals shipped this session had it:
+
+* **`eval_runner`** — a recording eval that populated zero honesty judgments.
+  **That is the EXPECTED outcome on the current set** (measured yield 1 in 6,
+  R-F4242), so gate #3 could never accrue seven clean days while anyone ran a
+  recording eval.
+* **`fallback._poll_balance_quietly`** — an exhausted prepaid vendor balance. An
+  operator/vendor condition the code cannot fix, recurring on every poll
+  transition.
+
+Neither is an application fault. Both are now WARNING.
+
+### Third instance of a recorded class
+
+§1 records R-F2663 (a boot ERROR reset the streak every boot, making the gate
+structurally un-closeable) and R-F2668 (a one-shot re-spawn's NEEDS OPERATOR
+ERROR, same effect), and prescribes this exact remedy: *"WARNING (not ERROR;
+`is_reset_type` excludes `log:warning`) so the streak can accrue"*. I reproduced
+the class while building the very instruments meant to prevent absences going
+unnoticed — which is the strongest argument for the guard below rather than a
+careful habit.
+
+### Demoted, NOT silenced — and the negative control matters
+
+`wire_failure` / `record_gap` still fire on both paths. §21a asks for a brain
+sink; it says nothing about log LEVEL, and the level is a **gate input**, not the
+reporting channel. A capability test drives the real
+`_poll_balance_quietly` and asserts both halves: WARNING is emitted, no ERROR is,
+and the `llm_vendor_balance` gap still lands.
+
+The opposite mistake — demoting everything to keep the gate green — is guarded
+explicitly: `R-F3701`'s recorder-import failure in the same module IS an
+application fault (the eval silently stops populating gate #1's stores) and a test
+asserts it **stays** at ERROR.
+
+The marker check is AST over the `logger.error` CALL, not a substring scan: this
+defect's own message is quoted verbatim in the test's docstring, so a text scan
+would flag itself.
+
+**Mutation-proven:** restoring either `logger.error` reddens 2 tests; both green on
+revert. 304 passed across the error-streak, eval, fallback and vendor-balance
+surfaces; wiring audit 0.
+
+**Expect gate #3 to now accrue.** Its streak restarts from the last genuine ERROR;
+seven clean days from there is the earliest it can close.
