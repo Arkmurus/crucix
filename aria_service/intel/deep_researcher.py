@@ -923,6 +923,28 @@ def _coerce_topic(raw: object) -> tuple[str, str | None]:
     return "", type(raw).__name__
 
 
+def _count_analysed(results) -> int:
+    """R-F4264 (C-225) — how many articles actually produced an analysable result.
+
+    `_process_one_article` returns None when the fetch failed, the body was under
+    100 characters, or `_analyse_article` raised — i.e. when the article was NOT
+    analysed. Counting the results list, or counting completed tasks, therefore
+    counts ATTEMPTS.
+
+    That distinction is customer-visible. dd_orchestrator renders `stopped_after`
+    and `articles_read` into a SINGLE data-gap sentence, and on the live Vigilo
+    Solutions run (dd_9fe0e61e4a0c) the two halves disagreed in print:
+
+        "stopped after article read (7 of 12 articles analysed)
+         — 0 article(s) analysed, 0 fact(s) retained"
+
+    Every one of those seven fetches had returned nothing usable. The overstated
+    number is the one that reads as COVERAGE, so the failure direction is the
+    expensive one: a total article-stage failure described as seven articles read.
+    """
+    return sum(1 for _r in results if _r)
+
+
 @fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate(
     llm: LLMProvider,
@@ -1323,7 +1345,8 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 # would understate the run as a whole. articles_read and
                 # parallel_results are both run totals at this point.
                 _mark_partial(
-                    f"fact retention ({articles_read} of {len(parallel_results)} "
+                    f"fact retention ({articles_read} of "
+                    f"{_count_analysed(parallel_results)} "
                     "analysed articles retained)"
                 )
                 return
@@ -1362,7 +1385,8 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                         )
                 except (_aio.TimeoutError, TimeoutError):
                     _mark_partial(
-                        f"fact retention ({articles_read} of {len(parallel_results)} "
+                        f"fact retention ({articles_read} of "
+                        f"{_count_analysed(parallel_results)} "
                         "analysed articles retained; a fact-store write exceeded "
                         "the remaining budget)"
                     )
@@ -1447,14 +1471,17 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 except Exception as _e:
                     logger.debug("article task failed: %s", _e)
             parallel_results.extend(_batch)
-            _stage("article read", analysed=len(parallel_results), jobs=len(_tasks))
+            _stage("article read", analysed=_count_analysed(parallel_results),
+                   jobs=len(_tasks))
             # Retain NOW, while there is still budget, not after it is gone.
             await _retain(_batch)
         for _t in _left:
             _t.cancel()
         if _left:
+            # R-F4264 — analysed, not attempted. `len(_tasks) - len(_left)` counts
+            # tasks that FINISHED, which includes every fetch that came back empty.
             _mark_partial(
-                f"article read ({len(_tasks) - len(_left)} of {len(_tasks)} "
+                f"article read ({_count_analysed(parallel_results)} of {len(_tasks)} "
                 "articles analysed)"
             )
 
