@@ -36553,54 +36553,60 @@
       "title": "C-225 deep research counts unusable article tasks as analysed",
       "claimed_at": "2026-08-23T15:06:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
     },
     {
       "r_number": "R-F4265",
       "title": "C-226 financial health screens the supplied name not the registry legal name",
       "claimed_at": "2026-08-23T15:06:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
     },
     {
       "r_number": "R-F4266",
       "title": "C-227 adverse citation coherence omits the sweep self-reference filter",
       "claimed_at": "2026-08-23T15:06:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
     },
     {
       "r_number": "R-F4267",
       "title": "C-228 OFSI direct adapter duplicates the canonical OFSI source row",
       "claimed_at": "2026-08-23T15:06:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
     },
     {
       "r_number": "R-F4268",
       "title": "C-229 UBO watchlist lead carries schema-mismatch and forename-only provenance",
       "claimed_at": "2026-08-23T17:16:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
     },
     {
       "r_number": "R-F4269",
       "title": "C-230 adverse-media exclusion ledger accounts for every dropped item",
       "claimed_at": "2026-08-23T17:16:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
     },
     {
       "r_number": "R-F4270",
@@ -36617,9 +36623,10 @@
       "title": "360 coverage ledger - which of the Twenty Fundamentals the eval can see",
       "claimed_at": "2026-08-23T17:46:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5edc5579",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:50:02Z"
     }
   ]
 }
