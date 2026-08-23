@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4263,
+  "next_available": 4268,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36531,6 +36531,51 @@
       "r_number": "R-F4262",
       "title": "a failed knowledge seed is recorded as success then suppressed 30 days (dossier E2)",
       "claimed_at": "2026-08-23T14:44:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4263",
+      "title": "date the wiring debt ledger so it can be aged (dossier E9)",
+      "claimed_at": "2026-08-23T15:06:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4264",
+      "title": "C-225 deep research counts unusable article tasks as analysed",
+      "claimed_at": "2026-08-23T15:06:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4265",
+      "title": "C-226 financial health screens the supplied name not the registry legal name",
+      "claimed_at": "2026-08-23T15:06:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4266",
+      "title": "C-227 adverse citation coherence omits the sweep self-reference filter",
+      "claimed_at": "2026-08-23T15:06:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4267",
+      "title": "C-228 OFSI direct adapter duplicates the canonical OFSI source row",
+      "claimed_at": "2026-08-23T15:06:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -36,6 +36,7 @@ remains the per-module plan. There is still exactly ONE definition of "wired"
 from __future__ import annotations
 
 import json
+import time
 import sys
 from pathlib import Path
 
@@ -95,12 +96,23 @@ def main() -> int:
 
     if update:
         BASELINE.parent.mkdir(parents=True, exist_ok=True)
+        # R-F4263 (dossier E9) — STAMP THE DATE. The ledger carried no
+        # `recorded_at` at all, so 63 dark modules were indistinguishable from a
+        # decision nobody remembers making: nothing recorded how old the debt
+        # was, and a ledger of debt that cannot be aged is a ledger nobody pays
+        # down. `module_count` is written alongside so a drifted file (66
+        # entries against 63 actual, which is what E9 measured) is visible
+        # without re-running the scan.
         BASELINE.write_text(json.dumps({
             "_comment": ("R-F3727/R-F3728 — KNOWN-DARK modules (§21a debt), NOT "
                          "an exemption list. A new dark module must NOT be added "
                          "here to make CI pass; wire it instead. Clearing an "
                          "entry is a PR that makes this file shorter. Keyed by "
-                         "module PATH -> verdict category."),
+                         "module PATH -> verdict category. R-F4263: "
+                         "`recorded_at` dates the debt — if it is far in the "
+                         "past, that is the finding, not a formatting detail."),
+            "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "module_count": len(found),
             "known_dark": dict(sorted(found.items())),
         }, indent=2) + "\n", encoding="utf-8")
         print(f"[wiring] baseline written: {len(found)} known-dark module(s) "
