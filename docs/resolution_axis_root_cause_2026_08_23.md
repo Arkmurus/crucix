@@ -190,3 +190,82 @@ floor and was rejected on a single resolution row. If a future candidate does
 that again, the question to put to the operator is whether a +1 overall for a −1
 on a 16-row axis is a trade worth taking. That is a product decision, not a
 gate-tuning exercise, and the gate should not be quietly loosened to take it.
+
+---
+
+# THE ANSWER (R-F4257) — the axis measures a configuration that never ships
+
+Everything above is about *how* to move `tooluse_resolution`. This section is why
+that was the wrong question, and it closes the file.
+
+## Production never asks the model to resolve an entity
+
+Verified behaviourally on 2026-08-23 — by calling the functions, not by reading
+their docstrings:
+
+| layer | behaviour |
+|---|---|
+| `resolve_company_search` | returns `None` for two equally-good live matches; still resolves an unambiguous one. Called from `investigate_uk_entity` and two `financial_health` paths. |
+| `format_for_prompt` (resolved) | emits `Company: COMPASS LTD (11466170)` — the **resolved company**, no gate marker, **no candidate list** |
+| `format_for_prompt` (unresolved) | emits an explicit `[COMPANIES HOUSE — IDENTITY RESOLUTION REQUIRED]` block |
+| `enforce_resolution_response` (R-F4144) | **replaces** a model answer that picks a company anyway; a no-op without the gate |
+
+And that enforcement is on **both** response surfaces, not just the easy one:
+`chat_ep` and the streaming `_event_generator`, where it reassigns the buffered
+text **and yields a `{"type":"replace"}` event** so already-streamed text is
+corrected. A comment at that site records the prior defect it fixed — *"observer
+only on stream — WhatsApp users got unguarded text."* `test_rf4144` pins both
+paths and the replace event in CI.
+
+## The eval carries none of it
+
+* **0 of 168** eval rows contain the production gate marker.
+* Neither `eval_tooluse.py` nor `serve_eval_shim.py` references `companies_house`
+  at all — the pod evaluator talks to a bare model server.
+
+So the eval feeds a **raw candidate list** and grades the model on reproducing,
+in prose, what `resolve_company` computes exactly. Confirmed for all five
+subjects no candidate has ever learned: `Cobham → COBHAM LIMITED`,
+`Meggitt → MEGGITT LIMITED`, `Compass → COMPASS LTD`, and both `Prudential`
+forms correctly resolving to **nothing** (ask for clarification).
+
+**Both failure shapes the axis measures are structurally impossible in the
+shipped path.** Production never presents a list, and overrides the model when
+identity is gated.
+
+## What it has cost
+
+| | |
+|---|---|
+| candidates and arms funded to move this axis | **13** |
+| ever exceeded the SFT parent's 13/16 | **none** |
+| best candidate, blocked solely by this axis | `failure_correction_v1` — **162/168**, `adverse` **+2**, only regression `resolution −1` |
+
+That `adverse` +2 reproduces at α = 0.25, 0.8, 0.875 **and** 1.0 — four
+independent measurements on a judgement axis with no deterministic backstop. It
+has been rejected four times.
+
+```
+as adjudicated today (gate counts resolution)   promotable = False
+if resolution were not gated                    promotable = True
+```
+
+## The decision, and what is NOT being decided here
+
+**No gate has been changed.** Dropping an axis to make a candidate pass is the
+"close the gate by measuring less" failure §1 forbids, and it is not a decision
+code should make.
+
+**The counter-argument, stated fairly:** the axis can be read as *defence in
+depth* — what the model would do if the enforcement layer failed. That is
+legitimate. Against it: enforcement is present on every response path that can
+carry an identity gate, uses its result rather than observing, corrects
+already-streamed text, and is pinned in CI. Four layers deep.
+
+**If the trade is taken**, the honest mechanism is to re-register the promotion
+gate with `tooluse_resolution` reclassified as *advisory*, recorded as a
+deliberate decision with this evidence attached — never quietly dropped.
+
+**Either way: stop funding cycles against this axis.** That part is settled by
+measurement. Point the budget at `contradiction` (26/27), `adverse` (26/28) and
+`multihop` (8/9) — the axes where the LLM is the only mechanism.
