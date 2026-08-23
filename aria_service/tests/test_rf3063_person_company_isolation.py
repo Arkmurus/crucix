@@ -74,12 +74,54 @@ def test_rf3063_officer_backfill_excludes_persons():
         "`not directors` is the NORMAL state for a person — this fired on every GB person DD")
 
 
+def _section(src: str, start_marker: str) -> str:
+    """The orchestrator block introduced by `start_marker`, bounded by the NEXT section.
+
+    R-F4265 — this used to be `src[i:i + 1600]`, a fixed CHARACTER window, and adding
+    eighteen lines of comment INSIDE the block pushed the guard past the cut. The test
+    went red while the guard sat untouched two lines further down. That is the R-F3597 /
+    R-F3858 class the header of this file already warns about for `inspect.getsource`:
+    a check anchored to a magic offset is blinded by GROWTH ALONE, and it fails in the
+    direction that looks like a real regression, which costs an investigation.
+
+    dd_orchestrator delimits its own blocks with `# ── ` rules, so bound the window on
+    that instead. It cannot drift with length, and it still ends at the right place.
+    """
+    i = src.index(start_marker)
+    # U+2500 BOX DRAWINGS LIGHT HORIZONTAL, spelled as an escape so the delimiter
+    # survives any re-encoding of this file.
+    rule = "\n    # ── "
+    nxt = src.find(rule, i + len(start_marker))
+    if nxt == -1:
+        raise AssertionError(
+            f"no section rule found after {start_marker!r}. Falling back to the rest "
+            "of the module would make every assertion below pass on a string that "
+            "appears ANYWHERE in dd_orchestrator, which is the blind-guard failure "
+            "this helper exists to prevent."
+        )
+    return src[i:nxt]
+
+
 def test_rf3063_financial_health_excludes_persons():
     """Defence in depth: a verdict this defamatory must not depend on one guard."""
     src = module_source(ddo)
-    i = src.index("Financial health (R-F2322")
-    window = src[i:i + 1600]
+    window = _section(src, "Financial health (R-F2322")
     assert "not _subject_is_person(report)" in window
+
+
+def test_rf3063_the_window_can_still_see_a_missing_guard():
+    """A guard that cannot fail is not a guard (S16, R-F3858).
+
+    Widening the window above must not widen it to the whole module, which would make
+    the assertion pass on any file containing the string anywhere. Proven by deleting
+    the guard from the section and re-checking.
+    """
+    src = module_source(ddo)
+    window = _section(src, "Financial health (R-F2322")
+    assert len(window) < len(src), "the section bound collapsed to the whole module"
+    stripped = window.replace("not _subject_is_person(report)", "")
+    assert "not _subject_is_person(report)" not in stripped, (
+        "the check would still pass with the guard removed")
 
 
 def test_rf3063_the_three_paths_use_one_shared_guard():

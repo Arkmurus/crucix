@@ -5785,13 +5785,63 @@ async def _run_identity(
                 _vs = screen.get("verified_sources")
                 if not isinstance(_vs, dict):
                     _vs = {}
-                if "uk_ofsi" not in _vs:
-                    _vs["uk_ofsi"] = {
+                # ── R-F4267 (C-228) — MERGE into the canonical row, never beside it ──
+                #
+                # This block used to append its own `"uk_ofsi"` row guarded by
+                # `if "uk_ofsi" not in _vs`. `derive_verified_sources` keys the table by
+                # CANONICAL NAME ("UK OFSI / HMT"), so that literal is never a key and
+                # the guard could not fire. The delivered Vigilo Solutions report
+                # (dd_9fe0e61e4a0c) printed twelve "Sanctions & watchlists screened"
+                # rows for eleven canonical sources, with OFSI as both the 7th and the
+                # 12th — one source counted as two independent clearances, the same
+                # coverage-inflation shape as C-39.
+                #
+                # Worse, and only visible once the rows were reconciled: the canonical
+                # row is derived BEFORE this block appends `_ofsi_hits` to
+                # `screen["matches"]`, so a designation found on the direct OFSI list
+                # left the authoritative row reading CLEAN. The report would have
+                # carried "HM Treasury OFSI — CLEAN" and "UK OFSI — HIT" in one table.
+                #
+                # The mapping already exists — do not re-introduce a literal here; a
+                # literal is exactly what rotted (cf. C-39: source ids come from the
+                # registry, never from a string in a call site).
+                #
+                # The merge is ONE-DIRECTIONAL. The direct adapter and the OpenSanctions
+                # aggregate are different checks that can disagree, so a hit may RAISE
+                # this row and nothing here may lower it.
+                from ._sanctions_classify import (
+                    _PRIMARY_ADAPTER_TO_SOURCE as _PRIMARY_SRC_KEYS,
+                )
+                _ofsi_key = _PRIMARY_SRC_KEYS.get("uk_ofsi", "UK OFSI / HMT")
+                _ofsi_row = _vs.get(_ofsi_key)
+                if not isinstance(_ofsi_row, dict):
+                    _ofsi_row = {
                         "label": "UK OFSI — HM Treasury Consolidated List",
-                        "status": "HIT" if _ofsi_hits else "CLEAN",
-                        "match_count": len(_ofsi_hits),
-                        "matched_entities": [(h.get("name") or name) for h in _ofsi_hits][:5],
+                        "status": "CLEAN",
+                        "match_count": 0,
+                        "matched_entities": [],
                     }
+                    _vs[_ofsi_key] = _ofsi_row
+                if _ofsi_hits:
+                    _ofsi_row["status"] = "HIT"
+                    _ofsi_row["match_count"] = max(
+                        int(_ofsi_row.get("match_count") or 0), len(_ofsi_hits))
+                    _named = list(_ofsi_row.get("matched_entities") or [])
+                    for _h in _ofsi_hits:
+                        _hn = _h.get("name") or name
+                        if _hn not in _named:
+                            _named.append(_hn)
+                    _ofsi_row["matched_entities"] = _named[:5]
+                elif _ofsi_row.get("status") != "HIT":
+                    # A fresh primary-source lookup that found nothing IS a verified
+                    # clean for this list, including when the aggregate could not
+                    # answer. It may never clear a HIT the aggregate already recorded.
+                    _ofsi_row["status"] = "CLEAN"
+                # R-F740's reason to exist: a UK client can see the primary source was
+                # consulted directly, not only via a third-party aggregator. Set ONLY
+                # inside the fresh-and-current guard above, so R-F2460 holds — a stale
+                # cached snapshot leaves no primary-check claim on this row.
+                _ofsi_row["primary_adapter"] = "uk_ofsi"
                 screen["verified_sources"] = _vs
         except Exception as _ofsi_e:
             logger.debug(
@@ -7269,8 +7319,25 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     # vault (pay-once, ANY jurisdiction — operator directive 2026-07-02). HONEST: UNKNOWN
     # when no data is found anywhere — never a false clean bill of health.
     try:
-        _fin_name = (target.get("name") or target.get("entity")
-                     or getattr(report.identity, "entity_name", "") or "").strip()
+        # R-F4265 (C-226) — the REGISTRY-RESOLVED legal name leads; the supplied
+        # string is the fallback, not the other way round.
+        #
+        # `_enrich_target` deliberately never overwrites `target["name"]`, so on the
+        # live Vigilo Solutions run (dd_9fe0e61e4a0c) it still held what the requester
+        # typed — "Vigilo Security Solutions" — while identity had resolved
+        # "Vigilo Solutions Limited" (SC215104) and every other layer used that. The
+        # old precedence made `identity.entity_name` reachable ONLY when no name was
+        # supplied at all, so it printed a company that is not the subject
+        # ("Vigilo Security Solutions is not found in SEC EDGAR") and searched EDGAR,
+        # which resolves a CIK BY NAME, for that same wrong string. A near-miss there
+        # returns UNKNOWN financial capacity for an entity whose filings are public —
+        # an absence of coverage manufactured by our own input handling.
+        #
+        # The fallback is load-bearing: identity resolution legitimately fails
+        # (trading name, foreign entity, registry outage) and the supplied name is
+        # then the only name there is.
+        _fin_name = (getattr(report.identity, "entity_name", "") or target.get("name")
+                     or target.get("entity") or "").strip()
         # R-F3063 (P0) — defence in depth. Corporate financial health is a COMPANY
         # property: filed accounts, SEC filings, solvency ratios. Running it for an
         # individual can only produce a company's figures under a person's name —
@@ -13925,11 +13992,34 @@ def _adverse_citation_contradictions(report) -> list[dict]:
     press_coverage accumulates what the research layer actually read. Nothing compared
     them, so an item could be absent from one and present in the other with no complaint.
 
-    THIS DOES NOT RE-CLASSIFY ANYTHING. It re-uses the SAME two predicates the sweep uses
-    (`_adverse_names_subject`, `_adverse_has_adverse_content`) — no new heuristic, so it
-    cannot invent an allegation the sweep would have rejected. It only reports that the
-    report's own evidence disagrees with the report's own conclusion, which a reader can
-    then settle in one click.
+    THIS DOES NOT RE-CLASSIFY ANYTHING. It re-uses the sweep's OWN predicates — no new
+    heuristic, so it cannot invent an allegation the sweep would have rejected. It only
+    reports that the report's own evidence disagrees with the report's own conclusion,
+    which a reader can then settle in one click.
+
+    R-F4266 (C-227) — IT USED TO RUN ONLY TWO OF THEM, and the claim above was false for
+    the ones it skipped. `_adverse_media_materiality` filters in six stages: dedup,
+    SELF-REFERENCE, class-contradiction, INDEX PAGE, attribution, adverse content. This
+    function re-ran attribution and adverse-content only, so an item the sweep drops at
+    stage (b) or (d) came back as a contradiction OF the sweep.
+
+    Live, on Vigilo Solutions Limited (dd_9fe0e61e4a0c), that published an AMBER finding
+    and a data gap — "adverse-media conclusion CONTRADICTED by 1 of this report's own
+    cited source(s) ... Open them before relying on the clean reading" — naming
+    `memory://f02d73289407`, a record ARIA wrote about her own earlier investigation of
+    the same subject. Nothing to open; nothing contradicted. The same page already told
+    the reader the sweep had excluded five such records.
+
+    Self-citation cannot corroborate — "the same observation counted twice" (R-F3022) —
+    and cannot contradict either, for the same reason. An official INDEX page is excluded
+    on the same footing: `_adverse_has_adverse_content` returns True on DOMAIN MATCH
+    ALONE for those hosts, so a paginated court listing would arrive here already
+    "adverse" with the lexicon never consulted (the R-F3089 Mitie class).
+
+    The cost of a false positive is not noise, it is the gate. R-F3455 was built for the
+    Babcock report, which concluded "nothing found" while citing a live FRC investigation
+    into its audited accounts — it has to be believed on the day it is right, and a reader
+    who has learned to skim it will skim that one too.
     """
     out: list[dict] = []
     try:
@@ -13949,6 +14039,12 @@ def _adverse_citation_contradictions(report) -> list[dict]:
                 snip = getattr(ev, "snippet", None)
             item = {"title": title or "", "url": url or "", "snippet": snip or ""}
             if not item["title"]:
+                continue
+            # R-F4266 — the sweep's stages (b) and (d), which this gate used to skip.
+            # Both are computed from url/title alone, which is all a citation carries.
+            if _adverse_is_self_reference(item):
+                continue
+            if _adverse_is_index_page(item):
                 continue
             if not _adverse_names_subject(item, tokens):
                 continue

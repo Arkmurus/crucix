@@ -14375,3 +14375,186 @@ first trace should be trusted. The numbers that were always valid are the ones
 read from the sqlite store (score/sample distributions) and from git (R-F3483's
 dates) — those need no process state. Anything measured through a detached
 python3 must be re-run in-server before it is cited.
+
+## C-225 · "N articles analysed" counted article tasks that analysed nothing (fixed, R-F4264)
+
+Found by reviewing the delivered report
+`ARIA_DD_Vigilo_Solutions_Limited_dd_9fe0e61e4a0c.pdf`. Its data-gap list said, in
+one sentence:
+
+    deep research was bounded at 37s and stopped after article read
+    (7 of 12 articles analysed) — 0 article(s) analysed, 0 fact(s) retained
+
+Seven and zero, about the same seven articles, eleven words apart.
+
+`deep_researcher._process_one_article` returns `None` when the fetch came back
+empty, the body was under 100 characters, or `_analyse_article` raised — i.e. when
+the article was NOT analysed. Those `None`s were appended to `parallel_results`
+unfiltered, and the partial marker counted COMPLETED TASKS
+(`len(_tasks) - len(_left)`). `_retain` skips falsy results before
+`articles_read += 1`. One expression counted attempts, the other counted work.
+
+On the live run every one of the seven completed fetches produced nothing usable —
+a total article-stage failure — and the report described it as seven articles read.
+The overstated number is the one that reads as COVERAGE, which is the expensive
+direction. The same overcount also reached `progress["analysed"]`, the dict the
+report falls back to when the caller's hard `wait_for` backstop destroys the frame,
+so fixing only the returned string would have left it reaching the reader by the
+harder-to-notice path.
+
+Fixed by `_count_analysed()`, applied at all four sites (the two partial markers,
+the retention-floor denominators, and the progress dict).
+Fixture: `test_rf4264_analysed_count_is_usable_articles.py` — RED pre-fix with
+"7 of 8 articles analysed - 0 article(s) analysed", the live shape.
+
+## C-226 · the financial layer screened the name the CUSTOMER TYPED (fixed, R-F4265)
+
+Same report. Subject block: `Vigilo Solutions Limited`, `SC215104`,
+`company:GB:SC215104`. Financial-health finding, next page:
+
+    Vigilo Security Solutions is not found in SEC EDGAR (not US-listed).
+
+"Vigilo Security Solutions" is not the subject and appears nowhere else in the
+report. It is the requester's supplied string, before identity resolution corrected
+it against Companies House.
+
+`_enrich_target` deliberately never overwrites `target["name"]` — the supplied
+string is evidence of what was asked for. The resolved name lives on
+`report.identity.entity_name` and every other layer reads it. The financial block
+alone inverted the precedence, so `identity.entity_name` was reachable only when NO
+name was supplied.
+
+Two harms. The report asserts a company that is not the subject in the section a
+reader checks hardest; and `_assess_sec_edgar` resolves a CIK BY NAME, so a
+near-miss supplied name misses a genuine US filer and `_verdict()` returns UNKNOWN —
+financial capacity "could not be established" for a company whose filings are
+public. That is an absence of coverage manufactured by our own input handling.
+
+Fixed by preferring `report.identity.entity_name`, keeping the supplied name as the
+fallback — which is load-bearing, since identity resolution legitimately fails for
+trading names, foreign entities and registry outages.
+Fixture: `test_rf4265_financial_uses_registry_legal_name.py`, driving the real
+`_run_compliance` and asserting the name handed to `financial_health.assess`.
+
+## C-227 · the contradiction gate flagged ARIA's OWN memory record (fixed, R-F4266)
+
+Same report. It published an AMBER key finding — "1 cited source(s) carry adverse
+markers but are absent from the adverse-media review set" — and a data gap telling
+the reader "adverse-media conclusion CONTRADICTED by 1 of this report's own cited
+source(s) ... Open them before relying on the clean reading". The source it named is
+`memory://f02d73289407`, a record ARIA wrote about her own earlier investigation of
+the same subject. There is nothing to open. The same page already told the reader
+the sweep had excluded "5 of ARIA's own memory records".
+
+`_adverse_media_materiality` filters in six stages: dedup, SELF-REFERENCE,
+class-contradiction, INDEX PAGE, attribution, adverse content.
+`_adverse_citation_contradictions` re-ran attribution and adverse-content only. Its
+docstring claimed it "re-uses the SAME two predicates the sweep uses ... so it
+cannot invent an allegation the sweep would have rejected" — true of the two it ran,
+false of the four it skipped. Reproduced end-to-end from a two-item fixture; the
+sweep's own `_adverse_is_self_reference` returns True on the flagged item.
+
+The cost is not the noise, it is the gate. R-F3455 exists because the Babcock report
+concluded "nothing found" while citing a live FRC investigation into its audited
+accounts. It has to be believed on the day it is right, and both cases render
+identically on the page.
+
+Fixed by applying `_adverse_is_self_reference` and `_adverse_is_index_page` — both
+computed from url/title alone, which is all a citation carries — before the two
+existing predicates. `test_rf4266_citation_coherence_excludes_self_reference.py`
+includes a test proving the gate STILL FIRES on the genuine R-F3455 case; a guard
+that cannot fire is not a guard.
+
+## C-228 · OFSI was listed twice and counted as twelve lists (fixed, R-F4267)
+
+Same report. "Sanctions & watchlists screened" prints twelve rows, of which the 7th
+and the 12th are `HM Treasury Office of Financial Sanctions Implementation — CLEAN`
+and `UK OFSI — HM Treasury Consolidated List — CLEAN`. OFSI is HM Treasury's
+sanctions unit and the UK consolidated list is the list it publishes. One source,
+two rows, counted as two independent clearances.
+
+`_CANONICAL_SANCTIONS_SOURCES` defines eleven sources and `derive_verified_sources`
+returns exactly those eleven, keyed by canonical name. R-F740's primary-source OFSI
+adapter appended its own row under the key `"uk_ofsi"`, guarded by
+`if "uk_ofsi" not in _vs` — a key that is not in the canonical registry and
+therefore never present, so the guard could not fire. The correct mapping already
+existed as `_PRIMARY_ADAPTER_TO_SOURCE["uk_ofsi"] = "UK OFSI / HMT"`; the
+orchestrator used a literal instead. Measured: `derive_verified_sources` gives 11
+rows; the real `_run_identity` gives 12, matching the delivered PDF row for row.
+
+"How many independent lists cleared this counterparty" is a decision input, and this
+inflated it — the C-39 shape.
+
+**A second defect surfaced only once the rows were reconciled.** The canonical row is
+derived BEFORE this block appends `_ofsi_hits` to `screen["matches"]`, so a
+designation found on the direct OFSI list left the authoritative row reading CLEAN.
+Pre-fix, a report with an OFSI hit would have carried `HM Treasury OFSI — CLEAN` and
+`UK OFSI — HIT` in the same table. Its fixture was RED before the fix.
+
+Fixed by merging into the canonical row through the registry mapping,
+ONE-DIRECTIONALLY: a hit may RAISE the row, nothing here may lower a HIT. R-F740's
+reason to exist is preserved as `primary_adapter` on that row, set only inside the
+existing fresh-and-current guard so R-F2460 still holds — a stale cached snapshot
+leaves no primary-check claim. `test_rf2460_ofsi_stale_not_verified.py` was updated
+to assert the surviving intent rather than the removed key, and says so.
+
+## C-229 · a UBO-chain watchlist match treats a shared GIVEN NAME as identity evidence
+
+Same report. Two UK companies reached by the ownership walk were printed beside US
+FINRA-barred entities:
+
+    BRIAN REID LTD. (hop 1)      -> BRIAN BROCK REID (score 0.91, us_finra_barred)
+    STEPHEN MABBOTT LTD. (hop 1) -> STEPHEN A. KOHN & ASSOCIATES LTD. (score 0.83)
+
+The second shares exactly one meaningful token with the query: the forename
+"Stephen". Reproduced through `classify_matches`: both return
+`worst_severity: amber`, neither is filtered as name-overlap noise.
+
+Two distinct gaps, both measured:
+
+1. **The provider's entity type is fetched and then discarded.** `sanctions.py:1208`
+   carries `"schema": raw.get("schema")` on every match. `grep -n "schema"` over
+   `_sanctions_classify.py` returns NOTHING. A Company query matching a Person record
+   escalates on name overlap alone.
+2. **A forename is not a distinctive token.** The R-F351 rule demotes a single shared
+   token only when it is under five characters, so "stephen" (7) passes. This is the
+   same class as `_GEOGRAPHIC_TOKENS` (R-F277) and
+   `_LOW_DISTINCTIVENESS_IDENTITY_TOKENS` (R-F4172) — filler that survives
+   tokenisation without identifying anyone.
+
+NOT FIXED IN THIS PASS, deliberately. These items are already labelled UNVERIFIED,
+"matched on NAME ALONE", and "does not affect the risk classification", so the
+verdict is correct and the failure is loud. Suppressing them is the
+never-false-clean direction and eponymous companies are a real evasion pattern
+(OFAC lists both a designated individual and their eponymous company), so this needs
+a sanctions judgement, not a tidy-up. The safe shape is almost certainly ADDITIVE:
+report the schema mismatch and the forename-only overlap as provenance on the lead,
+rather than dropping the lead. What it costs today is a customer-facing document
+naming innocent third parties next to barred US brokers.
+
+## C-230 · the same funnel is rendered twice, and the two accounts disagree
+
+Same report. `_adverse_media_materiality` returns one exclusion ledger. Two places
+render it.
+
+`dd_orchestrator._adverse_media_key_finding` renders all six reasons — page 2:
+"139 raw item(s); 125 duplicate URL(s) collapsed; 5 of ARIA's own memory records
+excluded; 8 returned from a domain other than the one the query targeted; 1 did not
+name this entity". That reconciles: 125+5+8+1 = 139, leaving 0.
+
+`dd_schema._adverse_media_summary` renders four — page 5: "0 credible adverse
+item(s) from 139 raw hit(s) (125 duplicate, 5 self-referential, 0 non-adverse)".
+139-125-5-0 leaves **9 items unaccounted for**, with no reason given. That code's own
+comment forbids exactly this: *"Report every non-zero reason; a dropped item that is
+never accounted for reads as an item that was never found."*
+
+CONFIRMED by code read: `class_contradicted_dropped` is absent from `_excl`
+altogether, so stage (c) can never be reported on that surface.
+
+UNKNOWN, and not to be asserted without evidence: the delivered page-5 ledger ALSO
+omitted "1 not naming this entity", which is rendered conditionally on
+`subject_unnamed_dropped` being truthy — while page 2 reported it as 1 from what
+should be the same dict. Either the two surfaces read different `materiality`
+objects (one live, one persisted) or the sweep ran twice. Establish which before
+fixing; a one-line ledger addition would close the confirmed half and leave the
+disagreement intact.

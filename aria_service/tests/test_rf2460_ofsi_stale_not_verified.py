@@ -10,6 +10,18 @@ Post-fix it is added only when the snapshot is fresh (not error/stale/unavailabl
 Drives the REAL _run_identity company path; the post-screen helpers are no-op'd
 (the OFSI block runs before them) and any residual downstream is tolerated — the
 assertion is on sanctions_screen['verified_sources'], set right after the block.
+
+R-F4267 (C-228) — WHERE THE CLAIM IS RECORDED MOVED; THE RULE DID NOT.
+These tests used to assert on a separate ``"uk_ofsi"`` KEY in verified_sources.
+That key WAS the C-228 defect: the table is keyed by canonical source name, so
+appending ``"uk_ofsi"`` gave OFSI two rows and the delivered Vigilo Solutions
+report (dd_9fe0e61e4a0c) told the customer twelve lists had been screened when
+eleven exist. The primary-source check is now recorded as ``primary_adapter`` ON
+the canonical ``"UK OFSI / HMT"`` row.
+
+DO NOT re-green a failure here by restoring the ``"uk_ofsi"`` key — that
+reintroduces the double-count. What R-F2460 protects is unchanged and is asserted
+below: a STALE cached OFSI snapshot must leave no primary-source claim at all.
 """
 import asyncio
 from unittest.mock import patch
@@ -59,16 +71,25 @@ async def _drive(ofsi_ret):
     return report.identity.sanctions_screen or {}
 
 
+def _ofsi_row(ss: dict) -> dict:
+    """The canonical OFSI row, resolved through the registry rather than a literal."""
+    from aria_service.intel._sanctions_classify import _PRIMARY_ADAPTER_TO_SOURCE
+    vs = ss.get("verified_sources") or {}
+    return (vs.get(_PRIMARY_ADAPTER_TO_SOURCE["uk_ofsi"]) or {})
+
+
 def test_stale_ofsi_not_marked_verified():
     ss = asyncio.run(_drive({"hits": [], "stale": True, "source_unavailable": True}))
-    assert "uk_ofsi" not in (ss.get("verified_sources") or []), \
-        f"stale OFSI must NOT be verified-clean, got {ss.get('verified_sources')}"
+    row = _ofsi_row(ss)
+    assert "primary_adapter" not in row, (
+        f"stale OFSI must NOT be claimed as a primary-source check, got {row}")
 
 
 def test_fresh_ofsi_still_marked_verified():
     ss = asyncio.run(_drive({"hits": [], "stale": False, "source_unavailable": False}))
-    assert "uk_ofsi" in (ss.get("verified_sources") or []), \
-        f"fresh OFSI screen should be verified, got {ss.get('verified_sources')}"
+    row = _ofsi_row(ss)
+    assert row.get("primary_adapter") == "uk_ofsi", (
+        f"fresh OFSI lookup should be recorded on the canonical row, got {row}")
 
 
 if __name__ == "__main__":
