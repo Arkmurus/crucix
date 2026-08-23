@@ -514,3 +514,88 @@ class TestStreamBypassMirror:
             "the streaming chat path must feed the vendor-balance gauge too "
             "(§13) — got no vendor read, so the gauge is dark on the busiest "
             "user path")
+
+
+# -- 7. R-F4233 / C-213 — a recovery is not a fresh demand -------------------
+
+class TestSeverityTransitionsCarryDirection:
+    """Observed live 2026-08-23, 51 seconds after the operator topped up.
+
+    The balance went -0.02 -> 9.97 and the gauge emitted:
+
+        [llm_provider_failure] deepseek prepaid vendor balance low: 9.97 USD,
+        vendor says available=True. OPERATOR ACTION: top up the deepseek account.
+
+    Every word is true and the whole thing is misleading: the operator had just
+    topped up, and the instrument answered by telling them to top up. `exhausted
+    -> low` is a RECOVERY that has not yet cleared the threshold; `ok -> low` is a
+    balance falling toward zero. Same level, opposite events, and only the second
+    one is a call to action.
+
+    This is the level/event conflation the gauge was built to avoid in the other
+    direction (a level that never becomes an event). A signal the operator learns
+    to disbelieve is worse than none — the cry-wolf rule R-F4024 applies to
+    `busy`/`unknown`.
+    """
+
+    def _poll(self, monkeypatch, chain, sink, body):
+        monkeypatch.setattr(vb, "_fetch", _fetch_ok(body))
+        _run(chain._poll_balance_quietly(chain.providers[0]))
+        return [f for f in sink["failure"]
+                if f.get("module") == "llm_vendor_balance"]
+
+    def _low_body(self, amount="9.97"):
+        return {"is_available": True,
+                "balance_infos": [{"currency": "USD", "total_balance": amount}]}
+
+    def test_recovery_into_low_does_not_demand_another_topup(
+            self, monkeypatch, sink):
+        chain = fb.FallbackProvider([_Provider("deepseek")])
+        monkeypatch.setattr(chain, "_provider_api_key", lambda p: "sk-test")
+        monkeypatch.setattr(vb, "_warn_threshold_usd", lambda: 10.0)
+
+        self._poll(monkeypatch, chain, sink, LIVE_EXHAUSTED_BODY)
+        sink["failure"].clear()
+        got = self._poll(monkeypatch, chain, sink, self._low_body())
+
+        assert got, "a still-low balance must still be reported"
+        detail = str(got[0].get("detail", ""))
+        assert "OPERATOR ACTION: top up" not in detail, (
+            "the balance just went UP — telling the operator to top up is the "
+            "instrument contradicting the action they just took")
+        assert "recovered" in detail.lower()
+        assert "9.97" in detail and "10" in detail, (
+            "say what it recovered TO and what it is still below")
+
+    def test_a_falling_balance_still_demands_a_topup(self, monkeypatch, sink):
+        """The guard must not silence the case it exists for (R-F3858)."""
+        chain = fb.FallbackProvider([_Provider("deepseek")])
+        monkeypatch.setattr(chain, "_provider_api_key", lambda p: "sk-test")
+        monkeypatch.setattr(vb, "_warn_threshold_usd", lambda: 10.0)
+
+        self._poll(monkeypatch, chain, sink, LIVE_FUNDED_BODY)   # ok (42.75)
+        sink["failure"].clear()
+        got = self._poll(monkeypatch, chain, sink, self._low_body("4.10"))
+
+        assert got, "a balance falling below the threshold must page"
+        detail = str(got[0].get("detail", ""))
+        assert "OPERATOR ACTION: top up" in detail
+        assert "recovered" not in detail.lower()
+
+    def test_a_first_observation_of_low_still_demands_a_topup(
+            self, monkeypatch, sink):
+        """No prior severity — there is no recovery to claim, so it is a demand."""
+        chain = fb.FallbackProvider([_Provider("deepseek")])
+        monkeypatch.setattr(chain, "_provider_api_key", lambda p: "sk-test")
+        monkeypatch.setattr(vb, "_warn_threshold_usd", lambda: 10.0)
+        got = self._poll(monkeypatch, chain, sink, self._low_body("4.10"))
+        assert got and "OPERATOR ACTION: top up" in str(got[0].get("detail", ""))
+
+    def test_falling_into_exhausted_is_never_softened(self, monkeypatch, sink):
+        chain = fb.FallbackProvider([_Provider("deepseek")])
+        monkeypatch.setattr(chain, "_provider_api_key", lambda p: "sk-test")
+        monkeypatch.setattr(vb, "_warn_threshold_usd", lambda: 10.0)
+        self._poll(monkeypatch, chain, sink, self._low_body("4.10"))
+        sink["failure"].clear()
+        got = self._poll(monkeypatch, chain, sink, LIVE_EXHAUSTED_BODY)
+        assert got and "OPERATOR ACTION: top up" in str(got[0].get("detail", ""))

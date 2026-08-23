@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4233,
+  "next_available": 4236,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -36238,6 +36238,33 @@
       "commit_sha": "1492bf04",
       "notes": null,
       "shipped_at": "2026-08-23T04:12:18Z"
+    },
+    {
+      "r_number": "R-F4233",
+      "title": "vendor balance recovery reported as a fresh top-up demand",
+      "claimed_at": "2026-08-23T04:21:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4234",
+      "title": "sections 1 and 20 bind every session to read a file that has never existed",
+      "claimed_at": "2026-08-23T04:21:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4235",
+      "title": "the offline gate-1 populate recorded zero honesty and said so only in a field nobody reads",
+      "claimed_at": "2026-08-23T04:36:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

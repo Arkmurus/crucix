@@ -2419,6 +2419,33 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T04:12:19Z"
+    },
+    {
+      "c_number": "C-213",
+      "title": "a severity transition signal ignored direction, so a recovery read as a new failure",
+      "claimed_at": "2026-08-23T04:21:40Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-214",
+      "title": "a recording eval achieved 0% of its stated purpose silently for weeks",
+      "claimed_at": "2026-08-23T04:36:21Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-215",
+      "title": "a binding session-open read pointed at a file that has never existed",
+      "claimed_at": "2026-08-23T04:43:56Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

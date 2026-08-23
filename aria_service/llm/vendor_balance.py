@@ -77,6 +77,12 @@ SEVERITY_LOW = "low"                     # still serving — but not for long
 SEVERITY_EXHAUSTED = "exhausted"         # the vendor is refusing, measured
 SEVERITY_UNKNOWN = "unknown"             # unreadable or unsupported
 
+# R-F4233 — how BAD each severity is, so a transition can carry DIRECTION.
+# `unknown` is deliberately absent: it is not a point on this scale (it means we
+# could not measure), and giving it a rank would let a gauge outage read as an
+# improvement or a decline. `.get(..., 0)` therefore treats it as "no comparison".
+_SEVERITY_RANK = {SEVERITY_OK: 0, SEVERITY_LOW: 1, SEVERITY_EXHAUSTED: 2}
+
 # Vendor identity is the FIRST underscore-segment of the provider name, matching
 # `general_vendor_depth` in fallback.get_health() (R-F3634): `deepseek` and
 # `deepseek_backup` are two chain entries built from ONE key on ONE account, so
@@ -284,15 +290,42 @@ def note_transition(provider_name: str, reading: BalanceReading,
                     source_id=f"llm_vendor_balance:restored:{provider_name}",
                 )
         else:
-            _wf(
-                module="llm_vendor_balance",
-                detail=(
+            # R-F4233 (C-213) — SAME LEVEL, OPPOSITE EVENTS.
+            #
+            # Observed live 2026-08-23, 51 seconds after the operator topped up:
+            # the balance went -0.02 -> 9.97 and this emitted "vendor balance
+            # low ... OPERATOR ACTION: top up the deepseek account". Every word
+            # true, the whole thing misleading — the instrument answered a
+            # top-up by demanding a top-up.
+            #
+            # `exhausted -> low` is a RECOVERY that has not yet cleared the
+            # threshold. `ok -> low` is a balance falling toward zero. Only the
+            # second is a call to action, and a signal the operator learns to
+            # disbelieve is worse than no signal (the R-F4024 cry-wolf rule).
+            # Reporting the LEVEL without the DIRECTION is the level/event
+            # conflation this module exists to fix in the other direction.
+            _improved = (previous_severity is not None
+                         and _SEVERITY_RANK.get(sev, 0)
+                         < _SEVERITY_RANK.get(previous_severity, 0))
+            if _improved:
+                _detail = (
+                    f"{provider_name} prepaid vendor balance recovered "
+                    f"({previous_severity} -> {sev}): {reading.describe()}. "
+                    f"Still below the {_warn_threshold_usd():.2f} warning "
+                    f"threshold, so headroom is thin — but the balance is RISING; "
+                    f"no action is outstanding from this signal."
+                )
+            else:
+                _detail = (
                     f"{provider_name} prepaid vendor balance {sev}: "
                     f"{reading.describe()}. OPERATOR ACTION: top up the "
                     f"{reading.vendor} account. This is NOT the monthly cap — "
                     f"the cost meter measures our modelled spend and cannot see "
                     f"vendor credit."
-                )[:600],
+                )
+            _wf(
+                module="llm_vendor_balance",
+                detail=_detail[:600],
                 gap_type="llm_provider_failure",
                 source=f"llm_vendor_balance:{sev}:{provider_name}",
             )

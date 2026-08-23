@@ -13555,3 +13555,142 @@ which is not deterministic and would be a flaky guard. Regression: 387 passed / 
 failed on the task-ref, honesty, verification and §13 surfaces; 299 passed / 4
 failed across the chat path, all four in `docs/suite_baseline.json`. Boot-path
 import smoke clean.
+
+## C-213 · a severity transition ignored direction, so a recovery read as a new failure (fixed, R-F4233)
+
+Observed live 2026-08-23, **51 seconds after the operator topped up DeepSeek**. The
+balance went `-0.02 -> 9.97` and R-F4229's gauge emitted:
+
+```
+[llm_provider_failure] deepseek prepaid vendor balance low: 9.97 USD,
+vendor says available=True. OPERATOR ACTION: top up the deepseek account.
+```
+
+Every word true; the whole thing misleading. The operator had just topped up and
+the instrument answered by demanding a top-up.
+
+`exhausted -> low` is a **recovery that has not yet cleared the threshold**.
+`ok -> low` is a balance **falling toward zero**. Same level, opposite events, and
+only the second is a call to action. Reporting the LEVEL without the DIRECTION is
+the level/event conflation R-F4229 was built to fix in the other direction (a level
+that never becomes an event), reappearing in its own signal. A signal the operator
+learns to disbelieve is worse than none — the R-F4024 cry-wolf rule.
+
+**Fix:** `_SEVERITY_RANK` gives the three real severities an order so a transition
+carries direction. An improving-but-still-low transition says what it recovered
+**to** and what it is still **below**, and explicitly states no action is
+outstanding. `unknown` is deliberately absent from the rank map: it is not a point
+on the scale, and ranking it would let a gauge outage read as an improvement.
+
+**The guard can still fire for the case it exists for** — three tests pin that a
+falling balance (`ok -> low`), a first observation of `low`, and any fall into
+`exhausted` all still carry `OPERATOR ACTION: top up`. Those three passed before
+the fix, so nothing was weakened. 29 tests in the R-F4229 file.
+
+## C-214 · the offline gate-#1 populate recorded ZERO honesty, silently, for weeks (fixed, R-F4235)
+
+`run_eval(record=True)` exists for one stated reason, in its own docstring: *"the
+deterministic, offline way to populate the composite's verification (45%) +
+honesty (25%) signals from the frozen golden set"*. It is the designed mechanism
+for filling the axis Phase A is named after.
+
+Measured live 2026-08-23. A run labelled `rf-gate1-honesty-seed`, sitting in the
+store for weeks:
+
+```
+total 30      verification_recorded 30      honesty_recorded 0
+```
+
+Thirty LLM-driven chat turns paid for, half the purpose achieved, the other half
+**zero** — reported in a summary field no verdict consumes. So
+`/api/aria/honesty/stats` stayed at 55 lifetime judgments, gate #1's honesty signal
+stayed `None`, and until R-F4231 the gate could have certified Phase A without it.
+C-96 verbatim: *"publishing a number no verdict consumes is why the degradation
+went unnoticed."*
+
+### Why it recorded nothing — and the skip is CORRECT
+
+The gate is `_q_ctx and has_confidence_tags(_q_actual)`. Measured against that
+run's own stored responses: only **3 of 30** previews carried a confidence tag, and
+honesty was still 0, so tool context was absent too. The untagged samples are not
+bugs — *"Retrieved from ARIA's reasoning library"* (memory-served), *"I started
+drafting a response that included specific claims I cannot verify"* (the R-F2406
+grounding repair correctly refusing), *"no PDF has been attached"* (a
+clarification). **With no retrieved context there is nothing to ground a claim
+against, so skipping is right.** The defect is that the skip was invisible and
+undifferentiated.
+
+### The fix
+
+Two counters, because the reasons need opposite remedies:
+
+* `honesty_skipped_no_context` — correct behaviour; the SEED was aimed at
+  unsuitable entries. Remedy: choose tool-backed questions.
+* `honesty_skipped_no_tags` — ARIA used a source and did not tag the claim.
+  Remedy: prompt/behaviour, not entry selection.
+
+The no-context branch is checked FIRST and the tag branch is an `elif`, so one
+entry cannot land in both buckets and send the reader to the wrong fix.
+
+And a `record=True` run that produced zero honesty now **reports itself** — ERROR
+log plus a `wire_failure` (§21a: "logged to console" is DARK), `source:
+eval_runner:honesty_populate_empty`. Gated on `record=True` because a normal
+scoring eval records nothing BY DESIGN and must not page; an ungated signal would
+be the ledger flood this repo has already suffered twice.
+
+### Standing consequence, stated plainly
+
+This does not fill the honesty axis — it makes the emptiness impossible to miss and
+tells you which remedy applies. **Gate #1 will keep reading `unknown` until a seed
+run is aimed at tool-backed questions, or ARIA tags sourced claims more often.**
+That is the honest position, not a regression.
+
+### Verification
+
+7 tests. `honesty_skipped_*` counters, mutual exclusivity of the branches, the
+`record=True` gate, and that the zero-populate reaches a brain sink rather than
+only the log.
+
+## C-215 · a binding session-open read pointed at a file that has never existed (fixed, R-F4234)
+
+CLAUDE.md §1 (the Phase line) and §20 (the session-OPEN ritual) both named
+`memory/platform_buildout_north_star.md` as a required read. It is not in the repo
+and never has been:
+
+```
+git log --oneline --all --diff-filter=A -- memory/platform_buildout_north_star.md   -> (empty)
+git log --oneline --all --diff-filter=D -- memory/platform_buildout_north_star.md   -> (empty)
+```
+
+Never added, never deleted. **The first binding instruction of every session was
+unperformable** — and because a missing file reads as "nothing to see", the step
+could be skipped indefinitely with nobody noticing. Same shape §20 already records
+for the coding-RAG priming step (R-F3099: *"a mandatory step certified by an
+absence"*) and §1 records for three Phase A gates.
+
+Re-pointed at the documents that exist: `docs/golden_intel_north_star_2026_07_14.md`
+— the USP, *Golden Intel as ARIA's decision-signal layer*, whose named gap is
+**value density, not guards** — and `docs/aria_source_coverage_north_star_2026_07_14.md`.
+
+### The guard, and the fact that its FIRST version was blind
+
+Re-pointing one path fixes one path; what let this survive is that nothing checked.
+`test_rf4234_binding_reads_exist.py` asserts the general property: **every
+repo-relative document CLAUDE.md instructs a session to READ must exist on disk.**
+
+The first version had a prose escape hatch — it skipped any line containing
+"never existed" / "DOES NOT EXIST", so a correction note could sit on the
+instruction line. In CLAUDE.md it did, which **exempted the single line that
+matters most**. Proven by mutation: re-adding the phantom to the §20 "Open" bullet
+still PASSED.
+
+**The fix was to the DATA, not to the check.** Historical notes now live on their
+own lines (which carry no instruction marker and are therefore never scanned), and
+an instruction line is checked unconditionally with no exemption available. Making
+the regex cleverer would have left the same class of hole one edit away.
+Re-mutated after hardening: 2 tests fail, both green again on revert. R-F3858 — a
+guard that can be talked out of firing is not a guard.
+
+A `test_the_sweep_finds_something_to_check` companion asserts the marker scan still
+matches something, so the suite cannot pass vacuously if CLAUDE.md's headings
+change shape (§16/R-F3791: a guard whose universe is empty always certifies).

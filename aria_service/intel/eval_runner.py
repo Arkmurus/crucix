@@ -628,6 +628,9 @@ async def run_eval(
     _rec_honesty_n = 0
     _repair_used_n = 0  # R-F2396 — grounding repairs that improved the score
     _grounded_rates: list[float] = []
+    # R-F4235 (C-214) — why an honesty judgment was NOT produced.
+    _skip_no_ctx = 0    # answered from memory / refused — nothing to ground against
+    _skip_no_tags = 0   # tool-backed but the answer carried no confidence tag
     _sv = _hj = None
     _record_unavailable = ""
     if record:
@@ -730,8 +733,20 @@ async def run_eval(
             try:
                 # 1. Honesty judgment (real LLM support check) — the source of
                 #    truth for native grounding. Same gate as the live path.
+                # R-F4235 (C-214) — COUNT WHY, not just how many.
+                # The two halves of this gate fail for opposite reasons and need
+                # opposite remedies: no tool context means the entry was answered
+                # from memory / refused / clarified (nothing to ground against, so
+                # skipping is CORRECT); no confidence tags means ARIA answered from
+                # a source but did not tag the claim, which is a prompt/behaviour
+                # problem. Recording only the total left "honesty_recorded: 0"
+                # indistinguishable between them.
                 _judgment = None
-                if _q_ctx and _hj.has_confidence_tags(_q_actual):
+                if not _q_ctx:
+                    _skip_no_ctx += 1
+                elif not _hj.has_confidence_tags(_q_actual):
+                    _skip_no_tags += 1
+                else:
                     _judgment = await _hj.judge_response(llm, _q_actual, _q_ctx)
 
                 # 2. Deterministic verify, fed the support judgment so native
@@ -817,6 +832,9 @@ async def run_eval(
             round(sum(_grounded_rates) / len(_grounded_rates), 3)
             if _grounded_rates else None
         ),
+        # R-F4235 (C-214) — the two reasons a judgment was skipped, kept apart.
+        "honesty_skipped_no_context": _skip_no_ctx,
+        "honesty_skipped_no_tags": _skip_no_tags,
     }
     if degraded:
         logger.warning(
@@ -824,6 +842,51 @@ async def run_eval(
             "Calibration loop will skip this run's pass_rate.",
             empty_resp_count, n,
         )
+
+    # ── R-F4235 (C-214) — A POPULATE THAT POPULATED NOTHING MUST SAY SO ──────
+    #
+    # `record=True` exists for exactly one stated purpose: "the deterministic,
+    # offline way to populate the composite's verification (45%) + honesty (25%)
+    # signals". Measured 2026-08-23, a run labelled `rf-gate1-honesty-seed` had
+    # been sitting in the store for weeks:
+    #
+    #     verification_recorded: 30      honesty_recorded: 0
+    #
+    # It achieved 0% of half its purpose, published that in a summary field, and
+    # nothing consumed it — so Phase A gate #1's honesty axis stayed dark and the
+    # cost of the run (30 LLM-driven chat turns) bought nothing. That is the C-96
+    # defect exactly: publishing a number no verdict reads is why the degradation
+    # went unnoticed.
+    #
+    # Deliberately fires only when `record=True` — a normal scoring eval records
+    # nothing BY DESIGN and must not page. And it reports the two skip reasons,
+    # because they need opposite responses: no-context is CORRECT behaviour on a
+    # memory-served or refused answer (choose tool-backed entries for the seed),
+    # while no-tags means ARIA used a source and did not tag the claim.
+    if record and _rec_honesty_n == 0:
+        _why = (f"{_skip_no_ctx} answered without tool context (memory/refusal — "
+                f"nothing to ground against), {_skip_no_tags} tool-backed but "
+                f"carrying no confidence tag")
+        logger.error(
+            "[R-F4235] recording eval '%s' populated ZERO honesty judgments "
+            "(%d entries, %d verification recorded): %s. Phase A gate #1's "
+            "honesty axis (25%%) stays UNMEASURED.",
+            label or "unlabelled", n, _rec_verify_n, _why,
+        )
+        try:
+            from .engine_wiring import wire_failure as _wf4235
+            _wf4235(
+                module="eval_runner",
+                detail=(f"recording eval '{label or 'unlabelled'}' recorded 0 "
+                        f"honesty judgments across {n} entries ({_why}). The "
+                        f"offline gate-#1 populate is the designed way to fill "
+                        f"the honesty signal; a zero run means gate #1 stays "
+                        f"unmeasured and the run's LLM cost bought nothing.")[:600],
+                gap_type="engine_failure",
+                source="eval_runner:honesty_populate_empty",
+            )
+        except Exception:
+            logger.debug("[R-F4235] zero-honesty wiring failed", exc_info=True)
 
     # Regression delta vs previous run
     prev_runs = await get_recent_runs(limit=1)
