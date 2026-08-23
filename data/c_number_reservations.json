@@ -2656,6 +2656,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-23T17:49:41Z"
+    },
+    {
+      "c_number": "C-233",
+      "title": "a recovered read-timeout burst is reported as an ongoing degradation",
+      "claimed_at": "2026-08-23T18:05:24Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
