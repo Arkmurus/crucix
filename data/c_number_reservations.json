@@ -2545,9 +2545,12 @@
       "title": "a retention policy with no overdue signal and no executor",
       "claimed_at": "2026-08-23T11:18:41Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4258"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T11:28:09Z"
     }
   ]
 }
