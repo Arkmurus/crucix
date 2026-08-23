@@ -4438,3 +4438,81 @@ same shape; verify the work runs before binding.
 Shipped today: R-F4270, R-F4271, R-F4272, R-F4274, R-F4275, R-F4276. 713-test
 sweep green; the only reds are `rf1785` (in baseline) and `rf2644`/`rf4122` (both
 pre-existing and attributed). Nothing deployed — zero runtime files touched.
+
+## Session 2026-08-23 (part 9) — R-F4277/R-F4278 · the product fix, live
+
+Operator: *"proceed with the best approach from your recommendation, ensure it is
+the most bulletproof and robust approach and all is done with precision, test,
+wired and enabled, follow protocol."*
+
+### R-F4277 (C-235) — IS-15 bound to the sweep that already runs. **LIVE.**
+
+`dd_standard` declared IS-15 with `pass_condition="A dedicated media sweep ran and
+a backend answered"` and `reader=None`, so it rendered **NOT_RUN "no resolver is
+bound"** while the DD's adverse-media sweep ran on the same report and spent real
+search budget. `coverage_pct` is computed over these resolutions, so the customer's
+report understated what was established.
+
+Fixture-first: **11 failed / 4 passed → 15 passed**; the 4 already-passing are the
+never-false-clean guards that had to survive the fix.
+
+**The fields were already specified.** R-F2791 had established that `templates_run`
+alone *"certified sweeps in which every backend call failed"* and named
+`templates_searched` + `search_backends_answered` — which is exactly how IS-15's
+pass condition is worded. The reader implements a stated contract, not a new
+heuristic. Two conservative calls: a **truncated** sweep's silence is not evidence
+of absence, and a clean sweep is SINGLE_SOURCE however many backends answered
+(two backends returning nothing is ONE observation).
+
+**Live-verified in production, behaviourally, not from build_rev alone:**
+```
+no sweep             NOT_RUN                 no adverse-media sweep is on this report
+swept clean          SINGLE_SOURCE           a dedicated media sweep ran across 8 template(s)…
+no backend answered  NOT_RUN                 entered 30 template(s) but no search backend answered
+truncated            ATTEMPTED_INCONCLUSIVE  stopped by its deadline after 4 template(s)
+coverage 0.0% -> 4.3%   (answered 0 -> 1)
+```
+
+### R-F4278 (C-237) — my own rule was wrong and binding IS-15 proved it
+
+Binding the reader immediately demoted `tooluse_adverse` and `tooluse_news_impact`
+under R-F4275, leaving 3 blocking axes — and the reductio is that binding readers
+to the remaining unbound questions, **exactly the work C-235 recommends**, would
+leave nothing able to block. A gate that dissolves as the product improves is not a
+gate. A reader answers the QUESTION; it does not stop the model's narrative
+reaching the customer. Reader-presence now yields an advisory **candidate**;
+demotion needs the R-F4257-style override evidence in `OUTPUT_OVERRIDDEN` (one
+entry). **Advisory = {tooluse_resolution}** — reproduces R-F4259 and nothing more.
+
+Second overclaim corrected in this rule in one session; both were a mechanical
+proxy asserted as a fact about the product.
+
+### Protocol
+
+Whole-tree compile gate **594 files / 0 broken**; boot path imported and `assess()`
+exercised end to end; **3035-test sweep** with all 10 failures attributed (4 in the
+recorded baseline, rf2644 pre-existing, rf4125 fails identically without the change
+and names none of these functions, rf3316/rf4265 order-dependent); 98/98 across all
+six of my suites post-merge. Wiring: `assess()` already carries
+`@fail_wire(dd_standard, engine_failure)` and turns a raising reader into NOT_RUN,
+never a pass — none of the 13 existing readers are individually wired and this one
+matches, because the wire belongs at the engine boundary.
+
+Merged 6 peer commits; the 4 conflicts were all append-only ledgers, resolved as a
+**union keyed on identity and verified lossless in both directions** before commit.
+
+**Deployed**: workflow_dispatch → success, `headSha` == `64dfa939`, live
+`build_rev sha 64dfa939`.
+
+### Live state at close — NOT caused by this deploy
+
+`/health` reads `degraded`, and every reason is boot-transient or pre-existing:
+DeepSeek in a **42-second timeout cooldown** (§14 cooling ≠ broken) which empties
+`active_providers` and raises `llm_chain_exhausted`; `autonomous running=False` and
+`state_backend_read_timeouts` on a machine that restarted minutes earlier (§11c
+boot ≈10 min).
+
+🔴 **OPERATOR ACTION — DeepSeek at `$5.99`, below the `$10` warn threshold**
+(`severity: low`, `available: true`). At zero, chat and WhatsApp go dark — 19h on
+2026-08-22 at a $0.02 overdraft. R-F4229 auto-releases the cooldown on top-up, so
+recovery is automatic once funded.
