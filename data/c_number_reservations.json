@@ -2485,9 +2485,12 @@
       "title": "a signal about an operator condition reset a Phase A exit gate",
       "claimed_at": "2026-08-23T09:48:42Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4248"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-23T09:58:01Z"
     }
   ]
 }
