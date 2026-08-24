@@ -16063,3 +16063,104 @@ cb_175 in /data/claude_distill        kind=note, 2,326 chars
 The full path ran for the first time: local mailbox → `POST /collab/ingest` →
 Redis collab log → drain → `brain_hook.absorb` + `claude_distill.capture`. And
 exactly **one** record, where before C-254 one note meant hundreds.
+
+## C-256 · the CLI could not reach the sovereign model (fixed, R-F4303)
+
+`--provider aria` is the natural reading of "use ARIA-LLM in the CLI" and it is
+the wrong path. `aria` targets `{ARIA_SERVICE_URL}/api/aria` — the SERVICE chat
+API. R-F1937 measured it at **~122s** against DeepSeek's ~1.7s and demoted it from
+the default; R-F2166 records that it cannot do function-calling, so a coder agent
+on it silently becomes a chat box.
+
+The sovereign model is an OpenAI-compatible vLLM endpoint at `ARIA_LLM_URL`
+serving `ARIA_LLM_MODEL`. Nothing in the CLI could address it. `aria-llm` is now
+its own provider, and the two must never be conflated — different base URLs, env
+vars and credentials.
+
+**Two CLI-layer defects surfaced while wiring it, both worse than the missing
+feature:**
+
+1. **`--provider` was applied AFTER resolution.** `cli.py` called
+   `LLMConfig.from_env()` and only then set `cfg.provider`, so the flag renamed
+   the provider while leaving `base_url` pointing at whatever `from_env` had
+   already chosen — DeepSeek by default. **Asking for the sovereign model and
+   being answered by DeepSeek, with nothing in the output saying so**, is the
+   failure that makes any comparison meaningless. `from_env` now takes
+   `provider_override`.
+2. **A keyless self-hosted endpoint was rejected.** `is_configured` demanded an
+   `api_key` for everything but ollama, so a vLLM served without auth — the
+   common case — failed with "No LLM API key found", sending the operator hunting
+   for a key that does not exist.
+
+The R-F2166 warning also hardcoded `provider 'aria'` in its text, naming the wrong
+provider and the wrong remedy for `aria-llm`.
+
+**Fails closed and loudly:** missing `ARIA_LLM_URL` or `ARIA_LLM_MODEL` raises
+rather than falling back. No default model is registered — naming one would invent
+a version, which is exactly how live sat on `aria-llm-v0.1` for months while only
+v0.2 and v0.4 had been evaluated.
+
+**Tool support is opt-in.** vLLM serves function-calling only when launched with a
+tool-call parser, so it is a property of how the pod was started, and the pod is
+down so it cannot be probed. `True` would make tool calls fail silently mid-task;
+`False` forever would cap the CLI at a chat box. Default off (the CLI already
+warns loudly), `ARIA_LLM_SUPPORTS_TOOLS=1` turns it on. Tests pin that R-F2166 is
+not undone and that other providers keep their tools.
+
+Not deployable — `aria_cli` runs on the operator's machine, and it cannot be
+exercised end-to-end until the pod serves.
+
+---
+
+## C-257 · the teacher signal was stored but never distilled (fixed, R-F4304)
+
+`brave_distill` has had a consumer since R-F2339 — `brave_student`, a 6h trainer
+loop plus an on-demand train endpoint. `claude_distill` had only a stats endpoint:
+30 MB captured, nothing learned, while its own route docstring says the corpus
+exists "for distillation".
+
+**A literal mirror of `brave_student` would have been wrong.** That module learns
+domain-preference weights into a `model.json` and reranks search results — a
+statistical reranker. This corpus is reasoning TEXT, and distilling text means
+SFT/DPO rows feeding `scripts/train/`. Copying the pattern would have produced a
+plausible-looking module that cannot distil anything.
+
+**The schema could not express an SFT pair, and that is the substantive finding.**
+A row is (instruction, response). `capture()` stored Claude's text, a `msg_id` and
+a `reply_to` **ID** — never the parent's **TEXT**. A reply could be linked and not
+paired, so the corpus was untrainable no matter what consumed it. The parent was
+always recoverable and nothing looked: `_read_log()` returns both directions and
+`drain_for_aria` already calls it, so pairing costs one dict lookup, not new IO.
+
+**Three rules, each pinned by a test:**
+
+* **Never fabricate the missing half.** A note whose prompt cannot be recovered is
+  DROPPED and counted, never given a synthesised instruction. Inventing the
+  question teaches ARIA to answer prompts nobody wrote — the training-data
+  equivalent of a clean line over a check that never ran.
+* **Deduplicate.** Capture is fixed by C-254; the history is not.
+* **A silent shrink is a lie.** Every drop is counted by reason and the ledger
+  must balance (`seen == kept + dropped`), asserted in test and enforced in
+  `main()`.
+
+**Measured live, before and after one real exchange:**
+
+```
+before   seen 56,530   kept 0
+           duplicate 56,342 · too_short 147 · no_prompt 27 · malformed 14
+after    seen 56,531   KEPT 1     (cb_176)
+           ledger balances: True
+```
+
+Zero rows was the CORRECT answer, not a bug, and the script says so in its own
+output: the 27 substantial notes predate the `prompt` field, and pairing them
+would mean inventing the question. They stay in the corpus; they are simply not
+SFT pairs.
+
+`cb_176` is the first trainable row in the corpus's history — `reply_to cb_175`,
+prompt resolved to 2,326 chars, response 809 chars.
+
+**The operational consequence is worth stating:** trainable pairs come from ARIA
+**asking** (`ask_claude`) and Claude **replying**. A reply carries `reply_to`,
+which now resolves the parent; an unprompted note has no question and never
+becomes a pair.
