@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4306,
+  "next_available": 4307,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36968,6 +36968,16 @@
       "commit_sha": "9b8c3ae9",
       "notes": null,
       "shipped_at": "2026-08-24T18:16:45Z"
+    },
+    {
+      "r_number": "R-F4306",
+      "title": "pull the trained adapter back so the model is never pod-bound",
+      "claimed_at": "2026-08-24T18:18:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "47cb3d3a",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:20:50Z"
     }
   ]
 }
