@@ -132,6 +132,43 @@ VALID_GAP_TYPES = frozenset({
                                        # this is a refused transition on the GDPR access
                                        # -request workflow, and the emitter is careful to
                                        # carry no contact PII.
+    # ── R-F4280 — three more emitted-but-unregistered types, same class as above ──
+    # `test_rf2644` was red on all three and is NOT in the recorded suite baseline,
+    # so they drifted in after 2026-08-17. Each was READ at its emit site before
+    # being registered here, per the R-F3428 precedent, rather than rubber-stamped
+    # to turn the drift guard green.
+    "boot_regression_check_skipped",   # boot_snapshot_diff.record_verdict:179 — the
+                                       # boot state-regression check COULD NOT RUN
+                                       # because the counters were not comparable.
+                                       # Its own detail is explicit: "NO claim is made
+                                       # either way — this is not an all-clear." That
+                                       # is a could-not-measure signal, which is a
+                                       # different sentence from engine_failure
+                                       # (nothing threw) and from a measured
+                                       # regression. Collapsing it into either would
+                                       # turn "I could not check" into "I checked" —
+                                       # the absence-reads-as-health shape §1 records.
+    "ranking_amplification",           # knowledge.py:2864 — a worker spent a large
+                                       # fraction of its window on O(corpus) knowledge
+                                       # ranking. Nothing failed, so engine_failure is
+                                       # wrong; this is the C-95 self-worsening class,
+                                       # where cost grows with the corpus under an
+                                       # infinite-memory policy (§7). It needs its own
+                                       # name because the response is to fix an
+                                       # algorithm, not to retry an operation.
+    "resolution_enforcement_failure",  # companies_house.enforce_resolution_response
+                                       # :2081 (R-F4144) — the identity-gate enforcer
+                                       # met a malformed trusted resolution context and
+                                       # fell back to a refusal. LOAD-BEARING BEYOND
+                                       # ITS SITE: R-F4278 keeps `tooluse_resolution`
+                                       # advisory ONLY because that enforcement
+                                       # demonstrably replaces the model's answer, and
+                                       # its recorded reversal condition is "if
+                                       # enforcement is ever removed from a response
+                                       # path". While this type was unregistered, an
+                                       # enforcement failure landed under a name
+                                       # nothing filters on — so the evidence the
+                                       # advisory decision rests on was unobservable.
     # ── R-F3520 — two more emitted-but-unregistered types, same class as above ──
     # Read at their emit sites before registering, per the R-F3428 precedent, rather
     # than rubber-stamped to turn the drift guard green.

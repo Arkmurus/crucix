@@ -294,6 +294,12 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         "clamp_for_sovereign": "PURE — int→int clamp, no I/O; bad input returns the safe ceiling",
     },
     "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
+                    # R-F4281 - PURE predicate over in-memory chain state. R-F4222
+                    # /C-202 added it so ADMISSION asks the question DISPATCH
+                    # answers, by calling `_should_skip`, the SAME predicate
+                    # dispatch uses. No I/O and no failure branch; the paths that
+                    # CAN fail (`complete`, `dispatch`) are wired already.
+                    "can_dispatch_now": "PURE - bool over in-memory chain state, no I/O",
                     "is_configured": "@property — config check",
                     # R-F3942 — MERGED into this entry, never a second "fallback.py"
                     # key (exactly the hazard the R-F3429 note just below describes).
@@ -415,6 +421,11 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # here and get wired instead; exempting those would be the false clean this file
     # exists to prevent.
     "brain_hook.py": {
+        # R-F4281 - PURE renderer. Its own docstring states the contract: "Never
+        # raises: this renders inside ARIA's introspection answer, and a throw here
+        # would replace a working answer with an error (the R-F3845 lesson)." A
+        # function with no failure branch has nothing to report on one.
+        "describe_success_rate": "PURE - renderer, documented never-raises, no I/O",
         "seconds_since_interactive": "pure time arithmetic over a module float; no I/O",
     },
     "companies_house.py": {
@@ -432,6 +443,12 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         "brave_is_enabled": "reads a key + a ContextVar; already exception-guarded",
         "mask_brave_source": "in-place relabel of a list; no failure domain",
         # R-F3946 — RULE ONE's Brave half.
+        # R-F4281 - R-F4217 RENAMED this predicate to `is_allowed_brave_purpose`
+        # when ARIA WA joined the allow-list, keeping the old name as a delegating
+        # alias. The ALIAS inherited the exemption; the real function did not, so
+        # gate A went red on the one that does the work. Same PURE category as its
+        # own alias: str->bool set membership, no I/O, total over its input.
+        "is_allowed_brave_purpose": "PURE - str->bool set membership, no I/O, total",
         "is_dd_brave_purpose": "pure predicate over a string; total over its input, "
                                "no I/O and no failure domain",
         "reset_brave_usage_counters": "zeroes an in-process dict; test hook, total",

@@ -3,7 +3,7 @@
   "reservations": [
     {
       "c_number": "C-01",
-      "title": "Every Python dependency is unpinned \u2014 P1",
+      "title": "Every Python dependency is unpinned — P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -12,7 +12,7 @@
     },
     {
       "c_number": "C-02",
-      "title": "~~Stripe is an undeclared dynamic import~~ \u2014 **RETRACTED, NOT A DEFECT**",
+      "title": "~~Stripe is an undeclared dynamic import~~ — **RETRACTED, NOT A DEFECT**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -21,7 +21,7 @@
     },
     {
       "c_number": "C-03",
-      "title": "Document-extraction degradation is DARK \u2014 P1 \u2014 **FIXED (R-F3723)**",
+      "title": "Document-extraction degradation is DARK — P1 — **FIXED (R-F3723)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -30,7 +30,7 @@
     },
     {
       "c_number": "C-04",
-      "title": "~~`undici` undeclared~~ \u2014 **RETRACTED, downgraded to a note**",
+      "title": "~~`undici` undeclared~~ — **RETRACTED, downgraded to a note**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -39,7 +39,7 @@
     },
     {
       "c_number": "C-05",
-      "title": "Two WhatsApp listeners \u2014 BOTH LIVE BY DESIGN, not a stale twin \u2014 P2",
+      "title": "Two WhatsApp listeners — BOTH LIVE BY DESIGN, not a stale twin — P2",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -48,7 +48,7 @@
     },
     {
       "c_number": "C-06",
-      "title": "An unused second WA deployment configuration \u2014 P2 (Phase 4.3)",
+      "title": "An unused second WA deployment configuration — P2 (Phase 4.3)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -57,7 +57,7 @@
     },
     {
       "c_number": "C-07",
-      "title": "Singleton/lease coverage on background work is thin \u2014 LEAD",
+      "title": "Singleton/lease coverage on background work is thin — LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -66,7 +66,7 @@
     },
     {
       "c_number": "C-08",
-      "title": "31 forever-loops with no statically visible sleep \u2014 LEAD",
+      "title": "31 forever-loops with no statically visible sleep — LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -75,7 +75,7 @@
     },
     {
       "c_number": "C-09",
-      "title": "~~No vulnerability scanning possible~~ \u2014 **CLOSED 2026-08-05**",
+      "title": "~~No vulnerability scanning possible~~ — **CLOSED 2026-08-05**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -84,7 +84,7 @@
     },
     {
       "c_number": "C-10",
-      "title": "Orphan stores cannot be detected without a live key-space scan \u2014 P1 (method gap)",
+      "title": "Orphan stores cannot be detected without a live key-space scan — P1 (method gap)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -105,7 +105,7 @@
     },
     {
       "c_number": "C-101",
-      "title": "security audit CHECK 3 suppressed by a corpus-wide heuristic \u2014 could not fail",
+      "title": "security audit CHECK 3 suppressed by a corpus-wide heuristic — could not fail",
       "claimed_at": "2026-08-16T11:58:47Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -213,7 +213,7 @@
     },
     {
       "c_number": "C-11",
-      "title": "Dependency vulnerabilities \u2014 the C-09 gap, now MEASURED \u2014 P1",
+      "title": "Dependency vulnerabilities — the C-09 gap, now MEASURED — P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -344,7 +344,7 @@
     },
     {
       "c_number": "C-12",
-      "title": "The duplicate-route guard had gone blind \u2014 P0 \u2014 **FIXED (R-F3791, 2026-08-08)**",
+      "title": "The duplicate-route guard had gone blind — P0 — **FIXED (R-F3791, 2026-08-08)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -365,7 +365,7 @@
     },
     {
       "c_number": "C-121",
-      "title": "reading queue never drains \u2014 94 pending, 0 processed",
+      "title": "reading queue never drains — 94 pending, 0 processed",
       "claimed_at": "2026-08-16T19:15:00Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -461,7 +461,7 @@
     },
     {
       "c_number": "C-13",
-      "title": "The \"36 new failures\" were mostly not regressions \u2014 P1 \u2014 **CLOSED (R-F3795\u2026R-F3812, 2026-08-09)**",
+      "title": "The \"36 new failures\" were mostly not regressions — P1 — **CLOSED (R-F3795…R-F3812, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -578,7 +578,7 @@
     },
     {
       "c_number": "C-14",
-      "title": "ARIA crawled and absorbed pornography \u2014 P0 \u2014 **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**",
+      "title": "ARIA crawled and absorbed pornography — P0 — **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -623,7 +623,7 @@
     },
     {
       "c_number": "C-143",
-      "title": "intel_ledger orphans mkstemp tmp files on kill \u2014 382MB, no reclaim",
+      "title": "intel_ledger orphans mkstemp tmp files on kill — 382MB, no reclaim",
       "claimed_at": "2026-08-17T07:01:48Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -704,7 +704,7 @@
     },
     {
       "c_number": "C-15",
-      "title": "Residual live signals \u2014 triaged 2026-08-10, two dissolved on inspection",
+      "title": "Residual live signals — triaged 2026-08-10, two dissolved on inspection",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -803,7 +803,7 @@
     },
     {
       "c_number": "C-16",
-      "title": "CI was red on every commit \u2014 two secret checkers, one file \u2014 **FIXED (R-F3827)**",
+      "title": "CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -934,7 +934,7 @@
     },
     {
       "c_number": "C-17",
-      "title": "The \u00a716 CI gate is WIRED and PROVEN FIRING \u2014 with two known flaky tests",
+      "title": "The §16 CI gate is WIRED and PROVEN FIRING — with two known flaky tests",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -1063,12 +1063,12 @@
     },
     {
       "c_number": "C-18",
-      "title": "The primary search backend served NOISE as success \u2014 P0 \u2014 **FIXED (R-F3844)**",
+      "title": "The primary search backend served NOISE as success — P0 — **FIXED (R-F3844)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Node/JS tier security audit \u2014 10 findings, all FIXED (R-F3831\u2026R-F3840, 2026-08-10)']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Node/JS tier security audit — 10 findings, all FIXED (R-F3831…R-F3840, 2026-08-10)']"
     },
     {
       "c_number": "C-180",
@@ -1189,12 +1189,12 @@
     },
     {
       "c_number": "C-19",
-      "title": "Noise reached a CUSTOMER-FACING DD report \u2014 P0 \u2014 **REMEDIATED (R-F3849)**",
+      "title": "Noise reached a CUSTOMER-FACING DD report — P0 — **REMEDIATED (R-F3849)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['The C-18 XSS residual, measured and gated \u2014 **CLOSED (R-F3845, 2026-08-11)**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['The C-18 XSS residual, measured and gated — **CLOSED (R-F3845, 2026-08-11)**']"
     },
     {
       "c_number": "C-190",
@@ -1318,7 +1318,7 @@
     },
     {
       "c_number": "C-20",
-      "title": "The interpolation guard now covers EVERY page in public/ \u2014 **R-F3850, 2026-08-11**",
+      "title": "The interpolation guard now covers EVERY page in public/ — **R-F3850, 2026-08-11**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -1447,7 +1447,7 @@
     },
     {
       "c_number": "C-21",
-      "title": "The four surfaces C-20 left uncovered \u2014 **CLOSED (R-F3851/R-F3852, 2026-08-11)**",
+      "title": "The four surfaces C-20 left uncovered — **CLOSED (R-F3851/R-F3852, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -1576,12 +1576,12 @@
     },
     {
       "c_number": "C-22",
-      "title": "SearXNG's surviving engine was serving a soft-404 page as ten results \u2014 **CLOSED (R-F3853, 2026-08-11)**",
+      "title": "SearXNG's surviving engine was serving a soft-404 page as ten results — **CLOSED (R-F3853, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Deep review of C-19..C-21 \u2014 one more live XSS, four analyser blind spots \u2014 **R-F3855, 2026-08-11**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Deep review of C-19..C-21 — one more live XSS, four analyser blind spots — **R-F3855, 2026-08-11**']"
     },
     {
       "c_number": "C-220",
@@ -1702,12 +1702,12 @@
     },
     {
       "c_number": "C-23",
-      "title": "Task-list closeout \u2014 five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)",
+      "title": "Task-list closeout — five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
       "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved \u2014 COLLIDED, other claim(s): ['Two blind spots in the search stack, both found by asking \"what is NOT measured?\" \u2014 **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**']"
+      "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Two blind spots in the search stack, both found by asking \"what is NOT measured?\" — **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**']"
     },
     {
       "c_number": "C-230",
@@ -1794,7 +1794,7 @@
     },
     {
       "c_number": "C-24",
-      "title": "360 aria-web review \u2014 three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)",
+      "title": "360 aria-web review — three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "imported",
@@ -1803,7 +1803,7 @@
     },
     {
       "c_number": "C-25",
-      "title": "Both of the previous session's \"open, honestly\" items were the SAME defect, one layer down \u2014 **CLOSED (R-F3873, R-F3874, 2026-08-11)**",
+      "title": "Both of the previous session's \"open, honestly\" items were the SAME defect, one layer down — **CLOSED (R-F3873, R-F3874, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "closed",
@@ -1849,7 +1849,7 @@
     },
     {
       "c_number": "C-29",
-      "title": "Registry reliability EMA is structurally blind \u2014 producer writes DD layer-name topic keys, consumer reads catalogue topic tags (intersection = 1 of 12)",
+      "title": "Registry reliability EMA is structurally blind — producer writes DD layer-name topic keys, consumer reads catalogue topic tags (intersection = 1 of 12)",
       "claimed_at": "2026-08-11T22:18:03Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1862,7 +1862,7 @@
     },
     {
       "c_number": "C-30",
-      "title": "wiring_monitor M3 is INVERTED \u2014 zero WA disconnect signals fires wire_failure, so a healthy listener reports as permanently failing",
+      "title": "wiring_monitor M3 is INVERTED — zero WA disconnect signals fires wire_failure, so a healthy listener reports as permanently failing",
       "claimed_at": "2026-08-12T06:16:24Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1874,7 +1874,7 @@
     },
     {
       "c_number": "C-31",
-      "title": "wiring_monitor M4 greps Node-tier files that do not exist in the Python image \u2014 reports the Node brain wire unwired because it cannot see it",
+      "title": "wiring_monitor M4 greps Node-tier files that do not exist in the Python image — reports the Node brain wire unwired because it cannot see it",
       "claimed_at": "2026-08-12T06:16:25Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1886,7 +1886,7 @@
     },
     {
       "c_number": "C-32",
-      "title": "web_atlas reliability EMA is a ONE-WAY RATCHET \u2014 record_correction has no caller, so scores can only rise and auto-suspend is unreachable",
+      "title": "web_atlas reliability EMA is a ONE-WAY RATCHET — record_correction has no caller, so scores can only rise and auto-suspend is unreachable",
       "claimed_at": "2026-08-12T06:16:25Z",
       "claimed_by": "claude",
       "status": "open",
@@ -1895,7 +1895,7 @@
     },
     {
       "c_number": "C-33",
-      "title": "Node feed-health reliability is in-memory only \u2014 resets to zero on every restart while the page presents it as reliability",
+      "title": "Node feed-health reliability is in-memory only — resets to zero on every restart while the page presents it as reliability",
       "claimed_at": "2026-08-12T06:38:31Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1908,7 +1908,7 @@
     },
     {
       "c_number": "C-34",
-      "title": "pre-commit hook is FAIL-OPEN on 'checker did not run' \u2014 in a worktree the venv is absent, python resolves to the Windows Store shim, and every check is silently skipped",
+      "title": "pre-commit hook is FAIL-OPEN on 'checker did not run' — in a worktree the venv is absent, python resolves to the Windows Store shim, and every check is silently skipped",
       "claimed_at": "2026-08-12T06:45:16Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1920,7 +1920,7 @@
     },
     {
       "c_number": "C-35",
-      "title": "DD reliability producer requires Finding.url and ignores the [from url] provenance that origin_key/registrable_domain already read \u2014 ~127 sites invisible",
+      "title": "DD reliability producer requires Finding.url and ignores the [from url] provenance that origin_key/registrable_domain already read — ~127 sites invisible",
       "claimed_at": "2026-08-12T06:52:51Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1932,7 +1932,7 @@
     },
     {
       "c_number": "C-36",
-      "title": "a POSITIVE-ONLY counter is surfaced as reliability and feeds an auto-suspend path \u2014 the number cannot fall, so the label and the consumer both overclaim",
+      "title": "a POSITIVE-ONLY counter is surfaced as reliability and feeds an auto-suspend path — the number cannot fall, so the label and the consumer both overclaim",
       "claimed_at": "2026-08-12T07:58:58Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -1945,7 +1945,7 @@
     },
     {
       "c_number": "C-37",
-      "title": "brain/stats success_rate cannot distinguish a failure-only module from one failing every call \u2014 8 modules read as 0.0 and several are 0.0 by construction",
+      "title": "brain/stats success_rate cannot distinguish a failure-only module from one failing every call — 8 modules read as 0.0 and several are 0.0 by construction",
       "claimed_at": "2026-08-12T09:07:23Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -2670,7 +2670,7 @@
     },
     {
       "c_number": "C-97",
-      "title": "R-F4022's own journal failure branches are logger-only (dark) \u2014 a durability risk the brain cannot see",
+      "title": "R-F4022's own journal failure branches are logger-only (dark) — a durability risk the brain cannot see",
       "claimed_at": "2026-08-14T14:48:49Z",
       "claimed_by": "claude",
       "status": "closed",
@@ -2703,6 +2703,42 @@
       ],
       "notes": null,
       "closed_at": "2026-08-16T10:34:06Z"
+    },
+    {
+      "c_number": "C-238",
+      "title": "IS-14 unbound while the PEP and relatives screens both run",
+      "claimed_at": "2026-08-23T22:12:53Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4279"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T08:20:51Z"
+    },
+    {
+      "c_number": "C-239",
+      "title": "a preference artifact observed under an older scorer no longer regenerates",
+      "claimed_at": "2026-08-24T07:57:03Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-240",
+      "title": "standing red tests that named no live defect",
+      "claimed_at": "2026-08-24T08:20:22Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4280",
+        "R-F4281",
+        "R-F4283",
+        "R-F4284"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T08:20:51Z"
     }
   ]
 }

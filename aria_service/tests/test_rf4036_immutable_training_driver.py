@@ -32,7 +32,11 @@ def test_inflight_driver_survives_source_mutation(tmp_path: Path) -> None:
         "echo original-driver-finished\n",
         encoding="utf-8",
     )
-    source_arg = source.relative_to(ROOT).as_posix()
+    # R-F4284 — `relative_to(ROOT)` RAISES: `tmp_path` is outside the repo, so
+    # this test could never pass on any platform. The runner takes any path
+    # (`[ -f "$SOURCE" ]`), so the absolute one is what it is actually given
+    # in production too.
+    source_arg = source.as_posix()
     process = subprocess.Popen(
         [bash, str(RUNNER), source_arg], cwd=ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

@@ -21,6 +21,35 @@ from scripts.train import axis_alignment as aa  # noqa: E402
 from scripts.train import fundamentals_coverage as fc  # noqa: E402
 
 
+#: The ORIGINAL ten reader-less fundamentals, as measured by R-F4275 on
+#: 2026-08-23. Binding readers to these is the product work C-235 recommends, so
+#: this set may only ever SHRINK. It is recorded as history, never as an
+#: expectation — the live set is derived below.
+ORIGINALLY_UNBOUND = frozenset({
+    "EI-3", "EI-4", "OC-7", "OC-8", "FS-9", "IS-14", "IS-15", "IS-16",
+    "LR-19", "LR-20",
+})
+
+
+def _an_unbound_fundamental() -> str:
+    """Any fundamental nothing answers yet, chosen live.
+
+    Naming one in a test couples it to product progress: IS-15 was the exemplar
+    until R-F4277 bound it, then IS-14 until R-F4279 bound it. Deriving it means
+    these tests keep testing the RULE instead of the state of the roadmap.
+    """
+    live = sorted(fid for fid in QUESTIONS_BY_ID if aa.is_unbound(fid))
+    assert live, "every fundamental is bound - update these tests deliberately"
+    return live[0]
+
+
+def _a_bound_fundamental() -> str:
+    live = sorted(fid for fid in QUESTIONS_BY_ID
+                  if aa.fundamental_mechanism(fid) == aa.DETERMINISTIC)
+    assert live
+    return live[0]
+
+
 # -- the validation ----------------------------------------------------------
 
 def test_the_rule_reproduces_the_rf4259_decision() -> None:
@@ -101,21 +130,21 @@ def test_behaviour_axes_are_llm_even_over_a_reader_backed_question() -> None:
 
 
 def test_one_reader_less_question_is_enough_to_keep_an_axis_blocking(monkeypatch) -> None:
-    """The mixed branch, exercised directly.
+    """The mixed branch, exercised directly on a LIVE-chosen pair.
 
-    No shipped axis mixes a reader-backed and a reader-less fundamental today -
-    tooluse_contradiction did until R-F4277 bound IS-15 - so the branch is
-    covered with a synthetic declaration rather than left untested.
+    No shipped axis mixes a reader-backed and a reader-less fundamental today, so
+    the branch is covered with a synthetic declaration rather than left untested.
+    Both ids are derived: naming them broke this test twice as readers were bound.
     """
+    bound, unbound = _a_bound_fundamental(), _an_unbound_fundamental()
     monkeypatch.setitem(fc.AXIS_COVERAGE, "tooluse_synthetic_mixed",
-                        {"kind": fc.FUNDAMENTAL,
-                         "fundamentals": ("IS-13", "IS-14"),
+                        {"kind": fc.FUNDAMENTAL, "fundamentals": (bound, unbound),
                          "why": "synthetic: one bound question, one unbound"})
     verdict = aa.axis_mechanism("tooluse_synthetic_mixed")
-    assert verdict["fundamentals"] == {"IS-13": aa.DETERMINISTIC,
-                                       "IS-14": aa.NOT_DETERMINISTIC}
+    assert verdict["fundamentals"] == {bound: aa.DETERMINISTIC,
+                                       unbound: aa.NOT_DETERMINISTIC}
     assert verdict["mechanism"] == aa.NOT_DETERMINISTIC
-    assert verdict["unbound"] == ["IS-14"]
+    assert verdict["unbound"] == [unbound]
 
 
 def test_binding_a_reader_makes_a_candidate_but_does_NOT_demote() -> None:
@@ -187,9 +216,11 @@ def test_the_ten_unserved_fundamentals_are_named() -> None:
     """Where a cycle CAN still buy something — this is the target list."""
     unbound = {fid for fid in QUESTIONS_BY_ID
                if aa.fundamental_mechanism(fid) == aa.NOT_DETERMINISTIC}
-    # IS-15 dropped off this list when R-F4277 bound it - the product improving
-    assert unbound == {"EI-3", "EI-4", "OC-7", "OC-8", "FS-9",
-                       "IS-14", "IS-16", "LR-19", "LR-20"}
+    # BINDING IS MONOTONIC PROGRESS. IS-15 left this set at R-F4277 and IS-14 at
+    # R-F4279; the set may shrink freely, but a fundamental that was answerable
+    # becoming unanswerable is a regression this asserts against.
+    assert unbound <= ORIGINALLY_UNBOUND, sorted(unbound - ORIGINALLY_UNBOUND)
+    assert unbound, "if this empties, the rule needs a deliberate revisit"
     covered = {f for a, e in fc.AXIS_COVERAGE.items() for f in e["fundamentals"]}
     assert not (unbound & covered), "an unbound fundamental now has an eval axis"
 
@@ -209,22 +240,23 @@ def test_unbound_is_not_the_same_as_answered_by_the_model() -> None:
     report = {"subject": {"name": "TEST LTD", "jurisdiction": "GB"}}
     rows = {r["question_id"]: r for r in ds.assess(report, tier="ENHANCED")["resolutions"]}
 
-    # IS-14 is still unbound: NOBODY looked.
-    assert "no resolver is bound" in rows["IS-14"]["reason"]
-    # IS-13 has a reader that LOOKED and found nothing on this report.
-    assert "no resolver is bound" not in rows["IS-13"]["reason"]
-    # IS-15 was unbound when R-F4276 was written; R-F4277 bound it, and the
-    # reason it now gives names what was actually missing.
-    assert "no resolver is bound" not in rows["IS-15"]["reason"]
-    assert aa.is_unbound("IS-14") is True
-    assert aa.is_unbound("IS-13") is False
-    assert aa.is_unbound("IS-15") is False
+    unbound, bound = _an_unbound_fundamental(), _a_bound_fundamental()
+    # an unbound question: NOBODY looked
+    assert "no resolver is bound" in rows[unbound]["reason"]
+    assert aa.is_unbound(unbound) is True
+    # a bound one: the reader LOOKED and found nothing on this report
+    assert "no resolver is bound" not in rows[bound]["reason"]
+    assert aa.is_unbound(bound) is False
 
 
-def test_is15_is_no_longer_unbound() -> None:
-    """R-F4277 bound it to the sweep that already runs (C-235)."""
-    assert aa.is_unbound("IS-15") is False
-    assert aa.is_unbound("IS-14") is True
+def test_the_bindings_this_work_shipped_are_still_in_place() -> None:
+    """R-F4277 bound IS-15 (C-235); R-F4279 bound IS-14 (C-238).
+
+    Named deliberately here and nowhere else: this is the one test that SHOULD
+    fail if either binding is reverted.
+    """
+    assert aa.is_unbound("IS-15") is False, "R-F4277 binding lost"
+    assert aa.is_unbound("IS-14") is False, "R-F4279 binding lost"
 
 
 def test_the_legacy_name_still_resolves() -> None:

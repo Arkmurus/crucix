@@ -3,6 +3,7 @@
   "adapter_sha256": "be037261d14bb184f6613f61b384260c961c4f384969a6e4c82e6d570780a0c4",
   "report": "data/eval_reports/aria_tooluse_resolution_failure_correction_v1_rf4163_rescored.json",
   "report_sha256": "3d399b600e14c3604100c343f14b3badb1c0634292580ced41282907fd7d3ad4",
+  "report_sha256_match": "crlf",
   "scorer_version": "R-F4160-evidence-aligned-clean-v4",
   "honest": 162,
   "total": 168,
@@ -25,9 +26,9 @@
   "promoted_by": {
     "r_number": "R-F4259",
     "verdict": "aria_tooluse_promotion_rf4259_verdict.json",
-    "verdict_sha256": "edb5d22b681301f30fd3ea042442b786b05f0978032ccb11a56501171ef26dc7",
+    "verdict_sha256": "9d5fae95ab9bb591d40230e0ba31a604acea1e0a376d9c8390c72f18bba69ca5",
     "arm": "failure_correction_v1"
   },
-  "registered_at": "2026-08-23T17:33:24Z",
+  "registered_at": "2026-08-24T08:24:18Z",
   "policy": "train the next cycle FROM this adapter and adjudicate the next candidate AGAINST this report; supersede it only by a promotion verdict, never by editing this file (R-F4270)"
 }

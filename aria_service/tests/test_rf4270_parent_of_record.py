@@ -264,3 +264,39 @@ def test_the_module_never_deletes_a_checkpoint() -> None:
     source = (ROOT / "scripts/train/parent_of_record.py").read_text(encoding="utf-8")
     for forbidden in ("unlink(", "rmtree", "os.remove"):
         assert forbidden not in source
+
+
+# -- R-F4285 · evidence is identified by CONTENT, not by line terminators ----
+
+def test_a_line_ending_change_is_not_a_change_of_evidence(tmp_path) -> None:
+    """R-F4283 renormalised these artifacts to LF and every recorded sha broke.
+
+    The R-F4259 verdict's hash was taken over CRLF bytes on Windows, so it would
+    have refused on Linux and in CI all along. Both directions must verify.
+    """
+    import hashlib
+    lf = tmp_path / "lf.json"
+    lf.write_bytes(b'{\n  "a": 1\n}\n')
+    crlf_digest = hashlib.sha256(b'{\r\n  "a": 1\r\n}\r\n').hexdigest()
+    lf_digest = hashlib.sha256(lf.read_bytes()).hexdigest()
+
+    assert por.matches_recorded(lf, lf_digest) == "exact"
+    assert por.matches_recorded(lf, crlf_digest) == "crlf"
+
+    crlf = tmp_path / "crlf.json"
+    crlf.write_bytes(b'{\r\n  "a": 1\r\n}\r\n')
+    assert por.matches_recorded(crlf, lf_digest) == "lf"
+
+
+def test_a_real_content_change_is_still_refused(tmp_path) -> None:
+    """The tolerance is line terminators ONLY. A guard that cannot bite is not one."""
+    import hashlib
+    f = tmp_path / "x.json"
+    f.write_bytes(b'{\n  "a": 1\n}\n')
+    other = hashlib.sha256(b'{\n  "a": 2\n}\n').hexdigest()
+    assert por.matches_recorded(f, other) is None
+
+
+def test_the_record_says_which_rendering_matched(record: dict) -> None:
+    """Auditable: a reader can see the verdict's hash was a CRLF-era one."""
+    assert record["report_sha256_match"] in ("exact", "lf", "crlf")

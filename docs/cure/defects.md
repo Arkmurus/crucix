@@ -15202,3 +15202,134 @@ evidence.
 **This is the second overclaim corrected in the same rule in one session** (R-F4276
 was the first). Both had the same shape: a mechanical proxy asserted as a fact about
 the product. The rule is now narrower and states what it cannot prove.
+
+## C-239 · a preference artifact observed under an older scorer no longer regenerates
+
+**Diagnosed to the row, NOT fixed — the safe fix touches byte-exact manifests in
+another agent's subsystem and should not be rushed.**
+
+Two red tests, one root cause, and it is the R-F4244 lesson in the CURRICULUM
+dimension rather than the report dimension:
+
+* `test_rf4089…::test_preference_artifact_is_exactly_the_23_observed_failures`
+* `test_rf4122…::test_real_builder_composes_disjoint_validator_passing_replay`
+
+Neither is in the 2026-08-17 baseline, so both drifted in after it.
+
+**Measured.** Regenerating the artifact with the CURRENT scorer yields **22 pairs**;
+`aria_tooluse_resolution_branch_expansion_dpo.jsonl` holds **23**. The single extra
+row on disk is **`Volution Group Plc`**; every other pair is identical (the "7
+differing rows" pytest reports are the index shift after the missing one).
+
+That row's rejected side is:
+
+> I found 5 companies matching Volution Group Plc: … **The closest match is
+> VOLUTION GROUP PLC (09041571).**
+
+and `09041571` IS the exact, active, correct company. Its `why` field says *"did not
+select the resolved company … listing registry candidates is not a resolution"* —
+which was true under the scorer that observed it, and **R-F4159 ("correct explicit
+entity resolution scoring") later made naming the company count as selecting it.**
+So the rejected side now PASSES, and `build_mixed_tooluse_cycle` correctly refuses
+to build on it: *"DPO row 16 rejected answer passes current validator; preference
+evidence is stale."*
+
+**The guard is right and must not be weakened.** A pair whose rejected side is now
+correct would train the model to avoid an answer we consider good — and note the
+distinction it is really encoding is COMMITMENT STRENGTH ("the closest match is X"
+vs "X is the company; I will proceed on it"), not honesty. A style-only preference
+pair is the confound class R-F4243 was already burned by.
+
+### What was tried and REVERTED, recorded because the failure is instructive
+
+The rejected side was rewritten to a list-only answer that genuinely exhibits the
+stated defect — it fails the current validator with the row's own `why` text, so it
+looked like a clean repair. **It is not, and two tests said so within a minute:**
+`test_preference_artifact_is_exactly_the_23_OBSERVED_failures` and a byte-exact
+manifest sha in `test_rf4122`. These curricula are **immutable evidence — a record
+of what the model produced and how it was graded at a point in time.** Editing one
+falsifies the record. Reverted byte-exact; `rf4096` recovered immediately.
+
+### The fix, for whoever takes it
+
+Stamp the artifact with the **scorer generation it was observed under** and make
+consumers refuse to compare across generations rather than silently disagree —
+exactly what R-F4244 did for eval reports. Then:
+
+* the regeneration test asserts equality *within* a generation, or asserts the
+  divergence is exactly the recorded reclassification;
+* the cycle builder EXCLUDES a superseded pair with a counted, printed record
+  (never silently — a curriculum that quietly shrinks is its own defect), instead
+  of refusing the whole build.
+
+Do **not** fix it by editing the artifact, and do **not** fix it by relaxing the
+staleness guard: the first falsifies evidence, the second trains on it.
+
+## C-238 · IS-14 unbound while the PEP and relatives screens both run (fixed, R-F4279)
+
+C-235 one question along. `dd_standard` declared IS-14 ("Politically exposed persons
+among the controllers or their close associates") with `reader=None`, so it rendered
+NOT_RUN "no resolver is bound to this question in this build" while **two** screens
+ran on the same report and spent real budget:
+
+* the network layer screens every ENUMERATED officer and promotes a `role.pep` /
+  `role.pol` topic hit into `network.pep_connections` (network_walker:313 via
+  `_sanctions_classify.classify_matches`);
+* `rca_screening.screen_with_relatives` runs in `deterministic_primitives` and
+  writes `report.rca_relatives` (dd_orchestrator:16626). R-F2373 already recorded
+  its source-unavailable case so the DD says "UNVERIFIED, not a clearance".
+
+Fixture-first: **11 failed / 4 passed → 15 passed**, the 4 being the never-false-clean
+guards that had to survive.
+
+**IS-14 NAMES TWO POPULATIONS**, so one screen is honest partial evidence and never a
+clearance of the whole question. Controllers screened with no relatives screened
+resolves ATTEMPTED_INCONCLUSIVE, not clean.
+
+**THE POPULATION TRAP, and it is why this reader is not "pep_connections is empty".**
+The officer screen only screens officers that were ENUMERATED. A DD whose identity
+resolution failed has no officer list, so `pep_connections` is empty for a reason
+that has nothing to do with PEP status — reading that as clean would clear a
+population nobody assembled. That is C-39 applied to people. `identity.directors`
+must be non-empty AND `network.meta.status == "ok"` before an absence of hits means
+anything. A finding, by contrast, always answers: a PEP that WAS found is evidence
+regardless of how much of the sweep completed.
+
+## C-240 · eight standing red tests, and not one named a live defect (fixed, R-F4280..R-F4284)
+
+Swept on the operator's instruction to look at everything that fails. **Every one was
+an instrument fault, a stale registration, or a platform artifact — the product
+behaviour they guard was correct throughout.** That is its own finding: eight red
+tests were carrying no information, and a permanently-red test cannot go green, so it
+can never carry information again (the R-F3858 lesson).
+
+| test | cause | fix |
+|---|---|---|
+| `rf2644` gap-type drift | 3 types EMITTED but unregistered, so `record_gap` logs "Unknown gap type" and the signal lands under a name nothing filters on | registered, each read at its emit site (R-F4280) |
+| `rf4125` wiring gate A | 3 public sync functions with no `@fail_wire` — all PURE predicates/renderers | exempted with evidence (R-F4281) |
+| `rf4153` ablation verdict | sha256 of a checked-out artifact ≠ the recorded sha | line endings (R-F4283) |
+| `rf4036` immutable driver | `tmp_path.relative_to(ROOT)` RAISES — outside the repo | absolute path (R-F4284) |
+| `rf2254` DD parallelism ×3 | source-SUBSTRING + character-offset asserts | AST assertions (R-F4284) |
+| `rf3543` served copy | em-dashes in two `reason` strings I had just written | plain punctuation |
+
+**R-F4280 — the one with teeth.** `resolution_enforcement_failure`
+(companies_house:2081) is R-F4144's identity-gate signal, and R-F4278 keeps
+`tooluse_resolution` advisory ONLY because that enforcement demonstrably replaces the
+model's answer, with the recorded reversal condition "if enforcement is ever removed
+from a response path". While the type was unregistered, an enforcement failure was
+unobservable — the evidence the advisory decision rests on could not be seen.
+
+**R-F4283 — fixed as a CLASS, not an instance.** `.gitattributes` already carried this
+exact fix for ONE file ("Hash-pinned training artifacts must have identical bytes on
+Windows and Linux"). Measured: **154 of 239** tracked files under `data/eval_reports`
+and `data/training` had CRLF on disk against LF in the blob, so `git status` read
+CLEAN while the bytes hashed differently from every recorded sha. A false failure
+that names no defect and cannot reproduce in CI is the worst kind.
+
+**R-F4284 — rf4036 had never once run its assertions.** `relative_to` raised before
+reaching them, so the R-F4036 immutability guarantee was untested on every platform.
+And rf2254's three locks all went red on a call being WRAPPED ACROSS TWO LINES; the
+concurrency, the `if not hard_stop` guard and the compliance ordering were correct at
+dd_orchestrator:16143 throughout. The rewrite is proven to still bite: mutating the
+source to drop the gather, set `return_exceptions=False`, or remove the `await` is
+CAUGHT, while a pure reformat is not — which is precisely the R-F3597 property.

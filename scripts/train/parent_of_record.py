@@ -59,6 +59,40 @@ def sha256(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def content_hashes(path: pathlib.Path) -> dict:
+    """Every line-ending rendering of this file's CONTENT, by name.
+
+    R-F4285 — a raw-byte hash of a TEXT artifact is platform-dependent. The
+    R-F4259 verdict recorded `3d399b60...` for its report; the same committed
+    file hashes `374ff349...` once checked out with LF. Nothing about the
+    evidence changed — only the line terminators — yet the raw comparison
+    below refuses it, and would have refused on Linux and in CI all along.
+
+    R-F4283 fixed the storage layer (`.gitattributes` now forces LF on these
+    directories); this fixes the COMPARISON, so a record written before that
+    transition is still verifiable against the same content afterwards.
+    """
+    raw = path.read_bytes()
+    lf = raw.replace(b"\r\n", b"\n")
+    return {"exact": hashlib.sha256(raw).hexdigest(),
+            "lf": hashlib.sha256(lf).hexdigest(),
+            "crlf": hashlib.sha256(lf.replace(b"\n", b"\r\n")).hexdigest()}
+
+
+def matches_recorded(path: pathlib.Path, recorded: str) -> str | None:
+    """Which hashing matched: 'exact', 'content' (line endings differ), or None.
+
+    Deliberately returns None for a real change: the tolerance is for line
+    terminators ONLY, never for evidence that actually differs. Both directions
+    are needed — a CRLF-era hash must still verify an LF checkout (this case)
+    and an LF-era hash must verify a CRLF one.
+    """
+    for how, digest in content_hashes(path).items():
+        if digest == recorded:
+            return how
+    return None
+
+
 def read_record(path: pathlib.Path = RECORD_FILE) -> dict | None:
     """The accepted parent, or None when it could not be read.
 
@@ -100,12 +134,14 @@ def build_record(verdict_path: pathlib.Path, *, adapter: pathlib.Path,
         raise RuntimeError(
             f"{verdict_path.name}: promoted report {arm.get('report')!r} is not on "
             f"disk — a parent whose measurement is gone cannot be verified")
-    report_sha = sha256(report_path)
-    if report_sha != arm.get("report_sha256"):
+    recorded = str(arm.get("report_sha256") or "")
+    how = matches_recorded(report_path, recorded)
+    if how is None:
         raise RuntimeError(
-            f"{report_path.name}: report sha256 has changed since the verdict "
-            f"({report_sha[:12]}… vs {str(arm.get('report_sha256'))[:12]}…) — "
-            f"the promotion was decided on different bytes")
+            f"{report_path.name}: report content has changed since the verdict "
+            f"({sha256(report_path)[:12]}… vs {recorded[:12]}…) — "
+            f"the promotion was decided on different evidence")
+    report_sha = recorded
 
     if not adapter.is_file():
         raise RuntimeError(
@@ -124,6 +160,10 @@ def build_record(verdict_path: pathlib.Path, *, adapter: pathlib.Path,
         "adapter_sha256": sha256(adapter),
         "report": report_path.relative_to(root).as_posix(),
         "report_sha256": report_sha,
+        # 'content' means the bytes on disk differ from the verdict's recorded
+        # hash ONLY by line terminators (R-F4285). It is never 'the content
+        # changed' — that path raises above.
+        "report_sha256_match": how,
         "scorer_version": report.get("scorer_version"),
         "honest": int(report["honest"]),
         "total": int(report["total"]),

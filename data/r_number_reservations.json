@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4279,
+  "next_available": 4286,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36697,6 +36697,69 @@
       "commit_sha": "2ce1631",
       "notes": null,
       "shipped_at": "2026-05-28T23:55:19Z"
+    },
+    {
+      "r_number": "R-F4279",
+      "title": "bind IS-14 to the PEP and RCA screens that already run",
+      "claimed_at": "2026-08-23T22:12:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4280",
+      "title": "register three emitted-but-unregistered gap types",
+      "claimed_at": "2026-08-23T22:16:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4281",
+      "title": "exempt three pure predicates from the wiring gate, with evidence",
+      "claimed_at": "2026-08-23T22:20:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4282",
+      "title": "repair the stale resolution preference pair whose rejected side now resolves",
+      "claimed_at": "2026-08-24T07:54:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4283",
+      "title": "hash-pinned evidence must not be line-ending mangled on Windows",
+      "claimed_at": "2026-08-24T08:14:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4284",
+      "title": "repair two structurally-fragile tests: tmp-path relative_to and source-substring asserts",
+      "claimed_at": "2026-08-24T08:18:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4285",
+      "title": "hash text evidence by content, not by line terminators",
+      "claimed_at": "2026-08-24T08:23:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

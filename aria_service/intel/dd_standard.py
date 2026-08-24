@@ -1061,6 +1061,117 @@ def _origin_of(finding: dict) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+
+def _pep_origins(hits: list, inherited: list) -> tuple:
+    """The datasets that actually flagged someone. Independence, not volume."""
+    out = set()
+    for hit in hits:
+        for match in (hit.get("matches") or []):
+            if isinstance(match, dict):
+                name = str(match.get("dataset") or match.get("list")
+                           or match.get("source") or "").strip()
+                if name:
+                    out.add(name)
+    for risk in inherited:
+        for name in (risk.get("relative_lists") or []):
+            if str(name).strip():
+                out.add(str(name).strip())
+    return tuple(sorted(out))
+
+
+def _read_pep_exposure(r: dict, q: "Question") -> Resolution:
+    """R-F4279 (C-238) — IS-14 is answered by the PEP and RCA screens already run.
+
+    Same shape as C-235 one question along: IS-14 rendered NOT_RUN "no resolver is
+    bound to this question in this build" while TWO screens ran on the same report
+    and spent real budget —
+
+      * the network layer screens every ENUMERATED OFFICER and promotes a
+        `role.pep` / `role.pol` topic hit into `network.pep_connections`
+        (network_walker:313 via `_sanctions_classify.classify_matches`);
+      * `rca_screening.screen_with_relatives` runs in `deterministic_primitives`
+        and writes `report.rca_relatives` (dd_orchestrator:16626).
+
+    IS-14 NAMES TWO POPULATIONS — "politically exposed persons among the
+    controllers OR THEIR CLOSE ASSOCIATES" — so a clean line needs BOTH screens to
+    have run. One of them is honest partial evidence, never a clearance of the
+    whole question.
+
+    THE POPULATION TRAP, and it is the reason this reader is not simply
+    "pep_connections is empty". The officer screen only screens officers that were
+    ENUMERATED. A DD whose identity resolution failed has no officer list, so
+    `pep_connections` is empty for a reason that has nothing to do with PEP
+    status — and reading that as clean would clear a population nobody assembled.
+    That is C-39 applied to people. `identity.directors` must be non-empty AND the
+    network layer must have reached `ok` before an absence of hits means anything.
+
+    A FINDING always answers, even when the other half never ran: a PEP that WAS
+    found is evidence regardless of how much of the sweep completed.
+    """
+    network = _m(r.get("network"))
+    ident = _m(r.get("identity"))
+    rca = r.get("rca_relatives")
+    rca = rca if isinstance(rca, dict) else {}
+
+    hits = [h for h in (network.get("pep_connections") or []) if isinstance(h, dict)]
+    inherited = [x for x in (rca.get("inherited_risks") or []) if isinstance(x, dict)]
+
+    if hits or inherited:
+        origins = _pep_origins(hits, inherited)
+        parts = []
+        if hits:
+            named = ", ".join(str(h.get("name") or "?") for h in hits[:2])
+            parts.append(f"{len(hits)} controller(s) flagged: {named}")
+        if inherited:
+            via = ", ".join(str(x.get("relationship") or "relative")
+                            for x in inherited[:2])
+            parts.append(f"{len(inherited)} inherited risk(s) via relative ({via})")
+        return Resolution(
+            q.id,
+            EvidenceState.CORROBORATED.value if len(origins) >= 2
+            else EvidenceState.SINGLE_SOURCE.value,
+            reason="; ".join(parts), origins=origins or ("pep_screen",))
+
+    controllers = [d for d in (ident.get("directors") or []) if d]
+    status = str(_m(network.get("meta")).get("status") or "").strip().lower()
+    controllers_screened = bool(controllers) and status == "ok"
+
+    if not controllers_screened:
+        why = ("no controller was enumerated, so nobody was screened"
+               if not controllers else
+               f"the network layer did not complete (status: {status or 'unknown'}), "
+               f"so the controllers were not screened")
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason=f"PEP exposure of the controllers is unestablished: {why}",
+            remedy="resolve the entity's officers and re-run the network screen; "
+                   "an empty flag list over an empty population is not a clear result")
+
+    if rca.get("source_unavailable") is True or rca.get("ok") is False:
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason="the controllers were screened, but the close-associate (RCA) "
+                   "screen could not reach its source, so inherited exposure is "
+                   "UNVERIFIED, not absent",
+            remedy="re-run the relatives screen once the sanctions source answers")
+
+    relatives_screened = _sweep_count(rca.get("relatives_screened"))
+    if relatives_screened < 1:
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason="the controllers were screened and none is politically exposed, "
+                   "but no close associate (relative) was screened, so half of the "
+                   "question is unanswered",
+            remedy="run rca_screening.screen_with_relatives for the controllers")
+
+    return Resolution(
+        q.id, EvidenceState.SINGLE_SOURCE.value,
+        reason=(f"{len(controllers)} controller(s) screened and "
+                f"{relatives_screened} close associate(s) screened; no politically "
+                f"exposed person returned"),
+        origins=("pep_screen",))
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1272,7 +1383,8 @@ QUESTIONS: tuple[Question, ...] = (
        established_by=EstablishedBy.DATA.value,
        text="Politically exposed persons among the controllers or their close associates",
        pass_condition="A PEP dataset answers for the subject and for each controller",
-       resolvers=("sanctions", "rca_screening"), jurisdiction_weighted=True, reader=None),
+       resolvers=("sanctions", "rca_screening"), jurisdiction_weighted=True,
+       reader=_read_pep_exposure),
     _q(id="IS-15", fundamental=15, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.ENHANCED.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.DATA.value,

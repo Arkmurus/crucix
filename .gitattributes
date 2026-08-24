@@ -11,3 +11,18 @@ data/training/aria_tooluse_resolution_boundary_dpo_v1.jsonl text eol=lf
 # 2026-08-03 after aria.cmd was rewritten by an LF-emitting editor.
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# R-F4283 — HASH-PINNED EVIDENCE, as a CLASS rather than one file at a time.
+#
+# Eval reports and training corpora are pinned by sha256 in verdicts, manifests
+# and launchers. Git normalises them to LF in the blob while a Windows checkout
+# writes CRLF, so `git status` reads CLEAN while the bytes on disk hash
+# differently from the bytes every recorded sha was taken over. Measured
+# 2026-08-24: 154 of 239 tracked files under these directories were mangled, and
+# `test_rf4153` failed on exactly that — a false failure that names no defect and
+# cannot reproduce in CI, which is the worst kind.
+#
+# The single-file line above (resolution_boundary_dpo_v1) was this same defect,
+# fixed for one instance. This covers the class.
+data/eval_reports/**  text eol=lf
+data/training/**      text eol=lf
