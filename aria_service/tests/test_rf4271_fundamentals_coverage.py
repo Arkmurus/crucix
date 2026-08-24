@@ -50,6 +50,15 @@ def test_two_whole_clusters_have_no_eval_row(ledger: dict) -> None:
         "FS-9", "FS-10", "FS-11", "FS-12"}
     assert set(ledger["by_cluster"]["LEGITIMACY_REGULATION"]["uncovered"]) == {
         "LR-18", "LR-19", "LR-20"}
+    # R-F4295 (C-248 addendum) — LR-20 stays here DELIBERATELY, and the trace is
+    # recorded so the next session does not re-derive it. `domain_ownership_verifier`
+    # DOES run (dd_orchestrator:2808) and emits a finding or a data gap, so it looks
+    # like a bindable resolver — but it answers a different question: an RDAP check
+    # that the domain's REGISTRANT matches the claimed entity. LR-20 asks that
+    # declared activity from the register be reconciled against the WEB FOOTPRINT.
+    # `economic_substance` is adjacent too, not the same: it scores the ENTITY's
+    # substance, where LR-20 asks whether the proposed RELATIONSHIP is economically
+    # rational. Binding either would certify a lookup that never happened.
 
 
 def test_ninety_percent_of_rows_sit_on_one_saturated_cluster(rows: list[dict]) -> None:

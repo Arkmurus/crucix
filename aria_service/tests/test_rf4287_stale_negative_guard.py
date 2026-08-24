@@ -1,5 +1,15 @@
 """R-F4287 / C-242 — the stale-negative check guarded the wrong consumer.
 
+R-F4282 WAS ABANDONED IN FAVOUR OF THIS, and that is worth knowing before
+anyone tries it again. The obvious repair for a stale preference pair is to
+EDIT the artifact so the rejected side agrees with the current scorer. R-F4282
+was reserved to do exactly that and was reverted: the branch-expansion artifact
+records failures OBSERVED under the scorer of its generation, so rewriting it
+does not correct evidence, it falsifies it — and two tests pin that file
+byte-exactly for precisely this reason. The honest fix is below: REPORT the
+staleness and refuse to train on it, rather than editing the observation until
+it agrees with us.
+
 A DPO pair carries a CHOSEN and a REJECTED answer. Whether the rejected side is
 still a failure under the current scorer matters to exactly one consumer: the one
 that trains on it. Measured 2026-08-24, it was checked on the other one.
