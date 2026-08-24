@@ -32,7 +32,9 @@ import os
 import re
 import time
 import urllib.parse
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from http import cookiejar
 from typing import Any, Optional
 
 import httpx
@@ -364,6 +366,131 @@ MAX_RESULTS_PER_BACKEND = 15
 SEARCH_GATHER_BUDGET = float(os.getenv("ARIA_SEARCH_GATHER_BUDGET", "12.0"))
 SEARCH_GATHER_QUORUM = int(os.getenv("ARIA_SEARCH_GATHER_QUORUM", "2"))
 SEARCH_GATHER_GRACE = float(os.getenv("ARIA_SEARCH_GATHER_GRACE", "2.5"))
+
+# R-F4309 — shared httpx client. Every search backend used to build a fresh
+# `httpx.AsyncClient(timeout=REQUEST_TIMEOUT)` per request, which reconstructs
+# the TLS context (ssl.create_default_context) on every call — measured ~10% of
+# the live event-loop hot path in the continuous profiler. A single long-lived
+# client pools connections and reuses the TLS context. httpx.AsyncClient is safe
+# to share across concurrent asyncio tasks. `follow_redirects` is passed per
+# REQUEST (httpx supports it on .get/.post) so the shared client keeps one
+# default and the 3 feed backends that need redirect-following opt in per call.
+#
+# MAKING SOMETHING SHARED CHANGES ITS LIFETIME, NOT JUST ITS COST. Three
+# properties below exist because a per-request client provided them for free and
+# a process-global one must provide them deliberately. Do not simplify any away.
+#
+#   (a) WHO RESETS IT — `_get_shared_client` keys the cache on the constructor it
+#       was BUILT FROM, not on `is None` alone. A test that monkeypatches
+#       `httpx.AsyncClient` and then restores it used to leave its fake INSTANCE
+#       installed here forever: monkeypatch restores the attribute, not the
+#       object already built from it. Measured — `test_rf1614_make_loud`'s
+#       `_BoomClient` leaked into `test_rf2318_brave_dd_search`, which failed
+#       with "Brave search failed: bing backend down", and every later test's own
+#       patch was silently bypassed. Keying on provenance self-heals in BOTH
+#       directions with no cooperation from the test suite. In production the
+#       class never changes, so this is one `is` comparison per call.
+#   (b) WHAT IF IT IS CLOSED — rebuilding only on `is None` would make
+#       `close_shared_client` (wired to app shutdown) permanently poison the
+#       client for any task still in flight: every later request would raise
+#       "Cannot send a request, as the client has been closed" for the life of
+#       the process. `is_closed` is read so a closed client rebuilds itself.
+#   (c) WHAT IT CARRIES BETWEEN CALLERS — a shared client keeps a COOKIE JAR.
+#       Measured: request 2 sends `Cookie: sess=...` set by request 1, where the
+#       per-request client sent none. Combined with `random_ua()` rotating the
+#       User-Agent per request, that is ONE session presenting a different
+#       browser every time — a fingerprint inconsistency, against exactly the
+#       engines §27 records blocking us on bot signals. `_NoStoreCookieJar`
+#       restores the old cookie-free behaviour, which was protective by accident.
+_shared_client: "httpx.AsyncClient | None" = None
+# The `httpx.AsyncClient` object `_shared_client` was constructed from — see (a).
+_shared_client_factory: Any = None
+
+# Pool bound is now GLOBAL across all 7 backends, where each request previously
+# had its own pool — and pool-wait time counts against the same REQUEST_TIMEOUT,
+# so a saturated pool surfaces as a backend timeout. Stated explicitly rather
+# than inheriting httpx's DEFAULT_LIMITS, so the value cannot move under a
+# version bump without this line changing.
+SHARED_CLIENT_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+
+
+class _NoStoreCookieJar(cookiejar.CookieJar):
+    """A cookie jar that never stores a Set-Cookie — see (c) above.
+
+    httpx wraps whatever you pass as `cookies=` in its own `Cookies` object, so a
+    `Cookies` subclass does NOT survive construction; a `CookieJar` instance is
+    kept as-is (`Cookies.__init__` … `else: self.jar = cookies`) and both
+    `extract_cookies` and `set_cookie_header` delegate to it. Overriding the jar
+    is therefore the supported way to make a client cookie-free, not a private
+    attribute poke.
+    """
+
+    def extract_cookies(self, response: Any, request: Any) -> None:  # noqa: D102
+        return None
+
+
+def _get_shared_client() -> "httpx.AsyncClient":
+    """Return the module-level shared httpx client, creating it lazily.
+
+    Lazy so importing the module has no I/O side effect. Rebuilt when it is
+    absent, when it has been closed, or when `httpx.AsyncClient` is no longer the
+    constructor it was built from — see (a)/(b) in the block comment above. On a
+    single event loop the check-then-create is atomic (no await between them);
+    two threads each running their own `asyncio.run` could race it, and the loser
+    is simply garbage-collected, so no lock is warranted for that.
+    """
+    global _shared_client, _shared_client_factory
+    factory = httpx.AsyncClient
+    if (
+        _shared_client is None
+        or _shared_client_factory is not factory
+        or getattr(_shared_client, "is_closed", False)
+    ):
+        _shared_client = factory(
+            timeout=REQUEST_TIMEOUT,
+            limits=SHARED_CLIENT_LIMITS,
+            cookies=_NoStoreCookieJar(),
+        )
+        _shared_client_factory = factory
+    return _shared_client
+
+
+@asynccontextmanager
+async def _shared_client_cm():
+    """Async context manager yielding the shared client WITHOUT closing it.
+
+    Replaces `async with httpx.AsyncClient(...) as client:` at the search
+    backends so the block body is unchanged (no re-indent) while the client is
+    reused across requests instead of rebuilt per request.
+    """
+    yield _get_shared_client()
+
+
+def _reset_shared_client() -> None:
+    """Drop the shared client WITHOUT awaiting a close. Sync, never raises.
+
+    For teardown paths that have no event loop to await `aclose()` on. The next
+    `_get_shared_client` rebuilds. Prefer `close_shared_client` wherever a loop
+    is available — this leaks the old client's pool to the garbage collector.
+    """
+    global _shared_client, _shared_client_factory
+    _shared_client = None
+    _shared_client_factory = None
+
+
+async def close_shared_client() -> None:
+    """Close the shared httpx client. Call once on app shutdown.
+
+    Idempotent: a second call is a no-op. After closing, the next
+    `_get_shared_client` rebuilds — a task still in flight at shutdown gets a
+    working client rather than a permanently closed one, see (b) above.
+    """
+    global _shared_client, _shared_client_factory
+    client = _shared_client
+    _shared_client = None
+    _shared_client_factory = None
+    if client is not None:
+        await client.aclose()
 
 
 async def _gather_search_backends(tasks: list, *, budget: float, quorum: int, grace: float) -> list:
@@ -740,7 +867,7 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
         "User-Agent": random_ua(),
     }
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        async with _shared_client_cm() as client:
             resp = await client.get(_BRAVE_ENDPOINT, params=params, headers=headers)
             if resp.status_code == 429:
                 _cb.record_failure(reason="rate_limited")
@@ -951,7 +1078,7 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
         if cb.is_open():
             continue
         try:
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            async with _shared_client_cm() as client:
                 resp = await client.get(
                     f"{instance}/search",
                     params={
@@ -1069,7 +1196,7 @@ async def _search_gnews_api(query: str, max_results: int = 10, language: str = "
         "apikey": GNEWS_API_KEY,
     }
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        async with _shared_client_cm() as client:
             resp = await client.get("https://gnews.io/api/v4/search", params=params)
             if resp.status_code != 200:
                 _cb.record_failure(reason=classify_status(resp.status_code))
@@ -1134,8 +1261,8 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         # every parallel-gather web_search call ("1 backends" in the
         # live log when only Crossref returned). follow_redirects=True
         # restores the second backend.
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": random_ua()})
+        async with _shared_client_cm() as client:
+            resp = await client.get(url, headers={"User-Agent": random_ua()}, follow_redirects=True)
             if resp.status_code != 200:
                 _cb.record_failure(reason=classify_status(resp.status_code))
                 return []
@@ -1215,7 +1342,7 @@ async def _search_gdelt(query: str, max_results: int = 10) -> list[SearchResult]
     url = (f"https://api.gdeltproject.org/api/v2/doc/doc?query={encoded}"
            f"&mode=artlist&maxrecords={min(max_results, 25)}&format=json&sort=datedesc")
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        async with _shared_client_cm() as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code == 429:
                 # rate-limited (not a source failure) — no breaker trip, just skip this cycle
@@ -1281,13 +1408,14 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
     encoded = urllib.parse.quote_plus(query)
     url = f"https://html.duckduckgo.com/html/?q={encoded}"
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+        async with _shared_client_cm() as client:
             resp = await client.post(
                 url,
                 headers={
                     "User-Agent": random_ua(),
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
+                follow_redirects=True,
             )
             if resp.status_code == 202:
                 # R-F150: DDG returns 202 Accepted when queued or rate-
@@ -1363,8 +1491,8 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
     try:
         # Same redirect issue as Google News (F78c) — Bing routes RSS
         # requests through interstitial 302s for region/locale.
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": random_ua()})
+        async with _shared_client_cm() as client:
+            resp = await client.get(url, headers={"User-Agent": random_ua()}, follow_redirects=True)
             if resp.status_code != 200:
                 _cb.record_failure(reason=classify_status(resp.status_code))
                 return []

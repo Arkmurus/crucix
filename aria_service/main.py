@@ -4911,6 +4911,19 @@ async def lifespan(app: FastAPI):
     except Exception as _ct_e:
         logger.warning("[R-F3006] cost flush on shutdown failed (non-fatal): %s", _ct_e)
 
+    # R-F4309 -- release the shared web_search httpx client's connection pool.
+    # The search backends share ONE long-lived client (per-request construction
+    # rebuilt the TLS context on the event loop). Nothing else closes it, so
+    # without this the pool's sockets are only reclaimed by process exit.
+    # Safe to run before the autonomous engine stops: `_get_shared_client`
+    # rebuilds a closed client, so a task still in flight gets a working one
+    # rather than "Cannot send a request, as the client has been closed".
+    try:
+        from .intel import web_search as _ws_shutdown
+        await _shutdown_await("[R-F4309] shared search client", _ws_shutdown.close_shared_client())
+    except Exception as _ws_e:
+        logger.warning("[R-F4309] shared search client close failed (non-fatal): %s", _ws_e)
+
     # R-F1051 -- stop self-healing infrastructure
     try:
         from .intel.self_healing import stop_self_healing
