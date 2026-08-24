@@ -2919,6 +2919,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T17:31:47Z"
+    },
+    {
+      "c_number": "C-257",
+      "title": "claude_distill has no consumer: teacher signal is stored, never distilled",
+      "claimed_at": "2026-08-24T17:32:19Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4304"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T17:38:17Z"
     }
   ]
 }

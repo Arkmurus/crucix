@@ -265,6 +265,18 @@ async def drain_for_aria() -> dict:
         return {"drained": 0, "last_seq": cursor}
 
     drained = 0
+    # R-F4304 — index the WHOLE log by id so a reply can be paired with the
+    # message it answers. _read_log() already returns both directions; this is
+    # the lookup that was missing, not new IO.
+    _by_id: dict = {}
+    try:
+        for _m in await _read_log():
+            _mid = str(_m.get("id") or "")
+            if _mid:
+                _by_id[_mid] = _m
+    except Exception:
+        _by_id = {}
+
     last_seq = cursor
     for m in new:
         text = (m.get("text") or "").strip()
@@ -297,12 +309,26 @@ async def drain_for_aria() -> dict:
             # and a failure is §21a-wired inside capture().
             try:
                 from . import claude_distill
+                # R-F4304 (C-257) — resolve the PARENT's text, not just its id.
+                # An SFT row needs the instruction as well as the response, and
+                # the whole log (both directions) is already in hand here, so the
+                # pair costs one dict lookup. Best-effort: an unresolvable parent
+                # leaves prompt empty and the builder drops the record rather
+                # than fabricating a question.
+                _parent = ""
+                try:
+                    _rt = str(m.get("reply_to") or "")
+                    if _rt:
+                        _parent = str(_by_id.get(_rt, {}).get("text") or "")
+                except Exception:
+                    _parent = ""
                 claude_distill.capture(
                     text,
                     direction=f"{m.get('frm','claude')}->{m.get('to','aria')}",
                     kind=str(m.get("kind", "note")),
                     msg_id=str(m.get("id", "")),
                     reply_to=str(m.get("reply_to", "")),
+                    prompt=_parent,
                 )
             except Exception as e:
                 logger.debug("[R-F2399] claude_distill capture failed (non-fatal): %s", e)

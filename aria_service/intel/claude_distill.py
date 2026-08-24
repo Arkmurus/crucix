@@ -52,6 +52,7 @@ def capture(
     kind: str = "note",
     msg_id: str = "",
     reply_to: str = "",
+    prompt: str = "",
 ) -> bool:
     """Append one Claude→ARIA teacher-signal record. Returns True if written.
 
@@ -74,6 +75,18 @@ def capture(
             "msg_id": (msg_id or "")[:64],
             "reply_to": (reply_to or "")[:64],
             "text": text[:_MAX_TEXT_LEN],
+            # R-F4304 (C-257) — the PROMPT this answered.
+            #
+            # An SFT row is (instruction, response). Until now the record held
+            # Claude's text, a msg_id and a reply_to ID, but never the parent's
+            # TEXT — so a reply could be linked and not paired, and the corpus was
+            # untrainable no matter what consumed it. The parent was always
+            # recoverable (_read_log returns BOTH directions and the drain already
+            # calls it); nothing looked.
+            #
+            # Empty is honest and normal: an unprompted note has no question, and
+            # the builder DROPS unpaired records rather than inventing one.
+            "prompt": (prompt or "")[:_MAX_TEXT_LEN],
         }
         shard = _CORPUS_DIR / (time.strftime("%Y-%m-%d") + ".jsonl")
         with shard.open("a", encoding="utf-8") as f:
