@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4307,
+  "next_available": 4308,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36978,6 +36978,16 @@
       "commit_sha": "47cb3d3a",
       "notes": null,
       "shipped_at": "2026-08-24T18:20:50Z"
+    },
+    {
+      "r_number": "R-F4307",
+      "title": "one forwarder for the bridge, reading .env and reporting why",
+      "claimed_at": "2026-08-24T18:27:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "099d7f52",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:37:27Z"
     }
   ]
 }
