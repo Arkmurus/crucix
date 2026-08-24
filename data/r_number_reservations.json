@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4308,
+  "next_available": 4309,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36988,6 +36988,16 @@
       "commit_sha": "099d7f52",
       "notes": null,
       "shipped_at": "2026-08-24T18:37:27Z"
+    },
+    {
+      "r_number": "R-F4308",
+      "title": "capture coder CLI turns as training signal",
+      "claimed_at": "2026-08-24T18:39:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c97f580d",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:46:39Z"
     }
   ]
 }
