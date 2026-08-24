@@ -4516,3 +4516,38 @@ boot ≈10 min).
 (`severity: low`, `available: true`). At zero, chat and WhatsApp go dark — 19h on
 2026-08-22 at a $0.02 overdraft. R-F4229 auto-releases the cooldown on top-up, so
 recovery is automatic once funded.
+
+**ATTEMPTED 2026-08-24 and STOPPED before any test ran — still DUE, nothing
+recorded.** Launched from an isolated worktree at `6c32995e` with the `.venv`
+junction in place, environment fingerprint matching the recorded baseline
+(python 3.13.14, fastapi 0.141.1), tracked files clean at launch. It emitted its
+header and was killed:
+
+    tree e09537a54bbeeaf9 @ 6c32995e
+    2044 test files -> ONE pytest process (§16 mode, per-test timeout 180s)
+
+**Nothing was written** — `docs/suite_baseline.json` verified untouched afterwards,
+still `2026-08-17 / bf680ed1 / 113 failed / valid: true`. The `--record` step is
+reached only at the end, so a kill mid-run cannot publish a partial set; the §16
+"`VALID=NO` means discard" hazard was never in play here. No stray pytest processes
+were left behind.
+
+Deferred by the operator until the box is quiet. The peer remained active throughout
+— it pushed `72a91c0a` minutes after the kill — so the contention that produced the
+~50-minute/22 % crawl is unchanged.
+
+**Two things worth carrying into the next attempt:**
+1. **The worktree solves VALIDITY, not speed.** A peer cannot move a worktree's
+   files, so their commits can no longer force `VALID=NO`. What contention still
+   costs is wall-clock, and that is the only reason to wait for a quiet box.
+2. **The tree now holds 2044 test files against the baseline's 1923** — ~121 added
+   since 2026-08-17. Expect a large "new failures" set that is mostly NEW TESTS.
+   Diff the failure SET and attribute by mechanism; the count alone will mislead
+   (the §16 rule, and the R-F3791 environment-delta trap alongside it).
+
+Recreate the run environment with:
+
+    git worktree add --detach <path> origin/main
+    cd <path>
+    cmd //c "mklink /J .venv C:\Code\Aria\.venv"
+    ./.venv/Scripts/python.exe scripts/admin/suite_baseline.py --single-process --record
