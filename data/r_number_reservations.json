@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4298,
+  "next_available": 4299,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36888,6 +36888,16 @@
       "commit_sha": "0a74487d",
       "notes": null,
       "shipped_at": "2026-08-24T14:25:41Z"
+    },
+    {
+      "r_number": "R-F4298",
+      "title": "xfail gate reports an out-of-repo path instead of crashing",
+      "claimed_at": "2026-08-24T14:27:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "858ba892",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:28:32Z"
     }
   ]
 }
