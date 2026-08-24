@@ -15685,3 +15685,76 @@ on SIC codes alone. Two pieces would be needed — a web-footprint reconciliatio
 capability (ours to build, as OC-7's parent fetch was) and the proposed
 relationship (the counterparty's to supply). Until then the honest NOT_RUN, whose
 remedy already names both resolvers, is the accurate report.
+
+## C-250 · /health reports a BUSY autonomous engine as STALLED (fixed, R-F4296)
+
+**Found by watching the live surface, not by reading code.** `GET /health` on
+2026-08-24 15:07 returned `status: degraded` with
+`degraded_reasons: ['autonomous_loop_stalled', 'llm_vendor_credit_low_deepseek']`
+while `autonomous` reported `enabled: true, running: true,
+seconds_since_last_tick: 216, tasks_loaded: 98`. Sampled six times over the next
+four minutes the same field read 25 / 5 / 46 / 26 / 6 / 46 s — a clean ~60 s
+cadence — and the reason cleared itself. The engine was never stalled.
+
+**This is R-F3824's defect, surviving on the other surface.** That fix records
+its own diagnosis exactly: *"One signal was standing for two very different
+states, 'busy' and 'wedged'."* It repaired the REGISTRY heartbeat so a long task
+no longer looked dead to the R-F1146 blackout detector — and left `/health`'s
+gauge with the identical fault.
+
+The mechanism, at `autonomous/engine.py`:
+
+* `_last_tick_at = time.time()` is set **once per polling-loop iteration**, at
+  the top of the `while True` (`:942`).
+* While `execute_task` is awaited, `_heartbeat_during_task` (`:790`) ticks
+  `tick_heartbeat("autonomous_engine")` every 60 s — the registry/blackout
+  heartbeat. It does **not** touch `_last_tick_at`.
+* So for a task lasting T seconds, `/health` reads `seconds_since_last_tick`
+  climbing to T + 60 while the blackout detector correctly reads healthy.
+* `main.py:5663` computes `autonomous_healthy` as
+  `running and seconds_since_last_tick < 180`. `POLL_INTERVAL_SECONDS` is 60, so
+  **any task over three minutes flips the public status endpoint to degraded.**
+
+DD runs, research sweeps and the reading loop routinely exceed three minutes, so
+this is not a rare edge. And the surface it lands on is the consequential one —
+the R-F3704 comment immediately above the rollup says so: `/health` is *"the one
+Fly's health check and any external monitor watch"*.
+
+**Why it matters more than a cosmetic wrong word.** C-96 is on record that *"a
+verdict that cries wolf is one nobody reads"*, and that is precisely how C-95's
+starvation ran unnoticed — `loop.status: starved` sat beside `status:
+operational` and no verdict could express it. Here the failure is the mirror
+image: the verdict fires so readily that a true stall arrives indistinguishable
+from the routine false one.
+
+**THE FIX IS NOT A HIGHER THRESHOLD.** Raising 180 s to cover the longest task is
+the band-aid §1 forbids, and it would blind the check for exactly as long as it
+un-blinds it. The engine tracks no busy state at all — `get_engine_status()`
+returns tick/fire counters and nothing about what is executing — so the signal
+*cannot* express the true state. Add that state, and let the verdict read it:
+
+* record `_busy_task_id` / `_busy_since` around the `execute_task` await, cleared
+  in a `finally` so a raising task cannot leave the engine permanently "busy";
+* report `busy_with` / `busy_seconds` on `get_engine_status()` and on `/health`,
+  so an observer can tell the THIRD state apart — the status block's own comment
+  already promises "enabled but stuck" vs "enabled and ticking", and "enabled and
+  busy" was missing;
+* treat a busy engine as healthy **only within `_TASK_HEARTBEAT_MAX_BUSY_S`
+  (900 s)** — reusing R-F3824's constant rather than coining a second one, so the
+  two surfaces cannot drift apart the way they just did.
+
+**The bound is load-bearing and is the reason this stays falsifiable.** R-F3824
+chose 900 s deliberately — *"a task hung forever would hold the heartbeat fresh
+forever and R-F1146 could never fire again"* — so beyond it a busy engine is
+reported stalled, exactly as a wedged one is. A guard that cannot fail is not a
+guard (R-F3858), so the fixture must pin the failing case as hard as the passing
+one: busy at 300 s is healthy, busy at 1200 s is stalled, and idle with a stale
+tick is stalled unchanged.
+
+**Not a regression from this session's work.** `git log -S` puts the threshold at
+`7620aa78`, 2026-04-18 (*"feat: public /health exposes autonomous running
+indicator"*) — four months earlier — and the engine has never carried busy state.
+It surfaced now only because the live surface happened to be watched while a long
+task was running. Worth noting how close it came to never being seen: it clears
+itself within one tick of the task finishing, so any check that samples twice and
+takes the second reading reports a healthy engine and a false alarm indefinitely.

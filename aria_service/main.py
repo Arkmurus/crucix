@@ -5637,8 +5637,18 @@ async def health():
         "dry_run": True,
         "autonomy_level": 0,
         "seconds_since_last_tick": None,
+        # R-F4296 (C-250) — the THIRD state. Without these an observer reading a
+        # large `seconds_since_last_tick` cannot tell a running task from a loop
+        # that has stopped iterating, and the rollup below called both "stalled".
+        "busy_with": None,
+        "busy_seconds": None,
         "tasks_loaded": 0,
     }
+    # R-F4296 — initialised BEFORE the try. If the engine import fails the
+    # indicator stays `enabled: False`, and "we could not look" must not read as
+    # a stalled loop — nor raise NameError at the rollup, which is the §9
+    # local-scoping class that took prod down once already.
+    autonomous_healthy = True
     try:
         from .autonomous import engine as _eng, tasks as _tsk
         status = _eng.get_engine_status()
@@ -5647,9 +5657,17 @@ async def health():
         autonomous_ind["dry_run"] = bool(status.get("dry_run"))
         autonomous_ind["autonomy_level"] = int(status.get("autonomy_level", 0))
         last_tick = status.get("last_tick_at")
+        import time
         if last_tick:
-            import time
             autonomous_ind["seconds_since_last_tick"] = int(time.time() - last_tick)
+        _busy_since = status.get("busy_since")
+        if status.get("busy_task_id") and _busy_since:
+            autonomous_ind["busy_with"] = str(status.get("busy_task_id"))
+            autonomous_ind["busy_seconds"] = int(time.time() - float(_busy_since))
+        # R-F4296 (C-250) — ONE measure. main.py used to carry its own copy of the
+        # rule and it drifted from the heartbeat it was meant to agree with; that
+        # fork IS the defect, so the verdict is read, never re-derived here.
+        autonomous_healthy = bool(_eng.autonomy_is_healthy(status))
         try:
             autonomous_ind["tasks_loaded"] = len(_tsk.get_loaded_tasks())
         except Exception:
@@ -5657,17 +5675,10 @@ async def health():
     except Exception:
         pass
 
-    # Health rollup — service is operational only if LLM is configured
-    # AND (autonomous is off OR autonomous is running healthily). A
-    # stuck autonomous loop is worse than off.
-    autonomous_healthy = (
-        not autonomous_ind["enabled"]  # off is fine for liveness purposes
-        or (
-            autonomous_ind["running"]
-            and (autonomous_ind["seconds_since_last_tick"] is None
-                 or autonomous_ind["seconds_since_last_tick"] < 180)
-        )
-    )
+    # Health rollup — service is operational only if LLM is configured AND
+    # (autonomous is off OR autonomous is running healthily). A stuck autonomous
+    # loop is worse than off. The verdict itself lives in
+    # `engine.autonomy_is_healthy` (R-F4296) — see the assignment above.
 
     # Self-diagnostic rollup (2026-04-18) — safe-to-publish summary of
     # module wiring health. Detailed report at /api/aria/diagnostic/details

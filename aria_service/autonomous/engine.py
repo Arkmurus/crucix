@@ -49,6 +49,7 @@ import asyncio
 import calendar
 import logging
 import os
+import math
 import time
 from typing import Any
 
@@ -470,6 +471,12 @@ def is_dry_run() -> bool:
 _engine_task: asyncio.Task | None = None
 _started_at: float | None = None
 _last_tick_at: float | None = None
+#: R-F4296 (C-250) — WHICH task is executing, and since when. `_last_tick_at` only
+#: advances once per polling-loop iteration, so while a task is awaited it goes
+#: stale and /health could not tell "busy" from "not iterating". Cleared in a
+#: `finally` so a raising task cannot pin the engine as permanently busy.
+_busy_task_id: str | None = None
+_busy_since: float | None = None
 _tick_count: int = 0
 _fire_count: int = 0
 
@@ -488,6 +495,11 @@ def get_engine_status() -> dict[str, Any]:
         "running": _engine_task is not None and not _engine_task.done(),
         "started_at": _started_at,
         "last_tick_at": _last_tick_at,
+        # R-F4296 — the THIRD state. This block's own comment promises an observer
+        # can tell "enabled but stuck" from "enabled and ticking"; "enabled and
+        # busy" was missing, and read as stuck.
+        "busy_task_id": _busy_task_id,
+        "busy_since": _busy_since,
         "tick_count": _tick_count,
         "fire_count": _fire_count,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
@@ -715,6 +727,76 @@ async def catch_up_overdue_tasks(llm) -> int:
 _TASK_HEARTBEAT_INTERVAL_S = 60.0
 _TASK_HEARTBEAT_MAX_BUSY_S = 900.0     # 3x the blackout threshold
 
+#: R-F4296 (C-250) — how stale `last_tick_at` may get before the loop is called
+#: stalled. Named, not a literal buried in a health handler, because that literal
+#: is what drifted from the heartbeat it was supposed to agree with.
+TICK_STALL_AFTER_S = 180.0
+
+#: How long a task may execute before a BUSY engine is nonetheless reported
+#: stalled. Deliberately ALIASES R-F3824's bound rather than coining a second
+#: number: past this point `_heartbeat_during_task` stops ticking so a genuine
+#: wedge stays detectable, and a health verdict that disagreed with that would
+#: recreate the very drift C-250 records.
+TASK_BUSY_GRACE_S = _TASK_HEARTBEAT_MAX_BUSY_S
+
+
+def _finite(value: object) -> float | None:
+    """A usable float, or None. NaN/inf/junk are UNREADABLE, never a number."""
+    try:
+        f = float(value)          # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def autonomy_is_healthy(status: dict, *, now: float | None = None) -> bool:
+    """R-F4296 (C-250) — is the engine healthy, given a `get_engine_status()` dict?
+
+    THE DEFECT this replaces, measured live 2026-08-24 15:07: `/health` reported
+    `degraded` with `autonomous_loop_stalled` while the engine was enabled,
+    running and executing a task — `seconds_since_last_tick: 216`. Sampled six
+    times over the next four minutes the same field read 25/5/46/26/6/46 s and the
+    reason cleared itself. `main.py` had its own copy of the rule
+    (`running and seconds_since_last_tick < 180`) and no way to see that a task
+    was on the stack, so every task over three minutes flipped the PUBLIC status
+    endpoint — the one Fly and every external monitor watch (R-F3704).
+
+    It is R-F3824's defect on the other surface. That fix states the diagnosis
+    exactly: "One signal was standing for two very different states, 'busy' and
+    'wedged'." It repaired the registry heartbeat and left this gauge unfixed.
+
+    THE BOUND IS WHAT KEEPS THIS FALSIFIABLE. Busy earns health only within
+    `TASK_BUSY_GRACE_S`; beyond it a busy engine reports stalled exactly as a
+    wedged one does, because that is precisely where R-F3824 stops ticking the
+    heartbeat so "a task hung forever" remains detectable. Raising the threshold
+    instead would blind the check for as long as it un-blinds it — the band-aid
+    CLAUDE.md §1 forbids.
+
+    Tri-state discipline: an engine that has NEVER ticked (`last_tick_at` absent
+    or unreadable) is UNKNOWN, and unknown is not a measured failure — it reads
+    healthy rather than manufacturing a stall out of a freshly-started process.
+    """
+    if not status.get("enabled"):
+        return True                       # deliberately off is not a fault
+    if not status.get("running"):
+        return False                      # enabled but the loop is not alive
+    now = time.time() if now is None else float(now)
+
+    last = _finite(status.get("last_tick_at"))
+    if last is None:
+        return True                       # never ticked yet -> unknown, not failed
+    if (now - last) < TICK_STALL_AFTER_S:
+        return True                       # ticking normally
+
+    # Stale tick. Only an ACTUAL task, started in the past, within the bound,
+    # explains it. A busy marker that is junk, negative or in the FUTURE is not
+    # evidence of work and must never buy a pass past the stall check.
+    since = _finite(status.get("busy_since"))
+    if status.get("busy_task_id") and since is not None and 0.0 < since <= now:
+        return (now - since) <= TASK_BUSY_GRACE_S
+    return False
+
+
 
 def _wire_task_result(task_id: str, task, record) -> None:
     """R-F4116 (C-157) — report what the task ACTUALLY did.
@@ -836,6 +918,7 @@ async def _engine_loop(llm) -> None:
         burn the rate limit budget on parallel fires
     """
     global _started_at, _last_tick_at, _tick_count, _fire_count
+    global _busy_task_id, _busy_since          # R-F4296 (C-250)
 
     _started_at = time.time()
     logger.info(
@@ -1151,6 +1234,11 @@ async def _engine_loop(llm) -> None:
                         )
                     except Exception:      # NameError if the R-F1146 import failed
                         _hb_task = None
+                    # R-F4296 (C-250) — declare that the loop is BUSY, not idle.
+                    # `_last_tick_at` stops advancing across this await, so without
+                    # this the health rollup cannot tell a running task from a
+                    # loop that has stopped iterating.
+                    _busy_task_id, _busy_since = task_id, time.time()
                     try:
                         # R-F4116 (C-157) — BIND the result. This call used to
                         # discard it, so the wiring below could only ever say
@@ -1161,6 +1249,10 @@ async def _engine_loop(llm) -> None:
                             dry_run=is_dry_run(),
                         )
                     finally:
+                        # Cleared here, not after the await, so a task that RAISES
+                        # cannot leave the engine looking permanently busy — which
+                        # would make the stall check unfalsifiable.
+                        _busy_task_id, _busy_since = None, None
                         if _hb_task is not None:
                             _hb_task.cancel()
                     # R-F1059 / R-F4116 — wire the task's ACTUAL outcome.
