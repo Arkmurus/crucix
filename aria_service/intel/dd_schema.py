@@ -470,6 +470,11 @@ class NetworkSection:
     # renders is indistinguishable from one that was never found.
     controlled_by_unanchored: list[dict] = field(default_factory=list)
     address_cluster: dict = field(default_factory=dict)       # addresses with shared entities
+    # R-F4294 — GLEIF's reported group structure: direct + ultimate parent, or
+    # the authority's STATED reason that none is reported. A producer and a
+    # consumer with no carrier between them is the R-F3231 defect; OC-7 reads
+    # this field, so it has to exist on the persisted section.
+    lei_hierarchy: dict = field(default_factory=dict)
     pep_connections: list[dict] = field(default_factory=list)
     sanctions_network: list[dict] = field(default_factory=list)  # flagged entities in the chain
     # R-F435 (2026-05-13) — UBO chain walker output. `ubo_chain` is the

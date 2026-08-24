@@ -1378,6 +1378,74 @@ def _read_address_provenance(r: dict, q: "Question") -> Resolution:
         origins=("registry",))
 
 
+
+def _read_group_structure(r: dict, q: "Question") -> Resolution:
+    """R-F4294 (C-249) — OC-7 from GLEIF's reported group structure.
+
+    C-248 refused to bind this question because the work did not run: GLEIF was
+    called for LEI identity matching and never asked for relationships. R-F4294
+    built that capability, so OC-7 now has an authority to read.
+
+    THE THREE-WAY DISTINCTION, which must never be collapsed:
+
+      * a parent is NAMED                 -> answered
+      * a reporting EXCEPTION is returned -> the authority STATES none is
+        reported, with a reason -> answered. This is the second half of the pass
+        condition, "or states that none is", and an entity at the top of its own
+        tree is a real finding, not a gap.
+      * neither                           -> the authority said NOTHING ->
+        ATTEMPTED_INCONCLUSIVE. Reporting that as "no parent" would invent a fact
+        about an entity GLEIF has no statement about.
+
+    OC-7 names the DIRECT and the ULTIMATE parent, so a direct-only answer says
+    so rather than letting a reader assume the top of the tree was established.
+    """
+    h = _m(_m(r.get("network")).get("lei_hierarchy"))
+    if not h:
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="no relationship authority was consulted for this subject",
+            remedy="resolve an LEI and query GLEIF for the direct and ultimate parent")
+
+    if not h.get("checked"):
+        why = str(h.get("error") or "the relationship authority did not answer")
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=f"the group structure could not be established: {why}",
+            remedy="re-query GLEIF; an unanswered authority is not an absence of parents")
+
+    direct = _m(h.get("direct"))
+    ultimate = _m(h.get("ultimate"))
+    d_exc = _m(h.get("direct_exception"))
+    u_exc = _m(h.get("ultimate_exception"))
+
+    if direct.get("name") or ultimate.get("name"):
+        parts = []
+        if ultimate.get("name"):
+            parts.append(f"ultimate parent {ultimate['name']}")
+        if direct.get("name") and direct.get("lei") != ultimate.get("lei"):
+            parts.insert(0, f"direct parent {direct['name']}")
+        if not ultimate.get("name"):
+            parts.append("the ULTIMATE parent was not reported")
+        return Resolution(q.id, EvidenceState.SINGLE_SOURCE.value,
+                          reason="; ".join(parts), origins=("gleif",))
+
+    if d_exc.get("reason") or u_exc.get("reason"):
+        exc = u_exc if u_exc.get("reason") else d_exc
+        return Resolution(
+            q.id, EvidenceState.SINGLE_SOURCE.value,
+            reason=(f"the relationship authority states NO parent is reported "
+                    f"({exc.get('reason') or exc.get('category')}), so this entity "
+                    f"sits at the top of its own reported tree"),
+            origins=("gleif",))
+
+    return Resolution(
+        q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+        reason="the relationship authority returned neither a parent nor a stated "
+               "reason for its absence, so the group structure is unestablished",
+        remedy="re-query GLEIF, or obtain the group structure from the counterparty")
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1528,7 +1596,7 @@ QUESTIONS: tuple[Question, ...] = (
        pass_condition="A relationship authority returns the direct and ultimate parent, "
                       "or states that none is recorded",
        resolvers=("gleif",),
-       reader=None),
+       reader=_read_group_structure),
     _q(id="OC-8", fundamental=8, cluster=Cluster.OWNERSHIP_CONTROL.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.HYBRID.value,

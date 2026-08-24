@@ -2823,6 +2823,18 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-249",
+      "title": "OC-7 has no parent-hierarchy capability; GLEIF publishes it free",
+      "claimed_at": "2026-08-24T12:23:51Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4294"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T12:30:15Z"
     }
   ]
 }

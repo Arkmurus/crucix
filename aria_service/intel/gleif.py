@@ -129,6 +129,108 @@ async def search_lei(name: str, *, country: str | None = None, limit: int = 5,
     return out
 
 
+async def fetch_parents(lei: str, *, timeout: float = _TIMEOUT) -> dict:
+    """R-F4294 — the direct and ultimate parent GLEIF reports for `lei`.
+
+    OC-7 asks for "parent, subsidiaries, affiliates and ultimate parent" and its
+    pass condition is "a relationship authority returns the direct and ultimate
+    parent, OR STATES THAT NONE IS". GLEIF answers both halves, free and
+    key-less, and C-248 recorded that nothing here fetched them — so OC-7 was
+    unanswerable for want of a capability, not for want of a reader.
+
+    THE THREE-WAY DISTINCTION IS THE POINT and it must never be collapsed:
+
+      * `/direct-parent` 200            -> a parent exists and is named
+      * `/direct-parent-reporting-exception` 200
+                                        -> the authority STATES none is reported,
+                                           with a reason (NO_KNOWN_PERSON,
+                                           NON_CONSOLIDATING, NO_LEI, ...)
+      * 404 on BOTH                     -> the authority said NOTHING
+
+    Reading the third as the second would report "no parent" for an entity GLEIF
+    has no statement about. `checked` is therefore True only when GLEIF actually
+    answered something; the caller must treat False as unknown, never as clear.
+
+    Best-effort like the rest of this module: never raises, returns the same
+    shape on every path so a consumer cannot be surprised by a missing key.
+    """
+    out: dict = {
+        "checked": False, "lei": (lei or "").strip(),
+        "direct": None, "ultimate": None,
+        "direct_exception": None, "ultimate_exception": None,
+        "source_url": "", "error": "",
+    }
+    code = out["lei"]
+    if not code:
+        out["error"] = "no LEI"
+        return out
+    out["source_url"] = f"{_API}/{code}"
+    try:
+        import httpx
+    except Exception:
+        out["error"] = "httpx unavailable"
+        return out
+
+    async def _one(client, path: str):
+        try:
+            r = await client.get(f"{_API}/{code}/{path}")
+            if r.status_code == 200:
+                return r.json().get("data")
+            if r.status_code == 404:
+                return None            # a real "nothing here", not a failure
+            return {"_http": r.status_code}
+        except Exception as e:  # noqa: BLE001 — best-effort, never raises
+            return {"_err": f"{type(e).__name__}"}
+
+    try:
+        import asyncio
+        async with httpx.AsyncClient(  # no-breaker: free key-less authority (GLEIF), timeout-bounded, degrades to checked=False
+            timeout=timeout,
+            headers={"Accept": "application/vnd.api+json",
+                     "User-Agent": "AriaIntelligence/1.0 (defence-DD; aria@arkmurus.com)"},
+        ) as client:
+            dp, up, dx, ux = await asyncio.gather(
+                _one(client, "direct-parent"),
+                _one(client, "ultimate-parent"),
+                _one(client, "direct-parent-reporting-exception"),
+                _one(client, "ultimate-parent-reporting-exception"),
+            )
+    except Exception as e:
+        logger.debug("GLEIF parent fetch failed for %s: %s", code, e)
+        _wire_lei_fail(f"GLEIF parent lookup FAILED ({type(e).__name__}) for {code}")
+        out["error"] = type(e).__name__
+        return out
+
+    def _entity(node):
+        if not isinstance(node, dict) or "_http" in node or "_err" in node:
+            return None
+        attrs = node.get("attributes") or {}
+        name = ((attrs.get("entity") or {}).get("legalName") or {}).get("name") or ""
+        got = str(attrs.get("lei") or "").strip()
+        return {"lei": got, "name": str(name).strip()} if got else None
+
+    def _exception(node):
+        if not isinstance(node, dict) or "_http" in node or "_err" in node:
+            return None
+        attrs = node.get("attributes") or {}
+        category = str(attrs.get("category") or "").strip()
+        reasons = attrs.get("reason")
+        reason = ", ".join(str(x) for x in reasons) if isinstance(reasons, list)             else str(reasons or "").strip()
+        return {"category": category, "reason": reason} if (category or reason) else None
+
+    out["direct"], out["ultimate"] = _entity(dp), _entity(up)
+    out["direct_exception"], out["ultimate_exception"] = _exception(dx), _exception(ux)
+
+    # `checked` means GLEIF ANSWERED, not that a parent exists. A transport error
+    # on every endpoint leaves it False, which the reader treats as unknown.
+    transport_failed = all(
+        isinstance(x, dict) and ("_http" in x or "_err" in x) for x in (dp, up, dx, ux))
+    out["checked"] = not transport_failed
+    if transport_failed:
+        out["error"] = "GLEIF relationship endpoints did not answer"
+    return out
+
+
 def best_match(name: str, hits: list[dict]) -> dict | None:
     """Return the single GLEIF hit whose legal name CONFIDENTLY matches `name`,
     or None. Conservative by design: requires either a normalised exact match or

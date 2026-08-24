@@ -15599,3 +15599,62 @@ its pass condition describes ALREADY RUNS and leaves a verifiable trace. Where i
 does not, the honest NOT_RUN — *"no resolver is bound to this question in this
 build"* — is the correct output, and the remedy line already names the candidate
 resolvers. Leaving it unbound is not a gap in the reader; it is an accurate report.
+
+## C-249 · OC-7 had no parent-hierarchy capability; GLEIF publishes one free (fixed, R-F4294)
+
+**C-248 refused to bind OC-7 and was right to.** GLEIF *was* called on every run,
+but neither module fetched relationship data, so a reader would have certified a
+lookup that never happened. The gap was a missing CAPABILITY, not a missing
+reader — so this builds the capability, rather than binding around its absence.
+
+**Measured live 2026-08-24 before writing any code.** GLEIF's relationship
+endpoints are free, key-less and already reachable, and they answer OC-7's pass
+condition ("a relationship authority returns the direct and ultimate parent, **or
+states that none is**") almost word for word:
+
+```
+VODAFONE LIMITED       /direct-parent    200 -> VODAFONE GROUP PUBLIC LIMITED COMPANY
+                       /ultimate-parent  200 -> VODAFONE GROUP PUBLIC LIMITED COMPANY
+VODAFONE GROUP PLC     /direct-parent    404
+   (top of its tree)   /direct-parent-reporting-exception
+                                         200 -> DIRECT_ACCOUNTING_CONSOLIDATION_PARENT
+                                                reason=NO_KNOWN_PERSON
+```
+
+**THE THREE-WAY DISTINCTION IS THE WHOLE DESIGN, and it must never be collapsed:**
+
+| GLEIF says | meaning | state |
+|---|---|---|
+| a parent record | the parent exists and is named | SINGLE_SOURCE |
+| a reporting EXCEPTION | the authority **states** none is reported, with a reason | SINGLE_SOURCE — a real finding, not a gap |
+| neither (404 on both) | the authority said **nothing** | ATTEMPTED_INCONCLUSIVE |
+
+Reading the third as the second would report "no parent" for an entity GLEIF
+simply has no statement about — the false clean this whole series exists to
+prevent. `checked` means GLEIF ANSWERED, never that a parent exists; a transport
+failure on every endpoint leaves it False, which the reader treats as unknown.
+
+OC-7 names the DIRECT **and** ULTIMATE parent, so a direct-only answer says so
+rather than letting a reader assume the top of the tree was established.
+
+**Wired end to end, and tested as such:** the fetch is called where GLEIF already
+resolves the LEI (dd_orchestrator), the result is carried on a real schema field
+(`NetworkSection.lei_hierarchy` — a producer and consumer with no carrier between
+them is the R-F3231 defect), and tests assert the orchestrator actually calls it
+and the schema actually holds it. A capability nothing invokes is the R-F3099
+shape: built, tested, never run.
+
+Four concurrent calls per DD, free, timeout-bounded, best-effort — a failure can
+never cost the report.
+
+**Answerable fundamentals: 3 unbound → 2** (LR-20, OC-8).
+
+### C-248 amended — OC-7 is now bound, and the refusal still stands as written
+
+C-248 said OC-7 "must NOT be bound". That was correct **for the tree as it stood**:
+binding it then would have certified a lookup that did not happen. R-F4294 changed
+the premise by building the lookup, so the refusal was resolved the honest way —
+by making the work real, not by relaxing the rule. **OC-8 is unchanged and still
+must not be bound**: every "signatory"/"mandate" occurrence is recommendation
+prose, and the question needs a counterparty-supplied signatory. **LR-20** is
+likewise unchanged — do not bind it on SIC codes alone.

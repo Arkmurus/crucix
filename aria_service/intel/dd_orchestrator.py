@@ -5403,6 +5403,19 @@ async def _run_identity(
                 _gl_hits = await _gleif.search_lei(name)  # retry without the country filter
             _gl = _gleif.best_match(name, _gl_hits)
             if _gl:
+                # R-F4294 (C-249) — the LEI is resolved, so ask the SAME authority
+                # for the group structure. OC-7 asks for the direct and ultimate
+                # parent, and GLEIF publishes both free and key-less; until now
+                # nothing fetched them, so OC-7 was unanswerable for want of a
+                # capability rather than a reader (C-248). Best-effort and
+                # timeout-bounded: a failure leaves `checked: False`, which the
+                # reader treats as unknown and never as "no parent".
+                try:
+                    _lei_code = str(_gl.get("lei") or "").strip()
+                    if _lei_code:
+                        report.network.lei_hierarchy = await _gleif.fetch_parents(_lei_code)
+                except Exception as _lh_e:  # noqa: BLE001 — never costs the report
+                    logger.debug("[R-F4294] GLEIF parent fetch skipped: %s", _lh_e)
                 _filled = []
                 if not report.identity.registration_number and _gl.get("registered_as"):
                     report.identity.registration_number = _gl["registered_as"]; _filled.append("reg#")

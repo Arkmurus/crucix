@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4294,
+  "next_available": 4295,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36841,6 +36841,16 @@
       "r_number": "R-F4293",
       "title": "bind EI-4 to the register-established address, entity half",
       "claimed_at": "2026-08-24T11:55:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "31fd2be9",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:02:45Z"
+    },
+    {
+      "r_number": "R-F4294",
+      "title": "GLEIF parent relationships - fetch, wire and bind OC-7",
+      "claimed_at": "2026-08-24T12:23:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
