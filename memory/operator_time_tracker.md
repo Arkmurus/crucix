@@ -4766,3 +4766,51 @@ and platform artifacts, which is why they had gone unfixed.
 
 No deploy owed: zero `aria_service/` runtime files changed in this batch (live
 remains `7a5da1c8`, which carries IS-14, IS-15 and the gap-type registrations).
+
+## Session 2026-08-24 (part 12) — R-F4290 · FS-9 bound, live
+
+Operator: *"deep laser precision and surgery… tested, wired and enabled."*
+
+### C-244 — third instance of the C-235 shape, and the clearest
+
+FS-9 ("Statutory accounts and filings are current, not overdue or in default")
+rendered **NOT_RUN "no resolver is bound"** while
+`financial_health._uk_registry_accounts` fetched exactly that evidence on every GB
+run — `filed`, `overdue`, `next_due`, `distress_flags`, plus a citable
+filing-history URL — and parked it at
+`compliance.financial_health.registry_accounts`.
+
+**Why it sat unused, and why reading it here is not what that code forbids.** The
+producer's docstring: *"THIS IS EVIDENCE, NOT A VERDICT … answering financial
+capacity from filing dates would be a false clean."* That is the **FS-10** boundary
+and it is right. **FS-9 is the question filing dates DO answer.** A test asserts
+FS-10 still refuses it, and the live probe confirms it
+(`FS-10 -> ATTEMPTED_INCONCLUSIVE`).
+
+**Live-verified in production at `sha 1d07aa4d`:**
+```
+both current            SINGLE_SOURCE           accounts + confirmation within due dates
+accounts OVERDUE        SINGLE_SOURCE           early-distress signal
+never filed             SINGLE_SOURCE           no accounts have ever been filed
+confirmation OVERDUE    SINGLE_SOURCE           the confirmation statement is OVERDUE
+confirmation UNKNOWN    ATTEMPTED_INCONCLUSIVE  half the question unanswered
+no evidence             NOT_RUN                 nobody looked
+FS-10                   ATTEMPTED_INCONCLUSIVE  boundary preserved
+```
+
+**The producer needed one minimal extension.** The profile carried
+`confirmation_next_due` but not the overdue flag, and a due date alone cannot say
+whether a filing is LATE — deriving that from today's date would make the answer
+depend on WHEN THE REPORT IS RE-READ. `_confirmation_block` mirrors
+`_accounts_block`, and its load-bearing field is **`known`**: `overdue=False` alone
+is indistinguishable from "we have no idea". My own first fixture made exactly that
+mistake and the guard caught it.
+
+### Standing
+
+**Answerable fundamentals: 8 unbound → 5** (EI-4, IS-16, LR-20, OC-7, OC-8 remain;
+EI-3 and LR-19 are `SUPPLIED` — legitimately awaiting counterparty evidence, not
+unbound). **2957 passed, 0 failed.**
+
+Three fundamentals bound this session from work the pipeline was ALREADY paying
+for: IS-15 (media sweep), IS-14 (PEP + RCA), FS-9 (filing currency).
