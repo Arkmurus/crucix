@@ -218,7 +218,7 @@ def main() -> int:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(
         f"POD_ID={pod_id}\nHOST={host}\nPORT={port}\n"
-        f"LAUNCHED_AT={int(time.time())}\nDEADLINE={DEADLINE}\n", encoding="utf-8")
+        f"LAUNCHED_AT={int(time.time())}\nDEADLINE={DEADLINE}\n", encoding="utf-8", newline="\n")
     log(f"LAUNCHED — state in {STATE_FILE.name}")
     log("the pod now works independently of this machine and self-stops after "
         f"{DEADLINE}s even if nobody returns.")

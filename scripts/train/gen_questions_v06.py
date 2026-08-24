@@ -105,7 +105,7 @@ async def main() -> int:
         "\n".join(json.dumps({"question": q.question, "topic": q.topic,
                               "source": "v06_grounded_distill"}, ensure_ascii=False)
                   for q in questions) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     print(f"[v06] wrote {len(questions)} NEW questions -> {args.out}")
     return 0
 

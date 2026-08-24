@@ -528,7 +528,7 @@ async def _main() -> None:
             logger.info("  accuracy: %s", report["defence_dd"]["accuracy"])
 
     report["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
     logger.info("Report written to %s", args.out)
 
     # Phase 3 exit-criteria check

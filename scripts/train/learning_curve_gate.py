@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                                   json.loads(args.after.read_text(encoding="utf-8")),
                                   set(args.protected_axis))
     args.verdict_out.parent.mkdir(parents=True, exist_ok=True)
-    args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
+    args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(verdict, indent=2))
     return 0 if verdict["pass"] else 3
 

@@ -177,7 +177,7 @@ async def main() -> int:
         sidecar.parent.mkdir(parents=True, exist_ok=True)
         sidecar.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in eval_rows) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
         print(f"[R-F1558] held-out split: {len(train_rows)} train / {len(eval_rows)} eval "
               f"-> eval written to {sidecar} (EVAL ONLY ON THIS HELD-OUT SET)")
         rows = train_rows
@@ -261,7 +261,7 @@ async def main() -> int:
 
     kept = [done[i] for i in sorted(done) if done.get(i)]
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + "\n", encoding="utf-8")
+    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(kept)} grounded rows -> {args.out}")
     print(f"kept={stats['kept']} rejected={stats['rejected']} errors={stats['errors']}")
     return 0

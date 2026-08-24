@@ -139,7 +139,7 @@ async def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in out if r is not None) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     print(f"wrote {len([r for r in out if r])} rows -> {args.out}  "
           f"({n_ctx} with context, {n_empty} empty, {n_err} errors)")
     if n_ctx == 0:

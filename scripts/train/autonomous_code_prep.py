@@ -47,7 +47,7 @@ def _status(**kw) -> None:
     prev.update(kw)
     prev["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _STATUS.parent.mkdir(parents=True, exist_ok=True)
-    _STATUS.write_text(json.dumps(prev, indent=2), encoding="utf-8")
+    _STATUS.write_text(json.dumps(prev, indent=2), encoding="utf-8", newline="\n")
     print(f"[status] {kw}")
 
 
@@ -111,7 +111,7 @@ def merge_shards() -> int:
                 continue
             seen.add(r["sha"])
             out.append(r)
-    _CORPUS.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8")
+    _CORPUS.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8", newline="\n")
     return len(out)
 
 
@@ -127,8 +127,8 @@ def resplit() -> tuple[int, int]:
     eval_rows = (multi + single)[:n_eval]
     eval_shas = {r["sha"] for r in eval_rows}
     train_rows = [r for r in rows if r["sha"] not in eval_shas]
-    _TRAIN.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in train_rows), encoding="utf-8")
-    _EVAL.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in eval_rows), encoding="utf-8")
+    _TRAIN.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in train_rows), encoding="utf-8", newline="\n")
+    _EVAL.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in eval_rows), encoding="utf-8", newline="\n")
     return len(train_rows), len(eval_rows)
 
 

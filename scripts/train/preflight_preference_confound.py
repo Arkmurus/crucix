@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.report_out is not None:
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
         args.report_out.write_text(json.dumps(result, indent=2) + "\n",
-                                   encoding="utf-8")
+                                   encoding="utf-8", newline="\n")
 
     print(f"preference confound — {result['pairs']} pairs, "
           f"grouped by {'/'.join(result['grouped_by'])}")

@@ -54,7 +54,7 @@ def _status(**kw):
     prev.update(kw)
     prev["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _STATUS.parent.mkdir(parents=True, exist_ok=True)
-    _STATUS.write_text(json.dumps(prev, indent=2), encoding="utf-8")
+    _STATUS.write_text(json.dumps(prev, indent=2), encoding="utf-8", newline="\n")
     print(f"[status] { {k: v for k, v in kw.items() if k != 'tail'} }", flush=True)
 
 

@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         verdict["incumbent_override_reason"] = args.incumbent_override
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
+        args.out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     inc = verdict["incumbent"]
     print(f"gate {verdict['promotion_gate']}  (from {verdict['gate_source']})")

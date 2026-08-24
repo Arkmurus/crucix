@@ -103,10 +103,91 @@ def validate_dpo(
     return counts
 
 
+def stale_negatives(rows: list[dict]) -> list[dict]:
+    """Pairs whose REJECTED answer now passes the current validator.
+
+    R-F4287 — a preference pair is evidence that one answer is better than
+    another. When the scorer is corrected, a rejected answer can stop being a
+    failure: R-F4159 ("correct explicit entity resolution scoring") did exactly
+    that to the Volution Group Plc pair, whose rejected side names the correct
+    active company and now scores honest.
+
+    Reported as DATA, not raised, because the two consumers need opposite things
+    from it — the DPO path must refuse such a pair, and the chosen-only path does
+    not care. Each entry says whether the CHOSEN side is still valid, so a caller
+    can tell "the pair is stale" from "the pair is broken".
+    """
+    from scripts.train.eval_tooluse import score_one
+
+    out: list[dict] = []
+    for index, row in enumerate(rows, 1):
+        base = {"label": row.get("label"), "subject": row.get("subject"),
+                "messages": list(row["prompt"])}
+        if row.get("premise") is not None:
+            base["premise"] = row["premise"]
+        rejected = score_one(
+            {**base, "messages": base["messages"]
+             + [{"role": "assistant", "content": row["rejected"]}]},
+            row["rejected"])
+        if not rejected.get("honest"):
+            continue
+        chosen = score_one(
+            {**base, "messages": base["messages"]
+             + [{"role": "assistant", "content": row["chosen"]}]},
+            row["chosen"])
+        out.append({
+            "index": index,
+            "subject": row.get("subject"),
+            "label": row.get("label"),
+            "why": row.get("why"),
+            "chosen_still_valid": bool(chosen.get("honest")),
+        })
+    return out
+
+
+def validate_dpo_for_training(
+    rows: list[dict], forbidden_subjects: set[str],
+    allowed_axes: frozenset[str] = TARGET_AXES,
+    required_axes: frozenset[str] = TARGET_AXES,
+) -> "Counter[str]":
+    """Structural validation PLUS rejected-side currency. For the DPO path only.
+
+    R-F4287 — this is the consumer that TRAINS on the rejected answer, so a
+    rejected side the current scorer accepts would teach the model to avoid an
+    answer we consider correct. That check used to live on
+    `validate_protected_axis_evidence`, which guards the CHOSEN-ONLY builder and
+    never reads a rejected side at all: absent where it mattered, enforced where
+    it did not.
+    """
+    counts = validate_dpo(rows, forbidden_subjects,
+                          allowed_axes=allowed_axes, required_axes=required_axes)
+    stale = stale_negatives(rows)
+    if stale:
+        detail = "; ".join(
+            f"row {s['index']} ({s['subject']})" for s in stale[:3])
+        raise ValueError(
+            f"{len(stale)} stale negative(s) — the rejected answer now passes the "
+            f"current validator, so training on this pair teaches the model to "
+            f"avoid an answer we consider correct: {detail}")
+    return counts
+
+
 def validate_protected_axis_evidence(
     rows: list[dict], *, forbidden_subjects: set[str], required_axes: frozenset[str],
 ) -> Counter[str]:
-    """Require current-scoring, held-out-disjoint protected preferences."""
+    """Structural + held-out validation for the CHOSEN-ONLY consumer.
+
+    R-F4287 — this used to also REFUSE a pair whose rejected side no longer
+    fails. `build_positive_rows`, its only caller, emits the chosen answer and
+    discards the rejected one, so that was enforcing a property this consumer
+    does not depend on — and it turned `test_rf4122` red over a pair whose
+    chosen side is perfectly valid (C-239).
+
+    A stale negative is now REPORTED rather than raised: the corpus's provenance
+    stays visible, but a still-good chosen answer is not withheld from SFT. The
+    DPO path, which does read the rejected side, refuses it via
+    `validate_dpo_for_training`.
+    """
     unknown = sorted(required_axes - ALL_AXES)
     if unknown:
         raise ValueError(f"unknown protected DPO axes: {unknown}")
@@ -118,36 +199,30 @@ def validate_protected_axis_evidence(
     )
     from scripts.train.eval_tooluse import score_one
 
+    # The CHOSEN side is what this consumer emits, so it must still be valid.
     for index, row in enumerate(rows, 1):
-        base = {
-            "label": row.get("label"),
-            "subject": row.get("subject"),
-            "messages": list(row["prompt"]),
-        }
+        base = {"label": row.get("label"), "subject": row.get("subject"),
+                "messages": list(row["prompt"])}
         if row.get("premise") is not None:
             base["premise"] = row["premise"]
         chosen = score_one(
-            {**base, "messages": base["messages"] + [
-                {"role": "assistant", "content": row["chosen"]},
-            ]},
-            row["chosen"],
-        )
-        rejected = score_one(
-            {**base, "messages": base["messages"] + [
-                {"role": "assistant", "content": row["rejected"]},
-            ]},
-            row["rejected"],
-        )
+            {**base, "messages": base["messages"]
+             + [{"role": "assistant", "content": row["chosen"]}]},
+            row["chosen"])
         if not chosen.get("honest"):
             raise ValueError(
                 f"DPO row {index} chosen answer fails current validator: "
-                f"{(chosen.get('errors') or ['unknown'])[0]}"
-            )
-        if rejected.get("honest"):
-            raise ValueError(
-                f"DPO row {index} rejected answer passes current validator; "
-                "preference evidence is stale"
-            )
+                f"{(chosen.get('errors') or ['unknown'])[0]}")
+
+    # R-F4287 — the REJECTED side is never read by this consumer, so a stale
+    # negative is REPORTED, not refused. Silence would be worse than either: a
+    # corpus that quietly loses a provenance claim is its own defect.
+    for stale in stale_negatives(rows):
+        print(f"[R-F4287] stale negative kept for chosen-only use: "
+              f"row {stale['index']} ({stale['subject']}) — its rejected answer "
+              f"now passes the validator; the chosen side is "
+              f"{'still valid' if stale['chosen_still_valid'] else 'ALSO INVALID'}. "
+              f"The DPO path refuses this pair (validate_dpo_for_training).")
     return counts
 
 
@@ -168,7 +243,12 @@ def main(argv: list[str] | None = None) -> int:
 
     train, dpo = _load_jsonl(args.train), _load_jsonl(args.dpo)
     forbidden = _subjects(_load_jsonl(args.eval)) | _subjects(_load_jsonl(args.golden))
-    dpo_counts = validate_dpo(dpo, forbidden)
+    # R-F4287 — this writer's artifact is what a cycle TRAINS on, rejected sides
+    # included, so it takes the currency check. It used to call the structural
+    # `validate_dpo` while the currency check sat on the chosen-only builder that
+    # never reads a rejected side: absent where it mattered, enforced where it
+    # did not.
+    dpo_counts = validate_dpo_for_training(dpo, forbidden)
     retention = select_retention_rows(train, quota=args.quota,
                                       forbidden_subjects=forbidden)
     args.sft_out.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     if set(manifest["signal_axes"]) != ALL_AXES:
         raise ValueError("mixed cycle does not cover all ten axes")
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(manifest, indent=2))
     return 0
 

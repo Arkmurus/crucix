@@ -260,7 +260,7 @@ def main(argv: "list[str] | None" = None) -> int:
             "advisory": det,
             "llm_fundamentals": sorted(fid for fid in QUESTIONS_BY_ID
                                        if fundamental_mechanism(fid) == LLM),
-        }, indent=2) + "\n", encoding="utf-8")
+        }, indent=2) + "\n", encoding="utf-8", newline="\n")
     return 0
 
 

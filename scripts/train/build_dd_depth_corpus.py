@@ -700,13 +700,13 @@ async def build(count: int, out: Path, emit_dpo: bool, concurrency: int) -> int:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in kept_sft) + "\n",
-                   encoding="utf-8")
+                   encoding="utf-8", newline="\n")
     print(f"\n[write] {len(kept_sft)} SFT rows -> {out}")
 
     if emit_dpo and kept_dpo:
         dpo_path = Path(str(out).replace(".jsonl", "_dpo.jsonl"))
         dpo_path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in kept_dpo) + "\n",
-                            encoding="utf-8")
+                            encoding="utf-8", newline="\n")
         print(f"[write] {len(kept_dpo)} DPO pairs (chosen=deep grounded / rejected=shallow) -> {dpo_path}")
 
     # (d) EXTERNAL contamination gate on the whole output — FAIL LOUD.

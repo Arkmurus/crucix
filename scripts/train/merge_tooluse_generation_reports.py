@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
                for queue, report in args.source]
     merged = merge_reports(target, sources)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {merged['honest']}/{merged['total']} honest -> {args.out}")
     return 0
 

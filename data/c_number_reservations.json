@@ -2721,9 +2721,12 @@
       "title": "a preference artifact observed under an older scorer no longer regenerates",
       "claimed_at": "2026-08-24T07:57:03Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4287"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T09:44:51Z"
     },
     {
       "c_number": "C-240",
@@ -2751,6 +2754,30 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T09:06:22Z"
+    },
+    {
+      "c_number": "C-242",
+      "title": "stale-negative check is absent from the DPO path and over-strict on the chosen-only path",
+      "claimed_at": "2026-08-24T09:38:17Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4287"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T09:44:51Z"
+    },
+    {
+      "c_number": "C-243",
+      "title": "46 artifact writers produce CRLF on Windows and LF on Linux",
+      "claimed_at": "2026-08-24T09:41:12Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4288"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T09:44:51Z"
     }
   ]
 }

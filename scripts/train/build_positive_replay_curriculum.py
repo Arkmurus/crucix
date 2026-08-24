@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
                         encoding="utf-8", newline="\n")
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(manifest, indent=2))
     return 0
 

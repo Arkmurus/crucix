@@ -56,7 +56,23 @@ def test_lifespan_wires_the_prewarm():
     body_src = ast.get_source_segment(src, lifespan) or ""
     assert "_prewarm_heavy_imports" in body_src, "lifespan must define the pre-warm"
     assert "asyncio.to_thread" in body_src, "pre-warm must run OFF the event loop"
-    assert PREWARM_MODULE in body_src, "pre-warm must target the heavy DD-path module"
+
+    # R-F4289 — the module NAME is no longer a literal inside lifespan: it was
+    # extracted to `_HEAVY_PREWARM_MODULES` and the body now iterates that tuple.
+    # Asserting the substring made this test red for a REFACTOR while the
+    # capability was perfectly intact (main.py:1128 still lists it, and the loop
+    # still imports every entry via asyncio.to_thread). Same fragility class as
+    # R-F2254's source-substring locks; read the list the code actually uses.
+    from aria_service.main import _HEAVY_PREWARM_MODULES
+
+    assert PREWARM_MODULE in _HEAVY_PREWARM_MODULES, (
+        "the heavy DD-path module dropped out of the boot pre-warm; the first DD "
+        "per process would import anthropic ON the request loop again"
+    )
+    assert "_HEAVY_PREWARM_MODULES" in body_src, (
+        "lifespan no longer reads the pre-warm list, so entries added to it "
+        "would never be warmed"
+    )
     scheduled = any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)

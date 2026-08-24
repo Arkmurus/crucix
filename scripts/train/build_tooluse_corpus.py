@@ -2295,7 +2295,7 @@ def main() -> int:
             Path(args.capture_to).parent.mkdir(parents=True, exist_ok=True)
             Path(args.capture_to).write_text(
                 "\n".join(json.dumps({"subject": s, "payload": p}, ensure_ascii=False)
-                          for s, p in captured) + "\n", encoding="utf-8")
+                          for s, p in captured) + "\n", encoding="utf-8", newline="\n")
     else:
         print("one of --live or --from-cache is required", file=sys.stderr)
         return 2

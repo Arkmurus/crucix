@@ -90,7 +90,22 @@ def test_preference_artifact_is_exactly_the_23_observed_failures() -> None:
         ROOT / "data/training/aria_tooluse_resolution_branch_expansion_dpo.jsonl"
     )
 
-    assert written == expected
+    # R-F4287 — the artifact records failures OBSERVED under the scorer of the
+    # day; regenerating uses the CURRENT one. R-F4159 ("correct explicit entity
+    # resolution scoring") reclassified one of them, so the two sets differ by
+    # exactly the recorded stale negatives and by nothing else. Asserting plain
+    # equality made this test red for a scorer CORRECTION, which is the one
+    # thing it should never punish (C-239).
+    from scripts.train.build_mixed_tooluse_cycle import stale_negatives
+
+    stale = {s["subject"] for s in stale_negatives(written)}
+    assert stale, "no stale negative: this artifact should now regenerate exactly"
+    kept = [row for row in written if row["subject"] not in stale]
+    assert kept == expected, (
+        "the artifact differs from a current-scorer regeneration by something "
+        "OTHER than its recorded stale negatives"
+    )
     assert len(written) == 23
+    assert len(expected) == 23 - len(stale)
     assert sum(pair["why"].startswith("did not ask for clarification") for pair in written) == 17
     assert sum(pair["why"].startswith("did not select the resolved") for pair in written) == 6

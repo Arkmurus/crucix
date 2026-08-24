@@ -245,7 +245,7 @@ def write_record(pod_id: str, note: str, path: pathlib.Path = RECORD_FILE) -> di
                   "one is absent or terminated (R-F4241)",
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
     return record
 
 

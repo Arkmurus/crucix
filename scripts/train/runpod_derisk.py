@@ -75,7 +75,7 @@ def _req(method: str, path: str, key: str, body: dict | None = None) -> tuple[in
 
 def _record_write(pod_id: str) -> None:
     _RECORD.parent.mkdir(parents=True, exist_ok=True)
-    _RECORD.write_text(pod_id + "\n", encoding="utf-8")
+    _RECORD.write_text(pod_id + "\n", encoding="utf-8", newline="\n")
 
 
 def _record_clear() -> None:
@@ -162,7 +162,7 @@ def main() -> None:
                 _record_clear()
         report["elapsed_s"] = round(time.time() - t0, 1)
         _STATUS.parent.mkdir(parents=True, exist_ok=True)
-        _STATUS.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        _STATUS.write_text(json.dumps(report, indent=2), encoding="utf-8", newline="\n")
         print("\n=== DE-RISK REPORT ===")
         print(json.dumps(report, indent=2))
         verdict = ("PASS — provisioning + reliable termination proven; unattended "

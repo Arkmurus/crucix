@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4287,
+  "next_available": 4290,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36771,6 +36771,34 @@
       "r_number": "R-F4286",
       "title": "re-pin launcher hashes onto the canonical LF bytes R-F4283 established",
       "claimed_at": "2026-08-24T08:57:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bc002f9a",
+      "notes": null,
+      "shipped_at": "2026-08-24T09:17:13Z"
+    },
+    {
+      "r_number": "R-F4287",
+      "title": "the rejected-side currency check guards the wrong consumer",
+      "claimed_at": "2026-08-24T09:38:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4288",
+      "title": "artifact writers emit platform-dependent bytes - pin newline at the source",
+      "claimed_at": "2026-08-24T09:41:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4289",
+      "title": "rf1845 prewarm guard reads the module list, not a source substring",
+      "claimed_at": "2026-08-24T09:44:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

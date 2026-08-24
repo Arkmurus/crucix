@@ -55,7 +55,7 @@ async def main() -> int:
             print(f"  {i + 1}/{len(rows)} — {n_ctx} grounded, {n_empty} empty")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in out) + "\n", encoding="utf-8")
+    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in out) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(out)} rows -> {args.out}  ({n_ctx} with retrieved context, {n_empty} empty)")
     if n_ctx == 0:
         print("WARNING: 0 questions got context — are you running where the RAG store lives?", file=sys.stderr)

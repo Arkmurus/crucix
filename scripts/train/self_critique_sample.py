@@ -189,7 +189,7 @@ async def _run(args) -> int:
             "clean": clean, "fabrication": fab, "error": err, "vague": vague,
             "fabrication_rate": round(fab_rate, 4), "error_rate": round(err_rate, 4),
             "results": results,
-        }, indent=2), encoding="utf-8")
+        }, indent=2), encoding="utf-8", newline="\n")
         print(f"\n[self_critique] detail written to {args.out}")
     return 0
 

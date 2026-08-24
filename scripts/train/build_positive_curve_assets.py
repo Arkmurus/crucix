@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
                         encoding="utf-8", newline="\n")
     args.baseline_out.parent.mkdir(parents=True, exist_ok=True)
-    args.baseline_out.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+    args.baseline_out.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8", newline="\n")
     heldout_baseline = None
     if args.heldout_raw_report:
         heldout_baseline = rescore_answers(
@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         args.heldout_baseline_out.parent.mkdir(parents=True, exist_ok=True)
         args.heldout_baseline_out.write_text(
-            json.dumps(heldout_baseline, indent=2) + "\n", encoding="utf-8"
+            json.dumps(heldout_baseline, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
     manifest = {"complete": True, "calibration_is_promotion_evidence": False,
                 "sft_rows": len(sft), "source_sft_rows": len(train),
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             "input_sha256": sha(args.heldout_raw_report),
             "output_sha256": sha(args.heldout_baseline_out),
         }
-    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(manifest, indent=2))
     return 0
 

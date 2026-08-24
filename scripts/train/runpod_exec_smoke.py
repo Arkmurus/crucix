@@ -51,7 +51,7 @@ def _make_mini() -> int:
     if not rows:
         rows = [{"input": f"Fix: return {i}", "output": f"### FIXED 1\n```python\nreturn {i}\n```"}
                 for i in range(10)]
-    _MINI.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    _MINI.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8", newline="\n")
     return len(rows)
 
 
@@ -162,7 +162,7 @@ def main() -> None:
         if report["cost_per_hr"]:
             report["cost_usd"] = round(report["elapsed_s"] / 3600 * float(report["cost_per_hr"]), 4)
         _STATUS.parent.mkdir(parents=True, exist_ok=True)
-        _STATUS.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        _STATUS.write_text(json.dumps(report, indent=2), encoding="utf-8", newline="\n")
         print("\n=== EXEC-SMOKE REPORT ===")
         print(json.dumps({k: v for k, v in report.items() if k != "train_tail"}, indent=2))
         ok = report["created"] and report["gpu_ok"] and report["adapter_emitted"] and report["terminated"]

@@ -15374,3 +15374,68 @@ change.
 **The transferable rule:** a sha256 over a TEXT artifact is not a content identity
 unless the line endings are pinned too. Hash the content, or pin the encoding —
 this repo had done neither, in both directions, at the same time.
+
+### C-239 closure — both halves fixed (R-F4287)
+
+The root cause was placement, not the artifact. See C-242.
+
+## C-242 · the stale-negative check guarded the wrong consumer (fixed, R-F4287)
+
+A DPO pair carries a CHOSEN and a REJECTED answer. Whether the rejected side is
+still a failure under the current scorer matters to exactly one consumer — the one
+that trains on it. It was checked on the other one.
+
+| function | checks | guards |
+|---|---|---|
+| `validate_dpo` | structural only | `build_mixed_tooluse_cycle.main`, which writes the artifact **a cycle trains on**. **No currency check.** |
+| `validate_protected_axis_evidence` | structural **+ rejected-side currency** | `build_positive_rows`, which emits **only the chosen side** and discards the rejected one entirely. |
+
+**Absent where a stale negative would actually teach the model to avoid a good
+answer; enforced where the rejected side is never read.** That inversion is what
+turned `test_rf4122` red (C-239) over the Volution Group Plc pair — whose rejected
+side names the correct active company (R-F4159 reclassified it) while its CHOSEN
+side is perfectly valid.
+
+The fix is placement, not strength. `stale_negatives()` reports pairs as DATA
+(including whether the chosen side is still valid, so "stale" is distinguishable
+from "broken"); `validate_dpo_for_training()` refuses them and now guards the DPO
+writer; and the chosen-only path REPORTS instead of refusing, so provenance stays
+visible without withholding rows that are still good SFT. `validate_dpo` is
+deliberately left structural — widening it would have made the chosen-only path
+strict again by another route.
+
+`test_rf4089` was likewise asserting plain equality between the artifact and a
+current-scorer regeneration, so a scorer CORRECTION made it red. It now asserts
+the two differ by exactly the recorded stale negatives and by nothing else.
+
+The failure-correction manifest was regenerated because R-F4283 changed its
+inputs' canonical bytes — and the regeneration proved the point: **`output_sha256`
+came back identical** (`d98f8de3…`), so only `input_sha256` moved and the corpus
+itself is byte-for-byte unchanged.
+
+## C-243 · 48 artifact writers emitted platform-dependent bytes (fixed, R-F4288)
+
+**The actual root of the whole line-ending saga.** `Path.write_text()` uses
+universal newlines, so on Windows it translates every `\n` to `\r\n`. Measured:
+**48 writers across 36 files** under `scripts/train` wrote JSON/JSONL artifacts
+without pinning `newline`, so the same corpus, manifest or verdict was CRLF on
+Windows and LF on Linux — one file, two byte sequences, two sha256s.
+
+This is why the earlier fixes were not enough alone: R-F4283 pinned STORAGE and
+R-F4286 re-pinned 50 launcher hashes, but the WRITERS stayed non-reproducible, so
+the next artifact generated on Windows would be CRLF again and the loop would
+restart. Every writer is now pinned, and a guard scans for a regression —
+including a test that the scanner can still SEE an unpinned writer, because a
+detector that has gone blind reports the same empty list as a clean tree.
+
+Only Windows behaviour changes; on Linux `newline="\n"` was already the effect.
+
+### C-240 addendum — rf1845 (R-F4289)
+
+The last baseline red, and the same fragility as rf2254: the boot pre-warm guard
+asserted the module NAME appeared literally inside `lifespan`'s source segment. A
+refactor extracted it to `_HEAVY_PREWARM_MODULES`, so the substring vanished while
+the capability stayed perfectly intact (`main.py:1128` still lists it and the loop
+still imports every entry via `asyncio.to_thread`). The guard now reads the list
+the code actually uses, and additionally asserts `lifespan` still READS that list —
+otherwise entries added to it would never be warmed.

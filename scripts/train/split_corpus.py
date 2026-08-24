@@ -177,7 +177,7 @@ def main() -> int:
     for name, part in (("train.jsonl", train), ("eval.jsonl", ev)):
         (a.out_dir / name).write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in part) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
 
     tr_e = {_entity_of(r) for r in train}
     ev_e = {_entity_of(r) for r in ev}

@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         "held_out": {str(path): _sha(path) for path in args.held_out},
     }
     manifest["output_sha256"] = _sha(args.out)
-    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(manifest, indent=2))
     return 0
 

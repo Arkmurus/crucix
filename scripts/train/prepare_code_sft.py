@@ -115,7 +115,7 @@ def main() -> None:
 
     out_p = _REPO / args.out
     out_p.parent.mkdir(parents=True, exist_ok=True)
-    out_p.write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8")
+    out_p.write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8", newline="\n")
 
     # ── §24 readiness report ──
     import statistics

@@ -160,7 +160,7 @@ async def main() -> int:
         await asyncio.gather(*[one(t, top) for t, top in chunks])
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in out) + "\n", encoding="utf-8")
+    args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in out) + "\n", encoding="utf-8", newline="\n")
     print(f"[v07] wrote {len(out)} fact-derived questions -> {args.out}")
     return 0 if out else 1
 

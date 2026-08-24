@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
             "training_output_written": False,
         })
         args.verdict_out.parent.mkdir(parents=True, exist_ok=True)
-        args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
+        args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(json.dumps(verdict, indent=2))
         return 3
 
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                         encoding="utf-8", newline="\n")
     verdict.update({"intervention": "promote_candidate",
                     "training_output_written": True, "train_rows": len(curriculum)})
-    args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
+    args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(verdict, indent=2))
     return 0
 

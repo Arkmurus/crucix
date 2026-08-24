@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         ("train", args.train), ("calibration", args.calibration),
         ("incumbent", args.incumbent), ("candidate", args.candidate))}
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({key: ledger[key] for key in (
         "evidence_coverage", "held_out_mastery", "held_out_total", "promotion",
         "priority_order")}, indent=2))

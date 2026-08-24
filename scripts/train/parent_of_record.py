@@ -184,7 +184,7 @@ def build_record(verdict_path: pathlib.Path, *, adapter: pathlib.Path,
 
 def write_record(record: dict, path: pathlib.Path = RECORD_FILE) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
     return record
 
 
