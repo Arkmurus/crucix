@@ -4914,3 +4914,54 @@ gap in the reader, it is an accurate report.
 **Answerable fundamentals: 21/24.** Five bound across two sessions from work
 already paid for. Remaining three are recorded with their reasons, two of them as
 explicit refusals.
+
+## Session 2026-08-24 (part 15) — R-F4294 · a CAPABILITY, not a binding
+
+Operator: *"proceed with the most valuable approach."* Chosen: OC-7 (ultimate
+parent) — the core beneficial-ownership question, and the one place OC-5's PSC
+route leaves a gap, because PSC is UK-only.
+
+### C-249 — C-248's refusal resolved the honest way
+
+C-248 said OC-7 must NOT be bound, and was right: GLEIF was called every run but
+**neither module fetched relationship data**, so a reader would have certified a
+lookup that never happened. R-F4294 changed the PREMISE by building the lookup —
+not by relaxing the rule.
+
+**Measured live BEFORE writing code.** GLEIF's relationship endpoints are free,
+key-less, already reachable, and answer OC-7's pass condition ("returns the direct
+and ultimate parent, **or states that none is**") almost word for word.
+
+**THE THREE-WAY DISTINCTION IS THE DESIGN:**
+
+| GLEIF says | state |
+|---|---|
+| a parent record | SINGLE_SOURCE — named |
+| a reporting EXCEPTION | SINGLE_SOURCE — the authority **states** none, with a reason |
+| neither (404 on both) | ATTEMPTED_INCONCLUSIVE — the authority said **nothing** |
+
+Collapsing the third into the second would report "no parent" for an entity GLEIF
+has no statement about. `checked` means GLEIF ANSWERED, never that a parent exists.
+
+**Live-verified in production at `sha 506cf374`, with real GLEIF calls from inside
+the machine:**
+```
+subsidiary (live)    SINGLE_SOURCE           ultimate parent VODAFONE GROUP PLC
+top of tree (live)   SINGLE_SOURCE           authority states NO parent is reported
+authority silent     ATTEMPTED_INCONCLUSIVE  the guard that matters
+unreachable          ATTEMPTED_INCONCLUSIVE
+no hierarchy         NOT_RUN
+```
+
+**Wired end to end and tested as such:** called where GLEIF already resolves the
+LEI, carried on a real schema field (`NetworkSection.lei_hierarchy` — a producer
+and consumer with no carrier is the R-F3231 defect), with tests asserting the
+orchestrator ACTUALLY calls it and the schema ACTUALLY holds it. A capability
+nothing invokes is the R-F3099 shape: built, tested, never run.
+
+### Standing
+
+**Answerable fundamentals: 22/24.** Remaining two are recorded refusals: **OC-8**
+(signatory work is recommendation prose, and needs a counterparty-supplied name)
+and **LR-20** (do not bind on SIC codes alone — that answers "what do they say
+they do", not "is this economically rational").
