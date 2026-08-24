@@ -26,3 +26,15 @@ data/training/aria_tooluse_resolution_boundary_dpo_v1.jsonl text eol=lf
 # fixed for one instance. This covers the class.
 data/eval_reports/**  text eol=lf
 data/training/**      text eol=lf
+
+# ...but NEVER line-ending-convert a binary under those trees. `text eol=lf` above
+# would mark a 310MB `.tgz` adapter as text and corrupt it on checkout. Today the
+# checkpoints are untracked so nothing is at risk; this makes sure that stays true
+# if one is ever committed.
+data/training/**/*.tgz       -text
+data/training/**/*.gz        -text
+data/training/**/*.tar       -text
+data/training/**/*.safetensors -text
+data/training/**/*.bin       -text
+data/eval_reports/**/*.tgz   -text
+data/eval_reports/**/*.gz    -text
