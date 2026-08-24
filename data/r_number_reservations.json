@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4300,
+  "next_available": 4301,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36908,6 +36908,16 @@
       "commit_sha": "0e81430d",
       "notes": null,
       "shipped_at": "2026-08-24T14:48:12Z"
+    },
+    {
+      "r_number": "R-F4300",
+      "title": "record v0.4-dpo as the evaluated model and correct the readiness bar",
+      "claimed_at": "2026-08-24T16:15:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bebfb001",
+      "notes": null,
+      "shipped_at": "2026-08-24T16:27:33Z"
     }
   ]
 }
