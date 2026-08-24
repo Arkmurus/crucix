@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4303,
+  "next_available": 4304,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36938,6 +36938,16 @@
       "commit_sha": "f3dfb26a",
       "notes": null,
       "shipped_at": "2026-08-24T17:22:39Z"
+    },
+    {
+      "r_number": "R-F4303",
+      "title": "aria-llm CLI provider targets the sovereign endpoint",
+      "claimed_at": "2026-08-24T17:26:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a18e7bc0",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:31:50Z"
     }
   ]
 }
