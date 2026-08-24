@@ -2907,6 +2907,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T17:22:37Z"
+    },
+    {
+      "c_number": "C-256",
+      "title": "the CLI cannot reach the sovereign model; --provider aria is the service chat API",
+      "claimed_at": "2026-08-24T17:26:15Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4303"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T17:31:47Z"
     }
   ]
 }

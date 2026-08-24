@@ -43,6 +43,12 @@ _PROVIDER_BASE_URLS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "mistral": "https://api.mistral.ai/v1",
     "aria": "",  # base_url is set dynamically from ARIA_SERVICE_URL
+    # R-F4303 (C-256) — the SOVEREIGN model, not the service. `aria` targets
+    # {ARIA_SERVICE_URL}/api/aria (the chat API: ~122s per R-F1937, tool-less per
+    # R-F2166). This one targets ARIA_LLM_URL, the OpenAI-compatible vLLM
+    # endpoint serving ARIA_LLM_MODEL. Set dynamically; never defaulted, because
+    # a default here would silently answer from a different model.
+    "aria-llm": "",
 }
 _PROVIDER_DEFAULT_MODELS = {
     "deepseek": "deepseek-chat",
@@ -52,6 +58,10 @@ _PROVIDER_DEFAULT_MODELS = {
     "mistral": "mistral-large-latest",
     "ollama": "llama3.1:8b",
     "aria": "aria-coder",
+    # R-F4303 — deliberately EMPTY. The served id must come from ARIA_LLM_MODEL:
+    # naming a default here would invent a version, which is exactly how live sat
+    # on `aria-llm-v0.1` for months while only v0.2 and v0.4 had been evaluated.
+    "aria-llm": "",
 }
 # R-F1280: which env var holds the credential for each provider. Used so the CLI
 # sends the RIGHT key to the selected provider — never ARIA's internal token to
@@ -63,6 +73,10 @@ _PROVIDER_KEY_ENV = {
     "openrouter": "OPENROUTER_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "aria": "ARIA_INTERNAL_TOKEN",
+    # R-F4303 — its OWN key var. ARIA_INTERNAL_TOKEN authenticates the SERVICE;
+    # sending it to the model endpoint is the same class of mistake R-F1280
+    # exists to prevent. vLLM often serves unauthenticated, so empty is valid.
+    "aria-llm": "ARIA_LLM_KEY",
 }
 
 
@@ -90,7 +104,7 @@ class LLMConfig:
     temperature: float = 0.0
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
+    def from_env(cls, provider_override: str = "") -> "LLMConfig":
         """Resolve config from env. ARIA_CODER_* overrides, then the generic
         LLM_*/DEEPSEEK_* vars that the rest of the stack already uses.
 
@@ -104,6 +118,14 @@ class LLMConfig:
         opt-in via ARIA_CODER_LLM_PROVIDER/LLM_PROVIDER=aria; if no deepseek key
         is set we fall back to ``aria`` (unchanged from before).
         """
+        # R-F4303 (C-256) — a --provider flag must reach RESOLUTION, not be
+        # stamped on afterwards. cli.py used to call from_env() and only then set
+        # cfg.provider, which renamed the provider while leaving base_url pointing
+        # at whatever from_env had already chosen. Asking for the sovereign model
+        # and being answered by DeepSeek, with nothing in the output saying so, is
+        # the failure that makes a comparison meaningless.
+        if (provider_override or "").strip():
+            os.environ["ARIA_CODER_LLM_PROVIDER"] = provider_override.strip()
         provider = (
             os.getenv("ARIA_CODER_LLM_PROVIDER")
             or os.getenv("LLM_PROVIDER")
@@ -132,7 +154,36 @@ class LLMConfig:
 
         ollama_url = (os.getenv("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
 
-        if provider == "aria":
+        if provider == "aria-llm":
+            # R-F4303 (C-256) — the sovereign vLLM endpoint.
+            #
+            # FAIL CLOSED AND LOUDLY when unconfigured. Falling back to DeepSeek
+            # or localhost would answer from a DIFFERENT model than the operator
+            # selected, which makes any comparison or eval meaningless and is
+            # invisible in the output.
+            raw = (os.getenv("ARIA_LLM_URL") or "").strip().rstrip("/")
+            if not raw:
+                raise LLMError(
+                    "provider 'aria-llm' needs ARIA_LLM_URL (the sovereign vLLM "
+                    "endpoint). Refusing to fall back to another model.",
+                    transient=False,
+                )
+            base_url = raw if raw.endswith("/v1") else raw + "/v1"
+            # The served id lives in ARIA_LLM_MODEL - the same var aria-intel
+            # reads - so the CLI and the service can never address different
+            # models. An explicit ARIA_CODER_LLM_MODEL / LLM_MODEL still wins,
+            # because that is the operator deliberately overriding.
+            if not model:
+                model = (os.getenv("ARIA_LLM_MODEL") or "").strip()
+            if not model:
+                raise LLMError(
+                    "provider 'aria-llm' needs ARIA_LLM_MODEL (e.g. "
+                    "aria-llm-v0.4-dpo). Refusing to guess a version.",
+                    transient=False,
+                )
+            if not api_key:
+                api_key = os.getenv("ARIA_LLM_KEY", "")
+        elif provider == "aria":
             # ARIA server provider: use the server's own LLM endpoint
             aria_url = (os.getenv("ARIA_SERVICE_URL") or "http://localhost:8000").rstrip("/")
             base_url = f"{aria_url}/api/aria"
@@ -161,7 +212,12 @@ class LLMConfig:
     @property
     def is_configured(self) -> bool:
         # Ollama (local) needs no key; everything else does.
-        return self.provider == "ollama" or bool(self.api_key)
+        #
+        # R-F4303 (C-256) — `aria-llm` joins it. It is our OWN vLLM endpoint and
+        # is commonly served without auth; rejecting that with "No LLM API key
+        # found" would send the operator hunting for a key that does not exist.
+        # Deliberately narrow: every remote vendor still requires one.
+        return self.provider in ("ollama", "aria-llm") or bool(self.api_key)
 
 
 @dataclass
@@ -233,7 +289,18 @@ class LLMClient:
     def supports_tools(self) -> bool:
         """R-F2166: False on the in-house ``aria`` provider, which forwards text
         to the brain /chat and cannot do function-calling — so a coder on it has
-        NO tools. Callers warn loudly instead of silently degrading to a chat box."""
+        NO tools. Callers warn loudly instead of silently degrading to a chat box.
+
+        R-F4303 (C-256): ``aria-llm`` is OPT-IN. vLLM serves function-calling only
+        when launched with a tool-call parser, so tool support is a property of
+        how the pod was started, not of the provider. Guessing True would make
+        tool calls fail silently mid-task; guessing False forever would cap the
+        CLI at a chat box. Default False (the caller already warns loudly), and
+        ``ARIA_LLM_SUPPORTS_TOOLS=1`` turns it on once the pod actually serves
+        them."""
+        if self.config.provider == "aria-llm":
+            return (os.getenv("ARIA_LLM_SUPPORTS_TOOLS") or "").strip().lower() in (
+                "1", "true", "yes", "on")
         return self.config.provider != "aria"
 
     def close(self) -> None:

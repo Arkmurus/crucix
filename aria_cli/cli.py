@@ -1892,9 +1892,10 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     if repo_root is not None:
         load_dotenv(repo_root / ".env")
 
-    cfg = LLMConfig.from_env()
-    if args.provider:
-        cfg.provider = args.provider
+    # R-F4303 — the override goes IN, so base_url/model/key are resolved for the
+    # provider actually selected. Assigning cfg.provider afterwards left the
+    # endpoint pointing at the previous provider.
+    cfg = LLMConfig.from_env(provider_override=args.provider)
     if args.model:
         cfg.model = args.model
 
@@ -1909,10 +1910,17 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     # R-F2166: the `aria` provider can't do tool-calling — a coder on it silently
     # becomes a tool-less chat box. Make that LOUD so it's never a mystery.
     if not llm.supports_tools:
+        # R-F4303 — name the provider actually in use. Hardcoding 'aria' here
+        # would report the wrong one for `aria-llm`, and point at the wrong fix.
+        _remedy = (
+            "set ARIA_LLM_SUPPORTS_TOOLS=1 if the pod is served with a tool-call "
+            "parser" if cfg.provider == "aria-llm" else
+            "Set DEEPSEEK_API_KEY (or ARIA_CODER_LLM_PROVIDER to a tool-capable "
+            "provider) to enable coding")
         print(color.red(
-            "  [warning] LLM provider 'aria' does NOT support tool-calling — the "
-            "coder will have NO tools (no read/edit/run). Set DEEPSEEK_API_KEY (or "
-            "ARIA_CODER_LLM_PROVIDER to a tool-capable provider) to enable coding."))
+            f"  [warning] LLM provider '{cfg.provider}' does NOT support "
+            f"tool-calling — the coder will have NO tools (no read/edit/run). "
+            f"{_remedy}."))
     system_prompt = build_system_prompt(
         root=cwd, self_mode=self_mode, repo_root=repo_root)
     theme = getattr(args, "theme", "dark")
