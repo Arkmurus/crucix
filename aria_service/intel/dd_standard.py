@@ -1241,6 +1241,76 @@ def _read_filing_currency(r: dict, q: "Question") -> Resolution:
         origins=cite)
 
 
+
+#: The primary-list label the DD's fan-out uses for World Bank debarment
+#: (dd_orchestrator._src_labels). Kept as a constant so a rename shows up here as
+#: a NOT_RUN rather than as a silent clean.
+_DEBARMENT_LABEL = "wb_debarred"
+_DEBARMENT_SOURCE = "sources.worldbank_debarred"
+
+
+def _read_enforcement_actions(r: dict, q: "Question") -> Resolution:
+    """R-F4291 (C-245) — IS-16 from the debarment register already consulted.
+
+    Fourth instance of the C-235 shape and the first HYBRID one. IS-16 rendered
+    NOT_RUN "no resolver is bound to this question in this build" while the DD's
+    primary-source fan-out called `sources.worldbank_debarred` on every run and
+    R-F2843 recorded whether that list answered, at
+    `identity.sanctions_screen.primary_snapshots`.
+
+    World Bank debarment is squarely in scope: an enforcement action for fraud,
+    corruption or collusion, cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA
+    2010.
+
+    THE HYBRID HALF IS THE POINT, and it is why a clean register is NOT a pass.
+    IS-16's pass condition is "Enforcement registers are consulted; **a formal
+    criminal-record check is counterparty-supplied**". Clearing the open-source
+    half and calling the whole question answered would be a false clean on the
+    most consequential integrity question in the set. A clean register therefore
+    resolves AWAITING_COUNTERPARTY — a stated boundary, not a failure to look,
+    which is exactly what that state exists for. An ADVERSE finding answers on
+    its own: a debarment is a refusal ground whatever the counterparty supplies.
+
+    R-F2843's rule is what makes reading the snapshot safe: "an unstamped source
+    asserts nothing, because defaulting to 'ok' would claim a check we never
+    made." A snapshot dict that never mentions the register is NOT_RUN.
+    """
+    hits = _findings_from(r, _DEBARMENT_SOURCE)
+    if hits:
+        titles = "; ".join(str(h.get("title") or "")[:70] for h in hits[:2])
+        return Resolution(
+            q.id, EvidenceState.SINGLE_SOURCE.value,
+            reason=titles or "a debarment record was returned",
+            origins=(_DEBARMENT_SOURCE,))
+
+    screen = _m(_m(r.get("identity")).get("sanctions_screen"))
+    snapshots = _m(screen.get("primary_snapshots"))
+    stamp = snapshots.get(_DEBARMENT_LABEL)
+    if not isinstance(stamp, str) or not stamp:
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="the debarment register is not stamped on this report, so no "
+                   "enforcement register is evidenced as consulted",
+            remedy="re-run the primary-source screen; an unstamped source asserts "
+                   "nothing (R-F2843)")
+    if stamp != "ok":
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=f"the World Bank debarment register was reached for but did "
+                   f"not answer ({stamp})",
+            remedy="re-screen when the register is available. An unperformed "
+                   "check is not a clearance")
+
+    return Resolution(
+        q.id, EvidenceState.AWAITING_COUNTERPARTY.value,
+        reason=("the World Bank debarment register was consulted and returned no "
+                "enforcement action; a formal criminal-record check is "
+                "counterparty-supplied and is not on file"),
+        remedy="obtain a criminal-record check from the counterparty; the "
+               "open-source half of this question is clear",
+        origins=(_DEBARMENT_SOURCE,))
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1466,7 +1536,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Fraud, bribery or financial-crime convictions, and regulatory penalties",
        pass_condition="Enforcement registers are consulted; a formal criminal-record "
                       "check is counterparty-supplied",
-       resolvers=("idv", "web_search"), reader=None),
+       resolvers=("idv", "web_search"), reader=_read_enforcement_actions),
     _q(id="IS-16b", fundamental=16, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.SIMPLIFIED.value, applies_to=AppliesTo.ENTITY.value,
        established_by=EstablishedBy.DATA.value,

@@ -2790,6 +2790,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T10:16:43Z"
+    },
+    {
+      "c_number": "C-245",
+      "title": "IS-16 unbound while the DD consults the World Bank debarment register",
+      "claimed_at": "2026-08-24T11:24:34Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4291"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T11:33:55Z"
     }
   ]
 }

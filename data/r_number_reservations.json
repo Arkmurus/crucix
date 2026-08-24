@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4291,
+  "next_available": 4293,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36811,6 +36811,25 @@
       "r_number": "R-F4290",
       "title": "bind FS-9 to the filing-currency evidence the DD already gathers",
       "claimed_at": "2026-08-24T10:12:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d07aa4d",
+      "notes": null,
+      "shipped_at": "2026-08-24T10:19:06Z"
+    },
+    {
+      "r_number": "R-F4291",
+      "title": "bind IS-16 to the debarment register the DD already consults",
+      "claimed_at": "2026-08-24T11:24:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4292",
+      "title": "entity-rail responsive guard asserts behaviour, not an obsolete display none",
+      "claimed_at": "2026-08-24T11:32:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

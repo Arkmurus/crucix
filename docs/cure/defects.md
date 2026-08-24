@@ -15474,3 +15474,59 @@ made exactly that mistake and the guard caught it.
 **Answerable fundamentals: 8 unbound → 5.** Remaining: EI-4, IS-16, LR-20, OC-7,
 OC-8. (EI-3 and LR-19 are `SUPPLIED` — legitimately awaiting counterparty evidence,
 not unbound.)
+
+## C-245 · IS-16 unbound while the DD consults the debarment register (fixed, R-F4291)
+
+Fourth instance of the C-235 shape, and the first HYBRID one. IS-16 ("Fraud,
+bribery or financial-crime convictions, and regulatory penalties") rendered
+NOT_RUN "no resolver is bound to this question in this build" while the DD's
+primary-source fan-out called `sources.worldbank_debarred` on every run
+(dd_orchestrator:2986) and R-F2843 recorded whether that list answered, at
+`identity.sanctions_screen.primary_snapshots`.
+
+World Bank debarment is squarely in scope: an enforcement action for fraud,
+corruption or collusion, cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA 2010.
+
+**THE HYBRID HALF IS THE POINT, and it is why a clean register is NOT a pass.**
+IS-16's pass condition is *"Enforcement registers are consulted; **a formal
+criminal-record check is counterparty-supplied**"*. Clearing the open-source half
+and calling the whole question answered would be a false clean on the most
+consequential integrity question in the set. So:
+
+| evidence | state |
+|---|---|
+| a debarment finding (active or expired) | SINGLE_SOURCE — **answers on its own**, a refusal ground whatever the counterparty later supplies |
+| register consulted, nothing found | **AWAITING_COUNTERPARTY** — a stated boundary, not a failure to look |
+| register reached for, did not answer | ATTEMPTED_INCONCLUSIVE |
+| register not stamped on the report | NOT_RUN |
+
+`AWAITING_COUNTERPARTY` counts in the denominator but **not** as answered, which
+is exactly right: an outstanding item, never an excused one.
+
+**R-F2843's own rule is what makes reading the snapshot safe** — *"an unstamped
+source asserts nothing, because defaulting to 'ok' would claim a check we never
+made."* A snapshot dict that never mentions `wb_debarred` resolves NOT_RUN, and a
+test pins that. The label is a module constant so a rename surfaces as NOT_RUN
+rather than as a silent clean.
+
+**Answerable fundamentals: 5 unbound → 4** (EI-4, LR-20, OC-7, OC-8 remain).
+
+### C-240 addendum — rf735 entity rail (R-F4292)
+
+The last baseline red, and the THIRD instance of the rf2254/rf1845 fragility in
+one session. `test_entity_rail_responsive_hides_on_small_screens` required a
+literal `display: none` inside the 1100px media block. The UI was since improved
+into a slide-over **drawer** — the rail is positioned off-canvas with
+`transform: translateX(100%)` and opened by a wired toggle
+(`aria-controls="entity-rail"`) — so the behaviour is achieved, and achieved
+BETTER, while the substring vanished.
+
+Its regex could not have matched the new markup in any case: `[^}]*` cannot span
+a nested rule, so it only ever matched a FLAT media block.
+
+The replacement asserts the PROPERTY (the rail must not occupy layout width below
+1100px) and is **stronger than what it replaced**: it also requires the rail to
+stay REACHABLE. The old test would have passed a change that hid the rail with no
+way to open it — a regression for every narrow-screen user. Proven to bite:
+removing the off-canvas transform, the open rule, or the toggle's availability is
+each CAUGHT, while the unmutated file passes.

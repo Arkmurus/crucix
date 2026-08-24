@@ -65,14 +65,64 @@ def test_entity_rail_quick_actions_use_slash_commands():
     assert "'/dd '" in src or '"/dd "' in src
 
 
-def test_entity_rail_responsive_hides_on_small_screens():
-    """R-F735: media query hides the rail at <1100px width."""
+def _media_block(src: str, query: str) -> str:
+    """The body of one @media block, matched on braces rather than by regex.
+
+    A `[^}]*` scan cannot span nested rules, so it can only ever match a FLAT
+    media block — which is why the original assertion below broke the moment the
+    rail gained its own nested rule.
+    """
+    start = src.index(query)
+    open_brace = src.index("{", start)
+    depth, i = 0, open_brace
+    while i < len(src):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[open_brace + 1:i]
+        i += 1
+    raise AssertionError(f"unterminated media block for {query!r}")
+
+
+def test_entity_rail_is_off_canvas_and_still_reachable_below_1100px():
+    """R-F735 / R-F4292 — the RAIL MUST NOT EAT LAYOUT on a narrow screen, and
+    it must stay reachable.
+
+    The original assertion required a literal `display: none` inside the media
+    block. The UI was since improved into a slide-over DRAWER — the rail is
+    positioned off-canvas with `transform: translateX(100%)` and opened by a
+    toggle — so the behaviour is achieved, and achieved better, while the
+    substring vanished. Same fragility as R-F2254's source locks: the test
+    pinned an implementation, not the property.
+
+    This asserts the property, and is STRONGER than what it replaces: the old
+    test would have passed a change that hid the rail with no way to open it,
+    which is a regression for every narrow-screen user.
+    """
     src = _read_html()
-    # Look for the media-query block targeting .entity-rail
-    assert re.search(
-        r"@media\s*\(\s*max-width:\s*1100px\s*\)\s*\{[^}]*\.entity-rail[^}]*display:\s*none",
-        src,
-    ), "R-F735: responsive hide on <1100px missing"
+    block = _media_block(src, "@media (max-width: 1100px)")
+    assert ".entity-rail" in block, "the 1100px breakpoint no longer targets the rail"
+
+    hidden = "display: none" in block
+    off_canvas = "position: fixed" in block and "translateX(100%)" in block
+    assert hidden or off_canvas, (
+        "below 1100px the rail neither hides nor moves off-canvas, so it now "
+        "occupies layout width on narrow screens"
+    )
+
+    if off_canvas:
+        # An off-canvas rail is only acceptable while something can open it.
+        assert ".entity-rail.open" in block, "no rule opens the off-canvas rail"
+        assert "#entity-rail-toggle" in block, (
+            "the rail is off-canvas at this breakpoint but its toggle is never "
+            "made available, leaving it unreachable"
+        )
+        assert 'id="entity-rail-toggle"' in src, "the toggle control does not exist"
+        assert 'aria-controls="entity-rail"' in src, (
+            "the toggle is not associated with the rail for assistive tech"
+        )
 
 
 def test_entity_rail_css_present():
