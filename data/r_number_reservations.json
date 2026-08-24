@@ -36905,9 +36905,9 @@
       "claimed_at": "2026-08-24T14:41:19Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "1c84bfe4",
+      "commit_sha": "0e81430d",
       "notes": null,
-      "shipped_at": "2026-08-24T14:47:12Z"
+      "shipped_at": "2026-08-24T14:48:12Z"
     }
   ]
 }
