@@ -390,6 +390,21 @@ class Agent:
             handoff = "\n\nDone — what's next?"
             if not result.final_text.rstrip().endswith("?"):
                 result.final_text += handoff
+        # R-F4308 (C-261) — the coder produced NO training signal at all. Chat
+        # outputs are harvested and Claude's notes are distilled, but the surface
+        # doing the most substantive work evaporated every turn.
+        #
+        # Captured HERE, at the end of run_until_complete, because only now is
+        # the turn genuinely finished: auto-resume above may have continued it,
+        # and capturing mid-turn would record an unfinished demonstration.
+        # Opt-in (respect_env=True) and best-effort — a learning sink that can
+        # break the tool it observes gets switched off, and then it captures
+        # nothing at all.
+        try:
+            from . import session_capture as _sc
+            _sc.capture_turn(user_text, result, respect_env=True)
+        except Exception:       # pragma: no cover — never affect the session
+            pass
         return result
 
     def _inject_task_rag(self, task_text: str) -> None:

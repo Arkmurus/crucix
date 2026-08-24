@@ -2967,6 +2967,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T18:37:24Z"
+    },
+    {
+      "c_number": "C-261",
+      "title": "coder CLI sessions produce no training signal",
+      "claimed_at": "2026-08-24T18:39:31Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4308"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T18:46:37Z"
     }
   ]
 }

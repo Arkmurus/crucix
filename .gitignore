@@ -217,3 +217,11 @@ docs/cure/census.json
 .scratch_*
 data/eval_reports/pytest-*/
 data/training/pytest_tmp_*/
+
+# R-F4308 (C-261) — raw coder-session capture. Redacted training signal from the
+# operator's own code sessions: their source excerpts and shell output. It stays
+# LOCAL by the same rule the server uses for /data/claude_distill — raw capture is
+# local, curated corpora are promoted into data/training/ deliberately. Being
+# ignored also keeps it out of the secret scanner's scope, which is correct: a
+# file that can never be committed needs no pre-commit scan (R-F4297).
+data/coder_sessions/

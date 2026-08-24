@@ -63,7 +63,10 @@ if str(ROOT) not in sys.path:
 import scripts.agent_bridge as ab  # noqa: E402
 from aria_cli import bridge  # noqa: E402
 
-_ENV = ("ARIA_SERVICE_URL", "ARIA_INTERNAL_TOKEN", "ARIA_BRAIN_URL")
+# ARIA_API_TOKEN belongs here: _cfg falls back to it, so leaving it set makes
+# the "no token" case pass a token and the refusal test fail - which is how this
+# went green alone and red in the full suite.
+_ENV = ("ARIA_SERVICE_URL", "ARIA_INTERNAL_TOKEN", "ARIA_BRAIN_URL", "ARIA_API_TOKEN")
 
 
 @pytest.fixture(autouse=True)
