@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4304,
+  "next_available": 4305,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36948,6 +36948,16 @@
       "commit_sha": "a18e7bc0",
       "notes": null,
       "shipped_at": "2026-08-24T17:31:50Z"
+    },
+    {
+      "r_number": "R-F4304",
+      "title": "build a training corpus from the Claude teacher signal",
+      "claimed_at": "2026-08-24T17:32:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "62e10188",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:38:19Z"
     }
   ]
 }
