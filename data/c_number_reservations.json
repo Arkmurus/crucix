@@ -2778,6 +2778,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T09:44:51Z"
+    },
+    {
+      "c_number": "C-244",
+      "title": "FS-9 unbound while the DD already fetches accounts filing currency",
+      "claimed_at": "2026-08-24T10:12:22Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4290"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T10:16:43Z"
     }
   ]
 }

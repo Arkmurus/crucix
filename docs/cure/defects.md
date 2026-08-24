@@ -15439,3 +15439,38 @@ the capability stayed perfectly intact (`main.py:1128` still lists it and the lo
 still imports every entry via `asyncio.to_thread`). The guard now reads the list
 the code actually uses, and additionally asserts `lifespan` still READS that list —
 otherwise entries added to it would never be warmed.
+
+## C-244 · FS-9 unbound while the DD already fetched its evidence (fixed, R-F4290)
+
+Third instance of the C-235 shape, and the clearest. FS-9 ("Statutory accounts and
+filings are current, not overdue or in default") rendered NOT_RUN "no resolver is
+bound to this question in this build" while `financial_health._uk_registry_accounts`
+fetched exactly that evidence on every GB run — `filed`, `overdue`, `next_due`,
+`distress_flags`, plus a citable filing-history URL — and parked it at
+`compliance.financial_health.registry_accounts`.
+
+**Why it sat unused, and why using it here is not what that code forbids.** The
+producer's docstring is emphatic: *"THIS IS EVIDENCE, NOT A VERDICT … answering
+financial capacity from filing dates would be a false clean."* That is the **FS-10**
+boundary and it is correct — filing metadata carries no revenue or solvency figures.
+**FS-9 is the question filing dates DO answer.** A test asserts FS-10 still refuses
+this evidence, so the boundary is preserved rather than eroded.
+
+**FS-9 names TWO filings**, so the IS-14 rule applies: a FINDING always answers, a
+clean line needs both halves. Overdue accounts, or none ever filed, or an overdue
+confirmation statement → answered adverse. Accounts current with the confirmation
+statement UNKNOWN → ATTEMPTED_INCONCLUSIVE, not a clean line.
+
+**The producer had to be extended, minimally.** The profile carried
+`confirmation_next_due` but not the overdue flag, and a due date alone cannot say
+whether a filing is LATE — deriving that from today's date would make the answer
+depend on when the report is re-read rather than on what the register said. So
+`_confirmation_block` mirrors `_accounts_block`'s discipline, and its load-bearing
+field is **`known`**: `overdue=False` on its own is indistinguishable from "we have
+no idea", and FS-9 must never read the second as the first. A test pins that
+`{"overdue": False}` with no due date yields `known=False` — my own first fixture
+made exactly that mistake and the guard caught it.
+
+**Answerable fundamentals: 8 unbound → 5.** Remaining: EI-4, IS-16, LR-20, OC-7,
+OC-8. (EI-3 and LR-19 are `SUPPLIED` — legitimately awaiting counterparty evidence,
+not unbound.)

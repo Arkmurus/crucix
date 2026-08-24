@@ -1119,6 +1119,9 @@ async def _uk_registry_accounts(name: str, registration_number: str = "") -> dic
             "company_name": profile.get("company_name") or name,
             "company_status": profile.get("company_status") or "",
             "accounts": accounts,
+            # R-F4290 — FS-9 needs BOTH filings. The profile already holds this;
+            # not passing it on made half the question unanswerable downstream.
+            "confirmation_statement": profile.get("confirmation_statement") or {},
             # Primary-source URL so the evidence is citable, not asserted.
             "source_url": (
                 "https://find-and-update.company-information.service.gov.uk/"

@@ -1172,6 +1172,75 @@ def _read_pep_exposure(r: dict, q: "Question") -> Resolution:
         origins=("pep_screen",))
 
 
+
+def _read_filing_currency(r: dict, q: "Question") -> Resolution:
+    """R-F4290 (C-244) — FS-9 is answered by the filing evidence already gathered.
+
+    Third instance of the C-235 shape. FS-9 rendered NOT_RUN "no resolver is
+    bound to this question in this build" while `financial_health.
+    _uk_registry_accounts` fetched exactly this evidence on every GB run and
+    parked it at `compliance.financial_health.registry_accounts`.
+
+    WHY THE EVIDENCE WAS SITTING UNUSED, and why using it here is not the thing
+    that function forbids. Its docstring is emphatic: "THIS IS EVIDENCE, NOT A
+    VERDICT ... answering financial capacity from filing dates would be a false
+    clean." That is the FS-10 boundary and it is correct — filing metadata
+    carries no revenue or solvency figures. **FS-9 is the question filing dates
+    DO answer**: "statutory accounts and filings are current, not overdue or in
+    default." FS-10 is untouched and still refuses this evidence.
+
+    FS-9 NAMES TWO FILINGS — accounts AND the confirmation statement — so the
+    IS-14 rule applies: a FINDING always answers, but a clean line needs both
+    halves. An overdue accounts filing is a definitive adverse answer on its own;
+    current accounts with an UNKNOWN confirmation statement is half a question,
+    and `_confirmation_block.known` exists so "not overdue" is never mistaken for
+    "we have no idea".
+    """
+    reg = _m(_m(_m(r.get("compliance")).get("financial_health")).get("registry_accounts"))
+    accounts = _m(reg.get("accounts"))
+    if not reg or not accounts:
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="no registry filing evidence is on this report",
+            remedy="run the Companies House profile lookup for this subject")
+
+    confirmation = _m(reg.get("confirmation_statement"))
+    flags = [f for f in (accounts.get("distress_flags") or []) if isinstance(f, str)]
+    cite = ("companies_house",)
+
+    adverse: list[str] = []
+    if accounts.get("overdue") or "accounts_overdue" in flags:
+        adverse.append("statutory accounts are OVERDUE")
+    if "no_accounts_filed" in flags or not accounts.get("filed"):
+        adverse.append("no accounts have ever been filed")
+    if confirmation.get("overdue"):
+        adverse.append("the confirmation statement is OVERDUE")
+
+    if adverse:
+        return Resolution(
+            q.id, EvidenceState.SINGLE_SOURCE.value,
+            reason="; ".join(adverse) + " (a standard early-distress signal)",
+            origins=cite)
+
+    # Nothing adverse. A clean line needs the SECOND filing to be known too.
+    if not confirmation.get("known"):
+        made_up = accounts.get("last_made_up_to") or "an unstated date"
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=(f"accounts are filed and not overdue (made up to {made_up}), "
+                    f"but the confirmation statement's status was not returned, so "
+                    f"half of this question is unanswered"),
+            remedy="re-read the Companies House profile; its confirmation "
+                   "statement block carries the due date and overdue flag")
+
+    made_up = accounts.get("last_made_up_to") or "an unstated date"
+    return Resolution(
+        q.id, EvidenceState.SINGLE_SOURCE.value,
+        reason=(f"accounts made up to {made_up} and the confirmation statement "
+                f"are both filed and within their due dates"),
+        origins=cite)
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1337,7 +1406,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Statutory accounts and filings are current, not overdue or in default",
        pass_condition="Filing history shows accounts and confirmation statement within "
                       "their due dates",
-       resolvers=("companies_house",), reader=None),
+       resolvers=("companies_house",), reader=_read_filing_currency),
     _q(id="FS-10", fundamental=10, cluster=Cluster.FINANCIAL_STANDING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.ENTITY.value,
        established_by=EstablishedBy.DATA.value,

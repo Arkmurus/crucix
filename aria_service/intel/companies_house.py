@@ -506,6 +506,31 @@ def _accounts_block(accounts: dict | None) -> dict:
     }
 
 
+def _confirmation_block(confirmation: dict | None) -> dict:
+    """Normalise the Companies House `confirmation_statement` object (R-F4290).
+
+    Mirrors `_accounts_block`: an absent or malformed object yields
+    `known=False, overdue=False` rather than raising or, worse, looking like a
+    company whose confirmation statement is comfortably current.
+
+    `known` is the load-bearing field. `overdue=False` on its own is
+    indistinguishable from "we have no idea", and FS-9 must never read the second
+    as the first — `next_due` alone cannot say whether a filing is LATE, and
+    deriving that from today's date would make the answer depend on when the
+    report is re-read rather than on what the register said.
+    """
+    c = confirmation if isinstance(confirmation, dict) else {}
+    next_due = c.get("next_due") or ""
+    overdue = bool(c.get("overdue"))
+    return {
+        "known": bool(next_due or overdue or c.get("last_made_up_to")),
+        "overdue": overdue,
+        "next_due": next_due,
+        "last_made_up_to": c.get("last_made_up_to") or "",
+        "next_made_up_to": c.get("next_made_up_to") or "",
+    }
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 async def get_company_profile(company_number: str) -> dict | None:
     """Get full company profile."""
@@ -566,6 +591,10 @@ async def get_company_profile(company_number: str) -> dict | None:
         # would manufacture a false clean, which is the one thing DD may not do.
         "accounts": accounts,
         "confirmation_next_due": (data.get("confirmation_statement") or {}).get("next_due"),
+        # R-F4290 — the WHOLE confirmation-statement block, not just next_due.
+        # FS-9 asks whether accounts AND the confirmation statement are within
+        # their due dates; `next_due` alone cannot answer the second half.
+        "confirmation_statement": _confirmation_block(data.get("confirmation_statement")),
         "last_full_members_list": data.get("last_full_members_list_date"),
     }
 
