@@ -14,10 +14,10 @@ TRAIN_PROOF=data/training/tooluse_citation_phoenix_v2_generation_queue.jsonl
 
 test "$(hash "$ADAPTER")" = 99030c720f6db869f1fb4829d3389ee98f49cb67fea7b5169ca2f1b90417dac8
 test "$(hash "$PROBE")" = 72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c
-test "$(hash "$BASELINE")" = 78fd7ca8751f1869b9165c35fb0dc984173271a7bd736ebc892fbd0e0167afa3
+test "$(hash "$BASELINE")" = ab029377d8f1e1d287c4e186bb75517ded8a200045de6deb1cb7f3ef3d6f85af
 test "$(hash "$DPO")" = 7bb73249af5d460227f3c4d85d37d599a53a328e7b0773c468557f39e3c27fe3
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
-test "$(hash "$HELDOUT_BASELINE")" = 176f0c354fe4bc3d18169db84f47cac5331779dc5a360e8a9690364611f5e36e
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
+test "$(hash "$HELDOUT_BASELINE")" = afc521734f17a0ec044d061768ee16879284e057f6fff5e2279ef863665250ba
 
 FRESH_BASE=0 EXPECTED_DPO_PAIRS=41 \
   PROTECTED_DPO_AXES=tooluse_adverse,tooluse_contradiction,tooluse_resolution,tooluse_news_impact \

@@ -34,7 +34,7 @@ test "$(hash "$BASELINE")" = 13bb7c703a5f4b0dfcdfb63853ab5c2ff87de592c939a62841e
 test "$(hash "$HELDOUT_BASELINE")" = 5c84628ae9466ff3138f4b3290ffa34fc5e48bbae807bc82d9c7e0eb80a76cfd
 test "$(hash "$DPO")" = 1fa66bb61a5712306c73ce32cd291e850995ce1b41dc22532bb7b99765ae451a
 test "$(hash "$MANIFEST")" = 08c9554039d0c3beff0dea0f54fc059350f839a9cb19e6c515a293c6e19a0ed1
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
 
 REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   TRAINING_RECIPE_KIND=tooluse_dpo_length_controlled_accepted_continuation \

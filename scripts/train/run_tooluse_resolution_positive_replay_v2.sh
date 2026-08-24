@@ -16,8 +16,8 @@ test "$(hash "$SFT")" = c8bcd4487281882f0221cf41113d50d053a713dfd055bc0b3c1ccc67
 test "$(hash "$PARENT")" = 223ba1dc99d0e65aafdfa3f5190d57e0e8dfdd4013f9fab5be3994af63384998
 test "$(hash "$PROBE")" = 72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c
 test "$(hash "$BASELINE")" = ad4f6dadef560f4fafbfd47312facd2cadf6cf8955fc7486b8f1a6c1f06703da
-test "$(hash "$DPO")" = c48d9130528fe375e258d28d5dc8ef3f58e543c26271529e4917fb099325459a
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
+test "$(hash "$DPO")" = 8637725129c89c7529741a7beda792d0c7ef0c0caff12204efd858790c1b4e46
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
 
 REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   FRESH_BASE=0 EXPECTED_DPO_PAIRS=20 SFT_LR=1e-6 \

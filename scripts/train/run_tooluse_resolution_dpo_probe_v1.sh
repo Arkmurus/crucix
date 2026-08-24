@@ -14,8 +14,8 @@ TRAIN_PROOF=data/training/tooluse_novel_resolution_generation_queue.jsonl
 test "$(hash "$ADAPTER")" = 223ba1dc99d0e65aafdfa3f5190d57e0e8dfdd4013f9fab5be3994af63384998
 test "$(hash "$PROBE")" = 72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c
 test "$(hash "$BASELINE")" = ad4f6dadef560f4fafbfd47312facd2cadf6cf8955fc7486b8f1a6c1f06703da
-test "$(hash "$DPO")" = 03a2c86da1d7f3c006ded6c37b599bd034323edcad67ea152b64b0462d3c6681
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
+test "$(hash "$DPO")" = a8823203efde2465fd23d1260e2be9e19642b340369172716e72e6ee6c1bb1ed
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
 
 REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   TRAINING_RECIPE_KIND=tooluse_dpo_continuation \

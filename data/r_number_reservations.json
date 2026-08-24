@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4286,
+  "next_available": 4287,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36703,27 +36703,30 @@
       "title": "bind IS-14 to the PEP and RCA screens that already run",
       "claimed_at": "2026-08-23T22:12:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:01Z"
     },
     {
       "r_number": "R-F4280",
       "title": "register three emitted-but-unregistered gap types",
       "claimed_at": "2026-08-23T22:16:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:02Z"
     },
     {
       "r_number": "R-F4281",
       "title": "exempt three pure predicates from the wiring gate, with evidence",
       "claimed_at": "2026-08-23T22:20:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:02Z"
     },
     {
       "r_number": "R-F4282",
@@ -36739,23 +36742,35 @@
       "title": "hash-pinned evidence must not be line-ending mangled on Windows",
       "claimed_at": "2026-08-24T08:14:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:03Z"
     },
     {
       "r_number": "R-F4284",
       "title": "repair two structurally-fragile tests: tmp-path relative_to and source-substring asserts",
       "claimed_at": "2026-08-24T08:18:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:03Z"
     },
     {
       "r_number": "R-F4285",
       "title": "hash text evidence by content, not by line terminators",
       "claimed_at": "2026-08-24T08:23:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:04Z"
+    },
+    {
+      "r_number": "R-F4286",
+      "title": "re-pin launcher hashes onto the canonical LF bytes R-F4283 established",
+      "claimed_at": "2026-08-24T08:57:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

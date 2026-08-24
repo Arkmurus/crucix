@@ -2739,6 +2739,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T08:20:51Z"
+    },
+    {
+      "c_number": "C-241",
+      "title": "hash pins were taken over whatever line endings were on disk",
+      "claimed_at": "2026-08-24T09:06:00Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4286"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T09:06:22Z"
     }
   ]
 }

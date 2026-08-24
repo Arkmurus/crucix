@@ -15333,3 +15333,44 @@ concurrency, the `if not hard_stop` guard and the compliance ordering were corre
 dd_orchestrator:16143 throughout. The rewrite is proven to still bite: mutating the
 source to drop the gather, set `return_exceptions=False`, or remove the `await` is
 CAUGHT, while a pure reformat is not — which is precisely the R-F3597 property.
+
+## C-241 · hash pins were taken over whatever line endings happened to be on disk (fixed, R-F4286)
+
+**Found by over-reaching, and recorded that way.** R-F4283 (C-240) canonicalised
+`data/eval_reports/**` and `data/training/**` to LF to fix ONE red test. It did fix
+it — and it broke five more, because those directories are hash-pinned from many
+places and I generalised a deliberately-narrow precedent without first measuring
+who consumed the bytes.
+
+**Reverting was not available, and the reason IS the defect.** The pins are mutually
+inconsistent:
+
+| pin | recorded over |
+|---|---|
+| `aria_tooluse_resolution_prompt_ablation_v1_verdict.json` | **LF** bytes |
+| ~23 launcher `test "$(hash "$X")" = …` pins | **CRLF** bytes |
+| the R-F4259 promotion verdict's `report_sha256` | **CRLF** bytes |
+
+Each was taken over whatever the author's checkout happened to contain, so **no
+single line-ending convention satisfies them all** and every one of them was
+already wrong on some other platform. `test_rf4075` is even NAMED
+`test_every_launcher_hash_matches_post_checkout_worktree_bytes` — an intent that
+could not hold cross-platform while the pins disagreed with each other.
+
+**Completed rather than reverted.** `.gitattributes` now forces LF on both
+directories, and the 50 stale pins across 23 launchers were re-pinned onto those
+canonical bytes. The re-pin is SAFE BY CONSTRUCTION: a pin is rewritten only when
+its old value equals the sha of the **same content rendered with CRLF**, proving
+nothing but line terminators moved. Two pins matched neither rendering
+(`citation_contract_v9`/`v10`, whose corpora are untracked) and were LEFT ALONE and
+reported — a pin whose content genuinely changed is a different event and must
+never be silently re-pinned.
+
+R-F4285 covers the same hazard where a pin cannot be rewritten because it lives in
+a published verdict: `parent_of_record` accepts a match on any line-ending
+rendering and records WHICH (`"crlf"` today), while still refusing a real content
+change.
+
+**The transferable rule:** a sha256 over a TEXT artifact is not a content identity
+unless the line endings are pinned too. Hash the content, or pin the encoding —
+this repo had done neither, in both directions, at the same time.

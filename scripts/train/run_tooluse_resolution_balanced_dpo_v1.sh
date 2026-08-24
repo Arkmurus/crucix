@@ -15,9 +15,9 @@ TRAIN_PROOF=data/training/aria_tooluse_resolution_branch_expansion_v1.jsonl
 test "$(hash "$PARENT")" = 223ba1dc99d0e65aafdfa3f5190d57e0e8dfdd4013f9fab5be3994af63384998
 test "$(hash "$PROBE")" = 72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c
 test "$(hash "$BASELINE")" = ad4f6dadef560f4fafbfd47312facd2cadf6cf8955fc7486b8f1a6c1f06703da
-test "$(hash "$HELDOUT_BASELINE")" = 0c132d6a19f587960072bd8e423c9c9170595ce999c97f58c6113a3c66a4ac63
+test "$(hash "$HELDOUT_BASELINE")" = c4d3fd2d51a26e46bef17d3a85a36190f384fff0782ef312faf0da5015fcd26a
 test "$(hash "$DPO")" = fa5a774c8b2fc7033b48b3ed37cef49b69e1bc0569cc9d5c6245fa886dd19137
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
 
 REPO="$ROOT" ARIA_POD_CREATE_API=graphql ARIA_MAX_GPU_HOURLY_USD=1.60 \
   TRAINING_RECIPE_KIND=tooluse_dpo_balanced_diagnostic_continuation \

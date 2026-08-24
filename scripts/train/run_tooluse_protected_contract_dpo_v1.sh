@@ -14,9 +14,9 @@ TRAIN_PROOF=data/training/aria_tooluse_resolution_branch_expansion_v1.jsonl
 
 test "$(hash "$PARENT")" = 5ba78e6035e304ed266f632b0ac5181c230040d1863c107e05f1e53ae51b1f20
 test "$(hash "$DPO")" = 3c75636cfbac34acbd84351188db11bf4c1579589d24cea9e00a21952498ed1f
-test "$(hash "$MANIFEST")" = 2f3a1c0e95d767a006a0bdb928e1a7a88eff41c6144a89bc4503e2a5fa54f9c9
+test "$(hash "$MANIFEST")" = b66d0d3252ee312e7e86f71990337baa60b163e85ff92b1408cf7741ef094739
 test "$(hash "$BASELINE")" = f4369e1182a18eb898aed5119d465641f7f837ebe91078b875868835c1b917ca
-test "$(hash "$EVAL")" = d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
+test "$(hash "$EVAL")" = 8d3d33eca57caccbea25d0d5b499cda0b5aa9e5dbc30ba823d55b39ead573176
 test "$(hash "$GOLDEN")" = 4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c
 test "$(hash "$TRAIN_PROOF")" = e87b085c3fae6c10b4d0afdca252979cc63ab10d21819393c2659abad68715c2
 
