@@ -15830,3 +15830,37 @@ fixture(s) accepted, 0 new credential values`, and the scan now reports
 `scanned 4617 text file(s); skipped 17 binary/non-source of 4634 in scope` so a
 CLEAN verdict says what it did not read. Both originally-failing gate tests pass;
 24/24 green across all three files.
+
+## C-252 · the xfail gate crashed rather than reported an out-of-repo path (fixed, R-F4298)
+
+Third of the five NEW failures in the §16 re-record. `test_rf4205_no_tolerated_
+xfails::test_verifier_main_blocks_a_tolerated_xfail` did not fail on a
+regression — it raised:
+
+```
+ValueError: 'C:\Users\anton\AppData\Local\Temp\pytest-of-anton\pytest-1964\
+test_verifier_main_blocks_a_to0\test_staged_gap.py' is not in the subpath of
+'C:\Code\Aria'
+```
+
+`verify_commit.py` rendered its findings with `path.relative_to(_REPO)`, which
+RAISES for anything outside the checkout. **The gate crashed while describing
+what it had found** — on the exact input it exists to report. A guard that dies
+mid-report tells the operator nothing about the finding, and a traceback is not a
+verdict.
+
+Not hypothetical. This repo runs work in `git worktree` trees, and pytest's
+default `tmp_path` lives under the system temp directory.
+
+**The interesting part is why it was ever green.** `git log -S` puts
+`relative_to` in R-F4205's own commit — the one that added the test. It passed
+during development because it was run with `--basetemp` pointed *inside* the
+repo, which is precisely what the leftover `.pytest_rf4205_final` /
+`_focused` / `_postcommit` directories are (the same detritus C-251 had to
+gitignore). **A test that passes because of how it was invoked is not evidence
+about the code.** It never appeared as a regression either, because R-F4205
+postdates the previous baseline at `bf680ed1` — so the first honest measurement
+of it was this re-record.
+
+Fixed by `_display_path()`: relative when it can be, absolute when it cannot.
+Both are readable. 5/5 green under the default tmpdir.

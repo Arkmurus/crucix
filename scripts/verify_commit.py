@@ -210,6 +210,31 @@ def _test_text(f: Path) -> str:
     return _TEST_TEXT_CACHE[f]
 
 
+def _display_path(path: Path) -> str:
+    """Render a path for the operator WITHOUT assuming it sits under the repo.
+
+    R-F4298 (C-252). This was `path.relative_to(_REPO)`, which RAISES
+    ValueError for anything outside the checkout — so the gate crashed with a
+    traceback on the very input it exists to report. A guard that dies while
+    describing what it found tells the operator nothing about the finding.
+
+    Not hypothetical: this repo runs work in `git worktree` trees, and pytest's
+    default tmp_path lives under the system temp directory. R-F4205's own test
+    drives the gate with exactly such a path and had NEVER passed under a
+    default tmpdir — it went green only when run with `--basetemp` pointed
+    inside the repo, which is what the leftover `.pytest_rf4205_*` directories
+    are. A test that passes because of HOW it was invoked is not evidence
+    about the code.
+
+    Relative when it can be, absolute when it cannot. Both are readable; a
+    traceback is not.
+    """
+    try:
+        return str(path.relative_to(_REPO))
+    except ValueError:
+        return str(path)
+
+
 def _tolerated_xfails(files: list[Path] | None = None) -> list[tuple[Path, int]]:
     """Return executable pytest xfail markers; known regressions must fail normally."""
     findings: list[tuple[Path, int]] = []
@@ -329,7 +354,7 @@ def main() -> int:
     tolerated_xfails = _tolerated_xfails()
     if tolerated_xfails:
         details = "\n  ".join(
-            f"{path.relative_to(_REPO)}:{line}" for path, line in tolerated_xfails
+            f"{_display_path(path)}:{line}" for path, line in tolerated_xfails
         )
         print(
             "\n[R-F559] FAIL — tolerated pytest xfail markers are forbidden:\n  "

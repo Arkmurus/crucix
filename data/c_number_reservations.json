@@ -2859,6 +2859,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T14:24:47Z"
+    },
+    {
+      "c_number": "C-252",
+      "title": "verifier crashes rather than reports on an out-of-repo path",
+      "claimed_at": "2026-08-24T14:27:03Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4298"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T14:28:30Z"
     }
   ]
 }

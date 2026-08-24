@@ -65,6 +65,15 @@ def test_repository_contains_no_tolerated_xfail_markers():
     assert verifier._tolerated_xfails() == []
 
 
+# R-F4298 (C-252) — THIS TEST HAD NEVER PASSED UNDER A DEFAULT TMPDIR.
+# It hands the gate a path in pytest's tmp_path, which lives under the system
+# temp directory, and the gate rendered findings with `path.relative_to(_REPO)`
+# — ValueError for anything outside the checkout. So it crashed with a
+# traceback instead of reporting, and only went green when run with
+# `--basetemp` pointed inside the repo (the leftover `.pytest_rf4205_*`
+# directories are exactly that). A test that passes because of HOW it was
+# invoked is not evidence about the code. The gate now renders relative when
+# it can and absolute when it cannot — do not put `relative_to` back.
 def test_verifier_main_blocks_a_tolerated_xfail(monkeypatch, capsys, tmp_path: Path):
     """Drive the real verifier gate and prove a staged regression blocks the push."""
     staged = tmp_path / "test_staged_gap.py"
