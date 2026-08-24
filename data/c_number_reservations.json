@@ -2943,6 +2943,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T18:16:41Z"
+    },
+    {
+      "c_number": "C-259",
+      "title": "training drivers never retrieve the adapter they train",
+      "claimed_at": "2026-08-24T18:18:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4306"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T18:20:48Z"
     }
   ]
 }

@@ -116,6 +116,34 @@ done
 mkdir -p data/eval_reports
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_llm_v0_4_dpo_eval.json data/eval_reports/aria_llm_v0_4_dpo_eval.json 2>/dev/null || echo "[driver] (DPO report not pulled)"
 
+# 5b. R-F4306 (C-259) — BRING THE MODEL HOME.
+#
+# The driver used to pull only the eval REPORT, so the trained LoRA stayed at
+# /workspace/checkpoints on the pod and was stopped along with it. That is
+# exactly how aria-llm-v0.4-dpo became unreachable: its weights exist only on a
+# volume in US-KS-2, and when that datacenter ran out of allocatable capacity the
+# model could not be served, evacuated or even inspected, at ANY price.
+#
+# A cycle that ends without the adapter in hand has not delivered a model — it
+# has delivered a claim about one, plus a machine that may not exist tomorrow.
+# Retrieval happens BEFORE stop_pod so it never races a pod that is going away.
+mkdir -p data/training/checkpoints
+ADAPTER_TGZ="data/training/checkpoints/aria_llm_v0_4_dpo_$(date +%Y%m%d_%H%M%S).tgz"
+echo "[driver] retrieving the trained adapter -> $ADAPTER_TGZ"
+if $SSH -p "$PORT" root@"$HOST" \
+     "cd /workspace/checkpoints 2>/dev/null && tar czf /workspace/aria_llm_v0_4_dpo.tgz aria_llm_v0_4_dpo 2>/dev/null && echo PACKED" \
+     2>/dev/null | grep -q PACKED; then
+  if scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" \
+       root@"$HOST":/workspace/aria_llm_v0_4_dpo.tgz "$ADAPTER_TGZ" 2>/dev/null; then
+    echo "[driver] adapter retrieved: $ADAPTER_TGZ ($(du -h "$ADAPTER_TGZ" 2>/dev/null | cut -f1))"
+    sha256sum "$ADAPTER_TGZ" 2>/dev/null | tee "$ADAPTER_TGZ.sha256"
+  else
+    echo "[driver] WARN: adapter NOT RETRIEVED (scp failed) — the model exists ONLY on pod $POD" >&2
+  fi
+else
+  echo "[driver] WARN: adapter NOT RETRIEVED (nothing at /workspace/checkpoints/aria_llm_v0_4_dpo) — the model exists ONLY on pod $POD" >&2
+fi
+
 # 6. Local verdict — v0.4-DPO vs the v0.4-SFT champion (0.288 / leak 0.30)
 echo "[driver] === v0.4-DPO CYCLE RESULT (local) ==="
 python - <<'PY'
