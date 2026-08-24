@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4301,
+  "next_available": 4302,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36918,6 +36918,16 @@
       "commit_sha": "bebfb001",
       "notes": null,
       "shipped_at": "2026-08-24T16:27:33Z"
+    },
+    {
+      "r_number": "R-F4301",
+      "title": "claude_student closes the teacher-distill loop",
+      "claimed_at": "2026-08-24T16:44:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "94a65c49",
+      "notes": null,
+      "shipped_at": "2026-08-24T16:59:28Z"
     }
   ]
 }
