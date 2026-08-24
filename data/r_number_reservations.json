@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4302,
+  "next_available": 4303,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36928,6 +36928,16 @@
       "commit_sha": "94a65c49",
       "notes": null,
       "shipped_at": "2026-08-24T16:59:28Z"
+    },
+    {
+      "r_number": "R-F4302",
+      "title": "agent_bridge forwards Claude notes to the server collab log",
+      "claimed_at": "2026-08-24T17:14:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f3dfb26a",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:22:39Z"
     }
   ]
 }
