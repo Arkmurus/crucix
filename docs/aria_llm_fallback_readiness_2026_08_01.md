@@ -93,11 +93,54 @@ under R-F93's `primary_all` escape hatch), `legacy_shadow_var_present`, and
 points at **`aria-llm-v0.1` while the only models with recorded 500-Q evals are
 v0.2 and v0.4**. That drift was invisible because the field did not exist.
 
-**Still outstanding here, and it is an operator secret-set, not code:**
-`ARIA_LLM_MODEL` should name a model that has actually been evaluated. Until it
-does, the endpoint would be asked for a version nothing has measured.
+**DONE 2026-08-24 (R-F4300), operator-directed.** `ARIA_LLM_MODEL` was
+`aria-llm-v0.1`, a version nothing has ever evaluated. Now `aria-llm-v0.4-dpo`.
+Set with a plain `flyctl secrets set` — NOT `--stage`, which §17 records leaving
+the process still reading the old value after a full deploy — and verified from
+the RUNNING process (`env` inside the container plus `GET /api/aria/llm/shadow`
+reporting `model = aria-llm-v0.4-dpo`), never from `flyctl secrets list`, whose
+STATUS reads "Deployed" for a stale value too. The change is inert while
+`serving_users` is False, which is what made it safe to apply now.
+
+**Mind the naming trap when picking this id.** The eval runs labelled v0.5, v0.6
+and v0.7 in their FILENAMES all serve under the id `aria-llm-v0.4-dpo`; "v0.7" is
+a file label, not a model. Read `model` in the report, never the filename.
 
 ### 3. Prove it on the objective gate
+
+> **CORRECTED 2026-08-24 (R-F4300) — SHE HAS ALREADY CLEARED DEEPSEEK ON THIS
+> GATE, and this file did not know.** The measurement existed in
+> `data/eval_reports/` since July and nothing here or in §16 referenced it, so the
+> readiness case was being argued from a model two generations behind the best
+> measured one.
+
+Same 500-row `defence_dd` set, same schema, same judge:
+
+| served model id | accuracy | p50 latency |
+|---|---|---|
+| `aria-llm-v0.2` | 0.154 | 50.6s |
+| `aria-llm-v0.3` | 0.220 | — |
+| `aria-llm-v0.4` | 0.272 – 0.308 | 13.3s |
+| **`aria-llm-v0.4-dpo`** | **0.502** (251/500) | **4.7s** |
+| `deepseek-chat` (baseline) | 0.336 | 1.6s |
+
+**`aria-llm-v0.4-dpo` beats the DeepSeek baseline by 16.6 points** and is ~3x
+faster than plain v0.4 — while still ~3x slower than DeepSeek. DPO is what did it:
+v0.4 -> v0.4-dpo is 0.272 -> 0.502 on the same set. §16 names DPO as a
+prerequisite alongside the eval; it has been done and it worked.
+
+**One honest limit on that comparison.** The artifacts record `model`, `target`
+and the 500-row `defence_dd` block, but NOT the grounding condition, so "grounded"
+(the DPO runs) and "openbook" (the DeepSeek baseline) cannot be proven identical
+from the files alone. Same set, same size, same schema is strong evidence, not
+airtight evidence. **Re-run both under one recorded condition before promoting
+past shadow** — which needs the pod, so it sits behind item 1.
+
+**What this changes:** the blocker was never model quality, and now there is a
+number saying so. The case for funding item 1 is no longer "she might one day be
+good enough" — it is "the best measured sovereign model already outscores the
+vendor she would back up, and cannot be reached because nothing is serving her."
+
 
 The frozen 500-Q eval (Phase A gate #6, pinned hash `a07b6af760ad7f44`, count 500) is
 the honesty bar before she serves general traffic unsupervised.

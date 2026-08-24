@@ -208,3 +208,22 @@ def test_canary_pct_effective_is_zero_when_disabled(monkeypatch, router) -> None
     monkeypatch.setenv("ARIA_LLM_CANARY_PCT", "25")
     monkeypatch.setenv("ARIA_LLM_ROUTER_DISABLED", "1")
     assert router.canary_pct_effective() == 0
+
+
+def test_the_model_field_is_what_made_the_v04_dpo_switch_verifiable(monkeypatch, router) -> None:
+    """R-F4300 — the operator change this field enabled.
+
+    Live was `aria-llm-v0.1`, a version NOTHING has ever evaluated, and no surface
+    could show that because `summary()` did not report the model at all. Once it
+    did, the drift was visible and the secret was corrected to `aria-llm-v0.4-dpo`
+    — the best-measured id at 0.502 on the 500-Q against the DeepSeek baseline's
+    0.336.
+
+    MIND THE NAMING TRAP pinned here: the eval runs labelled v0.5 / v0.6 / v0.7 in
+    their FILENAMES all serve under the id `aria-llm-v0.4-dpo`. A filename version
+    is not a model id. Read `model` from the report, never the filename — picking
+    an id from a filename would have set a model the server does not serve.
+    """
+    monkeypatch.setenv("ARIA_LLM_MODEL", "aria-llm-v0.4-dpo")
+    assert router.summary()["model"] == "aria-llm-v0.4-dpo"
+    assert router.sovereign_model() == "aria-llm-v0.4-dpo"
