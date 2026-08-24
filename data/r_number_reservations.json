@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4305,
+  "next_available": 4306,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36958,6 +36958,16 @@
       "commit_sha": "62e10188",
       "notes": null,
       "shipped_at": "2026-08-24T17:38:19Z"
+    },
+    {
+      "r_number": "R-F4305",
+      "title": "training drivers resolve the repo root instead of hardcoding it",
+      "claimed_at": "2026-08-24T18:11:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9b8c3ae9",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:16:45Z"
     }
   ]
 }
