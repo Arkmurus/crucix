@@ -15999,3 +15999,67 @@ collab tests are store-isolated. The substantive point stands separately: only
 `ARIA_SERVICE_URL` / `ARIA_INTERNAL_TOKEN` are UNSET on the operator's machine,
 so `scripts/agent_bridge.py` has nothing to POST through. The loop is built
 end-to-end and has effectively never run.
+
+## C-255 · the bridge never forwarded, and a docstring said it did (fixed, R-F4302)
+
+`POST /api/aria/collab/ingest` exists to close the Claude→ARIA loop, and its
+docstring states both the problem and the remedy:
+
+> "Claude runs on the operator's LOCAL machine and writes to the local
+> `.agent_bridge/` file mailbox, which is NEVER shipped to aria-intel — so the
+> server's Redis collab log had **zero writers** and everything Claude taught
+> ARIA was forgotten. The local `scripts/agent_bridge.py` now best-effort POSTs
+> Claude's messages here."
+
+**The last sentence was false.** `scripts/agent_bridge.py` was 105 lines with no
+`http`, `urllib`, `requests`, `POST` or env reference of any kind — it called
+`bridge.send(base, ...)`, wrote a local file, and returned. `git log -S
+"collab/ingest" -- scripts/agent_bridge.py` is EMPTY: the forwarder was never
+built, not built-and-removed.
+
+**The consequence is the finding behind C-254.** The teacher corpus holds **24
+substantial notes across its entire lifetime**, because nothing carried Claude's
+side of the conversation to the server. The one mechanism designed to let ARIA
+compound from a stronger agent had no carrier.
+
+**This is the documented-capability-with-no-call-sites shape**, and it is
+expensive precisely because it looks solved. A session reading that route would
+reasonably conclude the forward worked and go hunting for a config problem —
+setting `ARIA_SERVICE_URL` / `ARIA_INTERNAL_TOKEN`, which a sibling docstring
+recommends, and reporting the job done. That is exactly the step this fix nearly
+became; `git log -S` is what stopped it. **A docstring is not an implementation;
+count the call sites.**
+
+**Three properties are load-bearing and each is pinned:**
+
+* **The local write is the source of truth.** The forward runs strictly AFTER the
+  note is on disk and can never lose a message. A test drives a 500 response and
+  asserts the note is still in the local mailbox.
+* **It never posts unauthenticated.** The ingest route is a brain WRITE; with no
+  token it refuses rather than sends and is rejected.
+* **It says what happened.** Unconfigured, refused, and failed each print a
+  reason. A silent best-effort forward is how a corpus reaches 24 notes with
+  nobody noticing — the same silence C-254 found in `set_cursor`.
+
+**Teacher signal only.** Only `claude→aria` is forwarded. Pushing ARIA's own
+notes into the corpus would feed her output back as her own teacher, which is the
+degenerate case of self-distillation.
+
+`.env` is read as a fallback to `os.environ` (the operator keeps credentials
+there, and it is gitignored), with the environment winning so an explicit export
+overrides a stale file.
+
+**Live-verified end to end 2026-08-24**, and it confirms C-254 at the same time:
+
+```
+$ python scripts/agent_bridge.py send "<2,326 chars of real teacher signal>"
+sent note to ARIA (id m1a034c7905c00712b7e703)
+  forwarded to ARIA's brain (server id cb_175)
+
+corpus records   56,529 -> 56,530     (+1, NOT +N)
+cb_175 in /data/claude_distill        kind=note, 2,326 chars
+```
+
+The full path ran for the first time: local mailbox → `POST /collab/ingest` →
+Redis collab log → drain → `brain_hook.absorb` + `claude_distill.capture`. And
+exactly **one** record, where before C-254 one note meant hundreds.

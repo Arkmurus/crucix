@@ -2895,6 +2895,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T16:59:00Z"
+    },
+    {
+      "c_number": "C-255",
+      "title": "agent_bridge never forwarded: the route documents a POST that does not exist",
+      "claimed_at": "2026-08-24T17:14:25Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4302"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T17:22:37Z"
     }
   ]
 }
