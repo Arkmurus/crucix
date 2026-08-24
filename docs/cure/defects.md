@@ -15921,3 +15921,81 @@ serving" would certify nothing.
 
 **Still outstanding and NOT codeable:** `ARIA_LLM_MODEL` naming an unevaluated
 version is an operator secret-set.
+
+## C-254 · an unreadable cursor rewound the teacher corpus (fixed, R-F4301)
+
+**MEASURED on the live volume 2026-08-24**, while auditing what ARIA actually
+learns from:
+
+```
+/data/claude_distill        56,529 records ... 41 UNIQUE TEXTS
+unique content              48 KB   (30 MB on disk -> ~450x amplification)
+most-duplicated             cb_39, captured 1,250 times
+substantial unique notes    24  (>500 chars)
+```
+
+The corpus exists so an SFT/DPO cycle can distil Claude's engineering and
+reasoning into ARIA-LLM. It is ~99.9% duplicate. Consuming it as-is would train
+on 1,250 copies of one note beside a lot of one-character fragments.
+
+**THE MECHANISM.** `drain_for_aria` is cursor-guarded and the guard is correct —
+`last_seq` is seeded from the cursor, not from 0. The hole was one level down:
+
+```python
+async def get_cursor(reader) -> int:
+    v = await rs.get(_CURSOR_KEY.format(reader=reader))
+    return int(v) if v else 0          # a FAILED read lands here too
+```
+
+`rs.get` carries the R-F1 None-on-error contract — None both when the key is
+genuinely ABSENT and when the store could not be READ (dead connection,
+reconnect window). Both collapsed to `0`, which rewinds the drain to the
+beginning and re-ingests every message ever sent. `set_cursor` swallowed its own
+failures into `logger.debug` and returned None, so a cursor that did not stick
+was invisible — and a cursor that does not advance guarantees the next cycle
+re-ingests what this one just did. That is the other half of the amplification.
+
+Same absence-reads-as-a-value class as §1's three Phase A gates, §17's cost
+meter, C-39 and C-41 — but worse in consequence. A wrong verdict is read by a
+human who can discount it; **a corrupted corpus is read by a fine-tune, which
+cannot.**
+
+`get_strict` already existed for exactly this and says so: *"None means the key
+is genuinely absent."* Nothing here used it.
+
+**THE FIX IS TRI-STATE, and the direction is the point.** `get_cursor` returns
+`None` for UNREADABLE and the drain SKIPS that cycle rather than starting from
+zero. Skipping costs one 2-minute interval; rewinding costs the corpus. "I could
+not read how far I got" must never mean "I have not started." A CORRUPT value is
+unreadable too — garbage in the key is not evidence the reader is fresh. And
+absent-and-readable is still 0, so a genuinely new deployment drains from the
+beginning exactly once; this must not silently stop a fresh reader from ever
+ingesting anything.
+
+Both failure branches are now §21a-wired — a skipped drain and a cursor write
+that did not stick each reach the brain, where before they were a debug line.
+
+**Two incomplete FAKES were repaired, not worked around.** `_FakeRedis` in
+`test_rf1409` and `test_rf2399` implemented `get` but not `get_strict`, so every
+read through the new path looked like a store failure. The real `redis_store` has
+`get_strict`; a fake that omits a method the production module has is an
+incomplete fake, and fitting the code to it would have meant keeping the defect.
+Both files were GREEN before this change and are green after, confirmed against
+the freshly recorded baseline.
+
+**Mutation-verified.** Reverting `get_cursor` to `return 0` on failure was caught
+— but at first by only ONE test, because the drain test patched `get_cursor`
+itself and so proved only that the drain HANDLES None, never how None is
+produced. An end-to-end test now drives the real `get_cursor` with a raising
+store, which is the actual production failure, and asserts `poll()` is never
+reached with `after_seq=0`.
+
+**Not fixed here, and recorded so it is not lost.** The corpus also holds short
+probe strings that coincide with test fixtures, sent through
+`POST /api/aria/collab/ingest`. They are bridge-testing exhaust, not automated
+contamination — the `.agent_bridge/` mailbox does not exist on the box and the
+collab tests are store-isolated. The substantive point stands separately: only
+**24 substantial teacher notes exist in the corpus's entire lifetime**, because
+`ARIA_SERVICE_URL` / `ARIA_INTERNAL_TOKEN` are UNSET on the operator's machine,
+so `scripts/agent_bridge.py` has nothing to POST through. The loop is built
+end-to-end and has effectively never run.

@@ -125,19 +125,64 @@ async def poll(reader: str, after_seq: int = 0) -> list[dict]:
     return [m for m in msgs if m.get("to") == reader and int(m.get("seq", 0)) > int(after_seq)]
 
 
-async def get_cursor(reader: str) -> int:
-    try:
+async def get_cursor(reader: str) -> int | None:
+    """How far `reader` has drained. TRI-STATE — None means UNREADABLE.
+
+    R-F4301 (C-254). This returned `int` and collapsed two very different facts
+    into `0`:
+
         v = await rs.get(_CURSOR_KEY.format(reader=reader))
-        return int(v) if v else 0
-    except Exception:
-        return 0
+        return int(v) if v else 0          # a FAILED read lands here too
+
+    `rs.get` carries the R-F1 None-on-error contract — None both when the key is
+    genuinely absent AND when the store could not be read (dead connection,
+    reconnect window). Both became `0`, which rewinds the drain to the beginning
+    and re-ingests every message ever sent.
+
+    MEASURED on the live volume 2026-08-24: /data/claude_distill held 56,529
+    records representing 41 UNIQUE TEXTS — 48 KB of content amplified ~450x to
+    30 MB, one note captured 1,250 times. That corpus exists to be distilled into
+    ARIA-LLM, so this is not a wrong verdict a human reads and discounts; it is a
+    corrupted training input a fine-tune reads and believes.
+
+    Same absence-reads-as-a-value class as CLAUDE.md §1's three Phase A gates,
+    §17's cost meter, C-39 and C-41. `get_strict` exists precisely to separate
+    the two and its docstring says so: "None means the key is genuinely absent."
+
+    A CORRUPT value is UNREADABLE, not fresh — garbage in the key is not evidence
+    the reader has never run.
+    """
+    try:
+        v = await rs.get_strict(_CURSOR_KEY.format(reader=reader))
+    except Exception as e:      # StoreReadError, transport, anything
+        logger.warning("[R-F4301] cursor for %s UNREADABLE (%s) — refusing to "
+                       "assume 0; this cycle will be skipped", reader, e)
+        return None
+    if v is None:
+        return 0                # genuinely absent -> a fresh reader starts at 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        logger.warning("[R-F4301] cursor for %s is CORRUPT (%r) — treated as "
+                       "unreadable, never as fresh", reader, v)
+        return None
 
 
-async def set_cursor(reader: str, seq: int) -> None:
+async def set_cursor(reader: str, seq: int) -> bool:
+    """Persist the drain cursor. Returns False if it did NOT stick.
+
+    R-F4301 — this swallowed every failure into `logger.debug` and returned None,
+    so a failed write was invisible. It is not a cosmetic loss: the cursor not
+    advancing GUARANTEES the next cycle re-ingests everything just drained, which
+    is the other half of the amplification above. The caller wires the failure.
+    """
     try:
         await rs.set(_CURSOR_KEY.format(reader=reader), str(int(seq)))
+        return True
     except Exception as e:
-        logger.debug("[R-F1409] set_cursor failed: %s", e)
+        logger.warning("[R-F4301] set_cursor(%s, %d) FAILED (%s) — the next drain "
+                       "will re-ingest what this one just did", reader, seq, e)
+        return False
 
 
 async def drain_for_aria() -> dict:
@@ -155,6 +200,22 @@ async def drain_for_aria() -> dict:
     cursor-guarded so each note is acted on once.
     """
     cursor = await get_cursor("aria")
+    if cursor is None:
+        # R-F4301 (C-254) — UNREADABLE, not zero. Treating it as 0 asks poll()
+        # for everything after seq 0 and re-ingests the whole corpus. Skipping
+        # costs one 2-minute interval; rewinding costs the training corpus.
+        # "I could not read how far I got" must never mean "I have not started".
+        try:
+            wire_failure(
+                module="collab_bridge",
+                detail=("drain SKIPPED — the ARIA cursor was unreadable; refusing "
+                        "to rewind to 0 and re-ingest the teacher corpus"),
+                gap_type="engine_failure",
+                source="collab_bridge:R-F4301",
+            )
+        except Exception:
+            pass
+        return {"drained": 0, "last_seq": None, "skipped": "cursor_unreadable"}
     new = await poll("aria", after_seq=cursor)
     if not new:
         new = []
@@ -248,7 +309,19 @@ async def drain_for_aria() -> dict:
         last_seq = max(last_seq, seq)
         drained += 1
 
-    await set_cursor("aria", last_seq)
+    if not await set_cursor("aria", last_seq):
+        # R-F4301 — the cursor did not stick, so the next cycle WILL re-ingest
+        # these same notes. Say so; a silent debug line is how 450x accrued.
+        try:
+            wire_failure(
+                module="collab_bridge",
+                detail=(f"cursor write FAILED at seq {last_seq} — the next drain "
+                        f"will re-ingest {drained} note(s)"),
+                gap_type="engine_failure",
+                source="collab_bridge:R-F4301",
+            )
+        except Exception:
+            pass
     logger.info("[R-F1409] drained %d Claude→ARIA note(s), cursor→%d", drained, last_seq)
     # R-F2118/R-F2119 §21a — wire module active
     try:

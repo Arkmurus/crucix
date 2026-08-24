@@ -2883,6 +2883,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T14:44:59Z"
+    },
+    {
+      "c_number": "C-254",
+      "title": "claude_distill is write-only: 56k teacher rows with no consumer",
+      "claimed_at": "2026-08-24T16:44:19Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4301"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T16:59:00Z"
     }
   ]
 }

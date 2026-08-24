@@ -46,6 +46,14 @@ class _FakeRedis:
             stop = stop + 1
         return items[start:stop]
 
+    async def get_strict(self, key):
+        # R-F4301 — mirror the REAL redis_store contract. `collab_bridge.get_cursor`
+        # reads the drain cursor through get_strict precisely so an unreadable
+        # store is distinguishable from an absent key; a fake that omits it makes
+        # every read look like a store failure, which is the opposite of what this
+        # fake is for. None here means genuinely absent, exactly as production.
+        return self.kv.get(key)
+
     async def get(self, key):
         return self.kv.get(key)
 
