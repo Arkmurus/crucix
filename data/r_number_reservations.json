@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4297,
+  "next_available": 4298,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36878,6 +36878,16 @@
       "commit_sha": "d2b77a5f",
       "notes": null,
       "shipped_at": "2026-08-24T14:13:08Z"
+    },
+    {
+      "r_number": "R-F4297",
+      "title": "secret scan skips binaries and streams; the gate can certify again",
+      "claimed_at": "2026-08-24T14:17:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a74487d",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:25:41Z"
     }
   ]
 }
