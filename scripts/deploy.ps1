@@ -91,7 +91,7 @@ if ($SCRIPT_DIR) {
     $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 } else {
     # Last resort: ask git for the checkout root. The previous fallback hardcoded
-    # "C:\code\crucix" — machine-specific AND wrong, because the line below takes
+    # "the repo root" — machine-specific AND wrong, because the line below takes
     # its PARENT, so it resolved to "C:\code" rather than to a repo root at all.
     $REPO_ROOT = (& git rev-parse --show-toplevel) -replace '/', '\'
 }

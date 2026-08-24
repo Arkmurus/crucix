@@ -3,7 +3,15 @@
 # start-retry. Push runner + eval set, run baseline_pod_run.sh, pull reports,
 # stop the pod. Pod id/host/port passed via env (defaults = the migrated pod).
 set -uo pipefail
-REPO="/c/code/crucix"; cd "$REPO"
+# R-F4305 (C-258) — resolve the repo from THIS script, never a hardcoded
+# checkout. The old hardcoded literal named a machine that no longer exists,
+# and `cd` to a missing dir under `set -uo pipefail` does NOT abort — the
+# script silently continues in the wrong directory. git first; BASH_SOURCE
+# fallback because this file is rsynced onto pods where there is no .git.
+# NOTE the braces: `A || B && C` parses as `(A || B) && C`, so an ungrouped
+# fallback runs `pwd` even when git SUCCEEDS and $REPO gets two lines.
+REPO="$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd; })"
+cd "$REPO" || { echo "FATAL: cannot resolve repo root" >&2; exit 1; }
 POD="${POD:-lqhxb4swwafuzv}"
 HOST="${HOST:-216.81.248.127}"
 PORT="${PORT:-19967}"

@@ -1,6 +1,6 @@
 # scripts/eval_run.ps1 — R-F505 eval seed-load + coverage probe
 #
-# Usage from C:\code\crucix:
+# Usage from the repo root:
 #   .\scripts\eval_run.ps1
 #
 # Reads token from .aria-token (gitignored). No prompts, no pasting.

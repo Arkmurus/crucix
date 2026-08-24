@@ -2931,6 +2931,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T17:38:17Z"
+    },
+    {
+      "c_number": "C-258",
+      "title": "training drivers hardcode a checkout path that does not exist",
+      "claimed_at": "2026-08-24T18:11:02Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4305"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T18:16:41Z"
     }
   ]
 }
