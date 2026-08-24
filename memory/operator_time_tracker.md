@@ -4516,3 +4516,135 @@ boot ≈10 min).
 (`severity: low`, `available: true`). At zero, chat and WhatsApp go dark — 19h on
 2026-08-22 at a $0.02 overdraft. R-F4229 auto-releases the cooldown on top-up, so
 recovery is automatic once funded.
+
+**ATTEMPTED 2026-08-24 and STOPPED before any test ran — still DUE, nothing
+recorded.** Launched from an isolated worktree at `6c32995e` with the `.venv`
+junction in place, environment fingerprint matching the recorded baseline
+(python 3.13.14, fastapi 0.141.1), tracked files clean at launch. It emitted its
+header and was killed:
+
+    tree e09537a54bbeeaf9 @ 6c32995e
+    2044 test files -> ONE pytest process (§16 mode, per-test timeout 180s)
+
+**Nothing was written** — `docs/suite_baseline.json` verified untouched afterwards,
+still `2026-08-17 / bf680ed1 / 113 failed / valid: true`. The `--record` step is
+reached only at the end, so a kill mid-run cannot publish a partial set; the §16
+"`VALID=NO` means discard" hazard was never in play here. No stray pytest processes
+were left behind.
+
+Deferred by the operator until the box is quiet. The peer remained active throughout
+— it pushed `72a91c0a` minutes after the kill — so the contention that produced the
+~50-minute/22 % crawl is unchanged.
+
+**Two things worth carrying into the next attempt:**
+1. **The worktree solves VALIDITY, not speed.** A peer cannot move a worktree's
+   files, so their commits can no longer force `VALID=NO`. What contention still
+   costs is wall-clock, and that is the only reason to wait for a quiet box.
+2. **The tree now holds 2044 test files against the baseline's 1923** — ~121 added
+   since 2026-08-17. Expect a large "new failures" set that is mostly NEW TESTS.
+   Diff the failure SET and attribute by mechanism; the count alone will mislead
+   (the §16 rule, and the R-F3791 environment-delta trap alongside it).
+
+Recreate the run environment with:
+
+    git worktree add --detach <path> origin/main
+    cd <path>
+    cmd //c "mklink /J .venv C:\Code\Aria\.venv"
+    ./.venv/Scripts/python.exe scripts/admin/suite_baseline.py --single-process --record
+
+## Session 2026-08-24 — verification session · 0 R-numbers, 0 code changes
+
+**What this session was.** The operator pasted the part-7 close-out report and asked
+for deep analysis with precision and robustness. So this was an ADVERSARIAL AUDIT of
+another session's claims, not new work — §23's rule that the reviewer independently
+re-runs and reproduces rather than relaying an author's unverified claim. Two
+docs-only commits came out of it. **No R-number was reserved and no code changed**,
+following the `51900b4a` precedent for register corrections.
+
+### The audit: every load-bearing claim in that report verified TRUE
+
+Probed live and read from `origin/main`, never from the report itself:
+
+| Claim | How it was checked |
+|---|---|
+| live `build_rev` = `R-F4273 · sha da7c350d` | `/health/live` |
+| `degraded_reasons` = `['llm_vendor_credit_low_deepseek']` only | `/health`; loop p95 1.0 ms |
+| both SHAs ancestors of `origin/main` | `merge-base --is-ancestor` |
+| 0 undeployed runtime changes | `diff da7c350d origin/main` = 2 ledgers + tracker only |
+| ship-marks intact | `commit_sha`: R-F4264..69 → `c58871a7`, R-F4273 → `da7c350d` |
+| 7 C-numbers closed, correct R-mapping | ledger `status=closed` |
+| headings canonical | byte-checked: separator is U+00B7 (`302 267`), not a hyphen |
+| §3c capability tests | **7/7** fixes carry their own NEW test file |
+| tests pass | **44/44** on an independent re-run (37 peer branch + 7 isolated worktree) |
+| "exactly 5 commits in `aria_service/`" | exactly 5 — the §16 trigger reading was right |
+
+A first pass using `git show --stat` across all five commits at once COLLAPSED the
+test-file list and made it look like only 2 tests existed for 7 fixes. Per-commit
+`--name-status` showed all seven. **A combined `--stat` is not evidence about
+per-commit contents** — nearly filed a false §3c violation on it.
+
+### Three things the report did not say
+
+1. **C-233's fix makes a real trade-off it did not state** — the finding of the
+   session, now written into `docs/cure/defects.md` (`6c32995e`).
+2. **The peer's branch was 5 commits behind and lacked R-F4273 entirely.** RESOLVED
+   during the session by their own merge `64dfa939`.
+3. **"All worktrees are removed" was true only of that session's.** Five stale ones
+   from earlier sessions remain registered AND on disk: `brain-audit-c109-c119`,
+   `c29-reliability-ema`, `cure-c140-c149`, `cure-c149-c156-c158`,
+   `C:/tmp/aria_rf3938_ship`. Left alone — one may still be live for another agent.
+
+### Shipped
+
+`6c32995e` — **C-233 trade-off documented.** Measured against the shipped function by
+seeding `_read_timeouts` at known ages, not reasoned about: a slow persistent trickle
+(≥ DEGRADE_AT timeouts in the 900 s window, spaced wider than `_READ_TIMEOUT_ACTIVE_S`)
+now reads green where the volume-only rule read amber, and OSCILLATES rather than
+holding a verdict. Accepted because `reachable` drives `red` on its own path in
+`main.py` — the report only ever upgrades green→amber, so a hard outage is caught by a
+mechanism recency cannot mask. The entry FORBIDS the obvious patch: widening
+`_READ_TIMEOUT_ACTIVE_S` to ~700 s would re-pin the exact recovered boot burst C-233
+was opened for. If the case ever needs covering it is a THIRD AXIS (arriving *across*
+the window), the R-F3873 two-axes shape. Filed as theoretical with its own
+falsification condition; unobserved in production as of 2026-08-23.
+
+`a394541f` — **the §16 baseline attempt recorded** (see the section above).
+
+### A guard of ours caught MY defect
+
+The R-F1958 pre-commit hook blocked the first `a394541f` draft: the recreate block
+used a double-ampersand sequencer, which is not valid PowerShell. It was right. Rewritten one command per
+line; **not** bypassed with `--no-verify`.
+
+### Open — next session
+
+**§16 suite baseline is STILL DUE.** Attempted and stopped before any test ran;
+nothing recorded (details in the section above). Deferred by the operator until the
+box is quiet.
+
+⚠️ **The premise of that deferral is worth re-examining before waiting again.** A
+peer Claude agent is running the TRAINING CYCLE and EVALS — potentially days, and
+§24's cycle slots are Tue/Wed/Thu — so "wait for quiet" may block this indefinitely
+while §16 records it overdue. **In a worktree the run is VALID regardless of the
+peer**; contention costs only wall-clock. A background run during their training
+would still produce a recordable baseline, just slower.
+
+**Peer ownership map, so the next session does not collide:**
+
+* Theirs: `scripts/train/*` (corpus builders, `eval_tooluse.py`, `axis_alignment.py`,
+  `fundamentals_coverage.py`), `aria_service/intel/dd_standard.py`, `test_rf427*`.
+* Shared, already reconciled: `aria_service/intel/state_store.py` (R-F4273).
+* The shared checkout sits on their branch, which for most of this session did NOT
+  contain the C-233 entry — **edit `docs/cure/defects.md` from a worktree at
+  `origin/main`, never from the shared tree.**
+
+### Standing
+
+**Operator hours: not supplied → `pace_ratio` deliberately blank.** Agent wall-clock
+spans `6c32995e` 2026-08-23 23:31 to `a394541f` 2026-08-24 09:54, with a long idle
+gap overnight; active time is well under that span and is not claimed as a figure.
+
+Live at close: `build_rev` `R-F4270 · sha 64dfa939` — **the peer's deploy, not this
+session's.** Both commits here are docs-only and needed no deploy (§20: no
+`aria_service/` diff). Nothing of mine is unpushed; both worktrees I created were
+removed.
