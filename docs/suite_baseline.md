@@ -4,6 +4,41 @@
 > `suite_baseline_2026_07_30.md`.** Both are retained only as the history section at
 > the bottom. There is ONE baseline; do not add a fourth file.
 
+## Current baseline — 2026-08-24, tool-recorded, provably clean
+
+```
+VALID=YES
+81 failed, 17,094 passed  (17,175 collected across 2,057 files)
+sha a07a6760   tree ac0d0b9a3814724f (identical before AND after)
+recorded by:  python scripts/admin/suite_baseline.py --single-process --record
+measured on:  the main checkout, quiet (peer idle; tree hash proves it)
+```
+
+**Set diff against 2026-08-17 (113 @ `bf680ed1`, 1,923 files): 76 standing ·
+37 FIXED · 5 new.** The count fell by 32 while 1,268 tests were ADDED, so read the
+set, never the count.
+
+**Why the re-record mattered, and it was the dangerous direction.** The 2026-08-17
+entry had gone stale in the way that costs you a P0: five tests fixed in the
+2026-08-23/24 sessions were still listed as known-failing. A fixed test carried as
+"known" means a future re-break reads as expected and nobody looks.
+
+### The 5 new entries, all attributed — three were fixed on discovery
+
+| node id | verdict |
+|---|---|
+| `test_rf3720_secret_scan_gate::test_the_repo_itself_is_clean` | **FIXED — R-F4297 / C-251.** Not a finding: the scan TIMED OUT at 90s. It was reading 15.6 GB (nine 335 MB LoRA safetensors, training corpora) because the binary check ran one line AFTER `read_text()` of the whole file. 5m45s → 6.4s. |
+| `test_rf4117_secret_baseline_is_not_a_hole::test_the_repo_passes_its_own_secret_gate` | **FIXED — same root cause, same commit.** |
+| `test_rf4205_no_tolerated_xfails::test_verifier_main_blocks_a_tolerated_xfail` | **FIXED — R-F4298 / C-252.** `relative_to(_REPO)` raised on pytest's tmp_path, so the gate crashed instead of reporting. It had NEVER passed under a default tmpdir — it went green only under `--basetemp` inside the repo. New here because R-F4205 postdates `bf680ed1`. |
+| `test_rf4273_read_timeout_burst_must_be_active::test_a_boot_window_burst_is_labelled_not_merged` | **ORDER-DEPENDENT, not a regression.** Passes standalone. Same class as the §16 known-flaky set; polluter not identified. |
+| `test_rf2200_neural_index_offload::test_rf2200_incremental_rebuild_keeps_loop_responsive` | **KNOWN §16 FLAKE.** Asserts event-loop latency against a hard threshold; passes in isolation. Already documented below. |
+
+> **The JSON still lists the three fixed entries, deliberately.** It is a
+> MEASUREMENT taken at `a07a6760`, and hand-editing it to reflect later commits
+> would falsify the record rather than correct it — the same reasoning that got
+> R-F4282 abandoned. The next `--record` run will drop them. Until then, this
+> table is the correction.
+
 ## Current baseline — 2026-08-17, tool-recorded, provably clean, environment-stamped
 
 ```
