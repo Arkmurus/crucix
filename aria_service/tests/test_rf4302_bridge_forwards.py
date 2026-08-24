@@ -9,11 +9,13 @@ docstring states both the problem and the remedy:
      was forgotten. The local scripts/agent_bridge.py now best-effort POSTs
      Claude's messages here."
 
-THE LAST SENTENCE IS FALSE. scripts/agent_bridge.py is 105 lines with no http,
-urllib, requests, POST or env reference of any kind; it calls bridge.send(base,
-...), which writes a local file and returns. `git log -S "collab/ingest" --
-scripts/agent_bridge.py` is EMPTY - the forwarder was never built, not
-built-and-removed.
+THAT SENTENCE WAS WRONG ABOUT WHERE, AND I WAS WRONG ABOUT WHETHER. See the
+R-F4307 correction at the end of this docstring before reading further:
+scripts/agent_bridge.py had no forwarder and `git log -S "collab/ingest"` over
+THAT FILE is empty - but aria_cli/bridge.py has had one since R-F2400, and
+bridge.send() calls it. The forward was a no-op because it read only os.getenv
+while the credentials lived in .env, which is a configuration defect, not a
+missing implementation.
 
 The consequence is measurable and is why C-254 found what it did: the teacher
 corpus holds 24 substantial notes across its entire lifetime, because nothing was
@@ -35,6 +37,16 @@ DESIGN CONSTRAINTS, each pinned below:
   * IT MUST SAY WHAT HAPPENED. A silent best-effort forward is how a corpus ends
     up with 24 notes and nobody notices. Unconfigured, refused and failed each
     report a reason on stdout.
+
+CORRECTION - R-F4307 (C-260). The behaviour these tests pin did not change, but
+its HOME did, and the original diagnosis above was too broad. R-F4302 added a
+forwarder to scripts/agent_bridge.py after grepping only that file;
+aria_cli/bridge.py had had one since R-F2400. That made TWO, and both would have
+fired the moment ARIA_SERVICE_URL was exported rather than kept in .env - posting
+every note twice and doubling the teacher corpus, which is C-254's amplification
+reintroduced by the fix for C-255. The implementation is now single, in
+aria_cli.bridge, and these tests follow it there. The REQUIREMENTS are unchanged:
+never post unauthenticated, never lose the local write, always say what happened.
 """
 from __future__ import annotations
 
@@ -49,6 +61,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import scripts.agent_bridge as ab  # noqa: E402
+from aria_cli import bridge  # noqa: E402
 
 _ENV = ("ARIA_SERVICE_URL", "ARIA_INTERNAL_TOKEN", "ARIA_BRAIN_URL")
 
@@ -58,7 +71,7 @@ def _clean_env(monkeypatch):
     for v in _ENV:
         monkeypatch.delenv(v, raising=False)
     # never read the developer's real .env during tests
-    monkeypatch.setattr(ab, "_env_file_values", lambda: {}, raising=False)
+    monkeypatch.setattr(bridge, "_env_file_values", lambda: {}, raising=False)
 
 
 def _msg():
@@ -69,17 +82,16 @@ def _msg():
 # -- it exists at all -------------------------------------------------------
 
 def test_the_forwarder_exists() -> None:
-    assert hasattr(ab, "forward_to_server"), (
-        "scripts/agent_bridge.py has no forwarder - the route docstring claims "
-        "it POSTs, and it does not")
+    assert hasattr(bridge, "forward_to_server"), (
+        "aria_cli.bridge has no forwarder - R-F4307 made it the single home")
 
 
 # -- unconfigured is REPORTED, never silent ---------------------------------
 
 def test_unconfigured_reports_a_reason_and_posts_nothing(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr(ab, "_http_post", lambda *a, **k: calls.append(a))
-    ok, reason = ab.forward_to_server(_msg())
+    monkeypatch.setattr(bridge, "_post_ingest", lambda *a, **k: calls.append(a))
+    ok, reason = bridge.forward_to_server(_msg())
     assert ok is False
     assert reason, "an unconfigured forward must SAY so - silence is the defect"
     assert "ARIA_SERVICE_URL" in reason
@@ -89,8 +101,8 @@ def test_unconfigured_reports_a_reason_and_posts_nothing(monkeypatch) -> None:
 def test_a_url_without_a_token_is_refused(monkeypatch) -> None:
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev")
     calls = []
-    monkeypatch.setattr(ab, "_http_post", lambda *a, **k: calls.append(a))
-    ok, reason = ab.forward_to_server(_msg())
+    monkeypatch.setattr(bridge, "_post_ingest", lambda *a, **k: calls.append(a))
+    ok, reason = bridge.forward_to_server(_msg())
     assert ok is False
     assert "ARIA_INTERNAL_TOKEN" in reason
     assert calls == [], "the ingest route is a brain WRITE - never post unauthenticated"
@@ -101,19 +113,19 @@ def test_a_url_without_a_token_is_refused(monkeypatch) -> None:
 def test_a_configured_forward_posts_the_message(monkeypatch) -> None:
     seen = {}
 
-    def _post(url, payload, headers, timeout):
-        seen.update(url=url, payload=payload, headers=headers, timeout=timeout)
+    def _post(url, payload, headers):
+        seen.update(url=url, payload=payload, headers=headers)
         return 200, json.dumps({"ok": True, "seq": 175, "id": "cb_175"})
 
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "tok-abc")
-    monkeypatch.setattr(ab, "_http_post", _post)
+    monkeypatch.setattr(bridge, "_post_ingest", _post)
 
-    ok, reason = ab.forward_to_server(_msg())
+    ok, reason = bridge.forward_to_server(_msg())
     assert ok is True, reason
     assert seen["url"].endswith("/api/aria/collab/ingest")
     assert seen["headers"]["Authorization"] == "Bearer tok-abc"
-    body = json.loads(seen["payload"])
+    body = seen["payload"]
     assert body["text"] == "R-F4302 probe"
     assert body["frm"] == "claude" and body["to"] == "aria"
     assert body["kind"] == "note"
@@ -122,32 +134,32 @@ def test_a_configured_forward_posts_the_message(monkeypatch) -> None:
 def test_a_trailing_slash_does_not_double_up(monkeypatch) -> None:
     seen = {}
 
-    def _post(url, payload, headers, timeout):
+    def _post(url, payload, headers):
         seen["url"] = url
         return 200, "{}"
 
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev/")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
-    monkeypatch.setattr(ab, "_http_post", _post)
-    ab.forward_to_server(_msg())
+    monkeypatch.setattr(bridge, "_post_ingest", _post)
+    bridge.forward_to_server(_msg())
     assert "//api/aria" not in seen["url"]
 
 
 def test_a_reply_carries_its_reply_to(monkeypatch) -> None:
     seen = {}
 
-    def _post(url, payload, headers, timeout):
+    def _post(url, payload, headers):
         seen["payload"] = payload
         return 200, "{}"
 
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://x.invalid")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
-    monkeypatch.setattr(ab, "_http_post", _post)
+    monkeypatch.setattr(bridge, "_post_ingest", _post)
     m = _msg()
     m["kind"] = "answer"
     m["reply_to"] = "cb_7"
-    ab.forward_to_server(m)
-    body = json.loads(seen["payload"])
+    bridge.forward_to_server(m)
+    body = seen["payload"]
     assert body["reply_to"] == "cb_7" and body["kind"] == "answer"
 
 
@@ -156,8 +168,8 @@ def test_a_reply_carries_its_reply_to(monkeypatch) -> None:
 def test_an_http_error_is_reported_not_raised(monkeypatch) -> None:
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://x.invalid")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
-    monkeypatch.setattr(ab, "_http_post", lambda *a, **k: (401, "unauthorized"))
-    ok, reason = ab.forward_to_server(_msg())
+    monkeypatch.setattr(bridge, "_post_ingest", lambda *a, **k: (401, "unauthorized"))
+    ok, reason = bridge.forward_to_server(_msg())
     assert ok is False
     assert "401" in reason
 
@@ -168,8 +180,8 @@ def test_a_transport_failure_never_raises(monkeypatch) -> None:
 
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://x.invalid")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
-    monkeypatch.setattr(ab, "_http_post", _boom)
-    ok, reason = ab.forward_to_server(_msg())          # must not raise
+    monkeypatch.setattr(bridge, "_post_ingest", _boom)
+    ok, reason = bridge.forward_to_server(_msg())          # must not raise
     assert ok is False and "OSError" in reason
 
 
@@ -179,7 +191,7 @@ def test_send_writes_locally_AND_reports_the_forward(tmp_path, monkeypatch, caps
     """THE CAPABILITY TEST. The local mailbox is the source of truth: a failed
     forward must never lose the note, and the CLI must say what happened."""
     monkeypatch.setattr(ab, "_base", lambda: tmp_path)
-    monkeypatch.setattr(ab, "_http_post", lambda *a, **k: (500, "boom"))
+    monkeypatch.setattr(bridge, "_post_ingest", lambda *a, **k: (500, "boom"))
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://x.invalid")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
 
@@ -187,7 +199,8 @@ def test_send_writes_locally_AND_reports_the_forward(tmp_path, monkeypatch, caps
     assert rc == 0
     out = capsys.readouterr().out
 
-    from aria_cli import bridge
+    # `bridge` is imported at module scope; a local re-import here would make it
+    # a local name and shadow the earlier use in this same function.
     local = bridge._all(tmp_path)
     assert any(m.get("text") == "a real teacher note" for m in local), (
         "the note was LOST when the forward failed - the local write is the "
@@ -199,7 +212,7 @@ def test_send_writes_locally_AND_reports_the_forward(tmp_path, monkeypatch, caps
 def test_send_reports_success_when_the_forward_lands(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setattr(ab, "_base", lambda: tmp_path)
     monkeypatch.setattr(
-        ab, "_http_post",
+        bridge, "_post_ingest",
         lambda *a, **k: (200, json.dumps({"ok": True, "id": "cb_9"})))
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
@@ -218,7 +231,7 @@ def test_aria_side_notes_are_not_forwarded_as_teacher_signal(tmp_path, monkeypat
         return 200, "{}"
 
     monkeypatch.setattr(ab, "_base", lambda: tmp_path)
-    monkeypatch.setattr(ab, "_http_post", _post)
+    monkeypatch.setattr(bridge, "_post_ingest", _post)
     monkeypatch.setenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "t")
     ab.main(["--as", "aria", "send", "aria speaking"])

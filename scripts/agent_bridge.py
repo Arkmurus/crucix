@@ -24,11 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 try:
@@ -40,117 +36,34 @@ except ModuleNotFoundError:  # allow running without an editable install
     from aria_cli.cli import find_repo_root
 
 
-# ── R-F4302 (C-255) — forward Claude's side to the SERVER brain ────────────
+# ── R-F4302 (C-255) / R-F4307 (C-260) — forwarding lives in ONE place ──────
 #
-# `POST /api/aria/collab/ingest` was built to close this loop and its docstring
-# claims "The local scripts/agent_bridge.py now best-effort POSTs Claude's
-# messages here." That was never true: `git log -S "collab/ingest"` on this file
-# is EMPTY. The mailbox is a LOCAL file, aria-intel never saw it, and the teacher
-# corpus accumulated 24 substantial notes in its entire lifetime as a result.
+# This file used to carry its own POST to /api/aria/collab/ingest. That was a
+# DUPLICATE: `aria_cli.bridge.send()` has forwarded since R-F2400, and send() is
+# exactly what the commands below call. Both would have fired the moment
+# ARIA_SERVICE_URL was exported instead of kept in `.env`, POSTing every note
+# twice and doubling the teacher corpus — C-254's amplification in miniature,
+# reintroduced by the fix for C-255.
 #
-# The local write stays the source of truth. This is strictly additive: it runs
-# AFTER the note is safely on disk, and a failure here can never lose a message.
-
-_INGEST_PATH = "/api/aria/collab/ingest"
-_TIMEOUT_S = 10.0
-
-
-def _env_file_values() -> dict:
-    """Values from the repo `.env`, if present. Never raises.
-
-    The operator keeps credentials in `.env` (gitignored) rather than the shell,
-    so reading it is what makes the forward work in practice. os.environ still
-    wins — an explicit export must override a stale file.
-    """
-    out: dict = {}
-    try:
-        f = _base() / ".env"
-        if not f.exists():
-            return out
-        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            out[k.strip()] = v.strip().strip('"').strip("'")
-    except Exception:
-        return {}
-    return out
-
-
-def _cfg(name: str) -> str:
-    return (os.environ.get(name) or _env_file_values().get(name) or "").strip()
-
-
-def _http_post(url: str, payload: str, headers: dict, timeout: float):
-    """One POST. Returns (status, body). Separated so tests drive it directly."""
-    req = urllib.request.Request(url, data=payload.encode("utf-8"),
-                                 headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read(2048).decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read(2048).decode("utf-8", "replace")
-
-
-def forward_to_server(msg: dict) -> tuple[bool, str]:
-    """Best-effort POST of one Claude->ARIA note to the server collab log.
-
-    Returns (ok, reason). NEVER raises and NEVER touches the local mailbox.
-
-    Three properties are load-bearing:
-
-    * UNCONFIGURED IS REPORTED, NOT SILENT. A quiet best-effort forward is
-      exactly how a corpus reaches 24 notes with nobody noticing, so every
-      non-success path returns a reason the CLI prints.
-    * NEVER POST UNAUTHENTICATED. The ingest route is a brain WRITE; without a
-      token we refuse rather than send and be rejected.
-    * TEACHER SIGNAL ONLY. Only claude->aria is forwarded. Pushing ARIA's own
-      notes into the corpus would feed her output back as her teacher.
-    """
-    if (msg.get("frm") or "").lower() != "claude":
-        return False, "not teacher signal (only claude->aria is forwarded)"
-
-    base = _cfg("ARIA_SERVICE_URL") or _cfg("ARIA_BRAIN_URL")
-    if not base:
-        return False, "ARIA_SERVICE_URL not set - note is LOCAL ONLY"
-    token = _cfg("ARIA_INTERNAL_TOKEN")
-    if not token:
-        return False, "ARIA_INTERNAL_TOKEN not set - refusing to POST unauthenticated"
-
-    url = base.rstrip("/") + _INGEST_PATH
-    payload = json.dumps({
-        "text": msg.get("text") or "",
-        "kind": msg.get("kind") or "note",
-        "reply_to": msg.get("reply_to") or "",
-        "frm": "claude",
-        "to": "aria",
-    })
-    headers = {"Content-Type": "application/json",
-               "Authorization": "Bearer " + token}
-    try:
-        status, body = _http_post(url, payload, headers, _TIMEOUT_S)
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
-    if 200 <= int(status) < 300:
-        try:
-            sid = (json.loads(body) or {}).get("id") or ""
-        except Exception:
-            sid = ""
-        return True, f"server id {sid}" if sid else "ok"
-    return False, f"HTTP {status}: {str(body)[:120]}"
+# What R-F4302 got right and is KEPT: the outcome must be VISIBLE. A silent
+# best-effort forward is how a corpus reaches 24 substantial notes with nobody
+# noticing. send() now forwards once and hands back the (ok, reason); this file
+# only prints it. The .env fallback moved to the canonical forwarder too — that
+# omission, not a missing implementation, is why nothing ever forwarded.
 
 
 def _report_forward(msg: dict) -> None:
-    """Print what happened to the forward. Never raises."""
-    try:
-        ok, reason = forward_to_server(msg)
-    except Exception as e:                      # belt and braces
-        ok, reason = False, f"{type(e).__name__}: {e}"
+    """Print the outcome of the forward `bridge.send` already performed.
+
+    Deliberately does NOT forward. Calling the forwarder here would re-post the
+    note and reintroduce the duplication this exists to remove.
+    """
+    fwd = (msg or {}).get("_forward") or {}
+    ok, reason = bool(fwd.get("ok")), str(fwd.get("reason") or "no forward attempted")
     if ok:
         print(f"  forwarded to ARIA's brain ({reason})")
     elif "not teacher signal" in reason:
-        pass                                    # ARIA->Claude: nothing to say
+        pass                    # ARIA->Claude: nothing to say
     else:
         print(f"  NOT forwarded - {reason}")
 

@@ -2955,6 +2955,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T18:20:48Z"
+    },
+    {
+      "c_number": "C-260",
+      "title": "two bridge forwarders: a note would POST twice once env is exported",
+      "claimed_at": "2026-08-24T18:27:54Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4307"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T18:37:24Z"
     }
   ]
 }

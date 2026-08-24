@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import secrets
 import time
 from pathlib import Path
@@ -112,41 +113,118 @@ def send(base: Path | str, frm: str, to: str, text: str,
     # the server Redis collab log had zero writers). Best-effort + env-gated:
     # a no-op when ARIA_SERVICE_URL/ARIA_BRAIN_URL + a token aren't set, and a
     # network failure never breaks the local mailbox write above.
-    _forward_to_server(msg)
+    # R-F4307 (C-260) — forward ONCE and carry the result back so the caller can
+    # REPORT it without forwarding again. `_forward` is attached AFTER the file
+    # write above, so it never lands in the mailbox: it is in-memory only.
+    _ok, _reason = forward_to_server(msg)
+    msg["_forward"] = {"ok": _ok, "reason": _reason}
     return msg
 
 
-def _forward_to_server(msg: dict) -> bool:
-    """Best-effort POST of a Claude→ARIA message to the server collab ingest.
+def _env_file_values() -> dict:
+    """Values from the repo `.env`, if present. Never raises.
 
-    Only forwards Claude's outbound teaching (frm == "claude"); ARIA's own
-    ask_claude questions (frm == "aria") stay local. Returns True on a 2xx,
-    False otherwise (unreachable, unauthenticated, disabled) — never raises.
+    R-F4307 (C-260). The forward was a no-op not because it was missing but
+    because it read ONLY `os.getenv`, and the operator keeps credentials in
+    `.env` (gitignored). That single omission is why Claude's teaching never
+    reached the server: the teacher corpus held 24 substantial notes across its
+    whole lifetime.
+    """
+    out: dict = {}
+    try:
+        here = pathlib.Path(__file__).resolve()
+        for parent in (here.parent, *here.parents):
+            f = parent / ".env"
+            if f.exists():
+                for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    out.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+                break
+    except Exception:
+        return {}
+    return out
+
+
+def _cfg(name: str) -> str:
+    """os.environ wins over `.env` — an explicit export overrides a stale file."""
+    v = (os.getenv(name) or "").strip()
+    if v:
+        return v
+    return (_env_file_values().get(name) or "").strip()
+
+
+def _post_ingest(url: str, payload: dict, headers: dict):
+    """One POST. Split out so tests drive it without patching httpx globally."""
+    import httpx
+    r = httpx.post(url, json=payload, headers=headers, timeout=6.0)
+    # getattr: R-F2399 patches httpx.post with a fake that has only
+    # status_code. A reader that insists on .text would break a pinned contract
+    # for no benefit - the body is used only to surface the server-assigned id.
+    return r.status_code, (getattr(r, "text", "") or "")[:400]
+
+
+def forward_to_server(msg: dict) -> tuple[bool, str]:
+    """THE ONE forwarder. Best-effort POST of a Claude->ARIA note to the server.
+
+    Returns (ok, reason) and NEVER raises. The local mailbox write is the source
+    of truth and happens before this; a failure here can never lose a message.
+
+    R-F4307 (C-260) consolidated two implementations into this one. R-F4302 added
+    a second forwarder in scripts/agent_bridge.py after grepping only THAT file
+    and concluding no forwarder existed. Both would have fired the moment
+    ARIA_SERVICE_URL was exported rather than kept in `.env`, POSTing every note
+    twice and doubling the corpus — C-254's amplification in miniature,
+    reintroduced by the fix for C-255. One measure, not two (§1, R-F2639).
+
+    The REASON is the useful half of R-F4302: a silent best-effort forward is
+    exactly how a corpus reaches 24 notes with nobody noticing, so every
+    non-success path says why.
+
+    TEACHER SIGNAL ONLY. ARIA's own questions stay local; forwarding them would
+    feed her output back as her own teacher.
     """
     try:
         if (msg or {}).get("frm") != "claude":
-            return False
-        url = (os.getenv("ARIA_SERVICE_URL") or os.getenv("ARIA_BRAIN_URL") or "").strip()
-        token = (os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_API_TOKEN") or "").strip()
-        if not url or not token:
-            return False  # not configured for forwarding — local-only mode
-        import httpx  # already a dependency of the aria CLI
-        resp = httpx.post(
+            return False, "not teacher signal (only claude->aria is forwarded)"
+        url = _cfg("ARIA_SERVICE_URL") or _cfg("ARIA_BRAIN_URL")
+        if not url:
+            return False, "ARIA_SERVICE_URL not set - note is LOCAL ONLY"
+        token = _cfg("ARIA_INTERNAL_TOKEN") or _cfg("ARIA_API_TOKEN")
+        if not token:
+            return False, "ARIA_INTERNAL_TOKEN not set - refusing to POST unauthenticated"
+        status, body = _post_ingest(
             f"{url.rstrip('/')}/api/aria/collab/ingest",
-            json={
+            {
                 "text": msg.get("text", ""),
                 "kind": msg.get("kind", "note"),
                 "reply_to": msg.get("reply_to") or "",
                 "frm": "claude",
                 "to": "aria",
             },
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=6.0,
+            {"Authorization": f"Bearer {token}"},
         )
-        return resp.status_code < 300
-    except Exception:
-        return False  # never let a forward failure break the local bridge
+        if 200 <= int(status) < 300:
+            sid = ""
+            try:
+                sid = (json.loads(body) or {}).get("id") or ""
+            except Exception:
+                sid = ""
+            return True, (f"server id {sid}" if sid else "ok")
+        return False, f"HTTP {status}: {str(body)[:120]}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
 
+
+def _forward_to_server(msg: dict) -> bool:
+    """Legacy bool contract (R-F2399 pins `is False` in three assertions).
+
+    A thin delegation, not a second implementation — breaking a passing test to
+    suit a refactor is not a fix.
+    """
+    return forward_to_server(msg)[0]
 
 def _load_seen(base: Path | str, reader: str) -> set[str]:
     sf = _seen_path(base, reader)
