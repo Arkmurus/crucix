@@ -2847,6 +2847,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T14:12:03Z"
+    },
+    {
+      "c_number": "C-251",
+      "title": "secret gate cannot certify: it regex-scans 15.6GB and times out",
+      "claimed_at": "2026-08-24T14:17:44Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4297"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T14:24:47Z"
     }
   ]
 }

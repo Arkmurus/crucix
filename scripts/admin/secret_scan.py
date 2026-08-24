@@ -100,7 +100,13 @@ DIGEST_CONTEXT = re.compile(r"(?i)\b(digest|sha\d*|hash|fingerprint|checksum|eta
 HEXISH = re.compile(r"^[0-9a-f]+$")
 
 SKIP_SUFFIX = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".pdf", ".zip",
-               ".gz", ".woff", ".woff2", ".ttf", ".lock", ".min.js", ".map"}
+               ".gz", ".woff", ".woff2", ".ttf", ".lock", ".min.js", ".map",
+               # R-F4297 (C-251) — model, archive and database formats. A
+               # credential is not committed as a tensor, and reading 335 MB of
+               # weights to discover that took this gate past its timeout.
+               ".safetensors", ".tgz", ".tar", ".bin", ".pt", ".pth", ".ckpt",
+               ".npy", ".npz", ".db", ".sqlite", ".sqlite3", ".7z", ".whl",
+               ".so", ".dll", ".pyd", ".exe", ".mp4", ".mp3", ".wav", ".parquet"}
 SKIP_PARTS = {"node_modules", ".git", "__pycache__", ".venv", "dist", "build"}
 
 
@@ -139,6 +145,68 @@ def tracked_files(staged: bool) -> list[Path]:
             continue
         files.append(p)
     return files
+
+
+#: R-F4297 (C-251) — how much of a file is read to decide whether it is text.
+#: DELIBERATELY 1024, matching the `text[:1024]` check this replaces, so no file
+#: that used to be scanned stops being scanned. This fix changes COST, not
+#: COVERAGE; widening the window would smuggle a coverage change in under a
+#: performance fix.
+BINARY_SNIFF_BYTES = 1024
+
+
+def is_binary(path: Path) -> bool:
+    """Is `path` something we should not try to read as source?
+
+    THE DEFECT THIS FIXES was one line of ordering. The scan loop read the WHOLE
+    file and then asked whether it was binary:
+
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if "\x00" in text[:1024]:
+            continue
+
+    So every 335 MB `adapter_model.safetensors` was fully read and utf-8-decoded
+    into a Python string, and thrown away on the next line. Across this checkout
+    that is 15.6 GB and 5m45s, against a 90 s gate budget — measured 2026-08-24,
+    the day both secret-gate tests appeared as new baseline failures having found
+    nothing at all. A security gate that times out is not slow, it is ABSENT.
+
+    UNREADABLE FAILS CLOSED. A file that cannot be opened returns True — "not
+    scannable" — rather than False. False would send it to the reader, which
+    swallows the error and moves on, and the file would then be counted among the
+    scanned. Silently promoting "could not look" to "looked and it was fine" is
+    the absence-reads-as-health shape CLAUDE.md §1 records three times.
+    """
+    if path.suffix.lower() in SKIP_SUFFIX:
+        return True
+    try:
+        with path.open("rb") as fh:
+            return b"\x00" in fh.read(BINARY_SNIFF_BYTES)
+    except OSError:
+        return True
+
+
+def scan_one(path: Path) -> list[tuple[int, str, str]]:
+    """Stream one file, returning [(lineno, rule, RAW value)].
+
+    Streamed rather than materialised: a 136 MB training corpus is legitimately
+    text and must still be scanned to the last line — a harvested key would sit a
+    long way down — but holding it in one string is how this box ran out of
+    memory. Line by line, the cost is bounded by the longest line.
+    """
+    if is_binary(path):
+        return []
+    out: list[tuple[int, str, str]] = []
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh, 1):
+                if len(line) > 4000:
+                    continue
+                for rule, val in scan_line(line):
+                    out.append((i, rule, val))
+    except OSError:
+        return []
+    return out
 
 
 def scan_line(line: str) -> list[tuple[str, str]]:
@@ -189,20 +257,22 @@ def main() -> int:
         return 2
 
     findings = []
+    skipped = 0
     for p in files:
-        try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        # R-F4297 (C-251) — decide from a BOUNDED read, before paying for the
+        # file. This check already existed; it sat one line too late, after the
+        # whole file had been read and decoded.
+        if is_binary(p):
+            skipped += 1
             continue
-        if "\x00" in text[:1024]:
-            continue
-        for i, line in enumerate(text.splitlines(), 1):
-            if len(line) > 4000:
-                continue
-            for rule, val in scan_line(line):
-                findings.append((p, i, rule, val, _fingerprint(p, rule, val)))
+        for i, rule, val in scan_one(p):
+            findings.append((p, i, rule, val, _fingerprint(p, rule, val)))
 
-    print(f"[secret-scan] scanned {len(files)} tracked files")
+    # R-F4297 — say what was NOT read. A guard whose universe quietly shrank
+    # certifies over a smaller world, and a CLEAN verdict reads identically
+    # either way (CLAUDE.md §1, 'certified by an absence').
+    print(f"[secret-scan] scanned {len(files) - skipped} text file(s); "
+          f"skipped {skipped} binary/non-source of {len(files)} in scope")
 
     if args.update_baseline:
         BASELINE.parent.mkdir(parents=True, exist_ok=True)

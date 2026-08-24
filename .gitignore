@@ -204,3 +204,16 @@ data/eval/dd_recordings/
 
 # Cure Protocol census — 3.6MB generated artifact; regenerate with scripts/cure/census.py
 docs/cure/census.json
+
+# R-F4297 (C-251) — pytest --basetemp workspaces. Ephemeral per-run fixture
+# trees left behind by ad-hoc `pytest --basetemp=...` invocations: 12 at repo
+# root and 119 more under data/. They can never be committed, so the pre-commit
+# secret scan has no reason to read them, and leaving them in scope meant the
+# only way to green the gate was to write machine-local fixture paths into a
+# baseline that has to stay reviewable. .scratch/ is the same case at 3.05 GB —
+# nine 335 MB LoRA adapters that a credential scanner was reading in full.
+.pytest_*/
+.scratch/
+.scratch_*
+data/eval_reports/pytest-*/
+data/training/pytest_tmp_*/

@@ -15758,3 +15758,75 @@ It surfaced now only because the live surface happened to be watched while a lon
 task was running. Worth noting how close it came to never being seen: it clears
 itself within one tick of the task finishing, so any check that samples twice and
 takes the second reading reports a healthy engine and a false alarm indefinitely.
+
+## C-251 · the secret gate stopped being able to certify (fixed, R-F4297)
+
+**Found in the §16 baseline diff, not by reading code.** Two tests appeared as
+NEW failures — `test_rf3720_secret_scan_gate::test_the_repo_itself_is_clean` and
+`test_rf4117_secret_baseline_is_not_a_hole::test_the_repo_passes_its_own_secret_gate`.
+Neither had found a credential:
+
+```
+subprocess.TimeoutExpired: Command '[... secret_scan.py]' timed out after 90 seconds
+```
+
+Run without a limit it took **5m45s**. It was not searching in that time, it was
+READING. `git ls-files --cached --others --exclude-standard` put **15.6 GB across
+5,902 files** in scope: 12.5 GB under `data/` (training corpora, a 311 MB
+checkpoint tarball) and 3.05 GB under `.scratch/` — nine LoRA
+`adapter_model.safetensors` at 335.6 MB each.
+
+**The defect is one line of ordering, and the guard it needed already existed:**
+
+```python
+text = p.read_text(encoding="utf-8", errors="replace")   # the WHOLE file
+if "\x00" in text[:1024]:
+    continue                                             # ...then skip it
+```
+
+Every 335 MB tensor file was fully read and utf-8-decoded into a Python string,
+then discarded on the next line. The binary check was correct and simply sat
+after the cost it exists to avoid. It also explains the mojibake in the findings
+(`TPWs?vk`) — raw bytes rendered through `errors="replace"` — and the memory
+pressure on this box, since a 335 MB file becomes a several-hundred-MB `str`.
+
+**A security gate that times out is not a slow gate, it is an ABSENT one.** And
+it is self-worsening in the C-95 shape: every training cycle adds GB, so the gate
+slows until it stops certifying — the more work the repo does, the less it is
+protected. §7 forbids eviction, so this only ever grows. Any O(total-data) step
+under an infinite-memory policy is this same bug.
+
+**The fix changes COST, not COVERAGE**, and that is the property the fixture
+pins. `is_binary()` decides from a bounded read; the sniff window stays at
+**1024 bytes**, exactly matching the `text[:1024]` check it replaces, so no file
+that used to be scanned stops being scanned — widening it would smuggle a
+coverage change in under a performance fix. `scan_one()` streams line by line, so
+a 136 MB corpus is still read to its last line (a harvested key would sit a long
+way down) without being held in memory. Known model/archive/database suffixes are
+skipped before opening at all.
+
+**Unreadable fails CLOSED.** `is_binary` returns True for a file it cannot open —
+"not scannable" — rather than False, which would send it to the reader, be
+swallowed, and let it be counted among the scanned. Promoting "could not look" to
+"looked and it was fine" is the absence-reads-as-health shape §1 records three
+times.
+
+**And it still has to be able to fail (R-F3858).** A cheaper scanner that stopped
+finding things would be worse than the timeout, because a timeout is at least
+loud. The fixture plants a credential in plain source and again 60,000 lines deep
+in a corpus, and both must still be found. It plants it via a runtime-composed
+string rather than a literal, so testing the scanner does not itself require a
+permanent entry in the accepted-secrets baseline.
+
+**Scope, separately.** The `.pytest_*` / `.scratch` trees are ad-hoc
+`pytest --basetemp=...` leftovers — 12 at repo root, 119 more under `data/`. They
+are now gitignored, on the principle that a file which can never be committed
+needs no pre-commit scan. Leaving them in scope meant the only way to green the
+gate was to write machine-local fixture paths into a baseline that must stay
+reviewable.
+
+**Measured, same command, same repo:** `5m45s → 6.4s`, verdict `CLEAN — 29 known
+fixture(s) accepted, 0 new credential values`, and the scan now reports
+`scanned 4617 text file(s); skipped 17 binary/non-source of 4634 in scope` so a
+CLEAN verdict says what it did not read. Both originally-failing gate tests pass;
+24/24 green across all three files.
