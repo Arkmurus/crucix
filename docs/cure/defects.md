@@ -15864,3 +15864,60 @@ of it was this re-record.
 
 Fixed by `_display_path()`: relative when it can be, absolute when it cannot.
 Both are readable. 5/5 green under the default tmpdir.
+
+## C-253 · the router surface let a raw knob imply serving it does not do (fixed, R-F4299)
+
+**The obvious fix here was the wrong one, and the doc was the reason.** The
+2026-08-01 fallback-readiness note lists as its cheap do-first item: *"
+`ARIA_LLM_PROMOTION_STAGE=shadow` and `ARIA_LLM_SHADOW=0` describe the same state
+and DISAGREE. Nothing reconciles them."*
+
+**Both claims were already false when written.** R-F3636 had reconciled them, and
+in the safe direction: `_shadow()` is DERIVED (`promotion_stage() == "shadow"`)
+and the legacy `ARIA_LLM_SHADOW` is a conservative INPUT to the stage — truthy
+forces `shadow` and can never be a bypass, because letting `STAGE=canary` win over
+an explicit `SHADOW=1` would start serving users for anyone relying on the older
+flag to hold the model back. Measured through the RUNNING server 2026-08-24:
+
+```
+promotion_stage = shadow   shadow = True   shadow_env_override = False
+sovereign_pod_serving = False   sovereign_warm = False   samples = 0
+```
+
+One source of truth, honestly reported. Re-deriving it would have been inventing
+work — and that is the third time this file has recorded an instruction, not code,
+as the thing reverting a fix (cf. §17's Brave/WA rule).
+
+**What was genuinely broken was the REPORT.** The same payload published
+`canary_pct: 50` with nothing saying it is INERT at `stage=shadow`. A reader sees
+50 and concludes half of chat is served by the sovereign model. She serves none of
+it. The number was not wrong; it simply did not mean what any reader would take it
+to mean — and the readiness note's own author recorded making exactly that
+misreading: *"I misread it that way myself before tracing line 312, which is the
+point: a config that needs a code trace to interpret is not a config."*
+
+So the defect is a surface that states KNOBS and leaves the reader to run the
+precedence rules in their head. `summary()` now publishes consequences beside
+them:
+
+* `serving_users` — one field answering the readiness note's exact question. It
+  deliberately includes R-F93's `primary_all` escape hatch, which routes every
+  turn regardless of stage; reporting `False` beside an active escape hatch would
+  be the same class of lie this fix removes.
+* `canary_pct_effective` — 0 while shadowing or off, `canary_pct` at canary, 100
+  at serve or under `primary_all`. The raw `canary_pct` is still published beside
+  it, because hiding the knob trades one confusion for another: the reader needs
+  the setting AND its effect.
+* `legacy_shadow_var_present` — so the legacy input is visibly legacy.
+* `model` — **nothing had ever reported this**, so no surface could show that live
+  points at `aria-llm-v0.1` while the only models with recorded 500-Q evals are
+  v0.2 and v0.4. The drift was invisible because the field did not exist.
+
+**R-F3636 must not be undone by this**, and two tests pin it: the conservative
+legacy flag still wins over a newer stage, and `shadow` stays derived rather than
+read. The guard can also report the other answer — canary, serve and `primary_all`
+are each pinned as serving — because a field that could only ever say "not
+serving" would certify nothing.
+
+**Still outstanding and NOT codeable:** `ARIA_LLM_MODEL` naming an unevaluated
+version is an operator secret-set.

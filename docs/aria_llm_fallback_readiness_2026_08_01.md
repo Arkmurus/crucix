@@ -50,21 +50,52 @@ redundancy and subtract availability — the exact illusion R-F3634 stopped repo
 - **Do not proceed past this item without it.** Everything below is wasted if the
   endpoint is not reachable when DeepSeek fails — which is, by definition, unscheduled.
 
-### 2. Reconcile the two promotion flags — one source of truth
+### 2. ~~Reconcile the two promotion flags~~ — DONE (R-F3636, extended R-F4299)
 
-`ARIA_LLM_PROMOTION_STAGE=shadow` and `ARIA_LLM_SHADOW=0` describe the same state and
-**disagree**. Nothing reconciles them, so the config cannot answer "is she shadowing, or
-serving 50% of chat?" — and whichever the code obeys is the one that matters.
+> **CORRECTED 2026-08-24. The text below this line used to say the two flags
+> "disagree" and that "nothing reconciles them". BOTH WERE FALSE WHEN WRITTEN,
+> and this file is the one a session opens to decide what to do next — so it kept
+> sending people to re-fix something already fixed.** That is the doc-driven
+> revert loop CLAUDE.md §17 records for the Brave/WA rule: the instruction, not
+> the code, was the thing reverting the work.
 
-This is the session's recurring defect class (R-F3622 the deleted measure script,
-R-F3628 the conftest mirroring the auth default, R-F3634 health mirroring the chain):
-**a value declared twice, where the copy silently wins.**
+**R-F3636 already reconciled them, and in the safe direction.** `_shadow()` is
+DERIVED (`promotion_stage() == "shadow"`) and is never read independently. The
+legacy `ARIA_LLM_SHADOW` is an INPUT to the stage: truthy forces `shadow`, and it
+can never act as a bypass. That asymmetry is deliberate and load-bearing —
+letting `STAGE=canary` win over an explicit `SHADOW=1` would START SERVING USERS
+for anyone relying on the older flag to hold the model back. The conservative
+flag wins; that is the only direction safe to get wrong.
 
-- **Root fix:** derive one from the other, or delete one. A promotion STAGE
-  (`off | shadow | canary | primary`) is the richer model; `ARIA_LLM_SHADOW` should be
-  derived from it, never set independently.
-- **Cheap, no spend, no dependency — do this first even if item 1 is deferred.** Until
-  it is done, no statement about what ARIA is currently doing is verifiable.
+Measured 2026-08-24 through the RUNNING server (`GET /api/aria/llm/shadow`), not
+from a detached process:
+
+```
+promotion_stage       = shadow      shadow = True     shadow_env_override = False
+sovereign_pod_serving = False       (policy: §24 schedule)
+sovereign_warm        = False       (proof: probe — matches a live 404 on the endpoint)
+shadow_stats          = samples: 0  (she has never actually shadowed a turn)
+```
+
+**What was genuinely still broken was the REPORT, not the reconciliation** — and
+it is what this item was reaching for. The same payload published `canary_pct: 50`
+with nothing saying it is INERT at `stage=shadow`. A reader sees 50 and concludes
+half of chat is served. She serves none of it. This file's own author recorded
+making exactly that misreading: *"I misread it that way myself before tracing line
+312, which is the point: a config that needs a code trace to interpret is not a
+config."*
+
+**R-F4299 (C-253) fixed that**, by publishing consequences beside the knobs:
+`serving_users` (one field answering this item's question directly),
+`canary_pct_effective` (0 while shadowing, `canary_pct` at canary, 100 at serve or
+under R-F93's `primary_all` escape hatch), `legacy_shadow_var_present`, and
+`model` — which nothing had ever reported, so no surface could show that live
+points at **`aria-llm-v0.1` while the only models with recorded 500-Q evals are
+v0.2 and v0.4**. That drift was invisible because the field did not exist.
+
+**Still outstanding here, and it is an operator secret-set, not code:**
+`ARIA_LLM_MODEL` should name a model that has actually been evaluated. Until it
+does, the endpoint would be asked for a version nothing has measured.
 
 ### 3. Prove it on the objective gate
 

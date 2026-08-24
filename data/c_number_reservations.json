@@ -2871,6 +2871,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T14:28:30Z"
+    },
+    {
+      "c_number": "C-253",
+      "title": "the router surface lets canary_pct imply serving it does not do",
+      "claimed_at": "2026-08-24T14:41:18Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4299"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T14:44:59Z"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4299,
+  "next_available": 4300,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36898,6 +36898,16 @@
       "commit_sha": "858ba892",
       "notes": null,
       "shipped_at": "2026-08-24T14:28:32Z"
+    },
+    {
+      "r_number": "R-F4299",
+      "title": "router summary states effective consequences, not raw knobs",
+      "claimed_at": "2026-08-24T14:41:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1c84bfe4",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:47:12Z"
     }
   ]
 }

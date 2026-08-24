@@ -743,6 +743,56 @@ async def stream_synthesis(
     yield cleaned
 
 
+def serving_users() -> bool:
+    """Is the sovereign model answering ANY real user turn right now?
+
+    R-F4299 (C-253). The 2026-08-01 readiness doc asked exactly this question and
+    could not answer it from the surface: "is she shadowing, or serving 50% of
+    chat?" Answering it required reading `promotion_stage`, `canary_pct`,
+    `primary_all` and `router_disabled` and running the precedence rules by hand —
+    and its author recorded getting it wrong. A config that needs a code trace to
+    interpret is not a config, so this states the consequence directly.
+
+    Deliberately INCLUDES `primary_all`: R-F93's escape hatch routes every turn
+    regardless of stage, and reporting `serving_users: False` beside an active
+    escape hatch would be the same class of lie this fix exists to remove.
+    """
+    if _router_disabled():
+        return False
+    if _primary_all():
+        return True
+    return promotion_stage() in ("canary", "serve")
+
+
+def canary_pct_effective() -> int:
+    """The share of grounded turns the sovereign ACTUALLY takes, 0-100.
+
+    R-F4299 (C-253) — `canary_pct` is a raw knob and is INERT outside the canary
+    stage. Live 2026-08-24 it read 50 while the stage was `shadow`, so the surface
+    said "50" about a model serving nobody. The number was not wrong; it simply
+    did not mean what any reader would take it to mean. `canary_pct` is still
+    published beside this, because hiding the knob would trade one confusion for
+    another — the reader needs to see both the setting and its effect.
+    """
+    if _router_disabled():
+        return 0
+    if _primary_all():
+        return 100
+    stage = promotion_stage()
+    if stage == "serve":
+        return 100
+    if stage == "canary":
+        return _canary_pct()
+    return 0
+
+
+def sovereign_model() -> str:
+    """Which model id the router would call. R-F4299 — nothing reported this, so
+    no surface could show that live points at `aria-llm-v0.1` while the only
+    models with recorded 500-Q evals are v0.2 and v0.4."""
+    return (os.getenv("ARIA_LLM_MODEL") or "").strip()
+
+
 def summary() -> dict[str, Any]:
     """Capability-manifest / diagnostics entry (no secrets)."""
     return {
@@ -757,6 +807,13 @@ def summary() -> dict[str, Any]:
         "shadow": _shadow(),                       # derived: stage == "shadow"
         "shadow_env_override": _truthy(os.getenv("ARIA_LLM_SHADOW")),
         "canary_pct": _canary_pct(),
+        # R-F4299 (C-253) — CONSEQUENCES, not just knobs. `canary_pct: 50`
+        # beside `promotion_stage: shadow` reads as "half of chat is served"
+        # and means nothing of the sort; these say what actually happens.
+        "serving_users": serving_users(),
+        "canary_pct_effective": canary_pct_effective(),
+        "model": sovereign_model(),
+        "legacy_shadow_var_present": os.getenv("ARIA_LLM_SHADOW") is not None,
         "primary_all": _primary_all(),
         "router_disabled": _router_disabled(),
         "shadow_inflight": len(_shadow_bg_tasks),  # R-F2520 async compares in flight
