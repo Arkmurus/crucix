@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4296,
+  "next_available": 4297,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36864,9 +36864,20 @@
       "title": "trace LR-20 second resolver - it answers a different question",
       "claimed_at": "2026-08-24T12:54:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a07a6760",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:56:29Z"
+    },
+    {
+      "r_number": "R-F4296",
+      "title": "busy engine is not a stalled engine on /health",
+      "claimed_at": "2026-08-24T13:16:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2b77a5f",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:13:08Z"
     }
   ]
 }
