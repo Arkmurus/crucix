@@ -4862,3 +4862,55 @@ paying for: **IS-15, IS-14, FS-9, IS-16**.
 Three instances of the same test fragility in one session (rf2254, rf1845, rf735):
 a guard pinning an IMPLEMENTATION that a legitimate improvement changed. Each
 rewrite asserts the property and is proven to still catch a real regression.
+
+## Session 2026-08-24 (part 14) — R-F4293 · EI-4 bound, and a deliberate REFUSAL
+
+### C-246 — fifth C-235 instance, live at `sha 31fd2be9`
+
+EI-4 rendered **NOT_RUN "no resolver is bound"** while
+`identity.registered_address` was populated on every GB run.
+
+**THE TRAP.** dd_orchestrator:3773 is
+`report.identity.registered_address or profile.get(...)` — an address already on
+the record is NOT overwritten by the register, so a **customer-supplied address
+survives**. "The field is non-empty" would have certified supplied data as
+register-verified. `registry_status` is the provenance signal (R-F3231: *only
+VERIFIED/PARTIAL are authority*), and **absent counts as NO authority** — that
+field read `None` for every report before its carrier existed, so treating
+absence as permission would retroactively certify all of them.
+
+```
+registry VERIFIED    SINGLE_SOURCE           established by the registry
+registry PARTIAL     SINGLE_SOURCE
+manual_required      ATTEMPTED_INCONCLUSIVE  may be the supplied address
+status ABSENT        ATTEMPTED_INCONCLUSIVE  never a legacy pass
+no address           NOT_RUN
+individual subject   AWAITING_COUNTERPARTY   residential ≠ company register
+```
+
+### C-248 — filed as a REFUSAL, and the most important entry in the series
+
+Five fundamentals bound in two sessions (IS-15, IS-14, FS-9, IS-16, EI-4), every
+one from work the pipeline already performed. **That pattern makes the remaining
+three look like the same job. Two of them are not.**
+
+* **OC-7** (ultimate parent, resolver `gleif`): GLEIF *is* called every run, but
+  **neither gleif module fetches relationship data** — grep for
+  parent/relationship returns nothing. It resolves an LEI for identity matching
+  and never requests the parent hierarchy. Buildable, but a **new capability**,
+  not a missing reader.
+* **OC-8**: every "signatory"/"mandate" occurrence is recommendation PROSE, never
+  a check; and it needs a named signatory that is counterparty-supplied.
+* **LR-20** is the one genuine candidate, but its pass condition requires
+  reconciliation against the web footprint. **Do not bind it on SIC codes alone.**
+
+**The rule this series establishes:** a fundamental is bindable only when the work
+its pass condition describes ALREADY RUNS and leaves a verifiable trace. Where it
+does not, the honest NOT_RUN is the correct output — leaving it unbound is not a
+gap in the reader, it is an accurate report.
+
+### Standing
+
+**Answerable fundamentals: 21/24.** Five bound across two sessions from work
+already paid for. Remaining three are recorded with their reasons, two of them as
+explicit refusals.
