@@ -4717,3 +4717,52 @@ tests correctly call that artifact OBSERVED evidence and pin it byte-exactly.
 and roughly **two hours of runway**). At zero, chat and WhatsApp go dark — 19h on
 2026-08-22 at a two-cent overdraft. R-F4229 auto-releases the cooldown on top-up.
 This is the only degraded reason on `/health`; everything else cleared.
+
+## Session 2026-08-24 (part 11) — R-F4287..R-F4289 · zero red tests
+
+Operator: *"deep precision and laser surgery… nothing left undone."*
+
+### C-242 (closing C-239) — the check guarded the wrong consumer
+
+A DPO pair has a chosen and a rejected answer. Rejected-side currency matters to
+exactly ONE consumer — the one that trains on it. It was checked on the other one:
+
+| function | checks | guards |
+|---|---|---|
+| `validate_dpo` | structural only | `build_mixed_tooluse_cycle.main` — **writes the artifact a cycle TRAINS on** |
+| `validate_protected_axis_evidence` | + rejected currency | `build_positive_rows` — **emits only the chosen side** |
+
+**Absent where a stale negative teaches the model to avoid a good answer; enforced
+where the rejected side is never read.** That inversion is what made `rf4122` red
+over Volution Group Plc — rejected side names the correct company, chosen side
+perfectly valid. Fix is PLACEMENT: `stale_negatives()` reports as data,
+`validate_dpo_for_training()` refuses and now guards the DPO writer, the
+chosen-only path reports. `validate_dpo` stays structural on purpose.
+
+The regenerated manifest proved the reasoning: **`output_sha256` came back
+IDENTICAL**, so only `input_sha256` moved and the corpus is byte-for-byte unchanged.
+
+### C-243 — the ACTUAL root of the line-ending work
+
+`Path.write_text()` uses universal newlines: **48 writers across 36 files** emitted
+JSON/JSONL as CRLF on Windows and LF on Linux. R-F4283 pinned storage and R-F4286
+re-pinned 50 launcher hashes, but the WRITERS stayed non-reproducible — the next
+Windows-generated artifact would be CRLF and the whole loop would restart. All
+pinned, with a guard that also proves the scanner can still SEE an unpinned writer.
+
+### R-F4289 — the last baseline red
+
+Same fragility as rf2254: the boot pre-warm guard asserted a module NAME appeared
+literally inside `lifespan`. A refactor moved it to `_HEAVY_PREWARM_MODULES`; the
+capability was intact throughout. Now reads the list the code uses, and asserts
+`lifespan` still READS it.
+
+### Standing — **2832 passed, 0 failed**
+
+Every red test from the start of this work is green: rf1845, rf2254 (×3), rf2644,
+rf3316, rf3543, rf4036, rf4089, rf4122, rf4125, rf4153, rf4265 (×2). Not one of
+them had named a live defect — they were instrument faults, stale registrations
+and platform artifacts, which is why they had gone unfixed.
+
+No deploy owed: zero `aria_service/` runtime files changed in this batch (live
+remains `7a5da1c8`, which carries IS-14, IS-15 and the gap-type registrations).
