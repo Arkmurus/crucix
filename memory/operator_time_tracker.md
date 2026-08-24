@@ -4814,3 +4814,51 @@ unbound). **2957 passed, 0 failed.**
 
 Three fundamentals bound this session from work the pipeline was ALREADY paying
 for: IS-15 (media sweep), IS-14 (PEP + RCA), FS-9 (filing currency).
+
+## Session 2026-08-24 (part 13) — R-F4291/R-F4292 · IS-16 bound, zero reds
+
+### C-245 — fourth C-235 instance, and the first HYBRID one
+
+IS-16 ("Fraud, bribery or financial-crime convictions, and regulatory penalties")
+rendered **NOT_RUN "no resolver is bound"** while the DD's primary-source fan-out
+called `sources.worldbank_debarred` on every run and R-F2843 recorded whether that
+list answered, at `identity.sanctions_screen.primary_snapshots`.
+
+**THE HYBRID HALF IS THE POINT.** The pass condition is *"Enforcement registers are
+consulted; **a formal criminal-record check is counterparty-supplied**"*, so a clean
+register is NOT a pass. Live-verified at `sha ff6ed0ab`:
+
+```
+consulted, clean        AWAITING_COUNTERPARTY   a stated boundary, not a pass
+ACTIVE debarment        SINGLE_SOURCE           answers on its own
+register unavailable    ATTEMPTED_INCONCLUSIVE
+finding despite outage  SINGLE_SOURCE           a hit in hand is evidence
+unstamped source        NOT_RUN                 R-F2843's rule, enforced
+no screen at all        NOT_RUN
+```
+
+`AWAITING_COUNTERPARTY` counts in the denominator but not as answered — an
+outstanding item, never an excused one.
+
+### R-F4292 — the last baseline red, third instance of one fragility
+
+`test_entity_rail_responsive_hides_on_small_screens` required a literal
+`display: none`; the UI became a slide-over **drawer** (off-canvas transform + a
+wired toggle with `aria-controls`), so the behaviour is achieved and BETTER while
+the substring vanished. Its regex could not have matched regardless — `[^}]*`
+cannot span a nested rule.
+
+The replacement asserts the PROPERTY and is **stronger**: the rail must not occupy
+layout width below 1100px **and must stay reachable**. The old test would have
+passed a change that hid the rail with no way to open it. Proven to bite on three
+mutations.
+
+### Standing
+
+**Answerable fundamentals: 20/24** (4 unbound: EI-4, LR-20, OC-7, OC-8; EI-3 and
+LR-19 are `SUPPLIED`). Four bound this session from work the pipeline was ALREADY
+paying for: **IS-15, IS-14, FS-9, IS-16**.
+
+Three instances of the same test fragility in one session (rf2254, rf1845, rf735):
+a guard pinning an IMPLEMENTATION that a legitimate improvement changed. Each
+rewrite asserts the property and is proven to still catch a real regression.
