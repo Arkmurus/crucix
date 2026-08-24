@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4295,
+  "next_available": 4296,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36733,9 +36733,11 @@
       "title": "repair the stale resolution preference pair whose rejected side now resolves",
       "claimed_at": "2026-08-24T07:54:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-08-24T12:54:57Z",
+      "abandon_reason": "the repair it was reserved for was REVERTED: editing aria_tooluse_resolution_branch_expansion_dpo.jsonl falsifies observed evidence (two tests pin it byte-exactly). The real fix shipped as R-F4287 - the stale-negative check was on the wrong consumer. Recorded rather than left in_progress so the ledger does not claim work that never landed."
     },
     {
       "r_number": "R-F4283",
@@ -36851,6 +36853,16 @@
       "r_number": "R-F4294",
       "title": "GLEIF parent relationships - fetch, wire and bind OC-7",
       "claimed_at": "2026-08-24T12:23:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "506cf374",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:32:30Z"
+    },
+    {
+      "r_number": "R-F4295",
+      "title": "trace LR-20 second resolver - it answers a different question",
+      "claimed_at": "2026-08-24T12:54:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

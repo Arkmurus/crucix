@@ -15658,3 +15658,30 @@ by making the work real, not by relaxing the rule. **OC-8 is unchanged and still
 must not be bound**: every "signatory"/"mandate" occurrence is recommendation
 prose, and the question needs a counterparty-supplied signatory. **LR-20** is
 likewise unchanged — do not bind it on SIC codes alone.
+
+### C-248 addendum — LR-20's second resolver TRACED (R-F4295)
+
+C-248 left LR-20 as "the one genuine remaining candidate" with its
+`domain_ownership_verifier` resolver **not traced**. Traced now, so the next
+session does not have to re-derive it.
+
+**It runs** (dd_orchestrator:2808, `dov.verify_domain`) and emits a finding or a
+data gap. **But it answers a different question.** It is an RDAP check that the
+domain's REGISTRANT matches the claimed entity — flags like
+`REGISTRANT_ENTITY_MISMATCH`, `DOMAIN_NOT_REGISTERED`,
+`VERY_RECENTLY_REGISTERED`. LR-20's pass condition asks that *"declared activity
+from the register is reconciled against the WEB FOOTPRINT and the proposed
+[relationship]"* — i.e. does what they publicly DO match what the register says
+they do. Who owns the domain is a genuine identity signal and is already reported;
+it is not that reconciliation.
+
+`economic_substance` (dd_orchestrator:16657) is likewise adjacent, not the same:
+it scores the ENTITY's substance from employees/revenue/capital, where LR-20 asks
+whether the proposed RELATIONSHIP is economically rational — which needs the deal
+context, and that is counterparty-supplied.
+
+**So LR-20 stays unbound, and C-248's instruction is unchanged**: do not bind it
+on SIC codes alone. Two pieces would be needed — a web-footprint reconciliation
+capability (ours to build, as OC-7's parent fetch was) and the proposed
+relationship (the counterparty's to supply). Until then the honest NOT_RUN, whose
+remedy already names both resolvers, is the accurate report.
