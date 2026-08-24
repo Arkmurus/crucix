@@ -4648,3 +4648,72 @@ Live at close: `build_rev` `R-F4270 · sha 64dfa939` — **the peer's deploy, no
 session's.** Both commits here are docs-only and needed no deploy (§20: no
 `aria_service/` diff). Nothing of mine is unpushed; both worktrees I created were
 removed.
+
+## Session 2026-08-24 (part 10) — R-F4279..R-F4286 · IS-14 live, and eight red tests cleared
+
+Operator: *"proceed with next… bulletproof… tested, wired and enabled"*, then
+*"ensure everything that fails is looked at and improved, follow protocol."*
+
+### R-F4279 (C-238) — IS-14 bound. **LIVE at sha 7a5da1c8, behaviourally verified.**
+
+C-235 one question along. Two screens already ran on every report and the standard
+credited neither: the network layer's officer PEP screen
+(`network.pep_connections`) and `rca_screening.screen_with_relatives`
+(`report.rca_relatives`). Fixture-first 11→15. Live probe:
+
+```
+both screens ran        SINGLE_SOURCE           1 controller + 3 close associates screened
+no controllers          NOT_RUN                 the POPULATION TRAP
+rca source unavailable  ATTEMPTED_INCONCLUSIVE  UNVERIFIED, not absent
+relatives never run     ATTEMPTED_INCONCLUSIVE  half the question
+a PEP was found         SINGLE_SOURCE           1 controller flagged
+coverage 4.3% -> 8.7%   (answered 1 -> 2)
+```
+
+**The population trap is the reason this reader is not "pep_connections is empty":**
+the officer screen only screens officers that were ENUMERATED, so a DD whose
+identity failed has an empty flag list for reasons unrelated to PEP status.
+Reading that as clean clears a population nobody assembled — C-39 applied to people.
+
+### C-240 — swept every standing red test. **NOT ONE named a live defect.**
+
+Eight reds: three unregistered gap types (R-F4280), three unwired PURE predicates
+(R-F4281), a line-ending sha mismatch (R-F4283), a `tmp_path.relative_to(ROOT)`
+that RAISES so `rf4036` had **never once run its assertions** (R-F4284), three
+source-SUBSTRING locks red because a call was **wrapped across two lines**
+(R-F4284, rewritten as AST and proven to still bite), and two em-dashes in served
+copy I had just written.
+
+**The one with teeth:** `resolution_enforcement_failure` was emitted but
+unregistered, so it landed where nothing filters. It is R-F4144's identity-gate
+signal, and R-F4278 keeps `tooluse_resolution` advisory ONLY on the evidence that
+enforcement replaces the model's answer. The evidence that decision rests on was
+unobservable.
+
+### C-241 — I over-reached, and recorded it that way
+
+R-F4283 canonicalised two directories to LF to fix ONE test, and broke five more:
+those trees are hash-pinned from many places and I generalised a deliberately-narrow
+precedent **without first measuring who consumed the bytes**. Reverting was not
+available, and that IS the defect: the prompt-ablation verdict recorded **LF**
+hashes while ~23 launchers recorded **CRLF** ones, so no convention satisfied both
+and each was already wrong on some other platform. Completed instead: 50 pins
+re-pinned, **only where the old value matched the same content rendered with CRLF**.
+Two pins matched neither and were LEFT ALONE — a content divergence is a different
+event and must never be silently re-pinned. Writing its capability test then found
+a hazard I had introduced: `text eol=lf` would mark a 310MB `.tgz` adapter as TEXT
+and corrupt it; binaries are now explicitly `-text`.
+
+### Standing
+
+**Sweep: 10 failures → 3.** `rf1845` is in the recorded baseline; `rf4089`/`rf4122`
+are **C-239**, filed with a to-the-row diagnosis and deliberately NOT fixed —
+regenerating the branch-expansion artifact under the current scorer yields 22 pairs
+against 23 on disk, the extra being `Volution Group Plc`, whose rejected side
+R-F4159 reclassified as a resolution. Attempting to repair it was REVERTED: two
+tests correctly call that artifact OBSERVED evidence and pin it byte-exactly.
+
+🔴 **URGENT — DeepSeek `$3.09` and falling** (`$5.99` two hours earlier, so ~$1.45/h
+and roughly **two hours of runway**). At zero, chat and WhatsApp go dark — 19h on
+2026-08-22 at a two-cent overdraft. R-F4229 auto-releases the cooldown on top-up.
+This is the only degraded reason on `/health`; everything else cleared.
