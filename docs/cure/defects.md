@@ -15530,3 +15530,72 @@ stay REACHABLE. The old test would have passed a change that hid the rail with n
 way to open it — a regression for every narrow-screen user. Proven to bite:
 removing the off-canvas transform, the open rule, or the toggle's availability is
 each CAUGHT, while the unmutated file passes.
+
+## C-246 · EI-4 unbound while the register-established address is on the report (fixed, R-F4293)
+
+Fifth instance of the C-235 shape. EI-4 ("Verified registered/trading address
+(entity) and residential address (individual)") rendered NOT_RUN "no resolver is
+bound to this question in this build" while `identity.registered_address` was
+populated on every GB run from the Companies House profile (dd_orchestrator:3773)
+or the GLEIF legal address (:5413).
+
+**THE TRAP, and why "the field is non-empty" is the wrong test.** Line 3773 reads
+
+```python
+report.identity.registered_address or profile.get("registered_office_address")
+```
+
+— an address ALREADY on the record is **not** overwritten by the register. A
+customer-supplied address therefore survives, and certifying it as
+register-verified would be exactly the false clean this series guards against.
+
+`registry_status` is the provenance signal, and R-F3231 built
+`RegistryStatus` for precisely this question: *"Only VERIFIED/PARTIAL are
+authority — everything else means we did NOT establish identity from a registry,
+and must never certify it."* **Absent counts as NO authority**, never as a legacy
+pass: R-F3231 records the field read `None` for EVERY report before its carrier
+existed, so treating absence as permission would retroactively certify all of them.
+
+EI-4 applies to BOTH subject types with different sources per half, so an
+individual resolves AWAITING_COUNTERPARTY — a residential address comes from a
+document or bureau match, and borrowing a company register's answer would answer
+a question nobody asked it.
+
+**Answerable fundamentals: 4 unbound → 3.**
+
+## C-248 · OC-7 and OC-8 must NOT be bound — the work genuinely does not run
+
+**Filed as a REFUSAL, deliberately, and this is the most important entry in the
+series.** Five fundamentals were bound in two sessions (IS-15, IS-14, FS-9, IS-16,
+EI-4), every one from work the pipeline was already performing. That pattern makes
+the remaining three look like the same job. **Two of them are not**, and binding
+them the same way would manufacture exactly the false clean the other five were
+built to avoid.
+
+**OC-7 — "Parent, subsidiaries, affiliates and ultimate parent"**, resolver
+`gleif`. GLEIF *is* called on every run (dd_orchestrator:5400,
+`gleif.search_lei`) — but **neither GLEIF module fetches relationship data**:
+`grep -n "parent\|relationship"` returns nothing in `intel/gleif.py` or
+`intel/sources/gleif.py`. The adapter resolves an LEI for identity matching; it
+never requests the direct or ultimate parent that OC-7 asks for. GLEIF publishes
+those relationships, so this is buildable — but it is a **new capability**, not a
+missing reader.
+
+**OC-8 — "The individual is mandated to bind the entity"**, resolver
+`companies_house`. Every occurrence of "signatory" / "mandate" in the orchestrator
+is *recommendation prose* ("verify signatory identity", "screen signatory
+identities"), never a check. The question also needs a NAMED signatory, which is
+counterparty-supplied. Nothing runs.
+
+**LR-20** is the one genuine remaining candidate: `declared_activity` is populated
+from SIC codes (:6373) and `economic_substance` runs (:16657), but its pass
+condition also requires reconciliation "against the web footprint", whose resolver
+`domain_ownership_verifier` was not traced. **Do not bind it on the SIC codes
+alone** — that answers "what do they say they do", not "is the proposed
+relationship economically rational".
+
+**The rule this series establishes:** a fundamental is bindable only when the work
+its pass condition describes ALREADY RUNS and leaves a verifiable trace. Where it
+does not, the honest NOT_RUN — *"no resolver is bound to this question in this
+build"* — is the correct output, and the remedy line already names the candidate
+resolvers. Leaving it unbound is not a gap in the reader; it is an accurate report.

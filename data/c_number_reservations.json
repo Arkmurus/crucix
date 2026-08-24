@@ -2802,6 +2802,27 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T11:33:55Z"
+    },
+    {
+      "c_number": "C-246",
+      "title": "EI-4 unbound while the register-established address is on the report",
+      "claimed_at": "2026-08-24T11:55:20Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4293"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-24T12:00:38Z"
+    },
+    {
+      "c_number": "C-248",
+      "title": "OC-7 and OC-8 must not be bound - the work does not run",
+      "claimed_at": "2026-08-24T12:00:38Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

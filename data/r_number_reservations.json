@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4293,
+  "next_available": 4294,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -36822,14 +36822,25 @@
       "title": "bind IS-16 to the debarment register the DD already consults",
       "claimed_at": "2026-08-24T11:24:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ff6ed0ab",
+      "notes": null,
+      "shipped_at": "2026-08-24T11:36:04Z"
     },
     {
       "r_number": "R-F4292",
       "title": "entity-rail responsive guard asserts behaviour, not an obsolete display none",
       "claimed_at": "2026-08-24T11:32:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ff6ed0ab",
+      "notes": null,
+      "shipped_at": "2026-08-24T11:36:05Z"
+    },
+    {
+      "r_number": "R-F4293",
+      "title": "bind EI-4 to the register-established address, entity half",
+      "claimed_at": "2026-08-24T11:55:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -1311,6 +1311,73 @@ def _read_enforcement_actions(r: dict, q: "Question") -> Resolution:
         origins=(_DEBARMENT_SOURCE,))
 
 
+
+#: The only RegistryStatus values that are AUTHORITY. From
+#: `registry_adapters.RegistryStatus`: "Only VERIFIED/PARTIAL are authority —
+#: everything else means we did NOT establish identity from a registry, and must
+#: never certify it (never-false-clean)."
+_REGISTRY_AUTHORITY = frozenset({"verified", "partial"})
+
+
+def _read_address_provenance(r: dict, q: "Question") -> Resolution:
+    """R-F4293 (C-246) — EI-4 from the register-established address on the report.
+
+    Fifth instance of the C-235 shape. EI-4 rendered NOT_RUN "no resolver is
+    bound to this question in this build" while `identity.registered_address` was
+    populated on every GB run, from the Companies House profile or the GLEIF
+    legal address.
+
+    THE TRAP THIS READER EXISTS TO AVOID, and why "the field is non-empty" is the
+    wrong test. dd_orchestrator:3773 reads
+    `report.identity.registered_address or profile.get("registered_office_address")`
+    — an address ALREADY on the record is NOT overwritten by the register. A
+    customer-supplied address therefore survives, and certifying it as
+    register-verified would be exactly the false clean this series guards against.
+
+    `registry_status` is the provenance signal and R-F3231 built it for this:
+    only VERIFIED/PARTIAL are authority. Absent counts as NO authority, never as
+    a legacy pass — R-F3231 records that the field read None for EVERY report
+    before its carrier existed, so treating absence as permission would
+    retroactively certify every one of them.
+
+    EI-4 applies to BOTH subject types and its halves have different sources. An
+    entity address comes from the register; an individual's RESIDENTIAL address
+    comes from a document or bureau match, which is counterparty-supplied — so a
+    person resolves AWAITING_COUNTERPARTY rather than borrowing a company
+    register's answer to a question nobody asked it.
+    """
+    ident = _m(r.get("identity"))
+    entity_type = str(ident.get("entity_type") or "company").strip().lower()
+    if entity_type in ("individual", "person", "natural_person"):
+        return Resolution(
+            q.id, EvidenceState.AWAITING_COUNTERPARTY.value,
+            reason="a residential address for an individual comes from a verified "
+                   "document or a bureau match, not from a company register",
+            remedy="obtain a document or bureau address match for the individual")
+
+    address = str(ident.get("registered_address") or "").strip()
+    if not address:
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="no registered address is on this report",
+            remedy="run the registry lookup for this subject")
+
+    status = str(ident.get("registry_status") or "").strip().lower()
+    if status not in _REGISTRY_AUTHORITY:
+        return Resolution(
+            q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+            reason=(f"an address is on file but no registry established it "
+                    f"(registry_status: {status or 'absent'}), so it may be the "
+                    f"address the counterparty supplied"),
+            remedy="re-run the registry lookup; an unverified address is not a "
+                   "verified one")
+
+    return Resolution(
+        q.id, EvidenceState.SINGLE_SOURCE.value,
+        reason=f"registered address established by the registry ({status}): {address[:70]}",
+        origins=("registry",))
+
+
 _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
@@ -1437,7 +1504,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Verified registered/trading address (entity) and residential address (individual)",
        pass_condition="Entity address from the register; individual address from a "
                       "document or bureau match",
-       resolvers=("companies_house",), reader=None),
+       resolvers=("companies_house",), reader=_read_address_provenance),
 
     # ── Ownership & control ─────────────────────────────────────────────────
     _q(id="OC-5", fundamental=5, cluster=Cluster.OWNERSHIP_CONTROL.value,
