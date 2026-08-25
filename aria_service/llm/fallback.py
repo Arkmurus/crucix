@@ -321,6 +321,48 @@ _LAST_RESORT_WIRE_DEBOUNCE_S = float(
     os.getenv("ARIA_LLM_LAST_RESORT_WIRE_DEBOUNCE_S", "60"))
 
 
+#: R-F4330 (C-278) — providers we HOST, which take no request-driven soft
+#: cooldown. A cooldown protects a VENDOR relationship: stop hammering a paid
+#: endpoint that is refusing us, because retries cost money and can deepen a
+#: lockout. The sovereign runs on a pod we already pay for by the hour — no
+#: billing domain, no quota, no lockout to deepen.
+#:
+#: Observed live 2026-08-25 once ARIA_LLM_PRIMARY_ALL=1 made her primary:
+#:   [circuit_breaker] aria_llm: CLOSED -> OPEN (3 consecutive failures,
+#:                               reason=server, cooldown=300s)
+#:   [R-F3616] LLM chain redundancy LOST — only deepseek remains
+#: while the SAME endpoint answered 8 SIMULTANEOUS requests with HTTP 200 in
+#: ~4s. Transient blips took the operator's declared primary out for minutes,
+#: sending every turn to a DeepSeek account holding $2.65.
+#:
+#: REMOVING THE COOLDOWN DOES NOT REMOVE THE FALLBACK — the crux, and easy to
+#: read backwards. The request that fails still falls through on that same
+#: turn; the cooldown only decides whether the NEXT request may try her. A
+#: genuinely dead pod is still skipped by resilience.LLMHealthChecker, whose
+#: background probe records to the breaker "without waiting for a user request
+#: to time out". That path is deliberately untouched.
+_SELF_HOSTED_PROVIDERS = frozenset({"aria_llm", "aria-llm"})
+
+
+def soft_cooldown_seconds_for(provider_name: str) -> float:
+    """Soft-cooldown length for ``provider_name``; 0 for a self-hosted one.
+
+    R-F4330 (C-278). ARIA_NO_COOLDOWN_PROVIDERS (comma-separated) overrides the
+    set so a second local model needs no code change; setting it EMPTY restores
+    cooldowns for everyone, so the lever works in both directions.
+
+    Fails SAFE in the paid direction: anything not named keeps its cooldown.
+    """
+    raw = os.getenv("ARIA_NO_COOLDOWN_PROVIDERS")
+    if raw is not None:
+        exempt = {n.strip().lower() for n in raw.split(",") if n.strip()}
+    else:
+        exempt = set(_SELF_HOSTED_PROVIDERS)
+    if (provider_name or "").strip().lower() in exempt:
+        return 0.0
+    return float(FallbackProvider._SOFT_COOLDOWN_SECONDS)
+
+
 class FallbackProvider(LLMProvider):
     name = "fallback"
 
@@ -1140,7 +1182,9 @@ class FallbackProvider(LLMProvider):
                     evidence=str(error)[:400],   # R-F3685 — auditable lockout
                 )
         elif kind == "rate_limit":
-            stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+            # R-F4330 (C-278) — 0 for a self-hosted provider.
+            _soft = soft_cooldown_seconds_for(provider.name)
+            stats["cooldown_until"] = (now + _soft) if _soft else 0
             stats["cooldown_hard"] = False   # R-F3680 — a 429 clears on its own
             stats["cooldown_since"] = now
             logger.warning(
@@ -1149,13 +1193,14 @@ class FallbackProvider(LLMProvider):
             )
         else:
             # Only cool down after 2 consecutive failures for soft errors.
-            if stats["failures"] >= 2:
-                stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+            _soft = soft_cooldown_seconds_for(provider.name)  # R-F4330 (C-278)
+            if stats["failures"] >= 2 and _soft:
+                stats["cooldown_until"] = now + _soft
                 stats["cooldown_hard"] = False   # R-F3680 — timeout/server
                 stats["cooldown_since"] = now
                 logger.warning(
                     "Provider %s soft cooldown %ds after %d failures: %s",
-                    provider.name, self._SOFT_COOLDOWN_SECONDS,
+                    provider.name, _soft,
                     stats["failures"], str(error)[:200],
                 )
             else:

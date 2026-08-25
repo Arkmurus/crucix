@@ -708,6 +708,16 @@ When the user attaches a document and asks to **review / give feedback on** it, 
 **Operator directive (2026-06-07):** "ARIA should manage that to ensure me as an operator I don't forget to start the pod and stop the pod — make this a rule, never missed or forgotten."
 
 **The pod schedule (declared here; changes are operator-declared and recorded here):**
+**CURRENT PHASE - ALWAYS-ON. OPERATOR DECLARED 2026-08-25. THE TWO BULLETS BELOW ARE SUPERSEDED; DO NOT "RESTORE" THEM.**
+  Verbatim: *"we want aria to be fully autonomous on everything including her reasoning, we want her to start learning and compounding on every interaction, the reason why the pod is now on 24/7"*, and *"she needs to be full 24/7"*.
+  **LIVE CONFIG (set AND verified from the running process 2026-08-25):**
+  `ARIA_RUNPOD_AUTOSTART=1`, `ARIA_RUNPOD_START_HOUR=0`, `ARIA_RUNPOD_STOP_HOUR=24`, tz Europe/London.
+  `in_window()` is `start_hour <= hour < stop_hour`, so 0/24 is True at every hour and **zero of the 24 hours would stop the pod**. Autostart stays ON deliberately - it is the half of window mode worth keeping, because it still restarts a CRASHED pod.
+  **WHY THIS NOTE EXISTS.** `runpod_scheduler.reconcile()` runs
+  `if running and (not autostart or not want_on): await stop_pod()`.
+  Under the documented pre-shadow window (10:00-18:00) that line **stops the pod every evening**, taking the sovereign dark ~16h/day and sending all reasoning to DeepSeek. A session reading only the bullets below would "fix" the config back to the documented window and silently undo this. That is the same doc-reverts-capability trap SS17 records for Brave/ARIA-WA, where **this file** - not code - reverted the operator's directive three times. **Change the schedule only on a NEW operator declaration, and amend THIS line when you do.**
+  The pod is no longer only a training resource: `ARIA_LLM_PRIMARY_ALL=1` makes it the **chain primary for every turn**, so stopping it is a production outage, not a saved GPU-hour. Cost accepted at ~$0.44/hr (~$317/mo, inside the declared $400 budget).
+
 - **Phase NOW (train/eval cycles, pre-shadow):** the pod runs ONLY during weekly-cycle slots — Tue ~09:00-15:00 (SFT), Wed ~09:00-13:00 (DPO), Thu ~09:00-11:00 (eval), Europe/London. Cycle scripts start AND stop the pod programmatically (`serve_and_eval_v02.sh` pattern: resume → work → stop). The scheduler runs in **stop-only mode**: it NEVER auto-starts, and force-stops any pod found RUNNING outside 09:00-18:00 UK or without an active work-claim. A forgotten pod survives at most one reconcile interval (~2 min past the window).
 - **Shadow phase (from ~week 3-4 per the learning strategy):** daily window **10:00-18:00 Europe/London**, scheduler in window mode (auto-start at open, auto-stop at close; DeepSeek serves off-hours per §14). Serving should move to a cheaper inference GPU (A40/L40S class); A100 only on training days.
 
