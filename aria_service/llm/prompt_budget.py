@@ -138,6 +138,35 @@ _RESERVED_OUTPUT_TOKENS = 4096
 _FALLBACK_MODEL = "llama-3.3-70b-versatile"
 
 
+def _is_sovereign_model(model: str) -> bool:
+    """True when ``model`` is ARIA's own served checkpoint.
+
+    R-F4326 (C-274). Matches the configured ARIA_LLM_MODEL first (the exact
+    string the server is told to serve), then the ``aria-llm`` family prefix so
+    a checkpoint that has not reached the env var yet is still recognised.
+    """
+    m = (model or "").strip().lower()
+    if not m:
+        return False
+    configured = (os.getenv("ARIA_LLM_MODEL") or "").strip().lower()
+    return bool(configured and m == configured) or m.startswith("aria-llm")
+
+
+def _declared_sovereign_window() -> int:
+    """ARIA_LLM_MAX_MODEL_LEN as an int, or 0 when it declares nothing usable.
+
+    R-F4326 (C-274). Returns 0 — never a guess — for unset, blank, non-numeric
+    or non-positive values, so a typo in a secret falls back to the documented
+    default instead of zeroing the budget and truncating every prompt to
+    nothing.
+    """
+    try:
+        v = int((os.getenv("ARIA_LLM_MAX_MODEL_LEN") or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    return v if v >= 512 else 0
+
+
 @fail_wire(module="prompt_budget", gap_type="engine_failure")
 def get_context_window(model: str) -> int:
     """Get the context window size for a given model.
@@ -148,6 +177,38 @@ def get_context_window(model: str) -> int:
     Returns:
         Maximum total tokens the model supports.
     """
+    # R-F4326 (C-274) — THE SOVEREIGN'S WINDOW COMES FROM THE MODEL, NOT A
+    # VERSION LITERAL, and this branch runs FIRST so a stale table entry cannot
+    # win over the served truth.
+    #
+    # Live 2026-08-25: "_CONTEXT_WINDOWS" held "aria-llm-v0.1": 32768 while the
+    # served model was "aria-llm-v0.4-dpo". Exact match missed, the prefix pass
+    # asked startswith("aria-llm-v0.1") -> False, and it fell through to
+    # _DEFAULT_CONTEXT_WINDOW (8192) — a QUARTER of the real window. Every
+    # sovereign prompt was truncated to a 7,392-token budget and the guard fired
+    # on prompts that fit easily:
+    #   "Even after truncation, prompt ~8495 tokens exceeds budget 7392 for
+    #    model 'aria-llm-v0.4-dpo' — this should not happen"
+    # The entry was right when written; a RENAME made it wrong, so no commit
+    # diff ever showed it breaking.
+    #
+    # ARIA_LLM_MAX_MODEL_LEN is the authoritative statement of what vLLM serves
+    # (it must match --max-model-len) and is already what aria_llm_provider
+    # reads. Consulting it here removes the THIRD independent window for one
+    # model — the same "there is ONE measure, do not fork it" rule §1/R-F2639
+    # records, and that R-F4318/R-F4321 just applied to the CLI.
+    #
+    # Do NOT "fix" a future rename by adding another version literal here: that
+    # greens today and rots at the next one. It is this defect, re-applied.
+    if _is_sovereign_model(model):
+        declared = _declared_sovereign_window()
+        if declared:
+            return declared
+        # Nothing declares a window. Fall through to the table/default rather
+        # than assuming a large one: an over-large budget posts a prompt the
+        # server rejects with HTTP 400, which is the failure R-F4317 exists to
+        # prevent. Under-reading truncates; over-reading breaks the call.
+
     # Try exact match first
     if model in _CONTEXT_WINDOWS:
         return _CONTEXT_WINDOWS[model]
