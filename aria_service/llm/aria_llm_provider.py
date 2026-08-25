@@ -179,7 +179,85 @@ def window_overflow(system: str, prompt: str) -> str:
 # So the ceiling is applied at the chat call sites in model_router
 # (_sovereign_complete + the stream_synthesis sovereign branch), which are the
 # §13 chat pair. Batch/coder callers reaching this module directly are untouched.
-SOVEREIGN_COMPLETION_CEILING = 800
+# R-F4327 (C-275) — THE CEILING IS DERIVED, because the constant above was
+# calibrated for hardware we no longer run.
+#
+# The 800 followed correctly from the comment's own premise: ~10 tok/s means
+# 800 tokens costs 80s, comfortably inside a 120s chat timeout. MEASURED live
+# 2026-08-25 on the current A40 (vLLM, Mistral-7B-Instruct-v0.3):
+#
+#     max_tokens=200  ->  200 tok in  7.5s = 26.6 tok/s
+#     max_tokens=800  ->  800 tok in 24.8s = 32.2 tok/s
+#     max_tokens=2000 ->  591 tok in 17.9s = 33.0 tok/s
+#
+# ~3x the assumed rate. A ceiling meant to spend most of the timeout now spends
+# about a fifth of it, and the operator sees answers cut off on a model that
+# could produce three times as much. The premise moved when the GPU moved and
+# nothing re-derived the number — the R-F4028 shape, where a change elsewhere
+# silently voids a mechanism's reason and the code keeps obeying it.
+#
+# So this does NOT raise the constant (§1 forbids that band-aid); it derives the
+# ceiling from the two facts that determine it — how fast she generates, and how
+# long we may wait — and clamps it below the served window, because a completion
+# larger than the window is the HTTP 400 R-F4317 exists to prevent.
+#
+# 20% headroom: throughput varies with prompt length and concurrency, and an
+# answer that arrives just past the timeout is worse than a slightly shorter one
+# that arrives.
+SOVEREIGN_COMPLETION_CEILING = 800  # legacy floor; see sovereign_completion_ceiling()
+
+#: Conservative against the 26-33 tok/s measured — see above.
+_SOVEREIGN_TOKENS_PER_SEC = 25.0
+#: aria_engine uses 120.0 for chat (aria_engine.py:4354).
+_SOVEREIGN_CHAT_TIMEOUT_S = 120.0
+_SOVEREIGN_TIMEOUT_HEADROOM = 0.8
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        v = float((os.getenv(name) or "").strip())
+    except (TypeError, ValueError):
+        return default
+    return v if v > 0 else default
+
+
+def sovereign_tokens_per_sec() -> float:
+    """Generation rate used to size a chat completion. Re-measure after any
+    GPU or serving change — that is exactly what rotted last time."""
+    return _env_float("ARIA_SOVEREIGN_TOKENS_PER_SEC", _SOVEREIGN_TOKENS_PER_SEC)
+
+
+def sovereign_chat_timeout_s() -> float:
+    """The chat deadline the completion must fit inside."""
+    return _env_float("ARIA_LLM_CHAT_TIMEOUT_S", _SOVEREIGN_CHAT_TIMEOUT_S)
+
+
+def sovereign_completion_ceiling() -> int:
+    """Largest CHAT completion the sovereign can deliver before the timeout.
+
+    R-F4327 (C-275). Derived, not hardcoded, so a faster (or slower) box moves
+    it without an edit. An explicit ARIA_SOVEREIGN_COMPLETION_CEILING still
+    wins — deriving a default is not the same as removing the operator's lever.
+
+    Bounded by the served window: policy may not exceed physics.
+    """
+    try:
+        override = int((os.getenv("ARIA_SOVEREIGN_COMPLETION_CEILING") or "").strip())
+        if override > 0:
+            return override
+    except (TypeError, ValueError):
+        pass
+
+    budget = int(sovereign_chat_timeout_s() * _SOVEREIGN_TIMEOUT_HEADROOM
+                 * sovereign_tokens_per_sec())
+    # Never propose more than the window can hold alongside a prompt. _max_model_len
+    # is the ONE window source (R-F4326); half of it is a generous chat answer and
+    # still leaves room for the conversation that prompted it.
+    try:
+        window_cap = max(256, _max_model_len() // 2)
+    except Exception:  # noqa: BLE001 — sizing must never break the chat path
+        window_cap = 2048
+    return max(256, min(budget, window_cap))
 
 
 def clamp_for_sovereign(max_tokens: int) -> int:
@@ -189,16 +267,18 @@ def clamp_for_sovereign(max_tokens: int) -> int:
 
     Call this from chat paths only. Batch callers (self-coder, training export)
     need large budgets and must not be clamped."""
+    ceiling = sovereign_completion_ceiling()
     try:
         n = int(max_tokens)
     except (TypeError, ValueError):
-        return SOVEREIGN_COMPLETION_CEILING
-    if n > SOVEREIGN_COMPLETION_CEILING:
+        return ceiling
+    if n > ceiling:
         logger.info(
-            "[R-F3606] clamped sovereign completion %d→%d tokens (~10 tok/s "
-            "would exceed the chat timeout)", n, SOVEREIGN_COMPLETION_CEILING,
+            "[R-F3606/R-F4327] clamped sovereign completion %d→%d tokens "
+            "(%.0f tok/s measured, %.0fs chat timeout)",
+            n, ceiling, sovereign_tokens_per_sec(), sovereign_chat_timeout_s(),
         )
-        return SOVEREIGN_COMPLETION_CEILING
+        return ceiling
     return n
 
 
