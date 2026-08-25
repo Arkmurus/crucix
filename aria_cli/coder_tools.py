@@ -41,9 +41,12 @@ class CoderToolbox:
     R-F1191: constitutional validator removed — ARIA is fully autonomous.
     """
 
-    def __init__(self, toolbox) -> None:
+    def __init__(self, toolbox, subagent_factory=None) -> None:
         self._tb = toolbox
         self.root: Path = toolbox.root
+        # R-F4313 — a callback the parent Agent registers so spawn_subagent can
+        # build a fresh, isolated sub-agent sharing this toolbox's llm + tools.
+        self.subagent_factory = subagent_factory
 
     # ── git operations ─────────────────────────────────────────────────────
 
@@ -829,6 +832,52 @@ class CoderToolbox:
             lines.append(f"Newest: {time.strftime('%Y-%m-%d', time.localtime(s['newest']))}")
         return ToolResult("\n".join(lines))
 
+    # ── sub-agents (R-F4313) ────────────────────────────────────────────────
+
+    def spawn_subagent(self, name: str, task: str, focus: str = "",
+                       max_steps: int = 20) -> ToolResult:
+        """Spawn a fresh, isolated sub-agent to work on a focused task.
+
+        The sub-agent shares this toolbox's LLM client and file tools but gets a
+        FRESH message history and a focused system prompt, so it cannot see or
+        be polluted by the parent's conversation. This is the Claude Code /
+        Codex sub-agent pattern: a reviewer that independently re-runs tests, a
+        researcher that greps the codebase, a writer that drafts a file.
+
+        Args:
+            name: A short role label (e.g. 'reviewer', 'researcher').
+            task: The concrete instruction for the sub-agent.
+            focus: Optional extra focus hint appended to the system prompt.
+            max_steps: Bounded step cap so a runaway sub-agent cannot loop.
+
+        Returns:
+            ToolResult with the sub-agent's final text (or an error if the
+            parent did not register a sub-agent factory).
+        """
+        if self.subagent_factory is None:
+            return ToolResult(
+                "spawn_subagent: no sub-agent factory registered on this "
+                "CoderToolbox (the parent Agent must set it).",
+                is_error=True)
+        try:
+            result = self.subagent_factory(name=name, task=task, focus=focus,
+                                           max_steps=max_steps)
+        except Exception as exc:  # noqa: BLE001 — surface the failure to the agent
+            return ToolResult(f"spawn_subagent error: {exc}", is_error=True)
+        # R-F4313 — wire the sub-agent outcome to the brain (§21a): success and
+        # failure both reach a sink so a sub-agent that silently fails is visible.
+        try:
+            from . import brain as _brain
+            _brain.report_signal(
+                signal_type="aria_cli_subagent",
+                content=f"Sub-agent '{name}' finished. Task: {task[:200]}",
+                self_mode=True,
+                metadata={"subagent": name, "success": not result.is_error},
+            )
+        except Exception:  # noqa: BLE001 — brain wiring must never break the tool
+            pass
+        return result
+
 
 # ── OpenAI-shaped tool schemas for the agent loop ────────────────────────────
 # These are the tool definitions the LLM sees. They reference the methods on
@@ -1067,6 +1116,23 @@ CODER_TOOL_SCHEMAS: list[dict] = [
             "name": "memory_stats",
             "description": "Return memory statistics (total entries, by type, date range).",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spawn_subagent",
+            "description": "Spawn a fresh, isolated sub-agent to work on a focused task (e.g. a reviewer that independently re-runs tests, a researcher that greps the codebase). The sub-agent shares the LLM and file tools but gets a fresh message history and a focused system prompt, so it cannot see or be polluted by the parent conversation. Use for independent verification, parallel research, or focused drafting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "A short role label (e.g. 'reviewer', 'researcher')."},
+                    "task": {"type": "string", "description": "The concrete instruction for the sub-agent."},
+                    "focus": {"type": "string", "description": "Optional extra focus hint appended to the system prompt."},
+                    "max_steps": {"type": "integer", "description": "Bounded step cap so a runaway sub-agent cannot loop (default 20)."},
+                },
+                "required": ["name", "task"],
+            },
         },
     },
 ]

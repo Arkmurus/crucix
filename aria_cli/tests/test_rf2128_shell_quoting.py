@@ -57,7 +57,12 @@ def test_rf2128_reserve_quotes_title(tmp_path):
 def test_rf2128_ship_quotes_args(tmp_path):
     box = _mk(tmp_path)
     box.ship_r_number(EVIL, EVIL)
-    cmd = box._tb.commands[-1]
+    # R-F2162's _record_shipped_fix may append a `git log` side-effect call after
+    # the ship command, so assert the SHIP command (the one invoking the admin
+    # script) quotes the args rather than assuming it is last.
+    ship_cmds = [c for c in box._tb.commands if "reserve_r_number.py" in c and " ship " in c]
+    assert ship_cmds, "ship_r_number should have issued a ship command"
+    cmd = ship_cmds[-1]
     assert _shq(EVIL) in cmd
     assert "$(rm -rf /)" not in cmd.replace(_shq(EVIL), "")
 
