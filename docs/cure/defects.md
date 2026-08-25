@@ -16402,3 +16402,110 @@ clear it, ignore the age threshold, count notes as questions, drop the quiet-pat
 hook, unregister the gap type). Blast radius = the 74 test files touching
 `collab_bridge`, `drain_for_aria`, `capability_gaps` or the gap-type registry:
 **4 failures before, the same 4 after, zero newly red**, 525 → 537 passed.
+
+## C-281 · the CLI served the base model under the adapter's name and nothing could tell (fixed, R-F4335, R-F4336)
+
+**Symptom, in the operator's words:** ARIA in the terminal would not perform
+requests — she narrated what she would do instead of doing it — and the open
+question was whether her reasoning was too weak or something was broken.
+
+**It was broken, upstream of reasoning.** `GET /v1/models` on the sovereign
+endpoint returned TWO entries carrying the IDENTICAL id `aria-llm-v0.4-dpo`:
+
+| # | id | root | parent |
+|---|----|------|--------|
+| 0 | `aria-llm-v0.4-dpo` | `…models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/c170c708…` | `null` |
+| 1 | `aria-llm-v0.4-dpo` | `/root/adapters/aria_llm_v0_4_dpo` | `aria-llm-v0.4-dpo` |
+
+vLLM resolves an incoming `model` against base served-names BEFORE LoRA names,
+so the base won every request and the adapter was never applied. Entry 1's
+`parent` is the server's own confirmation that the base's served name is the
+adapter's name. No client-side escape existed: `mistralai/Mistral-7B-Instruct-v0.3`,
+`aria_llm_v0_4_dpo` and the adapter path all returned **404 does not exist**.
+
+**Measured, four independent probes, all temperature 0:**
+
+* *"Who are you?"* → "I am a model trained by Mistral AI."
+* *"What does ARIA stand for in the Arkmurus platform?"* → "Accessible Rich
+  Internet Applications … a set of attributes used in web development."
+* *"In the crucix repo, what is an R-number?"* → "the Crux repository … a tool
+  for building R packages", "in epidemiology, the reproduction number".
+* Replaying a row from `data/training/aria_grounded_v07_new.jsonl` verbatim
+  returned a generic privacy refusal instead of the trained citation-contract
+  refusal ("I cannot confirm … as no source is provided in the context").
+
+The entire v0.4 tool-use DPO programme was inert, and the banner printed
+`aria-llm/aria-llm-v0.4-dpo` throughout. **A label is a claim; there was no
+evidence behind it.** This is the §1 "certified by an absence" shape: an
+ambiguity that reads exactly like health.
+
+**Fix (R-F4335).** `aria_cli/model_identity.py` reads the endpoint's own
+inventory and judges it. It detects the COLLISION structurally — free, decidable,
+and independent of what the adapter contains — rather than asking the model who
+it is, which costs a turn and can be wrong in both directions (a LoRA trained
+only on tool-use would legitimately still answer "Mistral"). Tri-state, and the
+third state is load-bearing: `unknown` means COULD NOT MEASURE and is never
+rendered as health. The banner now prints `verified` / `UNVERIFIED` / `unverified`
+and, on a breach, the remedy. Both branches reach the brain (§21a) — a signal only
+on breach would leave silence ambiguous between "verified" and "never ran".
+
+**Fix (R-F4336).** `scripts/train/serve_sovereign.sh`. The launch command was
+**not in the repo** — it was run ad-hoc over SSH, which is precisely why it could
+drift. The tracked launcher gives the base its own `--served-model-name`, refuses
+to start when the two names match, refuses a missing adapter directory, and
+verifies after boot that the adapter id resolves to exactly one model. A one-off
+correct relaunch would have drifted again the next time someone typed it.
+
+**Verification.** 28 tests. Eleven mutations, each confirmed RED when broken on
+purpose: bless `unknown` as healthy · treat a collision as fine · remove the banner
+warning · widen the provider scope · drop memoisation · strip the base name from the
+launch command · default `BASE_NAME` to the adapter id · break the `--lora-modules`
+pairing · remove the collision guard · plus the two C-282 mutations below.
+**One test was itself too weak and was caught by mutation:** asserting
+`"--served-model-name" in src` stayed GREEN when the flag was stripped from the
+real invocation, because the string also appears in a comment. It now parses the
+command lines only — a guard whose universe includes prose certifies prose
+(§16, R-F3791).
+
+## C-282 · a narrated tool call was dropped silently and the turn ended with zero calls (fixed, R-F4337)
+
+R-F4329 established that the sovereign writes multi-step plans into the content
+channel as a Mistral-shaped JSON array, and recovers those. The operator's live
+transcript is a DIFFERENT shape the recovery correctly refuses — Python source
+inside a fenced block:
+
+```python
+results = grep(pattern="(Error|Warning)", output_mode="content", context=10)
+```
+
+`output_mode` and `context` are **real parameters on ARIA's own `grep` tool**, so
+this remains a CHANNEL failure, not a comprehension failure. `agent.py` returned
+at `if not resp.tool_calls:` and the turn ended narrating.
+
+**Reproduced byte-identically** from a clean two-message request carrying the
+CLI's own compact prompt and narrowed tool set — so it is not history, not context
+length, not the schemas. Phrasing decides the channel, and unstably: an 8-task
+sweep put 5/8 on the proper channel but only ~3/8 on the *correct* tool
+(`"Read the file README.md."` → `run`), and `"Run the command 'git status'."`
+— a direct imperative — narrated with `R1:`/`R2:`/`R3:` step prefixes.
+
+**Fix.** One re-ask per turn, imperative, scoped to the sovereign.
+`looks_like_narrated_tool_call` EXTRACTS NOTHING — it only answers "did she
+describe using an offered tool?" so the caller can ask her to make the call
+herself. **The model still authors every executed call**, which keeps this
+outside R-F4329's prohibition ("a fabricated `run` EXECUTES") rather than an
+exception to it. Both conditions are load-bearing and are what let it FAIL: the
+content must name an offered tool AND that mention must be call-shaped, so
+"I could grep for errors, shall I?" is left alone — the same
+position-not-punctuation discriminator R-F4329 uses.
+
+**Not fixed by this, and deliberately so:** the CLI has no fallback chain, so a
+sovereign that cannot serve leaves the operator stuck with no degradation signal.
+Recorded rather than widened here.
+
+**Verification.** Mutation-tested: disabling the retry and making the detector
+match any prose were each confirmed RED. The capability test drives the real turn
+loop and asserts a tool actually executed — an earlier version of that test passed
+a `raw_message` without its `tool_calls`, which the dangling-call repair correctly
+stripped; the FIXTURE was wrong, not the code, and it was fixed rather than the
+code bent to satisfy it.
