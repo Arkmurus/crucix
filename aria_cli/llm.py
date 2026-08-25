@@ -29,10 +29,13 @@ False for it so callers can warn loudly instead of failing silently.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 
 import httpx
+
+logger = logging.getLogger("aria_cli.llm")
 
 # Base-url defaults mirror aria_service/llm/factory.py so the CLI talks to the
 # same endpoints ARIA already uses.
@@ -375,6 +378,151 @@ def _mistral_contract(messages: list[dict]) -> list[dict]:
     return out
 
 
+#: Providers observed to emit tool calls into the content channel. Scoped, so a
+#: provider that uses the proper channel is never second-guessed — parsing its
+#: content could only ever create false positives.
+_CONTENT_TOOLCALL_PROVIDERS = frozenset({"aria-llm"})
+
+
+def _extract_call_blocks(body: str) -> tuple[list, str]:
+    """Pull LINE-ANCHORED JSON tool-call blocks out of ``body``.
+
+    R-F4329 (C-277). The measured live output is not one clean array — it is
+    arrays SEPARATED BY PROSE, because she narrates between the steps she
+    plans:
+
+        [{"name": "run", ...}]
+        After the test run, if it still fails, inspect the code...
+        [{"name": "edit_file", ...}]
+        After editing the file, run the tests again.
+
+    A first version required the whole content to PARSE as JSON, which
+    correctly refused this and therefore recovered nothing on the case that
+    matters. The discriminator that separates it from the dangerous case is
+    POSITION, not punctuation: a block she is EMITTING starts a line, while a
+    block she is TALKING ABOUT ("here is what I would send: [...] — shall
+    I?") sits inside a sentence. Only line-anchored blocks are considered,
+    and each must still parse whole and validate element-by-element upstream.
+
+    Returns ``(items, leftover_prose)``; ``([], body)`` when nothing qualifies.
+    """
+    nl = chr(10)
+    items: list = []
+    prose: list[str] = []
+    lines = body.split(nl)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        if not (stripped.startswith("[{") or stripped.startswith("{\"name\"")
+                or stripped.startswith("[ {")):
+            prose.append(line)
+            i += 1
+            continue
+        # Greedily take the shortest run of lines from here that parses whole.
+        taken = None
+        for j in range(i, min(i + 40, len(lines))):
+            chunk = nl.join(lines[i:j + 1]).strip()
+            try:
+                parsed = json.loads(chunk)
+            except Exception:  # noqa: BLE001 — keep extending
+                continue
+            taken = (parsed, j)
+            break
+        if taken is None:
+            prose.append(line)
+            i += 1
+            continue
+        parsed, j = taken
+        items.extend(parsed if isinstance(parsed, list) else [parsed])
+        i = j + 1
+    return items, nl.join(prose).strip()
+
+
+def recover_tool_calls_from_content(
+    content: str, tools: list[dict] | None, provider: str,
+) -> tuple[list[dict], str]:
+    """Recover tool calls the model wrote into ``content`` instead of emitting.
+
+    R-F4329 (C-277). Measured live: when the sovereign plans ONE call she uses
+    the tool_calls channel; when she plans SEVERAL she writes a Mistral-shaped
+    array as text —
+
+        [{"name": "run", "arguments": {...}},
+         {"name": "edit_file", "arguments": {...}}]
+
+    — deterministically, and multi-step plans are exactly what a coding task
+    produces. That is why every real coding request ended "files: 0 changed,
+    tools: 0 calls" while single-step questions worked.
+
+    This is a CHANNEL failure, not a comprehension failure: she named real
+    tools with real arguments. Recovering it is a transport-layer repair of a
+    known provider quirk, the same class as `_mistral_contract` (R-F4320) and
+    `_sanitize_messages` (R-F1290).
+
+    IT MUST NOT BECOME A PROSE PARSER. Inventing a call the model did not make
+    is worse than dropping one, because a fabricated ``run`` EXECUTES. Every
+    condition here is therefore load-bearing:
+
+      * tools must have been OFFERED — with none, any match is pure invention;
+      * the content must PARSE as JSON (after stripping Mistral's [TOOL_CALLS]
+        token or a ```json fence), not merely CONTAIN it, so prose that quotes
+        a call is left alone;
+      * every element must be an object whose ``name`` is an OFFERED tool and
+        whose ``arguments`` is an object;
+      * ONE bad element rejects the WHOLE array — partial recovery would run
+        half a plan the model never intended as a half.
+
+    Returns ``(calls, remaining_content)``. On no recovery the content comes
+    back byte-identical.
+    """
+    if (provider or "").strip().lower() not in _CONTENT_TOOLCALL_PROVIDERS:
+        return [], content
+    if not tools:
+        return [], content
+    text = (content or "").strip()
+    if not text:
+        return [], content
+
+    offered = set()
+    for t in tools:
+        fn = (t or {}).get("function") or {}
+        if fn.get("name"):
+            offered.add(fn["name"])
+    if not offered:
+        return [], content
+
+    body = text
+    if body.startswith("[TOOL_CALLS]"):
+        body = body[len("[TOOL_CALLS]"):].strip()
+    if body.startswith("```"):
+        _nl = chr(10)
+        body = body.split(_nl, 1)[-1] if _nl in body else body
+        if body.endswith("```"):
+            body = body[:-3]
+        body = body.strip()
+
+    items, leftover = _extract_call_blocks(body)
+    if not items:
+        return [], content
+
+    calls: list[dict] = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            return [], content
+        name = it.get("name")
+        args = it.get("arguments")
+        if name not in offered or not isinstance(args, dict):
+            return [], content
+        calls.append({
+            "id": _mistral_tool_id(f"rec{i}{name}"),
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        })
+
+    return calls, leftover
+
+
 def _wire_messages(messages: list[dict], provider: str) -> list[dict]:
     """The ONE thing that prepares a message array for the wire.
 
@@ -522,9 +670,20 @@ class LLMClient:
         self.total_input_tokens += in_tok
         self.total_output_tokens += out_tok
 
+        _content = message.get("content") or ""
+        _calls = list(message.get("tool_calls") or [])
+        if not _calls:
+            # R-F4329 (C-277) — she plans multi-step work as content JSON.
+            _rec, _content2 = recover_tool_calls_from_content(
+                _content, tools, self.config.provider)
+            if _rec:
+                _calls, _content = _rec, _content2
+                message = {**message, "tool_calls": _calls, "content": _content}
+                logger.info("[R-F4329] recovered %d tool call(s) the model "
+                            "emitted as content", len(_calls))
         return LLMResponse(
-            content=message.get("content") or "",
-            tool_calls=list(message.get("tool_calls") or []),
+            content=_content,
+            tool_calls=_calls,
             raw_message=message,
             input_tokens=in_tok,
             output_tokens=out_tok,
@@ -751,6 +910,17 @@ class LLMClient:
 
         content = "".join(content_parts)
         tool_calls = [tool_acc[i] for i in sorted(tool_acc)]
+        if not tool_calls:
+            # R-F4329 (C-277) — §13: the stream-bypass rule exists because a
+            # guard on one transport and not the other is this repo's repeat
+            # failure, and a coding turn that only works unstreamed would be
+            # near-impossible to attribute.
+            _rec, _rest = recover_tool_calls_from_content(
+                content, tools, self.config.provider)
+            if _rec:
+                tool_calls, content = _rec, _rest
+                logger.info("[R-F4329] recovered %d tool call(s) from streamed "
+                            "content", len(_rec))
         raw_message: dict = {"role": "assistant", "content": content}
         if tool_calls:
             raw_message["tool_calls"] = tool_calls
