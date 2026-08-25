@@ -70,14 +70,27 @@ _GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "200000"))
 # AGENTS.md (37,308) sit far under its share; proportional distribution spends
 # whatever room exists where the text actually is.
 
-#: Room the tool schemas need. Measured 15,486 chars for the live tool set.
-_TOOL_SCHEMA_RESERVE_TOKENS = 4000
+#: Room the tool schemas need. They are sent on EVERY call and belong to no
+#: message, so a budget that ignores them overflows by exactly their size —
+#: which is what C-269 was. MEASURED via the served tokenizer: 7,147 chars ->
+#: 1,936 tokens for the live 31-tool set. 3,000 leaves headroom for growth
+#: without pricing in a tool set we do not have.
+_TOOL_SCHEMA_RESERVE_TOKENS = 3000
 #: Room for the conversation itself — a prompt that fits with nothing left to
 #: say has not fitted.
 _CONVERSATION_RESERVE_TOKENS = 2000
-#: Everything in the system prompt that is NOT guidance (identity, operating
-#: contract, RAG block, environment). Measured ~18,966 chars.
-_PROMPT_OVERHEAD_TOKENS = 5000
+#: Everything in the system prompt that is NOT guidance: identity, operating
+#: contract, engineering rules, the PowerShell rule, self-mode, _ESSENTIALS, the
+#: RAG block, the persona catalog and the environment footer.
+#:
+#: MEASURED 2026-08-25 at a 32,768 window: total prompt 16,369 tok, of which
+#: 9,945 was guidance -> 6,424 of overhead. The previous 5,000 was already low
+#: and went further out of date the moment _ESSENTIALS was added, which is the
+#: hazard with any hand-maintained constant in this file. 7,000 covers the
+#: measurement with margin; if the fixed blocks grow again, the R-F4321 test
+#: `test_the_prompt_still_fits_after_the_floor_was_added` fails rather than the
+#: model 400ing in production.
+_PROMPT_OVERHEAD_TOKENS = 7000
 #: Never ship an EMPTY constitution: elided rules beat no rules.
 _GUIDANCE_FLOOR_CHARS = 2000
 #: MEASURED against the served tokenizer 2026-08-25 (vLLM /tokenize), not
@@ -142,6 +155,76 @@ def model_window_tokens() -> tuple[int, int]:
         return 65536, 8192
 
 
+#: Share of the leftover window given to repo guidance; the rest is conversation
+#: history. Guidance is the larger share because it is the standing instruction
+#: set, but it must NOT be greedy: taking all the slack leaves an agent that has
+#: read the constitution and cannot hold a conversation about it.
+_GUIDANCE_SLACK_SHARE = 0.6
+
+
+def context_budget(*, window_tokens: int | None = None,
+                   completion_tokens: int | None = None) -> dict:
+    """THE budget. Every consumer derives from this and none does its own sums.
+
+    R-F4321 (C-269) — there were TWO budgets and they disagreed, which is the
+    §1/R-F2639 "one measure, do not fork it" shape inside a single feature.
+    `guidance_budget_chars` reserved 4,000 tokens for tool schemas;
+    `compact_budget_chars` reserved NOTHING and used a hardcoded 4 chars/token
+    while this module had already been recalibrated to 3. Measured on the tree
+    that shipped, sovereign at 16,384:
+
+        history budget   14,745 tok
+        completion        4,096
+        tool schemas      2,382   (sent on EVERY call, reserved by neither)
+        --------------------------
+        total            21,223   vs a 16,384 window -> overflow 4,839
+
+    So the headline symptom this whole line of work exists to stop could still
+    recur through the other budget. Worse, R-F4318's guard encoded the same
+    omission - `budget <= (max_model_len - max_tokens) * 4` - so it could never
+    have caught it. A guard that shares the defect's assumption is not a guard.
+
+    The window is now allocated ONCE and exhaustively:
+
+        window = completion + tool schemas + prompt overhead
+                 + guidance + history
+
+    Everything after the fixed costs is `slack`, split between guidance and
+    history so BOTH grow with the model rather than guidance taking it all.
+    """
+    if window_tokens is None or completion_tokens is None:
+        w, c = model_window_tokens()
+        window_tokens = window_tokens if window_tokens is not None else w
+        completion_tokens = completion_tokens if completion_tokens is not None else c
+
+    window = int(window_tokens)
+    completion = int(completion_tokens)
+    slack = max(0, window - completion
+                - _TOOL_SCHEMA_RESERVE_TOKENS - _PROMPT_OVERHEAD_TOKENS)
+    guidance_tok = int(slack * _GUIDANCE_SLACK_SHARE)
+    history_tok = slack - guidance_tok
+    # `fits` is reported rather than silently absorbed. The FIXED costs — the
+    # completion reserve, the tool schemas, and the non-guidance system prompt —
+    # can exceed a small window on their own (an 8,192-token model: 2,048 +
+    # 3,000 + 5,000 = 10,048). No budget split repairs that; the model is too
+    # small to host this CLI, and saying so is more useful than shipping a
+    # zero-guidance prompt that 400s anyway. Tri-state discipline (§1): a caller
+    # can act on "cannot fit" but not on a silently truncated number.
+    fixed = completion + _TOOL_SCHEMA_RESERVE_TOKENS + _PROMPT_OVERHEAD_TOKENS
+    return {
+        "window": window,
+        "completion": completion,
+        "tools": _TOOL_SCHEMA_RESERVE_TOKENS,
+        "overhead": _PROMPT_OVERHEAD_TOKENS,
+        "guidance_tokens": guidance_tok,
+        "history_tokens": history_tok,
+        "guidance_chars": max(_GUIDANCE_FLOOR_CHARS, guidance_tok * _CHARS_PER_TOKEN),
+        "history_chars": history_tok * _CHARS_PER_TOKEN,
+        "fixed_tokens": fixed,
+        "fits": fixed < window,
+    }
+
+
 def guidance_budget_chars(*, window_tokens: int | None = None,
                           completion_tokens: int | None = None) -> int:
     """TOTAL chars of repo guidance the model can afford, derived from its window.
@@ -155,17 +238,8 @@ def guidance_budget_chars(*, window_tokens: int | None = None,
             return max(_GUIDANCE_FLOOR_CHARS, int(override))
         except (TypeError, ValueError):
             pass
-
-    if window_tokens is None or completion_tokens is None:
-        w, c = model_window_tokens()
-        window_tokens = window_tokens if window_tokens is not None else w
-        completion_tokens = completion_tokens if completion_tokens is not None else c
-
-    room = (int(window_tokens) - int(completion_tokens)
-            - _TOOL_SCHEMA_RESERVE_TOKENS
-            - _CONVERSATION_RESERVE_TOKENS
-            - _PROMPT_OVERHEAD_TOKENS)
-    return max(_GUIDANCE_FLOOR_CHARS, room * _CHARS_PER_TOKEN)
+    return context_budget(window_tokens=window_tokens,
+                          completion_tokens=completion_tokens)["guidance_chars"]
 
 
 def _guidance_toc(text: str) -> list[str]:
@@ -335,6 +409,69 @@ wrong thing. Concrete rules (AGENTS.md anti-hallucination law 19):
 - Paths: forward OR backslashes both work in PowerShell; quote paths with spaces.
 """
 
+#: R-F4321 (C-269) — the few rules that must reach the agent AT ANY WINDOW SIZE.
+#:
+#: These live in CLAUDE.md, and until now the CLI relied on the whole file being
+#: injected. Once the guidance budget started tracking the model window that
+#: stopped being true: `test_self_mode_prompt_covers_shipping_and_excellence`
+#: went red because "git push origin main" appears EXACTLY ONCE in the repo — in
+#: CLAUDE.md §11 — and landed in the elided middle. An agent that cannot see the
+#: shipping sequence cannot ship, and would have invented one.
+#:
+#: This is not a new pattern: R-F2163 already pins the PowerShell rule here for
+#: precisely this reason ("otherwise only reachable if the truncated
+#: constitution happens to include it"). What changed is that clipping went from
+#: an edge case to the normal case, so the same treatment is owed to the rest of
+#: the operating core.
+#:
+#: Keep this SHORT. It is paid for on every call at every window size, and the
+#: full text remains one `read_file` away — the injected table of contents names
+#: every section.
+_ESSENTIALS = """
+NON-NEGOTIABLE OPERATING RULES (these are the floor; the full text is in
+CLAUDE.md / AGENTS.md, which are summarised above with a table of contents —
+use read_file to pull any section in full):
+
+1. R-NUMBER DISCIPLINE. Every change gets an R-number, reserved BEFORE writing
+   code: `python scripts/admin/reserve_r_number.py reserve "short title"`.
+   Mark it shipped at push: `... ship R-F<n> <sha>`. Never claim a number by
+   writing it in a comment.
+
+2. ROOT CAUSE, NOT SYMPTOM. Never raise a timeout, add a retry, or extend a
+   cooldown to make a failure go away. Find what is actually breaking and fix
+   that. If you catch yourself bumping a number, stop and investigate.
+
+3. VERIFY BEFORE YOU CLAIM. Never write "fixed / done / passing" without
+   running the thing and reporting the real pass/fail count. Every fix needs a
+   capability test that invokes the BROKEN path and asserts the user-visible
+   outcome — a test of a helper does not count. Show it red, then green.
+
+4. THE SHIPPING SEQUENCE. Commit, then:
+       git push origin main
+       gh workflow run deploy-fly.yml --ref main -f reason="<justification>"
+       curl https://aria-intel.fly.dev/health/live   # build_rev must match
+   A `[deploy]` commit message does NOTHING — the workflow has no push trigger.
+   A deploy is not done until build_rev matches your commit live.
+
+   THREE SEPARATE APPS — deploying the wrong one ships nothing, silently:
+     - aria-intel (fly.toml)      the Python FastAPI brain. deploy-fly.yml
+                                  targets THIS ONE ONLY.
+     - aria-web   (fly.web.toml)  the Node monolith — UI, auth, Stripe.
+     - aria-wa    (fly.wa.toml)   the WhatsApp/Baileys listener, isolated so a
+                                  WA crash cannot take down auth or billing.
+   The Node tiers have their OWN dispatch workflows. A change under
+   services/wa-listener/ is not live because aria-intel redeployed.
+
+5. WIRED, NOT DARK. Every code path reports BOTH its success and its failure to
+   the brain (brain_hook.absorb / capability_gaps.record_gap / a metric).
+   "Logged to console" or `except: pass` is dark, and dark does not ship.
+
+6. SAY WHEN YOU ARE STUCK. If something is committed but not live, or blocked
+   on a credential or a decision, say so explicitly and immediately. A blocker
+   the operator has to discover themselves is the worst outcome.
+
+"""
+
 _SELF_MODE = """
 THIS IS ARIA'S OWN ECOSYSTEM (the crucix repo)
 You are editing your own codebase. The crucix guardrails apply and are enforced \
@@ -400,8 +537,12 @@ def load_repo_guidance(repo_root: Path | None) -> str:
         if total <= budget:
             share = len(text)          # everything fits; clip nothing
         else:
-            share = max(_GUIDANCE_FLOOR_CHARS,
-                        int(budget * (len(text) / total)))
+            # STRICTLY proportional — no per-file floor. A floor makes the
+            # shares sum ABOVE the total (budget 3,864 -> 5,061 emitted, 31%
+            # over), and a non-binding budget inside the one function whose job
+            # is making the prompt fit is not a budget. A small share still
+            # carries the file's table of contents, so nothing goes invisible.
+            share = int(budget * (len(text) / total))
         chunks.append(f"----- {name} -----\n{_clip_guidance(text, share)}")
     return "\n\n".join(chunks)
 
@@ -537,6 +678,9 @@ def build_system_prompt(*, root: Path, self_mode: bool,
         parts.append(_POWERSHELL)
     if self_mode:
         parts.append(_SELF_MODE)
+        # R-F4321: BEFORE the guidance, and independent of it. The budget below
+        # clips CLAUDE.md to fit the model; these rules must survive that.
+        parts.append(_ESSENTIALS)
         # R-F2145/R-F2162: query the live coding RAG with the OPERATOR'S TASK as
         # the retrieval hint (was a generic static query), BEFORE the flat-file
         # guidance so semantically-retrieved knowledge takes priority.

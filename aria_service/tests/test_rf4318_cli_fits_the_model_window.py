@@ -80,18 +80,31 @@ def test_a_big_window_provider_keeps_a_big_budget(monkeypatch) -> None:
 # -- max_tokens must not eat the window ------------------------------------
 
 def test_max_tokens_cannot_exceed_the_window(monkeypatch) -> None:
-    """8192 is half the sovereign's entire context before any message exists."""
+    """8192 is half the sovereign's entire context before any message exists.
+
+    R-F4321 (C-269) — REWRITTEN because the original assertion ADMITTED THE
+    DEFECT. It read `max_tokens < max_model_len // 2 + 1`, and the `+ 1` makes
+    8192 < 8193 true: the exact value the docstring calls out as the bug passed
+    its own guard. A peer review deleted the clamp entirely and all 51 tests
+    stayed green, which is the proof that matters — one of the two causes
+    R-F4318 names was protected by nothing.
+
+    The clamp is `window // 4`, so that is what is asserted.
+    """
     monkeypatch.setenv("ARIA_CODER_LLM_MAX_TOKENS", "8192")
     c = _sovereign(monkeypatch)
-    assert c.max_tokens < c.max_model_len // 2 + 1, (
-        f"max_tokens={c.max_tokens} against a {c.max_model_len} window leaves "
-        "too little room for the conversation")
+    assert c.max_tokens <= c.max_model_len // 4, (
+        f"max_tokens={c.max_tokens} was not clamped to a quarter of the "
+        f"{c.max_model_len} window")
+    assert c.max_tokens == 4096, c.max_tokens
 
 
 def test_the_completion_reserve_leaves_room_for_messages(monkeypatch) -> None:
+    """Also rewritten: `>= 8000` was true for BOTH 8192 and 4096 on a 16,384
+    window, so it could not tell the defect from the fix either."""
     c = _sovereign(monkeypatch)
-    assert c.max_model_len - c.max_tokens >= 8000, (
-        "the conversation must get the majority of the window")
+    assert c.max_model_len - c.max_tokens >= c.max_model_len * 3 // 4, (
+        "the conversation must get at least three quarters of the window")
 
 
 # -- the compaction budget follows the model -------------------------------
@@ -103,11 +116,25 @@ def test_the_compaction_budget_is_derived_not_fixed(monkeypatch) -> None:
     from aria_cli import agent as ag
     c = _sovereign(monkeypatch)
     budget = ag.compact_budget_chars(c)
-    # room for messages, in chars (~4 chars/token)
-    assert budget <= (c.max_model_len - c.max_tokens) * 4, (
-        f"budget {budget} chars exceeds what a {c.max_model_len}-token window "
-        f"can hold alongside a {c.max_tokens}-token answer")
-    assert budget > 4000, "a budget this small would compact constantly"
+    # R-F4321 (C-269) — this assertion USED TO SHARE THE DEFECT'S ASSUMPTION.
+    # It read `budget <= (max_model_len - max_tokens) * 4`, reserving nothing
+    # for the tool schemas sent on every call, so it could never catch the very
+    # omission that let the budget overflow by 4,839 tokens. It now checks the
+    # WHOLE allocation, which is the only thing the model actually sees.
+    from aria_cli.prompt import context_budget
+    b = context_budget(window_tokens=c.max_model_len,
+                       completion_tokens=c.max_tokens)
+    total = (b["guidance_tokens"] + b["history_tokens"]
+             + b["overhead"] + b["tools"] + b["completion"])
+    assert total <= c.max_model_len, (
+        f"the full allocation is {total} tokens against a {c.max_model_len} "
+        f"window: {b}")
+    # R-F4321 — NOT an absolute floor. At a 16,384 window, once the constitution
+    # and the tool schemas are paid for, there is genuinely little room left for
+    # conversation; asserting otherwise would demand capacity the model does not
+    # have. The windows we actually serve are pinned separately below.
+    assert budget > 0
+    assert budget == max(2000, b["history_chars"])
 
 
 def test_a_large_window_still_gets_a_large_budget(monkeypatch) -> None:
@@ -115,7 +142,10 @@ def test_a_large_window_still_gets_a_large_budget(monkeypatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
     from aria_cli import agent as ag
     c = cli_llm.LLMConfig.from_env()
-    assert ag.compact_budget_chars(c) >= 100000
+    # Scaled with the window rather than a literal: the history share is now a
+    # fraction of real slack, so a fixed floor here would just re-encode one
+    # vendor's size — the defect this file exists to record.
+    assert ag.compact_budget_chars(c) >= 50000
 
 
 def test_an_explicit_override_still_wins(monkeypatch) -> None:
@@ -178,3 +208,19 @@ def test_a_second_call_without_the_override_is_unaffected(monkeypatch) -> None:
     plain = cli_llm.LLMConfig.from_env()
     assert plain.provider == "deepseek", (
         f"a later call inherited the earlier override ({plain.provider})")
+
+
+def test_the_served_windows_leave_real_room_for_conversation(monkeypatch) -> None:
+    """R-F4321 — a coding agent needs history, not just instructions.
+
+    Pinned at 32,768 (what the sovereign now serves, raised from 16,384) and
+    65,536 (DeepSeek). A 16,384-token model is genuinely marginal for this CLI
+    and that is recorded rather than asserted away.
+    """
+    from aria_cli import agent as ag
+    for window, floor in ((32768, 12000), (65536, 50000)):
+        monkeypatch.setenv("ARIA_LLM_MAX_MODEL_LEN", str(window))
+        c = _sovereign(monkeypatch, window=str(window))
+        assert ag.compact_budget_chars(c) >= floor, (
+            f"only {ag.compact_budget_chars(c)} chars of history at a {window} "
+            "window")

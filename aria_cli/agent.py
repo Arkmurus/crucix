@@ -212,10 +212,15 @@ def compact_budget_chars(cfg) -> int:
     answer = int(getattr(cfg, "max_tokens", 0) or 0)
     if window <= 0:
         return COMPACT_CHAR_BUDGET
-    # ~4 chars/token, and leave a 10% margin so the estimate erring high does
-    # not reproduce the very 400 this exists to prevent.
-    room_tokens = max(1000, window - answer)
-    return max(4000, int(room_tokens * 4 * 0.9))
+    # R-F4321 (C-269) — derive from THE budget, never a second copy of the sums.
+    # This used to compute `(window - answer) * 4 * 0.9`, which reserved nothing
+    # for the tool schemas sent on every call and used 4 chars/token after
+    # prompt.py had been measured at 3. It over-allocated history by ~7x and
+    # could re-create the very HTTP 400 R-F4318 exists to prevent.
+    from .prompt import context_budget
+
+    b = context_budget(window_tokens=window, completion_tokens=answer)
+    return max(2000, b["history_chars"])
 COMPACT_KEEP_RECENT_TOOLS = max(2, _env_int("ARIA_CODER_COMPACT_KEEP_TOOLS", 6))
 
 

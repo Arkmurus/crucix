@@ -48,22 +48,38 @@ def _guidance_files():
             yield name, p.read_text(encoding="utf-8", errors="replace")
 
 
-def test_the_binding_files_fit_the_cap():
-    """ANTI-ROT: the moment a guidance file outgrows the cap, this fails loudly.
+def test_the_injected_guidance_fits_its_budget(monkeypatch):
+    """ANTI-ROT, RESTATED against the thing that now governs.
 
-    Silent elision is what put the CLI agent on 33% of the constitution twice.
-    If this goes red, decide deliberately — raise the cap, or split the file —
-    but never let it elide unnoticed.
+    R-F4321 — this test used to compare each file against `_GUIDANCE_MAX_CHARS`,
+    and a peer review caught that it had become a guard certifying nothing:
+    `load_repo_guidance` no longer reads that constant at all (it is only the
+    explicit operator override), so the assertion stayed GREEN while CLAUDE.md
+    was being clipped to ~3,015 chars under the sovereign. A pass meant "the
+    file is under 200,000 chars", which is not a fact anyone needs.
+
+    That is the "certified by an absence" shape §1 records three times, and it
+    appeared here within hours of the code moving. The test now asserts the
+    property that actually protects the prompt: whatever is injected fits the
+    budget the model can afford.
     """
-    cap = cli_prompt._GUIDANCE_MAX_CHARS
-    oversize = {
-        name: (len(text), len(text) - cap)
-        for name, text in _guidance_files() if len(text) > cap
-    }
-    assert not oversize, (
-        f"guidance file(s) exceed _GUIDANCE_MAX_CHARS={cap} and will be ELIDED "
-        f"in the CLI system prompt {{name: (size, overflow)}}: {oversize}"
-    )
+    monkeypatch.delenv("ARIA_CODER_GUIDANCE_MAX_CHARS", raising=False)
+    monkeypatch.setenv("ARIA_LLM_MAX_MODEL_LEN", "32768")
+
+    guidance = cli_prompt.load_repo_guidance(_ROOT)
+    budget = cli_prompt.guidance_budget_chars()
+    # + a small allowance for the per-file "----- NAME -----" banners
+    assert len(guidance) <= budget + 200, (
+        f"injected guidance is {len(guidance)} chars against a {budget}-char "
+        f"budget — the prompt will overflow the window")
+
+
+def test_the_override_still_caps_when_set(monkeypatch):
+    """`_GUIDANCE_MAX_CHARS` is now ONLY the operator lever. Prove it still
+    works, rather than leaving a constant nothing reads."""
+    monkeypatch.setenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "6000")
+    guidance = cli_prompt.load_repo_guidance(_ROOT)
+    assert len(guidance) <= 6200, len(guidance)
 
 
 @pytest.mark.parametrize("marker", [
