@@ -37071,9 +37071,10 @@
       "title": "an unanswered question from ARIA to Claude becomes visible instead of stalling silently",
       "claimed_at": "2026-08-25T09:00:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "reservation destroyed by the 36ee70ff ledger overwrite; restored"
+      "status": "shipped",
+      "commit_sha": "fdec2df9",
+      "notes": "reservation destroyed by the 36ee70ff ledger overwrite; restored",
+      "shipped_at": "2026-08-25T09:10:04Z"
     },
     {
       "r_number": "R-F4317",
