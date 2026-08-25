@@ -145,6 +145,68 @@ SOVEREIGN_MAX_TOOLS = len(SOVEREIGN_TOOL_NAMES)
 _NARROW_TOOL_PROVIDERS = frozenset({"aria-llm"})
 
 
+#: R-F4337 (C-282) — providers observed to DESCRIBE a tool call instead of
+#: emitting one. Same scope as R-F4329's content-channel recovery, for the same
+#: reason: a provider that uses the proper channel must never be second-guessed.
+_NARRATION_RETRY_PROVIDERS = frozenset({"aria-llm"})
+
+#: One re-ask, never more. A second would be a loop dressed as persistence.
+NARRATION_RETRY_LIMIT = 1
+
+#: Imperative and tiny, because that is what was MEASURED to work. On the live
+#: sovereign, "List the files in the repo root." produced a real tool_call while
+#: "can you do a full live log review ..." produced a Python code block; the
+#: register of the request, not its difficulty, decided the channel.
+NARRATION_STEER = (
+    "You described calling `{tool}` instead of calling it. "
+    "Do not write code, do not explain. Call the tool now."
+)
+
+#: NOT USED, and the reason is worth keeping. vLLM here rejects
+#: `tool_choice="required"` outright ("must either be a named tool or auto"),
+#: and a NAMED tool is supported but would pick the tool FOR her from this
+#: module's guess — measured recovery is 5/5 with her still choosing, so forcing
+#: buys nothing and would convert a wrong guess into a wrong execution.
+_TOOL_CHOICE_ON_RETRY = "auto"
+
+
+def looks_like_narrated_tool_call(content: str, offered: list[str]) -> str:
+    """Name the OFFERED tool the model described using, or "" if none.
+
+    R-F4337 (C-282). Measured live 2026-08-25: asked to review logs, the
+    sovereign returned no ``tool_calls`` and instead wrote
+
+        ```python
+        results = grep(pattern="(Error|Warning)", output_mode="content", ...)
+        ```
+
+    — a real tool, with real arguments, on the wrong channel. R-F4329 already
+    recovers the JSON-array form of this, but deliberately refuses to parse
+    prose, and it is right to: a fabricated ``run`` EXECUTES.
+
+    THIS FUNCTION THEREFORE EXTRACTS NOTHING. It only answers "did she describe
+    using a tool?" so the caller can ask her to make the call herself. The model
+    still authors every executed call, which is what keeps this outside
+    R-F4329's prohibition rather than an exception to it.
+
+    Both conditions are load-bearing, and the pair is what lets it FAIL: the
+    content must name an offered tool AND that mention must be CALL-SHAPED
+    (``name(`` or inside a fenced block). Prose that merely says "I could grep
+    for errors, shall I?" names a tool but is not call-shaped, and is left
+    alone — the same position-not-punctuation discriminator R-F4329 uses.
+    """
+    body = content or ""
+    if not body.strip() or not offered:
+        return ""
+    fenced = "```" in body
+    for name in offered:
+        if not name or name not in body:
+            continue
+        if f"{name}(" in body or fenced:
+            return name
+    return ""
+
+
 def _all_tool_names() -> set[str]:
     """Every tool the CLI can EXECUTE, regardless of what it advertises."""
     return {s["function"]["name"]
@@ -786,6 +848,8 @@ class Agent:
     def _run_turn_inner(self, steps: int, sig_counts: dict[str, int]) -> TurnResult:
         """The actual turn logic, extracted so run_turn can wrap it with a
         timeout thread."""
+        # R-F4337 (C-282) — per TURN, not per session: one re-ask per turn.
+        self._narration_retries = 0
         while steps < self.max_steps:
             # R-F1082: pull any new guidance from Claude (via the bridge) into the
             # conversation before each LLM call — real-time collaboration, mid-task.
@@ -813,6 +877,45 @@ class Agent:
                 self.ui.assistant(resp.content)
 
             if not resp.tool_calls:
+                # R-F4337 (C-282) — a turn that ends here with "tools: 0 calls"
+                # was, on the sovereign, usually a tool call written into prose.
+                # Re-ask ONCE, imperatively; she authors the call, we never
+                # synthesise one (R-F4329: a fabricated `run` EXECUTES).
+                narrated = ""
+                if (self._narration_retries < NARRATION_RETRY_LIMIT
+                        and self._all_schemas
+                        and (getattr(getattr(self.llm, "config", None),
+                                     "provider", "") or "").strip().lower()
+                        in _NARRATION_RETRY_PROVIDERS):
+                    narrated = looks_like_narrated_tool_call(
+                        resp.content,
+                        [sc["function"]["name"] for sc in self._all_schemas])
+                if narrated:
+                    self._narration_retries += 1
+                    self.ui.info(
+                        f"[R-F4337] '{narrated}' was described, not called - "
+                        f"re-asking once")
+                    # THE NARRATION MUST LEAVE THE HISTORY. Measured live on the
+                    # sovereign across 5 narrated turns: steering with the
+                    # narration still in context recovered 0/5; removing it and
+                    # re-stating the request recovered 5/5, each with the RIGHT
+                    # tool (grep, grep, run, list_dir, list_dir). Same mechanism
+                    # as the operator's byte-identical repeats — at temperature 0
+                    # she copies her own last answer, so leaving it there asks
+                    # her to write it again.
+                    self.messages.pop()
+                    if self.messages and self.messages[-1].get("role") == "user":
+                        original = self.messages.pop().get("content") or ""
+                        steer = NARRATION_STEER.format(tool=narrated)
+                        self.messages.append(
+                            {"role": "user",
+                             "content": original.rstrip() + "\n\n" + steer})
+                    else:
+                        # Narration after tool results: nothing to re-state.
+                        self.messages.append(
+                            {"role": "user",
+                             "content": NARRATION_STEER.format(tool=narrated)})
+                    continue
                 return TurnResult(final_text=resp.content, steps=steps)
 
             # R-F1045: pre-count tool calls so we can show step context

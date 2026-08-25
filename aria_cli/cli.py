@@ -57,6 +57,7 @@ from . import __version__
 from . import brain as brain_mod
 from .agent import Agent, AgentUI
 from .llm import LLMClient, LLMConfig
+from .model_identity import session_model_identity  # R-F4335 (C-281)
 from .prompt import (build_compact_system_prompt, build_system_prompt,
                      compact_prompt_active)
 from .safety import WriteGuard
@@ -1978,8 +1979,29 @@ def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
         dir_short = ell + dir_short[-59:]
     print()
     print(f"  {color.cyan('ARIA')} {color.dim('v' + __version__)}  {color.dim(dir_short)}")
-    print(f"  {color.dim(f'{cfg.provider}/{cfg.model}  {dot}  {mode}  {dot}  brain:{brain}  {dot}  {approval}')}")
+    # R-F4335 (C-281) — the banner used to NAME a model without ever checking the
+    # endpoint served it. Live 2026-08-25 it printed `aria-llm/aria-llm-v0.4-dpo`
+    # while a name collision meant the untuned BASE model answered every request.
+    # A label is a claim; this is the evidence for it.
+    ident = session_model_identity(
+        provider=cfg.provider, base_url=cfg.base_url, model=cfg.model,
+        api_key=cfg.api_key, self_mode=self_mode)
+    if ident is None:
+        model_tag = f"{cfg.provider}/{cfg.model}"
+    elif ident.healthy:
+        model_tag = f"{cfg.provider}/{cfg.model} {color.green('verified')}"
+    elif ident.is_breach:
+        model_tag = f"{cfg.provider}/{cfg.model} {color.red('UNVERIFIED')}"
+    else:
+        # `unknown` is COULD NOT MEASURE and is never dressed as health (§1).
+        model_tag = f"{cfg.provider}/{cfg.model} {color.dim('unverified')}"
+    print(f"  {model_tag}  {color.dim(f'{dot}  {mode}  {dot}  brain:{brain}  {dot}  {approval}')}")
     print(f"  {color.dim(bx.h * 40)}")
+    if ident is not None and ident.is_breach:
+        # Loud, and it must stay loud: a warning the operator can miss is how a
+        # dead fine-tune served for a whole session without anyone noticing.
+        print(f"  {color.red('! MODEL NOT VERIFIED')} {color.dim('- ' + ident.detail)}")
+        print(f"  {color.dim('  answers below come from an unintended model.')}")
     print()
 
 
