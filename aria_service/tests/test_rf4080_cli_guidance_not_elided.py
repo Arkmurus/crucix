@@ -71,19 +71,121 @@ def test_the_binding_files_fit_the_cap():
     "proprioception",        # §25 — middle (the section that exposed this)
     "CURE MODE",             # §26 — tail
 ])
-def test_load_repo_guidance_carries_head_middle_and_tail(marker):
+def test_load_repo_guidance_carries_head_middle_and_tail(marker, monkeypatch):
     """The whole file must survive, not just its ends.
 
     Head-and-tail clipping is the right FALLBACK, but it silently dropped the
     operating core. Probing all three regions is what distinguishes "injected"
     from "injected whole".
+
+    R-F4319 (C-267) — NOW SCOPED TO A WINDOW THAT CAN ACTUALLY HOLD IT, and the
+    scoping is the honest half of a collision this guard exposed.
+
+    R-F4080 asserted an unconditional property: the constitution reaches the
+    agent whole. That was right against the defect it was written for — a FIXED
+    cap eliding text the model had ample room for. It is not achievable at all
+    sizes: CLAUDE.md alone is ~33,135 tokens, and the sovereign's window is
+    16,384. No cap can make 33,135 fit in 16,384; that is arithmetic, not a bug.
+
+    So the two causes of elision are now distinguished, because they demand
+    opposite responses:
+      * elided though the model had ROOM  -> a stale constant. Still fails here.
+      * elided because the model CANNOT hold it -> unavoidable; must be
+        proportional and MARKED, which the companion test below pins.
+
+    Pinning the large-window case keeps this guard able to fail: if the budget
+    ever stops tracking the window, DeepSeek-class sessions lose the operating
+    core again and this goes red exactly as it did in 2026-08-16.
+    ⚠️ READ THIS BEFORE TRUSTING A GREEN RUN HERE. Since R-F4319 this test can
+    pass because the marker appears in the injected TABLE OF CONTENTS rather
+    than in the section BODY. That is a genuinely weaker guarantee than the one
+    R-F4080 wrote, and it is stated out loud because a guard that quietly
+    certifies less than its name claims is the exact shape §1 records three
+    times. What it now proves is that no section is INVISIBLE — the agent can
+    see the rule exists and `read_file` it. The companion test below pins the
+    stronger property where the window can still afford it.
     """
+    # A DeepSeek-class window — the largest we actually serve.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    monkeypatch.delenv("ARIA_LLM_MAX_MODEL_LEN", raising=False)
+    monkeypatch.delenv("ARIA_CODER_GUIDANCE_MAX_CHARS", raising=False)
+
     guidance = cli_prompt.load_repo_guidance(_ROOT)
     assert guidance, "no guidance loaded at all"
     assert marker in guidance, (
-        f"{marker!r} is missing from the injected guidance — the constitution "
-        f"is being elided before it reaches the CLI agent"
+        f"{marker!r} is missing from the injected guidance entirely — not even "
+        f"named in the contents. The agent cannot know the rule exists, which "
+        f"is worse than eliding its body."
     )
+
+
+@pytest.mark.parametrize("marker", [
+    "R-number discipline", "proprioception", "CURE MODE",
+])
+def test_the_section_bodies_survive_when_the_window_can_afford_them(marker,
+                                                                    monkeypatch):
+    """R-F4080's ORIGINAL, stronger property, pinned where it is still reachable.
+
+    Given a window large enough to hold the constitution, the section BODIES —
+    not merely their headings — must arrive. This is what stops the budget
+    derivation from silently degrading into "ship a table of contents" on a
+    model that had room for the real thing.
+    """
+    monkeypatch.delenv("ARIA_CODER_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("ARIA_CODER_GUIDANCE_MAX_CHARS", raising=False)
+    monkeypatch.setenv("ARIA_LLM_MAX_MODEL_LEN", "200000")
+
+    guidance = cli_prompt.load_repo_guidance(_ROOT)
+    assert "ELIDED" not in guidance, (
+        "the constitution was clipped on a window with ample room for it")
+    assert marker in guidance
+
+
+def test_a_small_window_elides_proportionally_and_says_so(monkeypatch):
+    """R-F4319 — the unavoidable case must stay HONEST.
+
+    When the model cannot hold the constitution, three things must hold, and
+    none of them is 'ship it anyway and let the server 400':
+
+      1. the guidance is smaller than the file (it really was clipped),
+      2. BOTH files survive in some form — a budget that spends everything on
+         CLAUDE.md and drops AGENTS.md entirely would silently lose laws 11-20,
+      3. the elision is MARKED, so the agent knows to read the full file rather
+         than concluding the rule does not exist.
+
+    (3) is what stops a clipped constitution from reading as a complete one —
+    the same absence-reads-as-present shape this repo keeps paying for.
+    """
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "aria-llm")
+    monkeypatch.setenv("ARIA_LLM_MAX_MODEL_LEN", "16384")
+    monkeypatch.delenv("ARIA_CODER_GUIDANCE_MAX_CHARS", raising=False)
+
+    guidance = cli_prompt.load_repo_guidance(_ROOT)
+    claude_len = len((_ROOT / "CLAUDE.md").read_text(encoding="utf-8",
+                                                     errors="replace"))
+    assert 0 < len(guidance) < claude_len, "expected clipping at a 16k window"
+    assert "CLAUDE.md" in guidance and "AGENTS.md" in guidance, (
+        "one file was dropped entirely instead of sharing the budget")
+    assert "ELIDED" in guidance, (
+        "clipped guidance must say so, or the agent reads a partial "
+        "constitution as a complete one")
+
+
+def test_the_budget_tracks_the_window_rather_than_a_constant(monkeypatch):
+    """The anti-rot property, restated for the derived budget.
+
+    R-F4080's lesson was that a FIXED cap rots by construction — it had already
+    rotted twice (16000, then 40000). A budget that moves with the model cannot
+    rot that way, and this asserts it actually moves.
+    """
+    monkeypatch.delenv("ARIA_CODER_GUIDANCE_MAX_CHARS", raising=False)
+    small = cli_prompt.guidance_budget_chars(window_tokens=16384,
+                                             completion_tokens=4096)
+    large = cli_prompt.guidance_budget_chars(window_tokens=65536,
+                                             completion_tokens=8192)
+    assert large > small * 4, (
+        f"the budget is not tracking the window (small={small}, large={large})")
 
 
 def test_clip_still_elides_when_genuinely_over_cap():

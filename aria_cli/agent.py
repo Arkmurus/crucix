@@ -188,6 +188,34 @@ NO_PROGRESS_ABORT = max(12, _env_int("ARIA_CODER_NO_PROGRESS_ABORT", 40))
 # keeping recent tool results and ALL reasoning intact. Non-destructive of the
 # conversation structure, so tool_call/response pairing stays valid.
 COMPACT_CHAR_BUDGET = max(40000, _env_int("ARIA_CODER_COMPACT_CHARS", 180000))
+
+
+def compact_budget_chars(cfg) -> int:
+    """Chars of history to allow before compacting, DERIVED from the model.
+
+    R-F4318 (C-266). The constant above is ~45k tokens - correct for
+    deepseek-chat (~64K) and fatal for the 16,384-token sovereign, which
+    answered "requested 71611 tokens (63419 in the messages, 8192 in the
+    completion)". A budget that does not know the model is a budget for one
+    vendor.
+
+    An explicit ARIA_CODER_COMPACT_CHARS still wins: deriving a default is not
+    the same as removing the operator's lever.
+    """
+    override = (os.getenv("ARIA_CODER_COMPACT_CHARS") or "").strip()
+    if override:
+        try:
+            return max(4000, int(override))
+        except (TypeError, ValueError):
+            pass
+    window = int(getattr(cfg, "max_model_len", 0) or 0)
+    answer = int(getattr(cfg, "max_tokens", 0) or 0)
+    if window <= 0:
+        return COMPACT_CHAR_BUDGET
+    # ~4 chars/token, and leave a 10% margin so the estimate erring high does
+    # not reproduce the very 400 this exists to prevent.
+    room_tokens = max(1000, window - answer)
+    return max(4000, int(room_tokens * 4 * 0.9))
 COMPACT_KEEP_RECENT_TOOLS = max(2, _env_int("ARIA_CODER_COMPACT_KEEP_TOOLS", 6))
 
 
@@ -285,7 +313,8 @@ class Agent:
         pairing stays valid. Returns chars reclaimed. ``force`` ignores the budget
         (used by the manual /compact)."""
         total = sum(len(str(m.get("content") or "")) for m in self.messages)
-        if not force and total <= COMPACT_CHAR_BUDGET:
+        budget = compact_budget_chars(getattr(self.llm, "config", None))
+        if not force and total <= budget:
             return 0
         tool_idxs = [i for i, m in enumerate(self.messages) if m.get("role") == "tool"]
         if len(tool_idxs) <= COMPACT_KEEP_RECENT_TOOLS:

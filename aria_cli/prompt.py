@@ -43,21 +43,184 @@ from pathlib import Path
 # ONCE per session, not per turn.
 _GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "200000"))
 
+# R-F4319 (C-267) — 200,000 chars ROTTED THE OTHER WAY, and it took a third
+# reading of the same shape to see it.
+#
+# R-F2160 raised the cap from 16,000 and R-F4080 from 40,000, each because a
+# growing CLAUDE.md was being silently elided. Both were right. But a cap only
+# ever asked "does the FILE fit under it?" and never "does the PROMPT fit the
+# MODEL?" — and the moment the CLI was pointed at the 16,384-token sovereign the
+# answer was no, by a factor of three:
+#
+#     system prompt   188,814 chars  ~47,203 tokens
+#     tool schemas     15,486 chars  ~ 3,871 tokens
+#     window                           16,384 tokens
+#
+# vLLM answered HTTP 400 on `status` — the first command, no history — so it was
+# never accumulated conversation, and compaction could never have helped: it
+# stubs old TOOL OUTPUT, and the hog is the prompt itself.
+#
+# This is the same defect as COMPACT_CHAR_BUDGET=180000 and max_tokens=8192
+# (R-F4318): a constant that silently encodes one vendor's capacity. The window
+# is a property of the MODEL, so the budget is derived from the model.
+#
+# The budget below is the TOTAL for all guidance, distributed proportionally in
+# `load_repo_guidance` rather than applied as a flat per-file cap. A flat cap is
+# what forced the choice between clipping CLAUDE.md (132,540 chars) and letting
+# AGENTS.md (37,308) sit far under its share; proportional distribution spends
+# whatever room exists where the text actually is.
+
+#: Room the tool schemas need. Measured 15,486 chars for the live tool set.
+_TOOL_SCHEMA_RESERVE_TOKENS = 4000
+#: Room for the conversation itself — a prompt that fits with nothing left to
+#: say has not fitted.
+_CONVERSATION_RESERVE_TOKENS = 2000
+#: Everything in the system prompt that is NOT guidance (identity, operating
+#: contract, RAG block, environment). Measured ~18,966 chars.
+_PROMPT_OVERHEAD_TOKENS = 5000
+#: Never ship an EMPTY constitution: elided rules beat no rules.
+_GUIDANCE_FLOOR_CHARS = 2000
+#: MEASURED against the served tokenizer 2026-08-25 (vLLM /tokenize), not
+#: assumed. The usual "4 chars per token" rule of thumb is ~25% optimistic for
+#: markdown and code, and that gap IS the overflow:
+#:
+#:     CLAUDE.md   132,540 chars -> 42,778 tok  = 3.10 chars/tok
+#:     AGENTS.md    37,308 chars -> 10,964 tok  = 3.40
+#:     system prompt 71,363 chars -> 22,241 tok = 3.21
+#:     tool schemas   7,147 chars ->  1,936 tok = 3.69
+#:
+#: A budget computed at 4 produced a prompt of 28,264 tokens against a 32,768
+#: window and 400'd live. 3 sits below the lowest measured ratio, so the budget
+#: errs toward fitting - the direction that fails safe.
+_CHARS_PER_TOKEN = 3
+
+
+def model_window_tokens() -> tuple[int, int]:
+    """(context window, completion reserve) for the model actually in use.
+
+    ARIA_LLM_MAX_MODEL_LEN is consulted FIRST, and that ordering is load-bearing
+    rather than a convenience. It is the authoritative statement of the served
+    window — it must match the vLLM `--max-model-len` — and reading it needs no
+    config object, so it still answers when the config cannot be built.
+
+    That case is real and this fix originally got it wrong. `LLMConfig.from_env`
+    RAISES for provider 'aria-llm' with no ARIA_LLM_URL ("Refusing to fall back
+    to another model"), which is correct of it. But catching that and falling
+    back to a large window handed a MISCONFIGURED sovereign the biggest budget
+    of all — 169,894 chars of guidance into a 16,384-token window, i.e. exactly
+    the overflow this function exists to prevent, reached through its own error
+    path. A fallback must not be more permissive than the thing it stands in for.
+
+    Otherwise resolved through `LLMConfig.from_env` so there is ONE answer to
+    "how big is the window"; a second copy would drift from the client that has
+    to live with it. Imported lazily — `agent` imports both modules and a
+    top-level import would make the cycle. Only when NOTHING states a window do
+    we assume a large one, because a budget that collapses on an unreadable
+    config would strip the constitution for no reason.
+    """
+    def _completion_for(win: int) -> int:
+        # Mirrors llm.py's clamp: at most a quarter of the window for the answer.
+        try:
+            want = int((os.getenv("ARIA_CODER_LLM_MAX_TOKENS") or "8192").strip())
+        except (TypeError, ValueError):
+            want = 8192
+        return max(256, min(want, win // 4))
+
+    try:
+        explicit = int((os.getenv("ARIA_LLM_MAX_MODEL_LEN") or "").strip())
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit >= 512:
+        return explicit, _completion_for(explicit)
+
+    try:
+        from aria_cli.llm import LLMConfig  # local: avoids an import cycle
+
+        cfg = LLMConfig.from_env()
+        return int(cfg.max_model_len), int(cfg.max_tokens)
+    except Exception:  # noqa: BLE001
+        return 65536, 8192
+
+
+def guidance_budget_chars(*, window_tokens: int | None = None,
+                          completion_tokens: int | None = None) -> int:
+    """TOTAL chars of repo guidance the model can afford, derived from its window.
+
+    An explicit ARIA_CODER_GUIDANCE_MAX_CHARS still wins — deriving a default is
+    not the same as removing the operator's lever.
+    """
+    override = (os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS") or "").strip()
+    if override:
+        try:
+            return max(_GUIDANCE_FLOOR_CHARS, int(override))
+        except (TypeError, ValueError):
+            pass
+
+    if window_tokens is None or completion_tokens is None:
+        w, c = model_window_tokens()
+        window_tokens = window_tokens if window_tokens is not None else w
+        completion_tokens = completion_tokens if completion_tokens is not None else c
+
+    room = (int(window_tokens) - int(completion_tokens)
+            - _TOOL_SCHEMA_RESERVE_TOKENS
+            - _CONVERSATION_RESERVE_TOKENS
+            - _PROMPT_OVERHEAD_TOKENS)
+    return max(_GUIDANCE_FLOOR_CHARS, room * _CHARS_PER_TOKEN)
+
+
+def _guidance_toc(text: str) -> list[str]:
+    """Markdown section headings, in order. Cheap: ~40 lines for CLAUDE.md."""
+    return [ln.strip() for ln in text.splitlines()
+            if ln.startswith(("# ", "## ", "### "))]
+
 
 def _clip_guidance(text: str, cap: int) -> str:
     """Bound a guidance file to ``cap`` chars. Under cap → unchanged. Over cap →
-    head (60%) + elision marker + tail (40%), so neither the binding floor at the
-    top nor the operational rules at the bottom are lost."""
+    head (60%) + a marker carrying the FULL TABLE OF CONTENTS + tail (40%).
+
+    R-F4319 (C-267) — the table of contents is the part that matters now, and it
+    exists because the arithmetic changed under R-F4080's feet.
+
+    R-F4080 required the constitution to arrive WHOLE, and was right to: the
+    elided middle is the operating core (§22 verification discipline, §23
+    cross-check-before-claiming-fixed, §25 proprioception, §21e). But measured
+    against the real tokenizer, CLAUDE.md + AGENTS.md are ~53,700 tokens. With
+    tool schemas and a completion reserve that does not fit ANY window we serve
+    — not the sovereign's 32,768, and not DeepSeek's 65,536. "Inject it whole"
+    stopped being an option that exists, rather than one we chose against.
+
+    So the guarantee is weakened deliberately and in one specific way: every
+    section is at least NAMED, even when its body is elided. An agent that can
+    see "§23 Cross-check + FULL-test before any 'fixed' claim" in the contents
+    knows the rule exists and can `read_file` it. An agent shown nothing
+    concludes there is no such rule — which is the absence-reads-as-health shape
+    this repo keeps paying for, aimed at the constitution itself.
+
+    The real fix is to stop injecting the whole document and retrieve sections
+    on demand; this makes the interim state honest rather than silent.
+    """
     if len(text) <= cap:
         return text
-    head = int(cap * 0.6)
-    tail = cap - head
-    return (
-        text[:head]
-        + "\n\n…(MIDDLE ELIDED to fit — read the full file with read_file for the "
-          "complete rules)…\n\n"
-        + text[-tail:]
-    )
+
+    toc = _guidance_toc(text)
+    toc_block = ""
+    if toc:
+        toc_block = ("\nEVERY SECTION IN THIS FILE (bodies elided here — use "
+                     "read_file to pull any of them in full):\n"
+                     + "\n".join("  " + h for h in toc) + "\n")
+    marker = ("\n\n…(MIDDLE ELIDED to fit the model's context window)…\n"
+              + toc_block + "…\n\n")
+
+    room = cap - len(marker)
+    if room < 500:
+        # Not even room for the contents: fall back to the bare marker so the
+        # elision is still announced rather than silent.
+        marker = "\n\n…(MIDDLE ELIDED to fit — read the full file with read_file)…\n\n"
+        room = max(0, cap - len(marker))
+
+    head = int(room * 0.6)
+    tail = room - head
+    return text[:head] + marker + (text[-tail:] if tail > 0 else "")
 
 _IDENTITY = """You are ARIA — the Arkmurus Research Intelligence Agent — operating as an \
 autonomous coding agent on the operator's machine, alongside Claude Code. You have \
@@ -214,16 +377,32 @@ def load_repo_guidance(repo_root: Path | None) -> str:
     verify-after-fix, phase gates, the north star. Bounded; empty if absent."""
     if repo_root is None:
         return ""
-    chunks: list[str] = []
+
+    loaded: list[tuple[str, str]] = []
     for name in ("CLAUDE.md", "AGENTS.md"):
         f = repo_root / name
         if f.is_file():
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                loaded.append((name, f.read_text(encoding="utf-8", errors="replace")))
             except Exception:  # noqa: BLE001
                 continue
-            text = _clip_guidance(text, _GUIDANCE_MAX_CHARS)
-            chunks.append(f"----- {name} -----\n{text}")
+    if not loaded:
+        return ""
+
+    # R-F4319 (C-267) — spend the model's budget PROPORTIONALLY to where the
+    # text is, rather than capping each file at the same number. Under a flat
+    # cap CLAUDE.md (132,540 chars) is clipped hard while AGENTS.md (37,308)
+    # never reaches its share, so the budget is spent on room nobody needed.
+    total = sum(len(t) for _, t in loaded)
+    budget = guidance_budget_chars()
+    chunks: list[str] = []
+    for name, text in loaded:
+        if total <= budget:
+            share = len(text)          # everything fits; clip nothing
+        else:
+            share = max(_GUIDANCE_FLOOR_CHARS,
+                        int(budget * (len(text) / total)))
+        chunks.append(f"----- {name} -----\n{_clip_guidance(text, share)}")
     return "\n\n".join(chunks)
 
 

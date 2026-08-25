@@ -80,6 +80,26 @@ _PROVIDER_KEY_ENV = {
 }
 
 
+#: Context window per provider, in tokens. R-F4318 (C-266) — the CLI used to
+#: assume a large window everywhere: max_tokens defaulted to 8192 and the
+#: compaction budget to 180,000 chars, both fine for deepseek-chat (~64K) and
+#: both fatal against the 16,384-token sovereign, which answered
+#: "requested 71611 tokens (63419 in the messages, 8192 in the completion)".
+#: A window is a property of the MODEL, so it lives here rather than in a
+#: constant that silently encodes one vendor's capacity.
+_PROVIDER_WINDOWS = {
+    "deepseek":   65536,
+    "openai":     128000,
+    "groq":       131072,
+    "openrouter": 128000,
+    "mistral":    32768,
+    "ollama":     32768,
+    "aria":       32768,
+    "aria-llm":   16384,   # overridden by ARIA_LLM_MAX_MODEL_LEN
+}
+_DEFAULT_WINDOW = 65536
+
+
 class LLMError(RuntimeError):
     """Raised when the LLM endpoint is unreachable or returns an error.
 
@@ -101,6 +121,10 @@ class LLMConfig:
     base_url: str = ""
     timeout: float = 30.0
     max_tokens: int = 8192
+    #: R-F4318 — the served model's context window. MUST match the server's
+    #: --max-model-len; a value larger than the server's produces the exact
+    #: HTTP 400 this fixes.
+    max_model_len: int = _DEFAULT_WINDOW
     temperature: float = 0.0
 
     @classmethod
@@ -124,10 +148,16 @@ class LLMConfig:
         # at whatever from_env had already chosen. Asking for the sovereign model
         # and being answered by DeepSeek, with nothing in the output saying so, is
         # the failure that makes a comparison meaningless.
-        if (provider_override or "").strip():
-            os.environ["ARIA_CODER_LLM_PROVIDER"] = provider_override.strip()
+        # R-F4318 (C-266) — the override is APPLIED, never EXPORTED. The first
+        # version of this wrote provider_override into os.environ, which made
+        # reading the config mutate the process: every later caller in the same
+        # process inherited the override, and it leaked across test boundaries
+        # (it broke a peer's sub-agent test that passes in isolation). A getter
+        # with a side effect on global state is a defect regardless of whether
+        # the value is right.
         provider = (
-            os.getenv("ARIA_CODER_LLM_PROVIDER")
+            (provider_override or "").strip()
+            or os.getenv("ARIA_CODER_LLM_PROVIDER")
             or os.getenv("LLM_PROVIDER")
             or ("deepseek" if os.getenv("DEEPSEEK_API_KEY") else "aria")
         ).strip().lower()
@@ -200,6 +230,24 @@ class LLMConfig:
 
         timeout = float(os.getenv("ARIA_CODER_LLM_TIMEOUT", "30"))
         max_tokens = int(os.getenv("ARIA_CODER_LLM_MAX_TOKENS", "8192"))
+
+        # R-F4318 (C-266) — the window is the MODEL's, so read it from the model.
+        # ARIA_LLM_MAX_MODEL_LEN must match the vLLM --max-model-len; everything
+        # else falls back to a per-provider default rather than one global
+        # constant that assumes the largest vendor.
+        try:
+            _win = int((os.getenv("ARIA_LLM_MAX_MODEL_LEN") or "").strip())
+        except (TypeError, ValueError):
+            _win = 0
+        if _win < 512:
+            _win = _PROVIDER_WINDOWS.get(provider, _DEFAULT_WINDOW)
+
+        # Reserve at most a QUARTER of the window for the answer. 8192 against a
+        # 16,384 window is half the context gone before a single message exists,
+        # which is how an empty conversation still overflowed.
+        _cap = max(256, _win // 4)
+        if max_tokens > _cap:
+            max_tokens = _cap
         return cls(
             provider=provider,
             api_key=api_key,
@@ -207,6 +255,7 @@ class LLMConfig:
             base_url=base_url,
             timeout=timeout,
             max_tokens=max_tokens,
+            max_model_len=_win,
         )
 
     @property
@@ -229,6 +278,119 @@ class LLMResponse:
     raw_message: dict = field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
+
+
+#: Mistral's chat template enforces two rules that vLLM rejects with HTTP 400,
+#: and BOTH are invisible until a real tool loop runs. Measured live against the
+#: sovereign endpoint 2026-08-25:
+#:
+#:   consecutive same-role messages
+#:     -> "After the optional system message, conversation roles must alternate
+#:         user/assistant/user/assistant/..."
+#:   any tool-call id that is not exactly 9 alphanumeric chars
+#:     -> "Tool call IDs should be alphanumeric strings with length 9!"
+#:
+#: The second is the one that bites hardest: our ids look like "call_abc12345"
+#: (13) or "c1" (2), so EVERY tool round-trip 400s - the CLI could call a tool
+#: once and never feed the result back. She emits valid ids herself; it is the
+#: ids we echo back that are rejected.
+_MISTRAL_TOOL_ID_LEN = 9
+
+
+def _mistral_tool_id(raw: str) -> str:
+    """A stable 9-char alphanumeric id derived from ``raw``.
+
+    Deterministic so the id on an assistant ``tool_calls`` entry and the one on
+    the matching ``tool`` message map to the SAME value - rewriting them
+    independently would break the pairing and trade one 400 for another.
+    """
+    import hashlib
+
+    if len(raw) == _MISTRAL_TOOL_ID_LEN and raw.isalnum():
+        return raw
+    return hashlib.md5(raw.encode("utf-8", "replace")).hexdigest()[:_MISTRAL_TOOL_ID_LEN]
+
+
+def _mistral_contract(messages: list[dict]) -> list[dict]:
+    """Return a COPY of ``messages`` satisfying Mistral's chat-template contract.
+
+    Applied only for the sovereign provider (see `chat`). Two repairs:
+
+      1. consecutive same-role turns are MERGED rather than dropped. Dropping
+         one would silently discard something the user or the model actually
+         said; merging preserves every token and only loses the turn boundary.
+      2. tool-call ids are rewritten to 9 alphanumeric chars, consistently
+         across the assistant entry and its matching tool result.
+
+    Pure: does not mutate the input.
+    """
+    # -- 1. ids ------------------------------------------------------------
+    fixed: list[dict] = []
+    for m in messages:
+        m = dict(m)
+        calls = m.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            new_calls = []
+            for c in calls:
+                c = dict(c)
+                if c.get("id"):
+                    c["id"] = _mistral_tool_id(str(c["id"]))
+                new_calls.append(c)
+            m["tool_calls"] = new_calls
+        if m.get("tool_call_id"):
+            m["tool_call_id"] = _mistral_tool_id(str(m["tool_call_id"]))
+        fixed.append(m)
+
+    # -- 2. hoist stray system turns --------------------------------------
+    # Mistral allows ONE system message and only in the leading position
+    # ("After the optional system message, ..."). The agent appends a second one
+    # MID-CONVERSATION: `agent.py` injects the code-RAG block as a system turn
+    # after the user's task, so the very first real CLI run 400'd even with the
+    # alternation merge below in place — every unit test passed and the live
+    # path still failed, which is why §23 requires the operator's actual path.
+    #
+    # Hoisting rather than dropping or re-roling: the block is instruction, it
+    # stays instruction, and every character survives.
+    sys_parts = [(m.get("content") or "") for m in fixed if m.get("role") == "system"]
+    if len(sys_parts) > 1 or (sys_parts and fixed and fixed[0].get("role") != "system"):
+        rest = [m for m in fixed if m.get("role") != "system"]
+        merged = "\n\n".join(p for p in sys_parts if p).strip()
+        fixed = ([{"role": "system", "content": merged}] if merged else []) + rest
+
+    # -- 3. alternation ----------------------------------------------------
+    out: list[dict] = []
+    for m in fixed:
+        role = m.get("role")
+        if role in ("user", "assistant") and out and out[-1].get("role") == role:
+            prev = out[-1]
+            a, b = prev.get("content") or "", m.get("content") or ""
+            prev["content"] = (a + "\n\n" + b).strip() if (a and b) else (a or b)
+            # A single assistant turn may legitimately request several tools;
+            # concatenating keeps every call rather than losing the later ones.
+            pc, mc = prev.get("tool_calls") or [], m.get("tool_calls") or []
+            if pc or mc:
+                prev["tool_calls"] = list(pc) + list(mc)
+        else:
+            out.append(m)
+    return out
+
+
+def _wire_messages(messages: list[dict], provider: str) -> list[dict]:
+    """The ONE thing that prepares a message array for the wire.
+
+    Both the blocking and the streaming path call this, deliberately: §13's
+    stream-bypass rule exists because a guard added to one path and not the
+    other is the repeat failure in this repo, and a tool loop that 400s only
+    when streaming would be near-impossible to attribute.
+
+    The Mistral repair is scoped to the sovereign provider because it IS the
+    sovereign endpoint's constraint; DeepSeek accepts the unrepaired array and
+    merging its turns would lose information for no reason.
+    """
+    msgs = _sanitize_messages(messages)          # R-F1290 tool-call contract
+    if (provider or "").strip().lower() == "aria-llm":
+        msgs = _mistral_contract(msgs)           # R-F4320 Mistral template
+    return msgs
 
 
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -320,7 +482,7 @@ class LLMClient:
 
         payload: dict = {
             "model": self.config.model,
-            "messages": _sanitize_messages(messages),  # R-F1290
+            "messages": _wire_messages(messages, self.config.provider),
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
         }
@@ -519,7 +681,7 @@ class LLMClient:
 
         payload: dict = {
             "model": self.config.model,
-            "messages": _sanitize_messages(messages),  # R-F1290
+            "messages": _wire_messages(messages, self.config.provider),
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
             "stream": True,
