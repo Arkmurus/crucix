@@ -3177,6 +3177,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-283",
+      "title": "Mistral chat template silently discards the system turn at SFT render",
+      "claimed_at": "2026-08-25T23:37:40Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

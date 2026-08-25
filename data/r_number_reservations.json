@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4338,
+  "next_available": 4339,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37261,6 +37261,15 @@
       "r_number": "R-F4337",
       "title": "re-ask once when the sovereign narrates a tool instead of calling it",
       "claimed_at": "2026-08-25T23:28:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4338",
+      "title": "fold the system turn into the user turn so SFT actually learns it (C-281)",
+      "claimed_at": "2026-08-25T23:37:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
