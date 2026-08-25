@@ -3132,6 +3132,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-278",
+      "title": "a self-hosted primary is cooled out of its own chain by transient blips",
+      "claimed_at": "2026-08-25T13:02:53Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

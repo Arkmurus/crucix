@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4330,
+  "next_available": 4331,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37189,6 +37189,15 @@
       "r_number": "R-F4329",
       "title": "recover tool calls the sovereign emits as content JSON (C-277)",
       "claimed_at": "2026-08-25T12:33:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4330",
+      "title": "no request-driven cooldown for a self-hosted provider (C-278)",
+      "claimed_at": "2026-08-25T13:02:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
