@@ -3141,6 +3141,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-279",
+      "title": "the open-book eval scores questions whose context supports nothing",
+      "claimed_at": "2026-08-25T23:00:02Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
