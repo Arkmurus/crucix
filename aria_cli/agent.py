@@ -534,6 +534,42 @@ class Agent:
         t = (task_text or "").strip()
         if len(t) < 8 or t.lower() in {"continue", "go", "ok", "yes", "y"}:
             return
+
+        # R-F4328 (C-276) — NOT ON A MODEL THIS BLOCK DISABLES.
+        #
+        # R-F4325 gave the sovereign a 344-char system prompt because a
+        # 20,885-char one destroyed her tool-calling. This block is ~4,200
+        # chars and Mistral's contract hoists every system turn into one
+        # leading block, so injecting it here undid that fix on the very next
+        # turn. Measured live, five tasks, correct-tool scoring:
+        #
+        #     no RAG        (  344 ch total) -> 3/5
+        #     200 ch of RAG (  546 ch total) -> 2/5
+        #     800 ch        (1,146 ch total) -> 1/5
+        #     1,500 ch      (1,846 ch total) -> 0/5
+        #     full 4,198 ch (4,544 ch total) -> 1/5
+        #
+        # A SKIP, NOT A CAP: 200 chars already costs a task, so trimming is
+        # just a slower route to the same failure. The operator saw her answer
+        # a log-review request with a ```python block CALLING grep() as source
+        # code and zero tool calls — she could not reach the tool-call channel.
+        #
+        # What is lost is redundancy, not the constitution: the compact prompt
+        # already carries R-number-before-code, root-cause-not-band-aid,
+        # verify-before-claiming and never-delete. A model given every rule
+        # that can no longer ACT on any of them is strictly worse.
+        #
+        # Tied to compact_prompt_active — the SAME predicate R-F4325 uses — so
+        # the two halves cannot drift, and a future checkpoint that no longer
+        # needs the compact prompt gets its RAG back with no code change.
+        try:
+            from .prompt import compact_prompt_active
+            _provider = getattr(getattr(self.llm, "config", None), "provider", "")
+            if compact_prompt_active(_provider):
+                return
+        except Exception:  # noqa: BLE001 — never break the turn over this
+            pass
+
         try:
             from .prompt import _query_coding_rag
             block = _query_coding_rag(t[:500])
