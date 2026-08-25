@@ -50,4 +50,9 @@ def test_rf2060_reserve_and_ship_use_running_interpreter():
     box.reserve_r_number("rf2060 capability test")
     assert sys.executable in tb.calls[-1], tb.calls[-1]
     box.ship_r_number("R-F0000", "deadbeef")
-    assert sys.executable in tb.calls[-1], tb.calls[-1]
+    # R-F2162's _record_shipped_fix may append a `git log` side-effect call after
+    # the ship command, so assert the SHIP command (the one invoking the admin
+    # script) uses the running interpreter rather than assuming it is last.
+    ship_cmds = [c for c in tb.calls if "reserve_r_number.py" in c and " ship " in c]
+    assert ship_cmds, "ship_r_number should have issued a ship command"
+    assert sys.executable in ship_cmds[-1], ship_cmds[-1]

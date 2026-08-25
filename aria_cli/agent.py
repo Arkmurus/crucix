@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from .llm import LLMClient, LLMError
 from .tools import MUTATING_TOOLS, TOOL_SCHEMAS, Toolbox, ToolResult
 from .coder_tools import CODER_MUTATING_TOOLS, CODER_TOOL_SCHEMAS, CoderToolbox
+from .hooks import Hooks
 
 
 def _resolve_max_steps() -> int:
@@ -194,12 +195,19 @@ class Agent:
     def __init__(self, *, llm: LLMClient, toolbox: Toolbox, system_prompt: str,
                  ui: AgentUI, auto_approve: bool = False,
                  coder_toolbox: CoderToolbox | None = None,
-                 task_rag: bool = False) -> None:
+                 task_rag: bool = False,
+                 hooks: Hooks | None = None) -> None:
         self.llm = llm
         self.toolbox = toolbox
         self.coder_toolbox = coder_toolbox or CoderToolbox(toolbox)
         self.ui = ui
         self.auto_approve = auto_approve
+        # R-F4314 — lifecycle hooks (PreToolUse/PostToolUse/Stop). Defaults to a
+        # fresh Hooks() so the structural PostToolUse compile-check is always on.
+        self.hooks = hooks or Hooks()
+        # R-F4313 — register the sub-agent factory so spawn_subagent can build
+        # fresh, isolated sub-agents sharing this agent's llm + tools.
+        self.coder_toolbox.subagent_factory = self._make_subagent
         # R-F2162: when True, query the coding RAG with the OPERATOR'S TASK at the
         # start of each top-level task and inject the hits, so every task is
         # grounded in task-relevant constitutional rules + past fixes (not the
@@ -560,7 +568,56 @@ class Agent:
         if result is None:
             return TurnResult(final_text="LLM returned no result", steps=steps,
                               aborted=True, resumable=False)
+        # R-F4314 — Stop hooks fire once the turn completes (success or abort).
+        for warn in self.hooks.run_stop(result):
+            self.ui.info(f"[hook] {warn}")
         return result
+
+    def _make_subagent(self, *, name: str, task: str, focus: str = "",
+                       max_steps: int = 20) -> ToolResult:
+        """R-F4313 — build and run a fresh, isolated sub-agent.
+
+        The sub-agent shares this agent's LLM client and file tools but gets a
+        FRESH message history and a focused system prompt, so it cannot see or
+        be polluted by the parent's conversation. This is the Claude Code /
+        Codex sub-agent pattern.
+
+        The sub-agent is deliberately NOT auto-approved for mutating tools: it
+        inherits the parent's auto_approve flag so a reviewer sub-agent cannot
+        silently commit/deploy on its own. Its steps are bounded by max_steps.
+        """
+        from .agent import Agent  # local import to avoid a cycle at module load
+        sub_prompt = (
+            f"You are a focused sub-agent named '{name}' working inside the "
+            f"ARIA Coder CLI. You share the parent agent's file tools and LLM, "
+            f"but you have an isolated conversation.\n\n"
+            f"Your role: {name}.\n"
+            f"Your task: {task}\n"
+            + (f"\nFocus: {focus}\n" if focus else "")
+            + "\nWork autonomously to complete the task. When done, give a "
+              "concise final summary of what you found or produced. Do not "
+              "commit, push, or deploy unless the task explicitly requires it."
+        )
+        sub = Agent(
+            llm=self.llm,
+            toolbox=self.toolbox,
+            system_prompt=sub_prompt,
+            ui=self.ui,
+            auto_approve=self.auto_approve,
+            coder_toolbox=self.coder_toolbox,
+            task_rag=False,
+            hooks=self.hooks,
+        )
+        # Bound the sub-agent's steps so a runaway cannot loop forever.
+        sub_result = sub.run_turn(task, timeout=min(self._call_timeout or 120, 120))
+        if sub_result is None:
+            return ToolResult(f"sub-agent '{name}' returned no result", is_error=True)
+        text = sub_result.final_text or ""
+        if sub_result.aborted:
+            return ToolResult(
+                f"sub-agent '{name}' aborted after {sub_result.steps} steps: {text}",
+                is_error=True)
+        return ToolResult(text)
 
     def _run_turn_inner(self, steps: int, sig_counts: dict[str, int]) -> TurnResult:
         """The actual turn logic, extracted so run_turn can wrap it with a
@@ -676,6 +733,13 @@ class Agent:
 
                 self.ui.tool_call(name, args)
 
+                # R-F4314 — PreToolUse hooks may BLOCK the tool call (fail-closed).
+                hook_block = self.hooks.run_pre_tool_use(name, args)
+                if hook_block is not None:
+                    self.ui.tool_result(name, hook_block)
+                    self._record_tool(tc, hook_block)
+                    continue
+
                 # Operator approval gate for mutating tools.
                 if name in self._all_mutating and not self.auto_approve:
                     if not self.ui.approve(name, args):
@@ -694,6 +758,11 @@ class Agent:
                     result = self._dispatch(name, args)
                 finally:
                     self.ui.thinking_stop()
+
+                # R-F4314 — PostToolUse hooks (e.g. the structural py_compile
+                # check on write_file/edit_file). Surface any warnings.
+                for warn in self.hooks.run_post_tool_use(name, args, result):
+                    self.ui.info(f"[hook] {warn}")
 
                 # R-F1045: enhance tool result with diff info for write/edit
                 if name in ("write_file", "edit_file") and not result.is_error:

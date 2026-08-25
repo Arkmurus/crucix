@@ -73,3 +73,33 @@ def report_session(*, task: str, success: bool, changed_files: list[str],
         return f"brain: endpoint returned HTTP {resp.status_code} (non-fatal)"
     except Exception as exc:  # noqa: BLE001 — never block on the brain
         return f"brain: unreachable, skipped ({type(exc).__name__})"
+
+
+def report_signal(*, signal_type: str, content: str, self_mode: bool,
+                  metadata: dict | None = None) -> str:
+    """Post an arbitrary brain signal (used by hooks and sub-agents).
+
+    Same best-effort contract as ``report_session``: never raises, returns a
+    short status string. ``signal_type`` is the brain signal type (e.g.
+    ``aria_cli_hook_failed``, ``aria_cli_subagent``).
+    """
+    if not brain_enabled(self_mode):
+        return "brain: not wired (general mode or no token)"
+    payload = {
+        "content": content[:800],
+        "source": "aria_cli",
+        "signal_type": signal_type,
+        "metadata": dict(metadata or {}),
+    }
+    url = f"{_service_url()}/api/aria/brain/signal"
+    try:
+        resp = httpx.post(
+            url, json=payload,
+            headers={"Authorization": f"Bearer {_token()}"},
+            timeout=8.0,
+        )
+        if resp.status_code < 400:
+            return f"brain: signal accepted ({signal_type})"
+        return f"brain: endpoint returned HTTP {resp.status_code} (non-fatal)"
+    except Exception as exc:  # noqa: BLE001 — never block on the brain
+        return f"brain: unreachable, skipped ({type(exc).__name__})"
