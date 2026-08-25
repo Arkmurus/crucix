@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4311,
+  "next_available": 4316,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -37018,6 +37018,51 @@
       "commit_sha": "df0faff8",
       "notes": null,
       "shipped_at": "2026-08-25T06:21:31Z"
+    },
+    {
+      "r_number": "R-F4311",
+      "title": "mastery grader escalates to ARIA's full reasoning with an attribution control",
+      "claimed_at": "2026-08-25T07:34:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4312",
+      "title": "Fix stale coder-safety tests asserting superseded contracts",
+      "claimed_at": "2026-08-25T07:36:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4313",
+      "title": "CLI sub-agents (spawn_subagent tool)",
+      "claimed_at": "2026-08-25T07:56:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4314",
+      "title": "CLI lifecycle hooks (PreToolUse/PostToolUse/Stop)",
+      "claimed_at": "2026-08-25T07:56:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4315",
+      "title": "CLI non-interactive JSON output mode",
+      "claimed_at": "2026-08-25T07:56:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

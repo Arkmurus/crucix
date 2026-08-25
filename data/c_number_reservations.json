@@ -2991,6 +2991,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-25T06:21:31Z"
+    },
+    {
+      "c_number": "C-263",
+      "title": "the mastery grader discarded every sample the router told it to escalate",
+      "claimed_at": "2026-08-25T07:34:40Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

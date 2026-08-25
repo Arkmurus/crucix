@@ -500,6 +500,23 @@ VALID_GAP_TYPES = frozenset({
     # R-F2644 drift test went red without appearing in the known-failure set —
     # found while registering the type above.
     "sanctions_coverage_degraded",       # intel/sanctions.py
+    # ── R-F4311 (C-263) — the escalated mastery grade ──
+    "mastery_miss",                    # tasks._grade_via_full_reasoning — ARIA
+                                       # answered from her OWN memory and it did
+                                       # not match what she had just read. A real
+                                       # recall failure, and the reason the
+                                       # escalated path is allowed to LOWER mastery:
+                                       # a grade that can only credit is an
+                                       # upward-only ratchet on a Phase A gate.
+    "mastery_unmeasured",              # same grader — the sample could NOT be
+                                       # graded (no own-memory context survived the
+                                       # anti-circularity filter, the model said
+                                       # INSUFFICIENT, an instrument failed, or the
+                                       # no-memory control scored just as well so
+                                       # the answer is not evidence about ARIA).
+                                       # Emitted deliberately: the defect C-263
+                                       # fixed was samples vanishing SILENTLY, so
+                                       # "could not measure" has to be visible.
 })
 
 

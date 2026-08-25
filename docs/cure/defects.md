@@ -16245,3 +16245,92 @@ auto-deploy of 1 honesty-critical file(s)`); and
 auto-deploy"`, which R-F2689 deliberately superseded — nothing auto-deploys until
 the evidence gate opens (`fixed 0 < 20; gold 0 < 10`). Both assert a contract a
 later, deliberate guard replaced.
+
+## C-263 · the mastery grader discarded every sample the router told it to escalate (fixed, R-F4311)
+
+`reasoning_router.try_local_reasoning` describes itself as *"the gatekeeper that
+decides whether the cloud is even needed"* and documents `answered=False` as a
+ROUTING signal meaning "no local source was confident, **escalate to the cloud**".
+`_grade_researched_question` read that instruction and **returned None**, dropping
+the sample. Measured live: `independence_ratio 0.695`, so roughly one question in
+five reached that branch and taught nothing. ARIA read the material, stored it,
+and was then graded by a stunted subset of her own mind.
+
+R-F3483 was right to stop that branch returning `False` — a routing signal is not
+a wrong answer — but it stopped at "do not record a miss" and never took the
+second step of actually escalating. The result was a learning loop that could
+only be graded by whichever narrow local intent happened to match.
+
+**Live context at the time of the fix** (`/api/aria/mastery/heatmap`, 219 sampled
+cells / 211 measured / 84 measured-weak): gate #2's floor was **0.055**
+(`compliance × latam_lusophone`), not the 0.507 CLAUDE.md §1 records, and all 20
+worst cells sat **below** the 0.5 scaffold value — driven down, not merely
+untouched. Topic means ranged `relationships 0.397` to `market_intel 0.868`, so
+this was never a uniform collapse; the gate is a **min over 219 cells**.
+
+### Why the obvious implementation would have been a trophy
+
+`kb.store_fact` runs **before** the grade in the reading loop. So handing a cloud
+model ARIA's retrieved context reads the graded document straight back out of her
+knowledge base and scores ~1.0 every time — R-F2660's participation trophy
+rebuilt one layer down, on the gate §1 forbids closing by measuring less. Two
+guards, and the fix is worthless without either:
+
+1. **Anti-circularity.** Any retrieved fact that IS the graded document
+   (`_answer_grounding(fact, document) >= 0.8`) is dropped before the model sees
+   it. Same intent as the `exclude_topic` quiz-gaming guard R-F1743/R-F1745 added
+   to `self_quiz`. If nothing survives the filter, the grade is **unmeasured** —
+   her only material on that cell was the document itself, so there is no recall
+   question to ask yet.
+2. **Attribution control.** The same question is asked a second time with **no
+   memory at all**. A frontier model answers well about European defence
+   procurement from parametric knowledge alone; crediting that would credit ARIA
+   for the vendor's education. Credit requires the with-memory answer to beat the
+   no-memory control by a margin, so what is measured is the **marginal
+   contribution of ARIA's own memory** — which is what mastery means.
+
+### The path must be able to lower mastery
+
+It returns `False` when a memory-grounded answer does not match what was read. An
+escalation that could only return True or None would be an upward-only ratchet on
+a Phase A gate — a trophy however carefully it is dressed. Everything genuinely
+unmeasurable (switch off, no provider, no surviving context, `INSUFFICIENT`, an
+instrument failure, or a control that scored just as well) stays `None`, per
+R-F3483.
+
+**RULE ONE (§17):** the grader resolves the general chain and **never names a
+provider or model**, so Anthropic — absent from the general order by the
+`preference_only_providers` default — cannot serve it. Compliance here comes from
+*not naming anyone*; a `prefer_provider` argument would reach past that default
+and put continuous autonomous grading on the paid DD pin. Pinned by a test.
+
+**Cost** is bounded by the grade budgets that already exist
+(`ARIA_READING_GRADE_BUDGET=2` per session, `_starved_grade_budget=2`,
+`fill_knowledge_gaps max_cells=5`), and only the ~30% escalate branch reaches it:
+of order 15 escalated grades/day, two completions each.
+
+**Both gap types are registered** (`mastery_miss`, `mastery_unmeasured`) so the
+signal is filterable rather than landing under a name nothing reads — the §21b
+dark condition R-F3428 records reaching by that route.
+
+⚠️ **They are deliberately NOT class-fingerprinted, and a guard caught the first
+attempt to make them so.** The initial fix added both to
+`_CLASS_FINGERPRINT_GAP_TYPES` out of a flood worry, and
+`test_rf3694_3697::test_the_collapsed_type_is_narrow` went red with the right
+reason: *"only genuinely unbounded-cardinality TELEMETRY types belong here;
+adding an actionable type would hide real work"*. It is correct. `mastery_miss`
+names **which cell** failed to recall, which is precisely the work gate #2 needs;
+collapsing it would hide that. And the flood premise did not survive measurement
+— the grade budgets above bound this at ~15/day, nothing like the per-request
+floods recorded for `sanctions_coverage_degraded` or the Brave non-DD refusals.
+Do not re-add them.
+
+**Verification.** 16 tests, RED before / GREEN after (8 failed at HEAD with the
+new tests present). Every guard mutation-tested — the fix broken on purpose, all
+ten confirmed RED, including "revert the escalate branch", "remove the
+anti-circularity filter", "always credit", "soften the miss to unmeasured", "pin
+anthropic" and "move the corpus scan onto the loop". Blast radius = the 123 test
+files touching `capability_gaps`, `autonomous.tasks`, `record_gap` or
+`reasoning_router`: **7 failures before, 7 after, zero newly red**, 1189 → 1204
+passed. `test_rf3901_gap_types_registered::test_gate_b_is_clean` also fails at
+HEAD and was attributed by running it there, not assumed.

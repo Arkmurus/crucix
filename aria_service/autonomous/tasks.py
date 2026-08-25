@@ -2655,6 +2655,193 @@ async def _grade_researched_tag(tag: str, research_text: str) -> bool | None:
     return await _grade_researched_question(question, research_text)
 
 
+# ── R-F4311 (C-263) — ARIA's FULL reasoning stack grades the escalated case ──
+#
+# `try_local_reasoning` documents `answered=False` as a ROUTING signal meaning
+# "no local source was confident, ESCALATE TO THE CLOUD" — it is, in its own
+# words, "the gatekeeper that decides whether the cloud is even needed". The
+# grader treated that signal as unmeasurable and DISCARDED the sample. Measured
+# live: independence_ratio 0.695, so roughly one question in five reached the
+# escalate branch and taught nothing. ARIA read the material, stored it, and was
+# then graded by a stunted subset of her own mind.
+#
+# THE TRAP THIS AVOIDS, and why the control condition is not optional.
+# `kb.store_fact` runs BEFORE the grade (student.py, the reading loop). So the
+# obvious implementation — hand a cloud model ARIA's retrieved context and score
+# its answer — reads the graded document straight back out of her knowledge base
+# and scores ~1.0 every time. That is R-F2660's participation trophy rebuilt one
+# layer down, on the gate CLAUDE.md §1 forbids closing by measuring less. Two
+# guards, and the fix is worthless without either:
+#
+#   1. ANTI-CIRCULARITY — any retrieved fact that IS the document being graded
+#      against is dropped from the context before the model sees it. Same intent
+#      as the `exclude_topic` quiz-gaming guard R-F1743/R-F1745 added to
+#      self_quiz ("prevent retrieving the quizzed case's own answer").
+#   2. ATTRIBUTION CONTROL — the same question is asked a second time with NO
+#      memory at all. A frontier model knows plenty about, say, European defence
+#      procurement, and would score well from parametric knowledge alone; that
+#      would credit ARIA for the vendor's education. Credit requires the
+#      with-memory answer to BEAT the no-memory answer by a margin, so what is
+#      measured is the marginal contribution of ARIA'S OWN memory — which is
+#      what mastery means.
+#
+# The path is tri-state and can LOWER mastery: a memory-grounded answer that
+# does not match what was read returns False. An escalation that could only
+# return True or None would be an upward-only ratchet on a Phase A gate, which
+# is a trophy however carefully it is dressed.
+#
+# RULE ONE (§17): this resolves the general chain and never names a provider, so
+# Anthropic — absent from the general order by the `preference_only_providers`
+# default — cannot serve it. Do not add a `prefer_provider` or `model` argument
+# here; DD's paid pin is not for grading.
+_FULL_REASONING_MARGIN = 0.15
+#: A retrieved fact this contained in the graded document IS the document.
+_CONTEXT_LEAK_THRESHOLD = 0.8
+_INSUFFICIENT_SENTINEL = "INSUFFICIENT"
+_GRADE_ANSWER_MAX_TOKENS = 300
+_GRADE_ANSWER_TIMEOUT_S = 60.0
+
+
+def _full_reasoning_grading_enabled() -> bool:
+    """Master switch. Default ON — the escalate branch taught nothing without it."""
+    return (os.getenv("ARIA_GRADE_FULL_REASONING", "1") or "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _wire_grade(outcome: str, detail: str) -> None:
+    """§21a — every branch of the escalated grade reaches the brain.
+
+    An unmeasurable grade is reported as loudly as a measurable one: the whole
+    defect being fixed here is that unmeasured samples vanished silently.
+    """
+    try:
+        from ..intel.engine_wiring import wire_success, wire_failure
+        if outcome == "recalled":
+            wire_success(module="mastery_grader", summary=f"R-F4311 {outcome}: {detail}")
+        else:
+            wire_failure(
+                module="mastery_grader",
+                detail=f"R-F4311 {outcome}: {detail}",
+                gap_type="mastery_miss" if outcome == "miss" else "mastery_unmeasured",
+                source="tasks:_grade_via_full_reasoning",
+            )
+    except Exception:
+        pass
+
+
+async def _aria_own_context(question: str, research_text: str, *, limit: int = 8) -> tuple[str, int]:
+    """ARIA's own knowledge for `question`, MINUS the document being graded.
+
+    Returns (context_block, facts_dropped_as_leaked). Uses the public
+    `search_fact_records` — the same ranked path `search_knowledge` serves — so
+    this is not a second retrieval stack. Runs in a thread: the ranking scan is
+    O(corpus) and was measured at 2.28s in C-171; it must never touch the loop.
+    """
+    from ..intel import knowledge as kb
+    records = await asyncio.to_thread(kb.search_fact_records, question, limit) or []
+    kept: list[str] = []
+    leaked = 0
+    for rec in records:
+        content = str((rec or {}).get("content") or "").strip()
+        if not content:
+            continue
+        if _answer_grounding(content, research_text) >= _CONTEXT_LEAK_THRESHOLD:
+            leaked += 1          # this fact IS the just-read document — see guard 1
+            continue
+        topic = str((rec or {}).get("topic") or "").strip()
+        kept.append((f"- {topic}: {content}" if topic else f"- {content}")[:600])
+    return "\n".join(kept), leaked
+
+
+async def _ask_once(llm, system_prompt: str, user_message: str) -> str | None:
+    """One general-chain completion. None means the INSTRUMENT failed, not a bad answer."""
+    try:
+        result = await llm.complete(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=_GRADE_ANSWER_MAX_TOKENS,
+            timeout=_GRADE_ANSWER_TIMEOUT_S,
+        )
+    except Exception:
+        return None
+    return (getattr(result, "text", "") or "").strip() or None
+
+
+async def _grade_via_full_reasoning(question: str, research_text: str) -> bool | None:
+    """Grade with ARIA's FULL stack when the local layer declined. Tri-state.
+
+    True  — she answered from her OWN memory, it matched what was read, and it
+            beat a no-memory control, so the credit is attributable to her.
+    False — she answered from her own memory and it did NOT match what was read.
+    None  — could not measure: switch off, no provider, no own-memory context
+            survived the anti-circularity filter, the model said INSUFFICIENT, an
+            instrument failed, or the control scored just as well (in which case
+            the answer is not evidence about ARIA at all).
+    """
+    if not _full_reasoning_grading_enabled():
+        return None
+    try:
+        from ..llm.structured import resolve_provider
+        llm = resolve_provider()
+        if llm is None or not getattr(llm, "is_configured", False):
+            return None
+
+        context, leaked = await _aria_own_context(question, research_text)
+        if not context:
+            # Nothing of ARIA's own survives the anti-circularity filter. That is
+            # UNMEASURED, not a miss: her only material on this cell was the
+            # document itself, so no question about recall can be asked yet.
+            _wire_grade("skipped", f"no own-memory context (leaked={leaked})")
+            return None
+
+        answer = await _ask_once(
+            llm,
+            "You are ARIA. Answer using ONLY the facts under ARIA'S MEMORY. Do not "
+            "use outside knowledge. If the memory does not contain enough to answer, "
+            f"reply with exactly {_INSUFFICIENT_SENTINEL}. Be factual and specific, "
+            "at most 120 words, no preamble.",
+            f"ARIA'S MEMORY\n{context}\n\nQUESTION\n{question}",
+        )
+        if answer is None:
+            _wire_grade("instrument_failed", "memory-grounded completion failed")
+            return None
+        if answer.strip().upper().startswith(_INSUFFICIENT_SENTINEL):
+            return None          # honest "my memory does not cover this" — not a miss
+
+        score = _answer_grounding(answer, research_text)
+
+        control = await _ask_once(
+            llm,
+            "Answer the question from your own general knowledge. Be factual and "
+            "specific, at most 120 words, no preamble.",
+            question,
+        )
+        if control is None:
+            # No baseline means no attribution. Refusing to grade is the honest
+            # move: crediting here would silently reintroduce the vendor-knowledge
+            # trophy the control exists to prevent.
+            _wire_grade("instrument_failed", "control completion failed")
+            return None
+        control_score = _answer_grounding(control, research_text)
+
+        if score < _GROUNDING_THRESHOLD:
+            _wire_grade("miss", f"own-memory answer scored {score:.2f} < {_GROUNDING_THRESHOLD}")
+            return False
+        if score - control_score < _FULL_REASONING_MARGIN:
+            _wire_grade(
+                "unattributable",
+                f"own-memory {score:.2f} vs no-memory control {control_score:.2f} — "
+                "the model knew it without her",
+            )
+            return None
+        _wire_grade("recalled", f"own-memory {score:.2f} vs control {control_score:.2f}")
+        return True
+    except Exception as exc:  # noqa: BLE001 — a grader must never raise into a loop
+        _wire_grade("instrument_failed", f"escalated grade raised: {exc}")
+        return None
+
+
 async def _grade_researched_question(question: str, research_text: str) -> bool | None:
     """The ONE honest grade. Tri-state: True / False / None (unmeasured).
 
@@ -2673,7 +2860,12 @@ async def _grade_researched_question(question: str, research_text: str) -> bool 
     except Exception:
         return None          # the instrument broke, not the knowledge
     if not local.get("answered"):
-        return None          # escalate-to-cloud signal, NOT a wrong answer
+        # R-F4311 (C-263) — this used to `return None`, discarding the sample.
+        # The router's `answered=False` is an instruction to ESCALATE, not a
+        # verdict; obeying it is the difference between grading ARIA and grading
+        # a subset of her. See the block comment above `_grade_via_full_reasoning`
+        # for the two guards that stop the escalated grade certifying itself.
+        return await _grade_via_full_reasoning(question, research_text)
     resp = local.get("response") or ""
     if not resp:
         return None
