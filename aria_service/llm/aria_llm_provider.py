@@ -120,6 +120,42 @@ def _max_model_len() -> int:
         return 32768
 
 
+def window_overflow(system: str, prompt: str) -> str:
+    """Return a reason string if the prompt CANNOT fit the served window, else "".
+
+    R-F4317 (C-265). R-F1363 clamps `max_tokens` so prompt+completion fit, and
+    its arithmetic is right for a large-but-fitting prompt. It was wrong for the
+    case that matters once every turn routes here: when the PROMPT ALONE exceeds
+    the window, `safe_max_tokens` goes NEGATIVE, the old code floored it at 256
+    and POSTED anyway, and vLLM answered HTTP 400. R-F1363's own comment records
+    the cost - it "soft-cooled the provider and failed every self-coding fix at
+    the plan step".
+
+    Measured demand is a mean 5,671 tokens/call against a 16,384 window, with
+    research_extraction at ~9,861 calls/month, so this fires in production the
+    moment the sovereign takes general traffic.
+
+    ELIGIBILITY, NOT TRUNCATION. Dropping the tail of a research extraction or a
+    DD prompt returns a confident answer computed from part of the evidence, and
+    nothing downstream can tell it happened. Failing over to a larger-window
+    provider is honest; truncating is not (readiness note item 4: "fail CLOSED
+    ... never truncate to fit").
+
+    Reserves the same 256-token answer margin the clamp uses: a "fit" with no
+    room to answer is not a fit.
+    """
+    max_model_len = _max_model_len()
+    est_prompt_tokens = (len(system) + len(prompt)) // 4 + 32
+    if est_prompt_tokens + 256 >= max_model_len:
+        return (
+            f"prompt does not fit the sovereign context window: "
+            f"~{est_prompt_tokens} prompt tokens + 256 answer margin exceeds "
+            f"{max_model_len}. Not truncating; a larger-window provider must "
+            f"take this call."
+        )
+    return ""
+
+
 # R-F3606 (2026-08-01) — R-F1360's latency ceiling, moved to the boundary that
 # OWNS it.
 #
@@ -209,6 +245,22 @@ async def complete(
     # provider and failed every self-coding fix at the plan step. We reserve the
     # estimated prompt tokens (+ a margin) out of the window so a completion
     # always fits. ARIA_LLM_MAX_MODEL_LEN must match the vLLM --max-model-len.
+    # R-F4317 (C-265) — ELIGIBILITY FIRST. If the prompt cannot fit, the
+    # sovereign is not a candidate for this call: return the ordinary not-ok
+    # result so the caller fails over, exactly as it does for an unreachable
+    # endpoint. Sending it anyway produces an HTTP 400 that cools the provider
+    # and takes the whole sovereign path down with it.
+    _overflow = window_overflow(system, prompt)
+    if _overflow:
+        logger.info("[aria_llm] not eligible: %s", _overflow)
+        return {
+            "ok":       False,
+            "provider": "aria_llm",
+            "error":    _overflow,
+            "text":     "",
+            "model":    _model_name(),
+        }
+
     max_model_len = _max_model_len()
     prompt_chars = len(system) + len(prompt)
     est_prompt_tokens = prompt_chars // 4 + 32   # ~4 chars/token + framing
@@ -326,6 +378,14 @@ async def stream(
     **_kw: Any,
 ) -> AsyncIterator[str]:
     """Streaming generator. Used for /chat/stream end-to-end."""
+    # R-F4317 (C-265) — the streaming path shares the window and must
+    # share the rule. CLAUDE.md §13: a guard added to one path and not
+    # the other is how the two forks drift. Yielding nothing lets the
+    # caller fall through to a larger-window provider.
+    _overflow = window_overflow(system, prompt)
+    if _overflow:
+        logger.info("[aria_llm] stream not eligible: %s", _overflow)
+        return
     base = _base_url()
     if not base:
         yield ""

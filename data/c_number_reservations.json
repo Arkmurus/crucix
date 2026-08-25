@@ -3012,6 +3012,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-25T08:28:54Z"
+    },
+    {
+      "c_number": "C-265",
+      "title": "a prompt exceeding the sovereign window is sent anyway instead of failing over",
+      "claimed_at": "2026-08-25T08:32:29Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4317"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-25T08:35:58Z"
     }
   ]
 }
