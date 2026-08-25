@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4317,
+  "next_available": 4318,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35301,6 +35301,16 @@
       "commit_sha": "727717a4",
       "notes": null,
       "shipped_at": "2026-08-25T08:23:15Z"
+    },
+    {
+      "r_number": "R-F4317",
+      "title": "sovereign is ineligible when the prompt cannot fit its window",
+      "claimed_at": "2026-08-25T08:32:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ed254c16",
+      "notes": null,
+      "shipped_at": "2026-08-25T08:36:53Z"
     }
   ]
 }
