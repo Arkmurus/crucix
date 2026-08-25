@@ -500,6 +500,15 @@ VALID_GAP_TYPES = frozenset({
     # R-F2644 drift test went red without appearing in the known-failure set —
     # found while registering the type above.
     "sanctions_coverage_degraded",       # intel/sanctions.py
+    # ── R-F4316 (C-264) — the teaching loop stalled and nothing said so ──
+    "collab_question_stalled",         # collab_bridge.announce_stalled_questions —
+                                       # ARIA asked Claude something and no Claude
+                                       # session has answered. Claude's side of the
+                                       # bridge is serviced only when a session runs
+                                       # the inbox, so the wait is invisible unless
+                                       # something says it out loud (§19e). Bounded:
+                                       # one gap per QUESTION, not per 2-minute
+                                       # drain, so it cannot flood the ledger.
     # ── R-F4311 (C-263) — the escalated mastery grade ──
     "mastery_miss",                    # tasks._grade_via_full_reasoning — ARIA
                                        # answered from her OWN memory and it did

@@ -185,6 +185,150 @@ async def set_cursor(reader: str, seq: int) -> bool:
         return False
 
 
+# ── R-F4316 (C-264) — an unanswered question must not stall silently ─────────
+#
+# Claude's side of this bridge is serviced only when a Claude session runs the
+# inbox. When none does, ARIA's question simply sits there. That is not
+# hypothetical: a reply in this log went out four days late, and the apology in
+# it says exactly why — "the bridge is only serviced when a Claude session runs
+# the inbox, and no session did". Nothing anywhere said she was waiting.
+#
+# So the teaching loop had the failure mode CLAUDE.md §19e exists to forbid: work
+# blocked on a human, discovered by that human on their own. The fix is not a
+# scheduler (there is no durable Claude-side scheduler to build on) — it is to
+# make the stall VISIBLE, so a session that does open knows to answer and the
+# operator can see the loop is stalled.
+#
+# Rides the EXISTING 2-minute `collab_drain` via `drain_for_aria`, so there is no
+# new loop to keep alive. That cadence is also why the announcement is once per
+# QUESTION rather than once per check: 720 checks a day emitting a gap each is
+# the self-sustaining ledger flood recorded for sanctions_coverage_degraded and
+# the Brave non-DD refusals.
+#: How long a question may go unanswered before it is worth surfacing.
+PENDING_QUESTION_MAX_AGE_S = float(
+    os.getenv("ARIA_COLLAB_PENDING_MAX_AGE_S", "21600") or 21600)  # 6h
+_PENDING_ANNOUNCED_KEY = "crucix:aria:collab:pending_announced:{mid}"
+#: Long enough that a stalled question is announced once, bounded so the keys
+#: cannot accumulate without limit (the log itself is capped at MAX_LOG).
+_PENDING_ANNOUNCE_TTL_S = 30 * 86400
+
+
+async def _read_log_strict() -> "list[dict] | None":
+    """`_read_log`, but None means THE STORE COULD NOT BE READ.
+
+    `_read_log` returns `[]` on failure, so "no messages" and "could not look"
+    are the same value. That is the C-254 shape — an absent reading collapsing
+    into a real one — in the module C-254 was found in, and here it would report
+    a healthy teaching loop precisely when the store is broken. Anything deciding
+    whether ARIA is being ignored has to be able to tell those apart.
+    """
+    try:
+        raw = await rs.lrange(_LOG_KEY, 0, MAX_LOG - 1)
+    except Exception as e:
+        logger.warning("[R-F4316] collab log unreadable: %s", e)
+        return None
+    if raw is None:
+        return None
+    out: list[dict] = []
+    for item in raw:
+        try:
+            out.append(json.loads(item))
+        except Exception:
+            continue
+    out.sort(key=lambda m: m.get("seq", 0))
+    return out
+
+
+async def pending_questions(*, now: "float | None" = None) -> dict:
+    """Questions ARIA asked Claude that nothing has answered yet.
+
+    TRI-STATE on the store, deliberately: `readable=False` with `count=None` is
+    "could not look", never "nothing is waiting". A teaching loop that reports
+    itself healthy because its own log is unreadable is worse than no report.
+
+    A question counts as ANSWERED only when CLAUDE replied to it — `reply_to`
+    matching its id, `frm == "claude"`. ARIA replying to her own question must
+    not clear it, or the loop could mark itself served.
+    """
+    msgs = await _read_log_strict()
+    if msgs is None:
+        return {"readable": False, "count": None, "oldest_age_s": None, "pending": []}
+
+    now = time.time() if now is None else now
+    answered = {
+        str(m.get("reply_to") or "")
+        for m in msgs
+        if (m.get("frm") == "claude") and m.get("reply_to")
+    }
+    pending = []
+    for m in msgs:
+        if m.get("frm") != "aria" or m.get("to") != "claude":
+            continue
+        if (m.get("kind") or "") != "question":
+            continue
+        mid = str(m.get("id") or "")
+        if not mid or mid in answered:
+            continue
+        pending.append({
+            "id": mid,
+            "seq": int(m.get("seq", 0)),
+            "age_s": max(0.0, now - float(m.get("ts") or now)),
+            "preview": (str(m.get("text") or "")[:160]),
+        })
+    pending.sort(key=lambda p: -p["age_s"])
+    return {
+        "readable": True,
+        "count": len(pending),
+        "oldest_age_s": pending[0]["age_s"] if pending else None,
+        "pending": pending,
+    }
+
+
+async def announce_stalled_questions(*, max_age_s: "float | None" = None) -> dict:
+    """Surface each question ARIA has been waiting on for too long — ONCE.
+
+    Returns {announced, pending, readable}. Never raises: this rides the drain
+    and a reporting failure must not stop ARIA receiving Claude's notes.
+    """
+    threshold = PENDING_QUESTION_MAX_AGE_S if max_age_s is None else max_age_s
+    state = await pending_questions()
+    if not state.get("readable"):
+        return {"announced": 0, "pending": None, "readable": False}
+
+    announced = 0
+    for item in state["pending"]:
+        if item["age_s"] < threshold:
+            continue
+        key = _PENDING_ANNOUNCED_KEY.format(mid=item["id"])
+        try:
+            if await rs.get(key):
+                continue                      # already surfaced this one
+        except Exception:
+            # Unreadable dedupe marker. Announcing twice is noisy; staying silent
+            # about a stalled question is the defect. Prefer the noise.
+            pass
+        hours = item["age_s"] / 3600.0
+        wire_failure(
+            module="collab_bridge",
+            detail=(
+                f"R-F4316 ARIA has been waiting {hours:.1f}h for an answer to "
+                f"{item['id']}: {item['preview']!r}. Claude's side of the bridge "
+                f"is only serviced when a Claude session runs the inbox."
+            ),
+            gap_type="collab_question_stalled",
+            source="collab_bridge:announce_stalled_questions",
+        )
+        logger.warning(
+            "[R-F4316] BLOCKED: ARIA waiting %.1fh on Claude for %s", hours, item["id"],
+        )
+        announced += 1
+        try:
+            await rs.set(key, "1", ex=_PENDING_ANNOUNCE_TTL_S)
+        except Exception:
+            pass
+    return {"announced": announced, "pending": state["count"], "readable": True}
+
+
 async def drain_for_aria() -> dict:
     """Server-side consumer: pull new Claude→ARIA notes (since ARIA's cursor),
     make the ONE ARIA aware of each (brain absorb) and record an actionable gap
@@ -262,6 +406,15 @@ async def drain_for_aria() -> dict:
             logger.debug("[R-F1575] file-bridge drain failed: %s", _fb_e)
 
     if not new:
+        # R-F4316 (C-264) — before returning, say out loud if ARIA has been
+        # waiting on Claude. Deliberately on BOTH live return paths, and THIS
+        # one matters most: "nothing inbound to drain" is exactly the state
+        # where she is waiting and nothing else would notice. Best-effort — a
+        # reporting failure must never stop her receiving Claude's notes.
+        try:
+            await announce_stalled_questions()
+        except Exception as _stall_e:  # noqa: BLE001
+            logger.debug("[R-F4316] stalled-question check skipped: %s", _stall_e)
         return {"drained": 0, "last_seq": cursor}
 
     drained = 0
@@ -361,4 +514,13 @@ async def drain_for_aria() -> dict:
         except Exception:
             pass
 
+    # R-F4316 (C-264) — before returning, say out loud if ARIA has been
+    # waiting on Claude. Deliberately on BOTH live return paths, and the quiet
+    # one matters most: 'nothing inbound to drain' is exactly the state where
+    # she is waiting and nothing else would notice. Best-effort — a reporting
+    # failure must never stop her receiving Claude's notes.
+    try:
+        await announce_stalled_questions()
+    except Exception as _stall_e:  # noqa: BLE001
+        logger.debug("[R-F4316] stalled-question check skipped: %s", _stall_e)
     return {"drained": drained, "last_seq": last_seq}

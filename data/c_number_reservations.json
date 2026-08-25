@@ -3000,6 +3000,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-264",
+      "title": "the teaching loop could stall for days and nothing said so",
+      "claimed_at": "2026-08-25T08:11:51Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
