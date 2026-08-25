@@ -196,7 +196,8 @@ class Agent:
                  ui: AgentUI, auto_approve: bool = False,
                  coder_toolbox: CoderToolbox | None = None,
                  task_rag: bool = False,
-                 hooks: Hooks | None = None) -> None:
+                 hooks: Hooks | None = None,
+                 max_steps: int | None = None) -> None:
         self.llm = llm
         self.toolbox = toolbox
         self.coder_toolbox = coder_toolbox or CoderToolbox(toolbox)
@@ -205,6 +206,9 @@ class Agent:
         # R-F4314 — lifecycle hooks (PreToolUse/PostToolUse/Stop). Defaults to a
         # fresh Hooks() so the structural PostToolUse compile-check is always on.
         self.hooks = hooks or Hooks()
+        # R-F4313 — per-agent step ceiling. Defaults to the module MAX_STEPS; a
+        # sub-agent sets a lower bound so a runaway cannot loop forever.
+        self.max_steps = max_steps if max_steps is not None else MAX_STEPS
         # R-F4313 — register the sub-agent factory so spawn_subagent can build
         # fresh, isolated sub-agents sharing this agent's llm + tools.
         self.coder_toolbox.subagent_factory = self._make_subagent
@@ -601,7 +605,8 @@ class Agent:
         inherits the parent's auto_approve flag so a reviewer sub-agent cannot
         silently commit/deploy on its own. Its steps are bounded by max_steps.
         """
-        from .agent import Agent  # local import to avoid a cycle at module load
+        # `Agent` is the enclosing class, so it is already in scope — no import
+        # needed (avoids the import-self / import-outside-toplevel lint).
         sub_prompt = (
             f"You are a focused sub-agent named '{name}' working inside the "
             f"ARIA Coder CLI. You share the parent agent's file tools and LLM, "
@@ -622,6 +627,7 @@ class Agent:
             coder_toolbox=self.coder_toolbox,
             task_rag=False,
             hooks=self.hooks,
+            max_steps=max_steps,
         )
         # Bound the sub-agent's steps so a runaway cannot loop forever.
         sub_result = sub.run_turn(task, timeout=min(self._call_timeout or 120, 120))
@@ -637,7 +643,7 @@ class Agent:
     def _run_turn_inner(self, steps: int, sig_counts: dict[str, int]) -> TurnResult:
         """The actual turn logic, extracted so run_turn can wrap it with a
         timeout thread."""
-        while steps < MAX_STEPS:
+        while steps < self.max_steps:
             # R-F1082: pull any new guidance from Claude (via the bridge) into the
             # conversation before each LLM call — real-time collaboration, mid-task.
             self._drain_claude_bridge()
@@ -786,7 +792,7 @@ class Agent:
                     self.ui.tool_result(name, result)
                 self._record_tool(tc, result)
 
-        msg = (f"Reached the per-turn tool-step limit ({MAX_STEPS}). Pausing, but "
+        msg = (f"Reached the per-turn tool-step limit ({self.max_steps}). Pausing, but "
                f"the full context is kept — resuming to keep going.")
         self.ui.info(msg)
         return TurnResult(final_text=msg, steps=steps, aborted=True, resumable=True)
