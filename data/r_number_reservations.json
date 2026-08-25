@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4317,
+  "next_available": 4318,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -34759,16 +34759,6 @@
       "shipped_at": "2026-08-16T21:11:25Z"
     },
     {
-      "r_number": "R-F4084",
-      "title": "scale positive replay update budget to curriculum size",
-      "claimed_at": "2026-08-17T03:27:25Z",
-      "claimed_by": "claude",
-      "status": "shipped",
-      "commit_sha": "3f3ab957",
-      "notes": null,
-      "shipped_at": "2026-08-17T04:18:44Z"
-    },
-    {
       "r_number": "R-F4083",
       "title": "an empty result set is an answer not an error",
       "claimed_at": "2026-08-16T21:11:37Z",
@@ -34777,6 +34767,16 @@
       "commit_sha": "c72f421a",
       "notes": null,
       "shipped_at": "2026-08-17T18:07:32Z"
+    },
+    {
+      "r_number": "R-F4084",
+      "title": "scale positive replay update budget to curriculum size",
+      "claimed_at": "2026-08-17T03:27:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3f3ab957",
+      "notes": null,
+      "shipped_at": "2026-08-17T04:18:44Z"
     },
     {
       "r_number": "R-F4085",
@@ -35266,17 +35266,1772 @@
     },
     {
       "r_number": "R-F4135",
+      "title": "entity_resolver calls search_knowledge with limit= which raises TypeError",
+      "claimed_at": "2026-08-17T20:00:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "127b1c14",
+      "notes": null,
+      "shipped_at": "2026-08-17T20:33:20Z"
+    },
+    {
+      "r_number": "R-F4136",
+      "title": "C-166 instrument: per-caller ranking call counter so amplification is measurable",
+      "claimed_at": "2026-08-17T20:01:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "127b1c14",
+      "notes": null,
+      "shipped_at": "2026-08-17T20:33:20Z"
+    },
+    {
+      "r_number": "R-F4137",
+      "title": "ranking instrument: to_thread hides the caller; add feature fallback and on-loop split",
+      "claimed_at": "2026-08-17T20:35:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "62df2261",
+      "notes": null,
+      "shipped_at": "2026-08-17T20:53:07Z"
+    },
+    {
+      "r_number": "R-F4138",
+      "title": "offload verify_premises: four async call sites run an O(corpus) scan on the loop",
+      "claimed_at": "2026-08-18T04:55:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c34bef1f",
+      "notes": null,
+      "shipped_at": "2026-08-18T05:52:20Z"
+    },
+    {
+      "r_number": "R-F4139",
+      "title": "repair stale DPO launcher regression guards",
+      "claimed_at": "2026-08-18T05:41:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7550ec7c",
+      "notes": null,
+      "shipped_at": "2026-08-18T07:11:32Z"
+    },
+    {
+      "r_number": "R-F4140",
       "title": "deduplicated resolution curriculum coverage guard",
-      "claimed_at": "2026-08-18T04:59:48Z",
+      "claimed_at": "2026-08-18T05:41:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "90d0a9e7",
+      "notes": null,
+      "shipped_at": "2026-08-18T07:11:32Z"
+    },
+    {
+      "r_number": "R-F4141",
+      "title": "G4 gate: match attribute calls, widen denylist, fix signal_correlator on-loop scan",
+      "status": "shipped",
+      "claimed_at": "2026-08-18T08:23:01",
+      "claimed_by": "claude",
+      "commit_sha": "0cfe0134",
+      "shipped_at": "2026-08-18T06:42:50Z"
+    },
+    {
+      "r_number": "R-F4142",
+      "title": "pin resolution DPO artifact to LF bytes",
+      "claimed_at": "2026-08-18T06:23:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "be3cf5dc",
+      "notes": null,
+      "shipped_at": "2026-08-18T07:11:33Z"
+    },
+    {
+      "r_number": "R-F4143",
+      "title": "offload _get_embedder at six async call sites; add it to the G4 denylist",
+      "claimed_at": "2026-08-18T07:11:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6860e2f9",
+      "notes": null,
+      "shipped_at": "2026-08-18T07:25:40Z"
+    },
+    {
+      "r_number": "R-F4144",
+      "title": "enforce ambiguous company clarification after synthesis",
+      "claimed_at": "2026-08-18T07:25:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:43Z"
+    },
+    {
+      "r_number": "R-F4145",
+      "title": "exclude local scratch artifacts from deploy context",
+      "claimed_at": "2026-08-18T07:49:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:43Z"
+    },
+    {
+      "r_number": "R-F4146",
+      "title": "derive the G4 heavy set from the tree instead of hand-maintaining it",
+      "claimed_at": "2026-08-18T07:57:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6b0cb0e8",
+      "notes": null,
+      "shipped_at": "2026-08-18T14:37:08Z"
+    },
+    {
+      "r_number": "R-F4147",
+      "title": "run deploy health suite with project interpreter",
+      "claimed_at": "2026-08-18T08:14:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b387bb8",
+      "notes": null,
+      "shipped_at": "2026-08-18T08:25:44Z"
+    },
+    {
+      "r_number": "R-F4148",
+      "title": "make the ranking amplification alert rate-based and prove it lands in the real ledger",
+      "claimed_at": "2026-08-18T08:21:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": null,
+      "notes": null,
+      "shipped_sha": "14a4c41b"
+    },
+    {
+      "r_number": "R-F4149",
+      "title": "bound Docker contexts to runtime inputs",
+      "claimed_at": "2026-08-18T08:39:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cd8a4766",
+      "notes": null,
+      "shipped_at": "2026-08-18T14:28:38Z"
+    },
+    {
+      "r_number": "R-F4150",
+      "title": "fail live health on stale service revision",
+      "claimed_at": "2026-08-18T14:29:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3627653a",
+      "notes": null,
+      "shipped_at": "2026-08-18T14:40:20Z"
+    },
+    {
+      "r_number": "R-F4151",
+      "title": "use per-image Docker context allowlists",
+      "claimed_at": "2026-08-18T14:41:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e1088ce41674418a4848f3765adae7c97d447d63",
+      "notes": null,
+      "shipped_at": "2026-08-18T15:20:01Z"
+    },
+    {
+      "r_number": "R-F4152",
+      "title": "trim env reads in emailReader and report effective values in system-status",
+      "claimed_at": "2026-08-18T14:53:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "be654549",
+      "notes": null,
+      "shipped_at": "2026-08-18T15:19:28Z"
+    },
+    {
+      "r_number": "R-F4153",
+      "title": "pre-register resolution prompt-policy ablation",
+      "claimed_at": "2026-08-18T15:26:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d4a339c9e4fbd96c8b3ce91ab93345d2c5a752bf",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:30:04Z"
+    },
+    {
+      "r_number": "R-F4154",
+      "title": "report the coder live task in the agent registry instead of a frozen label",
+      "claimed_at": "2026-08-18T15:35:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7dafa3d",
+      "notes": null,
+      "shipped_at": "2026-08-18T15:53:31Z"
+    },
+    {
+      "r_number": "R-F4155",
+      "title": "scope PowerShell command guard away from Bash scripts",
+      "claimed_at": "2026-08-18T15:36:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3dd7beb",
+      "notes": "Renumbered during rebase after concurrent R-F4154 reservation was published first.",
+      "shipped_at": "2026-08-19T07:30:04Z"
+    },
+    {
+      "r_number": "R-F4156",
+      "title": "close the learning loop: credit a prevention when a warned-about mistake does not recur",
+      "claimed_at": "2026-08-18T16:14:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "01730b8e",
+      "notes": null,
+      "shipped_at": "2026-08-18T21:09:36Z"
+    },
+    {
+      "r_number": "R-F4157",
+      "title": "migrate legacy list blobs on lpush so an actively-written list cannot strand",
+      "claimed_at": "2026-08-18T16:27:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "01730b8e",
+      "notes": null,
+      "shipped_at": "2026-08-18T21:09:36Z"
+    },
+    {
+      "r_number": "R-F4158",
+      "title": "isolate the dd vault in tests so list_reports assertions are hermetic",
+      "claimed_at": "2026-08-18T21:16:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c17baca9",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:22:48Z"
+    },
+    {
+      "r_number": "R-F4159",
+      "title": "accept explicit closest-match entity resolution in scorer",
+      "claimed_at": "2026-08-19T07:32:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e0db144c",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:37:28Z"
+    },
+    {
+      "r_number": "R-F4160",
+      "title": "recognize evidence-aligned not-on-list clean verdicts",
+      "claimed_at": "2026-08-19T07:40:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c110a704",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:42:52Z"
+    },
+    {
+      "r_number": "R-F4161",
+      "title": "archive-and-reconcile stranded legacy list blobs so their entries become reachable",
+      "claimed_at": "2026-08-19T07:44:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d9de9f33",
+      "notes": null,
+      "shipped_at": "2026-08-19T07:51:10Z"
+    },
+    {
+      "r_number": "R-F4162",
+      "title": "session-scoped dd_vault isolation fixture so no test touches the machine-global DB",
+      "claimed_at": "2026-08-19T07:52:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a595c1e",
+      "notes": null,
+      "shipped_at": "2026-08-19T11:12:26Z"
+    },
+    {
+      "r_number": "R-F4163",
+      "title": "rescore preserved candidates under corrected validator",
+      "claimed_at": "2026-08-19T07:47:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b753c460",
+      "notes": "Renumbered during rebase after concurrent R-F4161 and R-F4162 reservations were published first.",
+      "shipped_at": "2026-08-19T07:56:33Z"
+    },
+    {
+      "r_number": "R-F4164",
+      "title": "bounded LoRA interpolation probe for complementary candidates",
+      "claimed_at": "2026-08-19T07:58:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "09cae6a7694aea7c1ec47f18d9b786832f7da0bf",
+      "notes": null,
+      "shipped_at": "2026-08-19T09:36:48Z"
+    },
+    {
+      "r_number": "R-F4165",
+      "title": "protected contract DPO from alpha025 frontier",
+      "claimed_at": "2026-08-19T09:40:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "baae0399877316eb329ead882d4d525df7fcfc30",
+      "notes": null,
+      "shipped_at": "2026-08-19T10:51:26Z"
+    },
+    {
+      "r_number": "R-F4166",
+      "title": "refresh stale resolution DPO negatives",
+      "claimed_at": "2026-08-19T09:50:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ba23b306",
+      "notes": null,
+      "shipped_at": "2026-08-19T09:55:42Z"
+    },
+    {
+      "r_number": "R-F4167",
+      "title": "low-weight protected DPO interpolation sweep",
+      "claimed_at": "2026-08-19T11:23:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
     },
     {
-      "r_number": "R-F4136",
-      "title": "repair stale DPO launcher regression guards",
-      "claimed_at": "2026-08-18T05:32:47Z",
+      "r_number": "R-F4168",
+      "title": "C-182 reserve clock for the disable-thinking escalation",
+      "claimed_at": "2026-08-19T11:41:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "56792d75",
+      "notes": null,
+      "shipped_at": "2026-08-19T12:22:53Z"
+    },
+    {
+      "r_number": "R-F4169",
+      "title": "C-183 render the success-rate ambiguity where it is read",
+      "claimed_at": "2026-08-19T11:57:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dd650c6a",
+      "notes": null,
+      "shipped_at": "2026-08-19T12:22:53Z"
+    },
+    {
+      "r_number": "R-F4170",
+      "title": "C-184 do not diff a boot snapshot whose stores had not finished loading",
+      "claimed_at": "2026-08-19T12:25:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9dfa8e27",
+      "notes": null,
+      "shipped_at": "2026-08-19T13:16:59Z"
+    },
+    {
+      "r_number": "R-F4171",
+      "title": "evaluation-only low-stock pod gate",
+      "claimed_at": "2026-08-19T12:28:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a40a3216",
+      "notes": null,
+      "shipped_at": "2026-08-19T12:39:07Z"
+    },
+    {
+      "r_number": "R-F4172",
+      "title": "C-186 cap single-token sanctions overlap at AMBER",
+      "claimed_at": "2026-08-19T13:27:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "544a9fdbac9ba33da807ef441c556148fd964893",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:33:06Z"
+    },
+    {
+      "r_number": "R-F4173",
+      "title": "C-185 strict neural store reads so a timeout is not an empty graph",
+      "claimed_at": "2026-08-19T13:37:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cc4a05ec",
+      "notes": null,
+      "shipped_at": "2026-08-19T14:21:11Z"
+    },
+    {
+      "r_number": "R-F4174",
+      "title": "C-185 follow-up: get_stats must tolerate an unset born after an aborted init",
+      "claimed_at": "2026-08-19T14:05:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5d3d47ba",
+      "notes": null,
+      "shipped_at": "2026-08-19T14:21:12Z"
+    },
+    {
+      "r_number": "R-F4175",
+      "title": "C-187 carry the resolved canonical list ids on a finding so the contradiction detector compares ids",
+      "claimed_at": "2026-08-19T14:27:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:12Z"
+    },
+    {
+      "r_number": "R-F4176",
+      "title": "C-186 gate hard_stop on is_corroborated_match, the module's own blocking gate",
+      "claimed_at": "2026-08-19T14:29:41Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-08-20T09:03:35Z",
+      "abandon_reason": "Superseded by R-F4177, which shipped the same is_corroborated_match blocking gate at commit 6ee31038."
+    },
+    {
+      "r_number": "R-F4177",
+      "title": "C-189 gate blocking severity on is_corroborated_match",
+      "claimed_at": "2026-08-19T14:31:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6ee31038",
+      "notes": null,
+      "shipped_at": "2026-08-19T16:20:00Z"
+    },
+    {
+      "r_number": "R-F4178",
+      "title": "C-191 measure corroboration similarity on suffix-normalised names",
+      "claimed_at": "2026-08-19T15:00:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "495aa659",
+      "notes": null,
+      "shipped_at": "2026-08-19T16:20:00Z"
+    },
+    {
+      "r_number": "R-F4179",
+      "title": "C-190 enforce the per-attempt wall clock so the escalation reserve is real",
+      "claimed_at": "2026-08-19T15:10:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6898d4d9",
+      "notes": null,
+      "shipped_at": "2026-08-19T16:20:00Z"
+    },
+    {
+      "r_number": "R-F4180",
+      "title": "customer UI distinguishes unavailable from empty",
+      "claimed_at": "2026-08-19T21:30:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1efbc79c",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
+    },
+    {
+      "r_number": "R-F4181",
+      "title": "upgrade aria-app vulnerable frontend dependencies",
+      "claimed_at": "2026-08-19T21:46:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9ad1479c",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
+    },
+    {
+      "r_number": "R-F4182",
+      "title": "make aria-app deploy use its own build context",
+      "claimed_at": "2026-08-19T22:00:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d9917c85",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
+    },
+    {
+      "r_number": "R-F4183",
+      "title": "resolve aria-app deploy config inside build context",
+      "claimed_at": "2026-08-19T22:10:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cc8faca0",
+      "notes": null,
+      "shipped_at": "2026-08-19T22:18:18Z"
+    },
+    {
+      "r_number": "R-F4184",
+      "title": "promote sign-in through a tested strangler boundary",
+      "claimed_at": "2026-08-19T22:25:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8918d21d",
+      "notes": null,
+      "shipped_at": "2026-08-20T05:44:02Z"
+    },
+    {
+      "r_number": "R-F4185",
+      "title": "restore two-factor authentication in native sign-in",
+      "claimed_at": "2026-08-20T05:49:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ed908e5b",
+      "notes": null,
+      "shipped_at": "2026-08-20T05:55:40Z"
+    },
+    {
+      "r_number": "R-F4186",
+      "title": "promote customer dashboard without admin-only dependencies",
+      "claimed_at": "2026-08-20T05:58:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7656d93",
+      "notes": null,
+      "shipped_at": "2026-08-20T06:21:31Z"
+    },
+    {
+      "r_number": "R-F4187",
+      "title": "bound aria-app backend reads with cancellation",
+      "claimed_at": "2026-08-20T06:08:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7656d93",
+      "notes": null,
+      "shipped_at": "2026-08-20T06:21:36Z"
+    },
+    {
+      "r_number": "R-F4188",
+      "title": "promote reports with observable async DD submission",
+      "claimed_at": "2026-08-20T06:27:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c1ff630e",
+      "notes": null,
+      "shipped_at": "2026-08-20T06:44:29Z"
+    },
+    {
+      "r_number": "R-F4189",
+      "title": "promote watchlist with observable mutations",
+      "claimed_at": "2026-08-20T06:48:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e149d8a8",
+      "notes": null,
+      "shipped_at": "2026-08-20T07:28:32Z"
+    },
+    {
+      "r_number": "R-F4190",
+      "title": "promote evidence-safe opportunities route",
+      "claimed_at": "2026-08-20T07:30:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12f5ab6f",
+      "notes": null,
+      "shipped_at": "2026-08-20T07:44:24Z"
+    },
+    {
+      "r_number": "R-F4191",
+      "title": "cut over tenant-scoped source vault",
+      "claimed_at": "2026-08-20T07:46:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9763e542",
+      "notes": null,
+      "shipped_at": "2026-08-20T08:11:51Z"
+    },
+    {
+      "r_number": "R-F4192",
+      "title": "register tenant source routes at boot",
+      "claimed_at": "2026-08-20T08:22:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e95a46b5",
+      "notes": null,
+      "shipped_at": "2026-08-20T08:32:54Z"
+    },
+    {
+      "r_number": "R-F4193",
+      "title": "restore full web test reliability",
+      "claimed_at": "2026-08-20T08:39:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "654a9043",
+      "notes": null,
+      "shipped_at": "2026-08-20T08:48:50Z"
+    },
+    {
+      "r_number": "R-F4194",
+      "title": "isolate sanctions coverage announcement latch in tests",
+      "claimed_at": "2026-08-20T09:02:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:12Z"
+    },
+    {
+      "r_number": "R-F4195",
+      "title": "align sanctions relationship tests with source query contract",
+      "claimed_at": "2026-08-20T09:12:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:13Z"
+    },
+    {
+      "r_number": "R-F4196",
+      "title": "add evidence-safe stale reservation audit",
+      "claimed_at": "2026-08-20T09:15:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35800d5fa9a4fffe0c4db0bedac8b03ba268f244",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:12:13Z"
+    },
+    {
+      "r_number": "R-F4197",
+      "title": "add immutable RunPod interpolation resume and harvest",
+      "claimed_at": "2026-08-20T10:35:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6f27e3eec4b6e993089951c4bccf003b6b48cf44",
+      "notes": null,
+      "shipped_at": "2026-08-20T10:46:55Z"
+    },
+    {
+      "r_number": "R-F4198",
+      "title": "restore CSP-safe backend sign-in submission",
+      "claimed_at": "2026-08-20T10:51:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa204339e135a13394baf40696d1117b496ec76f",
+      "notes": null,
+      "shipped_at": "2026-08-20T11:03:03Z"
+    },
+    {
+      "r_number": "R-F4199",
+      "title": "DD reliance grading and identity match integrity",
+      "claimed_at": "2026-08-20T11:11:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "83764298",
+      "notes": null,
+      "shipped_at": "2026-08-20T11:36:02Z"
+    },
+    {
+      "r_number": "R-F4200",
+      "title": "Preserve retained DD research without synthesis",
+      "claimed_at": "2026-08-20T12:14:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a1e3a747",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:57Z"
+    },
+    {
+      "r_number": "R-F4201",
+      "title": "Prevent prior reads starving repeat DD",
+      "claimed_at": "2026-08-20T12:41:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "de4c18d2",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:58Z"
+    },
+    {
+      "r_number": "R-F4202",
+      "title": "Carry retained DD facts across hard cancellation",
+      "claimed_at": "2026-08-20T13:22:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "86814e37",
+      "notes": null,
+      "shipped_at": "2026-08-20T13:38:58Z"
+    },
+    {
+      "r_number": "R-F4203",
+      "title": "Close live DD truthfulness and refresh gaps",
+      "claimed_at": "2026-08-20T13:49:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c95e5184",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:25:48Z"
+    },
+    {
+      "r_number": "R-F4204",
+      "title": "Fix deep-research URL intent routing",
+      "claimed_at": "2026-08-20T14:26:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2f9ce788",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:39:38Z"
+    },
+    {
+      "r_number": "R-F4205",
+      "title": "Ban tolerated pytest regressions",
+      "claimed_at": "2026-08-20T14:40:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5ec425e4",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:47:02Z"
+    },
+    {
+      "r_number": "R-F4206",
+      "title": "Audit and harden conditional test skips",
+      "claimed_at": "2026-08-20T14:48:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb8f19c8",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:54:15Z"
+    },
+    {
+      "r_number": "R-F4207",
+      "title": "Migrate Starlette tests to HTTPX2",
+      "claimed_at": "2026-08-20T14:56:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "af9304d8",
+      "notes": null,
+      "shipped_at": "2026-08-20T14:58:45Z"
+    },
+    {
+      "r_number": "R-F4208",
+      "title": "Harden heavy capability dependency probes",
+      "claimed_at": "2026-08-20T15:02:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "36c76f69",
+      "notes": null,
+      "shipped_at": "2026-08-20T15:18:01Z"
+    },
+    {
+      "r_number": "R-F4209",
+      "title": "Fail readiness closed on exhausted LLM chain",
+      "claimed_at": "2026-08-20T15:25:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4210",
+      "title": "Repair stream capability double signature drift",
+      "claimed_at": "2026-08-20T15:27:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4211",
+      "title": "Isolate state point reads from bulk scans",
+      "claimed_at": "2026-08-20T15:45:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4212",
+      "title": "Offload SSRF DNS resolution from serving loop",
+      "claimed_at": "2026-08-20T16:47:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4213",
+      "title": "guarantee heavy-graph barrier always opens",
+      "claimed_at": "2026-08-21T07:54:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b2efcf1",
+      "notes": null,
+      "shipped_at": "2026-08-21T08:28:27Z"
+    },
+    {
+      "r_number": "R-F4214",
+      "title": "publish heavy-graph barrier state on health/ready",
+      "claimed_at": "2026-08-21T08:17:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b6eff59",
+      "notes": null,
+      "shipped_at": "2026-08-21T08:50:50Z"
+    },
+    {
+      "r_number": "R-F4215",
+      "title": "main.py boot env parses must not raise on a malformed value",
+      "claimed_at": "2026-08-21T09:09:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "41807ae4",
+      "notes": null,
+      "shipped_at": "2026-08-21T09:28:55Z"
+    },
+    {
+      "r_number": "R-F4216",
+      "title": "jurisdiction word must not hijack chat to registry_lookup",
+      "claimed_at": "2026-08-21T09:37:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bd8b39d6",
+      "notes": null,
+      "shipped_at": "2026-08-21T10:01:36Z"
+    },
+    {
+      "r_number": "R-F4217",
+      "title": "grant ARIA WA the Brave API as a first-class purpose",
+      "claimed_at": "2026-08-21T10:08:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c29c8fd",
+      "notes": null,
+      "shipped_at": "2026-08-21T10:47:48Z"
+    },
+    {
+      "r_number": "R-F4218",
+      "title": "UBO chain identity gate: convert a stale red test into a real guard",
+      "claimed_at": "2026-08-21T10:51:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "02156e50",
+      "notes": null,
+      "shipped_at": "2026-08-21T10:54:43Z"
+    },
+    {
+      "r_number": "R-F4219",
+      "title": "cite ARIA memory provenance so her own index counts as evidence",
+      "claimed_at": "2026-08-21T10:56:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "728df656",
+      "notes": null,
+      "shipped_at": "2026-08-21T11:19:27Z"
+    },
+    {
+      "r_number": "R-F4220",
+      "title": "streaming chat drops tool context so no tool-derived citation can appear",
+      "claimed_at": "2026-08-21T11:22:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "69ec8684",
+      "notes": null,
+      "shipped_at": "2026-08-21T11:45:07Z"
+    },
+    {
+      "r_number": "R-F4221",
+      "title": "the citation extractor never saw the tool block on either chat path",
+      "claimed_at": "2026-08-21T11:51:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "95ab9d9b",
+      "notes": null,
+      "shipped_at": "2026-08-21T12:09:28Z"
+    },
+    {
+      "r_number": "R-F4222",
+      "title": "readiness gate refuses requests dispatch would serve at chain depth 1",
+      "claimed_at": "2026-08-21T12:25:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "688ed01c",
+      "notes": null,
+      "shipped_at": "2026-08-21T13:41:41Z"
+    },
+    {
+      "r_number": "R-F4223",
+      "title": "DD PDF printed every key finding twice",
+      "claimed_at": "2026-08-21T14:35:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a318c68",
+      "notes": null,
+      "shipped_at": "2026-08-21T14:46:45Z"
+    },
+    {
+      "r_number": "R-F4224",
+      "title": "18 grading tests blinded by a hand-rolled fixture that drifted from the builder",
+      "claimed_at": "2026-08-21T15:11:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a01e052c",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:22:46Z"
+    },
+    {
+      "r_number": "R-F4225",
+      "title": "stale test demands the independent-verification flag be flipped blind",
+      "claimed_at": "2026-08-21T15:14:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a01e052c",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:22:46Z"
+    },
+    {
+      "r_number": "R-F4226",
+      "title": "quarantine no-delete guard inspects the wrapper, not the implementation",
+      "claimed_at": "2026-08-21T15:23:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d19a1b35",
+      "notes": null,
+      "shipped_at": "2026-08-21T15:42:59Z"
+    },
+    {
+      "r_number": "R-F4227",
+      "title": "retained-lead dedup is exact-string so reworded restatements both render",
+      "claimed_at": "2026-08-21T15:54:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "94eee7d8",
+      "notes": null,
+      "shipped_at": "2026-08-21T16:19:43Z"
+    },
+    {
+      "r_number": "R-F4228",
+      "title": "synthesis-BLUF fixture drifted behind the decision-readiness scorecard",
+      "claimed_at": "2026-08-21T16:13:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "97318050",
+      "notes": null,
+      "shipped_at": "2026-08-21T16:18:04Z"
+    },
+    {
+      "r_number": "R-F4229",
+      "title": "vendor prepaid balance gauge — warn before the LLM credit hits zero",
+      "claimed_at": "2026-08-22T12:42:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80f78b4e",
+      "notes": null,
+      "shipped_at": "2026-08-22T13:39:34Z"
+    },
+    {
+      "r_number": "R-F4230",
+      "title": "mirror the balance poll into stream() — section 13 stream-bypass",
+      "claimed_at": "2026-08-22T13:14:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aa15cc4a",
+      "notes": null,
+      "shipped_at": "2026-08-22T13:39:35Z"
+    },
+    {
+      "r_number": "R-F4231",
+      "title": "gate 1 renormalised composite is not comparable to a full-weight target",
+      "claimed_at": "2026-08-22T13:59:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f62dd98",
+      "notes": null,
+      "shipped_at": "2026-08-23T04:12:18Z"
+    },
+    {
+      "r_number": "R-F4232",
+      "title": "honesty judge bg task had no strong ref — R-F1363 class, on the only production path",
+      "claimed_at": "2026-08-22T15:53:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1492bf04",
+      "notes": null,
+      "shipped_at": "2026-08-23T04:12:18Z"
+    },
+    {
+      "r_number": "R-F4233",
+      "title": "vendor balance recovery reported as a fresh top-up demand",
+      "claimed_at": "2026-08-23T04:21:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d15476c",
+      "notes": null,
+      "shipped_at": "2026-08-23T04:54:22Z"
+    },
+    {
+      "r_number": "R-F4234",
+      "title": "sections 1 and 20 bind every session to read a file that has never existed",
+      "claimed_at": "2026-08-23T04:21:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d15476c",
+      "notes": null,
+      "shipped_at": "2026-08-23T04:54:22Z"
+    },
+    {
+      "r_number": "R-F4235",
+      "title": "the offline gate-1 populate recorded zero honesty and said so only in a field nobody reads",
+      "claimed_at": "2026-08-23T04:36:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d15476c",
+      "notes": null,
+      "shipped_at": "2026-08-23T04:54:22Z"
+    },
+    {
+      "r_number": "R-F4236",
+      "title": "the third reading trophy: starved-tag search hits lifted topic mastery unconditionally",
+      "claimed_at": "2026-08-23T04:59:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dc4da158",
+      "notes": null,
+      "shipped_at": "2026-08-23T05:39:25Z"
+    },
+    {
+      "r_number": "R-F4237",
+      "title": "pin the remaining fire-and-forget tasks in routes/aria.py",
+      "claimed_at": "2026-08-23T05:04:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dc4da158",
+      "notes": null,
+      "shipped_at": "2026-08-23T05:39:25Z"
+    },
+    {
+      "r_number": "R-F4238",
+      "title": "a baseline-red test still asserted gate 3 is unmeasurable, which R-F2622 changed",
+      "claimed_at": "2026-08-23T05:08:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dc4da158",
+      "notes": null,
+      "shipped_at": "2026-08-23T05:39:26Z"
+    },
+    {
+      "r_number": "R-F4239",
+      "title": "correct C-214's remedy: the frozen golden set cannot populate the honesty axis",
+      "claimed_at": "2026-08-23T05:28:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dc4da158",
+      "notes": null,
+      "shipped_at": "2026-08-23T05:39:26Z"
+    },
+    {
+      "r_number": "R-F4240",
+      "title": "record the R-F4167 interpolation sweep verdict",
+      "claimed_at": "2026-08-23T05:49:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "98ebae0a",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:07:16Z"
+    },
+    {
+      "r_number": "R-F4241",
+      "title": "one durable training pod of record: reuse, never create a 71st, never delete",
+      "claimed_at": "2026-08-23T05:49:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "98ebae0a",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:07:16Z"
+    },
+    {
+      "r_number": "R-F4242",
+      "title": "measure the honesty seed yield end to end; correct the suitability verdict semantics",
+      "claimed_at": "2026-08-23T06:20:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5001a445",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:35:33Z"
+    },
+    {
+      "r_number": "R-F4243",
+      "title": "resolution DPO pairs let length predict the label; break the confound",
+      "claimed_at": "2026-08-23T06:35:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "77a4dd41",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:59:05Z"
+    },
+    {
+      "r_number": "R-F4244",
+      "title": "the on-pod retention gate compares across scorer generations",
+      "claimed_at": "2026-08-23T06:50:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "77a4dd41",
+      "notes": null,
+      "shipped_at": "2026-08-23T06:58:55Z"
+    },
+    {
+      "r_number": "R-F4245",
+      "title": "a general cycle harvest so a killed driver never strands a paid run",
+      "claimed_at": "2026-08-23T07:09:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "25ffc203",
+      "notes": null,
+      "shipped_at": "2026-08-23T07:14:58Z"
+    },
+    {
+      "r_number": "R-F4246",
+      "title": "no paid DPO cycle may run on a curriculum where length predicts the label",
+      "claimed_at": "2026-08-23T07:18:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9bfe862c",
+      "notes": null,
+      "shipped_at": "2026-08-23T07:24:19Z"
+    },
+    {
+      "r_number": "R-F4247",
+      "title": "count skew was the wrong statistic: measure length separability, not which side is shorter",
+      "claimed_at": "2026-08-23T07:32:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "589c4e53",
+      "notes": null,
+      "shipped_at": "2026-08-23T07:38:03Z"
+    },
+    {
+      "r_number": "R-F4248",
+      "title": "two observability ERRORs I added reset the gate-3 streak",
+      "claimed_at": "2026-08-23T09:48:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "101686f2",
+      "notes": null,
+      "shipped_at": "2026-08-23T09:58:01Z"
+    },
+    {
+      "r_number": "R-F4249",
+      "title": "sweep the alpha band where three axes have converged but resolution has not yet flipped",
+      "claimed_at": "2026-08-23T09:54:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a613450",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:06:33Z"
+    },
+    {
+      "r_number": "R-F4250",
+      "title": "the general harvest was only general over DPO runs",
+      "claimed_at": "2026-08-23T10:03:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "99ecc6e1",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:05:05Z"
+    },
+    {
+      "r_number": "R-F4251",
+      "title": "adjudicate a sweep with a tool, not by hand-writing the verdict each time",
+      "claimed_at": "2026-08-23T10:06:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6e98ab93",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:08:48Z"
+    },
+    {
+      "r_number": "R-F4252",
+      "title": "a panic SOS that reached nobody was invisible to the brain",
+      "claimed_at": "2026-08-23T10:07:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "49089929",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:19:10Z"
+    },
+    {
+      "r_number": "R-F4253",
+      "title": "the honesty judge scored against a truncated context and never said so",
+      "claimed_at": "2026-08-23T10:32:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e07e25bf",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:50:22Z"
+    },
+    {
+      "r_number": "R-F4254",
+      "title": "the task-pinning helper raised on a non-Task and broke its caller",
+      "claimed_at": "2026-08-23T10:36:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e07e25bf",
+      "notes": null,
+      "shipped_at": "2026-08-23T10:50:22Z"
+    },
+    {
+      "r_number": "R-F4255",
+      "title": "vetting encryption could be silently off; plaintext PII reported only at erasure time",
+      "claimed_at": "2026-08-23T10:59:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "69496cb6",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:09:08Z"
+    },
+    {
+      "r_number": "R-F4256",
+      "title": "Git Bash rewrote the remote path before the harvester saw it",
+      "claimed_at": "2026-08-23T11:03:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a613450",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:06:33Z"
+    },
+    {
+      "r_number": "R-F4257",
+      "title": "the resolution eval axis measures a configuration that never ships",
+      "claimed_at": "2026-08-23T11:17:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "59059895",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:20:08Z"
+    },
+    {
+      "r_number": "R-F4258",
+      "title": "retention due dates were computed but overdue was never derived or reported",
+      "claimed_at": "2026-08-23T11:18:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "539ad4ba",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:28:09Z"
+    },
+    {
+      "r_number": "R-F4259",
+      "title": "advisory axes: measure the same, decide differently, never silently",
+      "claimed_at": "2026-08-23T11:34:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "49609164",
+      "notes": null,
+      "shipped_at": "2026-08-23T11:37:39Z"
+    },
+    {
+      "r_number": "R-F4260",
+      "title": "gate 7 becomes advisory: Phase A stops blocking on an operator-only gate",
+      "claimed_at": "2026-08-23T11:50:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4261",
+      "title": "promote vendor balance severity into degraded_reasons (dossier E1)",
+      "claimed_at": "2026-08-23T12:30:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aa677d05",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:09Z"
+    },
+    {
+      "r_number": "R-F4262",
+      "title": "a failed knowledge seed is recorded as success then suppressed 30 days (dossier E2)",
+      "claimed_at": "2026-08-23T14:44:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "01d8d90e",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:09Z"
+    },
+    {
+      "r_number": "R-F4263",
+      "title": "date the wiring debt ledger so it can be aged (dossier E9)",
+      "claimed_at": "2026-08-23T15:06:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dd3accf1",
+      "notes": null,
+      "shipped_at": "2026-08-23T15:13:10Z"
+    },
+    {
+      "r_number": "R-F4264",
+      "title": "C-225 deep research counts unusable article tasks as analysed",
+      "claimed_at": "2026-08-23T15:06:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
+    },
+    {
+      "r_number": "R-F4265",
+      "title": "C-226 financial health screens the supplied name not the registry legal name",
+      "claimed_at": "2026-08-23T15:06:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
+    },
+    {
+      "r_number": "R-F4266",
+      "title": "C-227 adverse citation coherence omits the sweep self-reference filter",
+      "claimed_at": "2026-08-23T15:06:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:55Z"
+    },
+    {
+      "r_number": "R-F4267",
+      "title": "C-228 OFSI direct adapter duplicates the canonical OFSI source row",
+      "claimed_at": "2026-08-23T15:06:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
+    },
+    {
+      "r_number": "R-F4268",
+      "title": "C-229 UBO watchlist lead carries schema-mismatch and forename-only provenance",
+      "claimed_at": "2026-08-23T17:16:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
+    },
+    {
+      "r_number": "R-F4269",
+      "title": "C-230 adverse-media exclusion ledger accounts for every dropped item",
+      "claimed_at": "2026-08-23T17:16:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:52:56Z"
+    },
+    {
+      "r_number": "R-F4270",
+      "title": "parent of record - the promoted adapter becomes the actual parent",
+      "claimed_at": "2026-08-23T17:29:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c58871a7",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:40:36Z"
+    },
+    {
+      "r_number": "R-F4271",
+      "title": "360 coverage ledger - which of the Twenty Fundamentals the eval can see",
+      "claimed_at": "2026-08-23T17:46:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5edc5579",
+      "notes": null,
+      "shipped_at": "2026-08-23T17:50:02Z"
+    },
+    {
+      "r_number": "R-F4272",
+      "title": "registry-depth axes - insolvency, charges and beneficial ownership from real payloads",
+      "claimed_at": "2026-08-23T17:56:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aa1e65cf",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:07:33Z"
+    },
+    {
+      "r_number": "R-F4273",
+      "title": "C-233 state read-timeout degraded verdict requires an ACTIVE burst",
+      "claimed_at": "2026-08-23T18:05:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "da7c350d",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:20:00Z"
+    },
+    {
+      "r_number": "R-F4274",
+      "title": "the 360 eval harness - registry axes wired, split and scored",
+      "claimed_at": "2026-08-23T18:09:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70221929",
+      "notes": null,
+      "shipped_at": "2026-08-23T18:43:04Z"
+    },
+    {
+      "r_number": "R-F4275",
+      "title": "axis alignment - an axis may only block promotion where the LLM is the mechanism",
+      "claimed_at": "2026-08-23T21:20:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "845bb16d",
+      "notes": null,
+      "shipped_at": "2026-08-23T21:23:09Z"
+    },
+    {
+      "r_number": "R-F4276",
+      "title": "correct R-F4275 overclaim - unbound is not the same as LLM-answered",
+      "claimed_at": "2026-08-23T21:25:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "065f5333",
+      "notes": null,
+      "shipped_at": "2026-08-23T21:27:04Z"
+    },
+    {
+      "r_number": "R-F4277",
+      "title": "bind IS-15 to the adverse-media sweep that already runs",
+      "claimed_at": "2026-08-23T21:34:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64dfa939",
+      "notes": null,
+      "shipped_at": "2026-08-23T22:07:10Z"
+    },
+    {
+      "r_number": "R-F4278",
+      "title": "reader-presence is a candidate not a demotion - the rule needed override evidence",
+      "claimed_at": "2026-08-23T21:38:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64dfa939",
+      "notes": null,
+      "shipped_at": "2026-08-23T22:07:10Z"
+    },
+    {
+      "r_number": "R-F4279",
+      "title": "bind IS-14 to the PEP and RCA screens that already run",
+      "claimed_at": "2026-08-23T22:12:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:01Z"
+    },
+    {
+      "r_number": "R-F4280",
+      "title": "register three emitted-but-unregistered gap types",
+      "claimed_at": "2026-08-23T22:16:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:02Z"
+    },
+    {
+      "r_number": "R-F4281",
+      "title": "exempt three pure predicates from the wiring gate, with evidence",
+      "claimed_at": "2026-08-23T22:20:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:02Z"
+    },
+    {
+      "r_number": "R-F4282",
+      "title": "repair the stale resolution preference pair whose rejected side now resolves",
+      "claimed_at": "2026-08-24T07:54:26Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-08-24T12:54:57Z",
+      "abandon_reason": "the repair it was reserved for was REVERTED: editing aria_tooluse_resolution_branch_expansion_dpo.jsonl falsifies observed evidence (two tests pin it byte-exactly). The real fix shipped as R-F4287 - the stale-negative check was on the wrong consumer. Recorded rather than left in_progress so the ledger does not claim work that never landed."
+    },
+    {
+      "r_number": "R-F4283",
+      "title": "hash-pinned evidence must not be line-ending mangled on Windows",
+      "claimed_at": "2026-08-24T08:14:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:03Z"
+    },
+    {
+      "r_number": "R-F4284",
+      "title": "repair two structurally-fragile tests: tmp-path relative_to and source-substring asserts",
+      "claimed_at": "2026-08-24T08:18:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:03Z"
+    },
+    {
+      "r_number": "R-F4285",
+      "title": "hash text evidence by content, not by line terminators",
+      "claimed_at": "2026-08-24T08:23:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80b5effa",
+      "notes": null,
+      "shipped_at": "2026-08-24T08:33:04Z"
+    },
+    {
+      "r_number": "R-F4286",
+      "title": "re-pin launcher hashes onto the canonical LF bytes R-F4283 established",
+      "claimed_at": "2026-08-24T08:57:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bc002f9a",
+      "notes": null,
+      "shipped_at": "2026-08-24T09:17:13Z"
+    },
+    {
+      "r_number": "R-F4287",
+      "title": "the rejected-side currency check guards the wrong consumer",
+      "claimed_at": "2026-08-24T09:38:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "28896884",
+      "notes": null,
+      "shipped_at": "2026-08-24T09:59:48Z"
+    },
+    {
+      "r_number": "R-F4288",
+      "title": "artifact writers emit platform-dependent bytes - pin newline at the source",
+      "claimed_at": "2026-08-24T09:41:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "28896884",
+      "notes": null,
+      "shipped_at": "2026-08-24T09:59:48Z"
+    },
+    {
+      "r_number": "R-F4289",
+      "title": "rf1845 prewarm guard reads the module list, not a source substring",
+      "claimed_at": "2026-08-24T09:44:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "28896884",
+      "notes": null,
+      "shipped_at": "2026-08-24T09:59:49Z"
+    },
+    {
+      "r_number": "R-F4290",
+      "title": "bind FS-9 to the filing-currency evidence the DD already gathers",
+      "claimed_at": "2026-08-24T10:12:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d07aa4d",
+      "notes": null,
+      "shipped_at": "2026-08-24T10:19:06Z"
+    },
+    {
+      "r_number": "R-F4291",
+      "title": "bind IS-16 to the debarment register the DD already consults",
+      "claimed_at": "2026-08-24T11:24:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ff6ed0ab",
+      "notes": null,
+      "shipped_at": "2026-08-24T11:36:04Z"
+    },
+    {
+      "r_number": "R-F4292",
+      "title": "entity-rail responsive guard asserts behaviour, not an obsolete display none",
+      "claimed_at": "2026-08-24T11:32:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ff6ed0ab",
+      "notes": null,
+      "shipped_at": "2026-08-24T11:36:05Z"
+    },
+    {
+      "r_number": "R-F4293",
+      "title": "bind EI-4 to the register-established address, entity half",
+      "claimed_at": "2026-08-24T11:55:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "31fd2be9",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:02:45Z"
+    },
+    {
+      "r_number": "R-F4294",
+      "title": "GLEIF parent relationships - fetch, wire and bind OC-7",
+      "claimed_at": "2026-08-24T12:23:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "506cf374",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:32:30Z"
+    },
+    {
+      "r_number": "R-F4295",
+      "title": "trace LR-20 second resolver - it answers a different question",
+      "claimed_at": "2026-08-24T12:54:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a07a6760",
+      "notes": null,
+      "shipped_at": "2026-08-24T12:56:29Z"
+    },
+    {
+      "r_number": "R-F4296",
+      "title": "busy engine is not a stalled engine on /health",
+      "claimed_at": "2026-08-24T13:16:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2b77a5f",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:13:08Z"
+    },
+    {
+      "r_number": "R-F4297",
+      "title": "secret scan skips binaries and streams; the gate can certify again",
+      "claimed_at": "2026-08-24T14:17:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a74487d",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:25:41Z"
+    },
+    {
+      "r_number": "R-F4298",
+      "title": "xfail gate reports an out-of-repo path instead of crashing",
+      "claimed_at": "2026-08-24T14:27:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "858ba892",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:28:32Z"
+    },
+    {
+      "r_number": "R-F4299",
+      "title": "router summary states effective consequences, not raw knobs",
+      "claimed_at": "2026-08-24T14:41:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0e81430d",
+      "notes": null,
+      "shipped_at": "2026-08-24T14:48:12Z"
+    },
+    {
+      "r_number": "R-F4300",
+      "title": "record v0.4-dpo as the evaluated model and correct the readiness bar",
+      "claimed_at": "2026-08-24T16:15:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bebfb001",
+      "notes": null,
+      "shipped_at": "2026-08-24T16:27:33Z"
+    },
+    {
+      "r_number": "R-F4301",
+      "title": "claude_student closes the teacher-distill loop",
+      "claimed_at": "2026-08-24T16:44:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "94a65c49",
+      "notes": null,
+      "shipped_at": "2026-08-24T16:59:28Z"
+    },
+    {
+      "r_number": "R-F4302",
+      "title": "agent_bridge forwards Claude notes to the server collab log",
+      "claimed_at": "2026-08-24T17:14:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f3dfb26a",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:22:39Z"
+    },
+    {
+      "r_number": "R-F4303",
+      "title": "aria-llm CLI provider targets the sovereign endpoint",
+      "claimed_at": "2026-08-24T17:26:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a18e7bc0",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:31:50Z"
+    },
+    {
+      "r_number": "R-F4304",
+      "title": "build a training corpus from the Claude teacher signal",
+      "claimed_at": "2026-08-24T17:32:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "62e10188",
+      "notes": null,
+      "shipped_at": "2026-08-24T17:38:19Z"
+    },
+    {
+      "r_number": "R-F4305",
+      "title": "training drivers resolve the repo root instead of hardcoding it",
+      "claimed_at": "2026-08-24T18:11:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9b8c3ae9",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:16:45Z"
+    },
+    {
+      "r_number": "R-F4306",
+      "title": "pull the trained adapter back so the model is never pod-bound",
+      "claimed_at": "2026-08-24T18:18:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "47cb3d3a",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:20:50Z"
+    },
+    {
+      "r_number": "R-F4307",
+      "title": "one forwarder for the bridge, reading .env and reporting why",
+      "claimed_at": "2026-08-24T18:27:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "099d7f52",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:37:27Z"
+    },
+    {
+      "r_number": "R-F4308",
+      "title": "capture coder CLI turns as training signal",
+      "claimed_at": "2026-08-24T18:39:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c97f580d",
+      "notes": null,
+      "shipped_at": "2026-08-24T18:46:39Z"
+    },
+    {
+      "r_number": "R-F4309",
+      "title": "Shared httpx client in web_search to eliminate per-request SSL context creation",
+      "claimed_at": "2026-08-24T21:07:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "630f628a",
+      "notes": null,
+      "shipped_at": "2026-08-25T05:43:38Z"
+    },
+    {
+      "r_number": "R-F4310",
+      "title": "autonomous coder reasons with ARIA's full playbook and rules at every stage, and edit-mode reaches the route",
+      "claimed_at": "2026-08-25T05:41:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "df0faff8",
+      "notes": null,
+      "shipped_at": "2026-08-25T06:21:31Z"
+    },
+    {
+      "r_number": "R-F4311",
+      "title": "mastery grader escalates to ARIA's full reasoning with an attribution control",
+      "claimed_at": "2026-08-25T07:34:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e48f66f6",
+      "notes": null
+    },
+    {
+      "r_number": "R-F4312",
+      "title": "Fix stale coder-safety tests asserting superseded contracts",
+      "claimed_at": "2026-08-25T07:36:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
@@ -35301,6 +37056,34 @@
       "commit_sha": "727717a4",
       "notes": null,
       "shipped_at": "2026-08-25T08:23:15Z"
+    },
+    {
+      "r_number": "R-F4315",
+      "title": "CLI non-interactive JSON output mode",
+      "claimed_at": "2026-08-25T07:56:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4316",
+      "title": "an unanswered question from ARIA to Claude becomes visible instead of stalling silently",
+      "claimed_at": "2026-08-25T09:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "reservation destroyed by the 36ee70ff ledger overwrite; restored"
+    },
+    {
+      "r_number": "R-F4317",
+      "title": "sovereign is ineligible when the prompt cannot fit its window",
+      "claimed_at": "2026-08-25T08:32:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ed254c16",
+      "notes": null,
+      "shipped_at": "2026-08-25T08:36:53Z"
     }
   ]
 }
