@@ -103,8 +103,52 @@ def _render_text(tokenizer, record: dict) -> str:
     trl 0.12.2's SFTTrainer does not auto-render a `messages` column; it
     tokenizes a `text` field. We pre-render here (emits Mistral [INST]…[/INST],
     matching how the shim serves) and point SFTConfig.dataset_text_field at it.
+
+    R-F4338 (C-283) - FOLD A SYSTEM TURN INTO THE FIRST USER TURN, because
+    Mistral's template SILENTLY DISCARDS it. Proven against the real tokenizer
+    (mistralai/Mistral-7B-Instruct-v0.3): the render WITH a system turn is
+    BYTE-IDENTICAL to the render without it - 746 chars either way. It does not
+    raise and does not warn, which is why it survived unnoticed across 45
+    corpora and 5,324 training rows whose instruction was thrown away.
+
+    Folding is what Mistral itself expects - the instruction rides on the first
+    user turn - and it is effectively what aria_grounded_v1.jsonl (664 rows,
+    already trained) does by writing the instruction inline.
+
+    Fixing the RENDER rather than the corpora is deliberate: 5,324 rows already
+    exist, and a system turn is the obvious shape every other provider honours,
+    so the next corpus author will reach for it again. Fixed here it cannot be
+    forgotten.
+
+    ONLY folds when the template actually drops it. A system-aware tokenizer
+    renders the turn itself, and folding as well would train the instruction
+    TWICE. The check is empirical - render once and look - never a version
+    guess.
+
+    The instruction is prepended to the PROMPT side only. Appending it to the
+    assistant turn would train her to recite her own system prompt, which is
+    the "You are you are you are..." failure the CLI hit in R-F4325.
     """
-    return tokenizer.apply_chat_template(record["messages"], tokenize=False)
+    NL2 = chr(10) + chr(10)
+    msgs = list(record.get("messages") or [])
+    if not msgs:
+        return tokenizer.apply_chat_template(msgs, tokenize=False)
+
+    sys_parts = [m.get("content") or "" for m in msgs if m.get("role") == "system"]
+    if sys_parts:
+        rendered = tokenizer.apply_chat_template(msgs, tokenize=False)
+        first = (sys_parts[0] or "").strip()
+        if first and first not in rendered:
+            rest = [m for m in msgs if m.get("role") != "system"]
+            preamble = NL2.join(p2.strip() for p2 in sys_parts if p2.strip())
+            for i, m in enumerate(rest):
+                if m.get("role") == "user":
+                    rest[i] = {**m, "content": preamble + NL2 + (m.get("content") or "")}
+                    break
+            else:
+                rest.insert(0, {"role": "user", "content": preamble})
+            msgs = rest
+    return tokenizer.apply_chat_template(msgs, tokenize=False)
 
 
 # R-F3393 — ARIA's agreed base model, recorded in activate_aria_llm_v01.sh,
