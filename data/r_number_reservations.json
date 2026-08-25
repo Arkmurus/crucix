@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4326,
+  "next_available": 4328,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37153,6 +37153,24 @@
       "r_number": "R-F4325",
       "title": "the CLI presents a 7B-class model a tool set it can actually use (C-273)",
       "claimed_at": "2026-08-25T10:54:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4326",
+      "title": "the sovereign's context window comes from the model, not a version literal (C-274)",
+      "claimed_at": "2026-08-25T11:50:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4327",
+      "title": "the sovereign completion ceiling derives from throughput and timeout (C-275)",
+      "claimed_at": "2026-08-25T11:55:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

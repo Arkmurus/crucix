@@ -3096,6 +3096,24 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-274",
+      "title": "the prompt budget uses a hardcoded window that rots on every sovereign rename",
+      "claimed_at": "2026-08-25T11:50:31Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-275",
+      "title": "the sovereign chat ceiling is calibrated for hardware we no longer run",
+      "claimed_at": "2026-08-25T11:55:22Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
