@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4339,
+  "next_available": 4340,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37270,6 +37270,15 @@
       "r_number": "R-F4338",
       "title": "fold the system turn into the user turn so SFT actually learns it (C-281)",
       "claimed_at": "2026-08-25T23:37:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4339",
+      "title": "defence-ecosystem mastery curriculum across the five customer jobs (C-284)",
+      "claimed_at": "2026-08-25T23:50:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

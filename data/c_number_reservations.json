@@ -3186,6 +3186,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-284",
+      "title": "she has no curriculum for four of the five north-star customer jobs",
+      "claimed_at": "2026-08-25T23:50:21Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
