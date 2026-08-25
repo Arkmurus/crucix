@@ -3024,6 +3024,69 @@
       ],
       "notes": null,
       "closed_at": "2026-08-25T08:35:58Z"
+    },
+    {
+      "c_number": "C-266",
+      "title": "the coder CLI sends more context than the model can hold",
+      "claimed_at": "2026-08-25T08:54:32Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-267",
+      "title": "the CLI system prompt is 3x the model window",
+      "claimed_at": "2026-08-25T09:06:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-268",
+      "title": "sovereign tool loop 400s on every round-trip",
+      "claimed_at": "2026-08-25T09:25:41Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-269",
+      "title": "the compaction budget reserved nothing for tool schemas",
+      "claimed_at": "2026-08-25T09:41:04Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-270",
+      "title": "ERROR entries evicted from the ledger by a WARNING flood",
+      "claimed_at": "2026-08-25T09:50:44Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-271",
+      "title": "the coder reports a deliberate operator-decides policy as a registry gap",
+      "claimed_at": "2026-08-25T09:50:45Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-272",
+      "title": "mastery floor breach reported that its own comparison denies",
+      "claimed_at": "2026-08-25T09:50:45Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

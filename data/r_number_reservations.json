@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4318,
+  "next_available": 4325,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35311,6 +35311,69 @@
       "commit_sha": "ed254c16",
       "notes": null,
       "shipped_at": "2026-08-25T08:36:53Z"
+    },
+    {
+      "r_number": "R-F4318",
+      "title": "CLI fits the conversation to the model window",
+      "claimed_at": "2026-08-25T08:54:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4319",
+      "title": "guidance budget derives from the model window",
+      "claimed_at": "2026-08-25T09:06:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4320",
+      "title": "Mistral chat-template contract for the sovereign CLI tool loop",
+      "claimed_at": "2026-08-25T09:25:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4321",
+      "title": "one budget accounting for the CLI context window",
+      "claimed_at": "2026-08-25T09:41:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4322",
+      "title": "an ERROR survives a WARNING flood in the ledger (C-270)",
+      "claimed_at": "2026-08-25T09:50:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4323",
+      "title": "absent from the registry is not the same as operator-decides (C-271)",
+      "claimed_at": "2026-08-25T09:50:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4324",
+      "title": "a mastery floor breach must satisfy its own comparison (C-272)",
+      "claimed_at": "2026-08-25T09:50:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
