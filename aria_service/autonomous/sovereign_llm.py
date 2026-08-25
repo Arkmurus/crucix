@@ -253,8 +253,10 @@ class SovereignLLM:
     @fail_wire(module="sovereign_llm", gap_type="agent_cycle_failure")
     async def write_reproduce_test(self, gap: Gap, module: str) -> dict[str, Any]:
         """Generate one pytest that reproduces a gap on the current code."""
+        # R-F4310 (C-262) — this writes a pytest into the repo; same bar.
         prompt = (
-            f"Write a single pytest test function that reproduces the following gap symptom "
+            _playbook_preamble()
+            + f"Write a single pytest test function that reproduces the following gap symptom "
             f"in module '{module}'. The test must FAIL when run against the CURRENT (unfixed) "
             f"code — it should assert the buggy behaviour exists.\n\n"
             f"GAP TITLE: {gap.title}\n"
@@ -477,7 +479,11 @@ Reply with ONLY valid JSON:
     def _build_test_prompt(
         self, plan: dict, new_code: str, r_number: int,
     ) -> str:
-        return f"""Write pytest tests for this autonomous fix.
+        # R-F4310 (C-262) — the test stage used to carry NO playbook, and it is
+        # the stage that wrote R-F4309's two "capability" tests that were greps
+        # over inspect.getsource and could not fail. Constitutional rule #2 is
+        # literally capability-test-required-per-fix; the writer had never seen it.
+        return f"""{_playbook_preamble()}Write pytest tests for this autonomous fix.
 
 CHANGE
 {json.dumps(plan, indent=2)}
@@ -518,7 +524,9 @@ Reply with ONLY valid JSON:
     def _build_healing_prompt(
         self, error: str, code: str, attempt: int,
     ) -> str:
-        return f"""The autonomous coder's previous attempt failed tests (attempt {attempt}/3).
+        # R-F4310 (C-262) — self-heal rewrites code after a test failure with the
+        # same authority as write_code, so it needs the same binding rules.
+        return f"""{_playbook_preamble()}The autonomous coder's previous attempt failed tests (attempt {attempt}/3).
 
 TEST FAILURE
 {error}

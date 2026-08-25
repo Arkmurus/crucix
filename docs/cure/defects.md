@@ -16164,3 +16164,84 @@ prompt resolved to 2,326 chars, response 809 chars.
 **asking** (`ask_claude`) and Claude **replying**. A reply carries `reply_to`,
 which now resolves the parent; an unprompted note has no question and never
 becomes a pair.
+
+## C-262 · the autonomous coder wrote code and tests without ARIA's own rules (fixed, R-F4310)
+
+**Found by reviewing R-F4309**, which ARIA's coder wrote and sent for approval. The
+PLAN was right — "share one httpx client across the seven search backends". Every
+defect was downstream of it: the CODE created a process-global with no reset path
+(a test's fake client leaked past monkeypatch teardown into unrelated tests, and
+`test_rf2318_brave_dd_search` failed with another backend's error), and the TESTS
+were greps over `inspect.getsource` that could not fail — one asserted
+`src.count("follow_redirects=True") >= 3` while FOUR matched and one was a comment.
+
+**That maps exactly onto which stages can see ARIA's accumulated judgement.**
+`SovereignLLM` has six stages, all funnelling through one `_call`:
+
+| stage | task | playbook | constitutional rules |
+|---|---|---|---|
+| `generate_fix_plan` | `plan` | yes | yes (R-F1531) |
+| `write_code` | `code` | yes | **no** |
+| `write_edit` | `edit` | yes | **no** — and the route **400s** it |
+| `write_tests` | `test` | **no** | **no** |
+| `write_reproduce_test` | `test` | **no** | **no** |
+| `analyse_failure` | `heal` | **no** | **no** |
+
+Constitutional rule #2 is literally `capability-test-required-per-fix` — "Every fix
+MUST include a capability test that invokes the actual broken path". **The stage
+that wrote R-F4309's tests had never seen it.**
+
+**Three defects, one theme.**
+
+1. **`task="edit"` was rejected by the coder's own endpoint.** R-F1295 added
+   edit-mode for large files and sends `task="edit"`; the route's allow-list was
+   `plan|code|test|heal|general` and was never updated — the route's own body
+   comment still lists four tasks. Every surgical edit 400'd,
+   `self_coder._write_file_content` caught it and fell back to WHOLE-FILE
+   generation, which is the truncation R-F1295 exists to prevent and which R-F904
+   then blocks. **The coder could not edit a large file at all, silently** — and
+   large files are most of `aria_service`. Now accepted, and a contract test reads
+   the `task=` literals out of `sovereign_llm` by AST and fails if the two sides
+   drift again, with a companion test asserting `write_edit` still SENDS `edit` so
+   the contract cannot pass by emptying its own universe.
+
+2. **The test, reproduce-test and heal prompts carried no playbook.**
+   `_playbook_preamble()` binds the coder to CLAUDE.md + AGENTS.md ("root-cause not
+   symptom, smallest diff, verify twice, wire success+failure, no false success").
+   **R-F1959 introduced it for plan/code/edit and its test file enumerated exactly
+   those three** — so the two stages without it were invisible to the guard, the
+   "a guard scoped to part of the surface certifies the rest" shape. Now every
+   builder carries it, pinned parametrically over all five.
+
+3. **Only the plan stage received the constitutional rules.** Fixed at the ONE
+   choke point — the route's system prompt — not stage by stage. Curating a
+   per-stage list is the whack-a-mole shape R-F3946 rejected for Brave scopes: the
+   seventh stage added later re-opens the hole silently. A new task name cannot
+   bypass it. Fail-open by construction (§20 records this same retrieval failing
+   silently three separate times, so it is a grounding aid, never a precondition),
+   and off-loop via `asyncio.to_thread` because it is a blocking chromadb query —
+   C-95 and C-99 are two live incidents caused by blocking work on this loop.
+   Both outcomes reach the brain (§21a), and "retrieval worked but matched nothing"
+   is wired **separately** from "retrieval failed": the coder writing unguided with
+   no store broken is a different fact from a broken store, and collapsing them
+   would make an absence read as health.
+
+**What the tests prove, precisely:** that ARIA's rules REACH the model. They cannot
+prove the model obeys them, and nothing here claims that.
+
+**Verification:** 16 tests, RED before and GREEN after. Every guard was
+mutation-tested — the fix broken on purpose, each test confirmed red — including
+one of my own that mutation exposed as decorative. Blast-radius diff over the 73
+test files touching the coder, sovereign_llm, coding_rag or `/coder/llm`:
+**3 failures before, the same 3 after, zero newly red**, 740 → 756 passed.
+
+**Two standing reds in that set are STALE TESTS, not live defects** (pre-existing,
+untouched here, recorded so the next reader does not re-diagnose them):
+`test_rf1128_protected_file_filter` asserts against `_PROTECTED_FILES`, which is now
+an empty `frozenset()` — protection moved to `MODIFIABLE_FILES`/`NO_AUTODEPLOY_FILES`
+and is demonstrably live (the sibling test's own log shows `R-F851 BLOCKED
+auto-deploy of 1 honesty-critical file(s)`); and
+`test_rf851_constitution_no_autodeploy` fails on `"ordinary file should still
+auto-deploy"`, which R-F2689 deliberately superseded — nothing auto-deploys until
+the evidence gate opens (`fixed 0 < 20; gold 0 < 10`). Both assert a contract a
+later, deliberate guard replaced.

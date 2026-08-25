@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4310,
+  "next_available": 4311,
   "reservations": [
     {
       "r_number": "R-F1000",
@@ -37003,6 +37003,16 @@
       "r_number": "R-F4309",
       "title": "Shared httpx client in web_search to eliminate per-request SSL context creation",
       "claimed_at": "2026-08-24T21:07:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "630f628a",
+      "notes": null,
+      "shipped_at": "2026-08-25T05:43:38Z"
+    },
+    {
+      "r_number": "R-F4310",
+      "title": "autonomous coder reasons with ARIA's full playbook and rules at every stage, and edit-mode reaches the route",
+      "claimed_at": "2026-08-25T05:41:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -17253,9 +17253,16 @@ async def coder_llm_ep(request: Request):
             _orig_len, len(prompt),
         )
     task = (body.get("task") or "general").strip()
-    if task not in ("plan", "code", "test", "heal", "general"):
+    # R-F4310 (C-262) — "edit" was MISSING and R-F1295 edit-mode sends it. Every
+    # surgical edit of a large file 400'd here; self_coder._write_file_content
+    # catches the error and falls back to WHOLE-FILE generation, which is the
+    # truncation R-F1295 exists to prevent and which R-F904 then blocks. So the
+    # coder could not edit a large file at all, and nothing said so.
+    # test_rf4310 reads the task literals out of sovereign_llm by AST and fails
+    # if the two sides ever drift again.
+    if task not in ("plan", "code", "edit", "test", "heal", "general"):
         raise HTTPException(
-            status_code=400, detail="task must be plan|code|test|heal|general",
+            status_code=400, detail="task must be plan|code|edit|test|heal|general",
         )
     max_tokens = int(body.get("max_tokens") or 4096)
     if not 1 <= max_tokens <= 8192:
@@ -17301,6 +17308,67 @@ async def coder_llm_ep(request: Request):
         "When asked to reply with JSON, return ONLY valid JSON — no markdown, "
         "no prose, no code fences."
     )
+
+    # R-F4310 (C-262) — ARIA's own constitutional rules, retrieved for THIS task.
+    #
+    # Before this, only `generate_fix_plan` consulted them (R-F1531, via
+    # rag_augmented_generator). `write_code`, `write_edit`, `write_tests`,
+    # `write_reproduce_test` and `analyse_failure` all worked without them —
+    # and it showed: R-F4309's plan was right while its tests were greps over
+    # `inspect.getsource` that could not fail, against a rule set whose #2 entry
+    # is literally `capability-test-required-per-fix`.
+    #
+    # Injected HERE, at the one place every coder stage passes through, rather
+    # than stage by stage. Curating a per-stage list is the whack-a-mole shape
+    # R-F3946 rejected for Brave scopes: the seventh stage added later re-opens
+    # the hole silently. A new task name cannot bypass this.
+    #
+    # Fail-open by construction: this is a grounding aid, not a precondition, so
+    # a missing/wedged vector store must never take the coder down (§20 records
+    # this same retrieval failing silently three separate times). Blocking
+    # chromadb query, so it runs off the loop per its own docstring — C-95/C-99
+    # are two live incidents caused by blocking work on this event loop.
+    try:
+        from ..intel import coding_rag_indexer as _crag_rules
+        from ..intel.engine_wiring import wire_success as _wire_success_rules
+        _rules = await asyncio.to_thread(
+            _crag_rules.query_constitutional_constraints, prompt[:300], 4,
+        ) or []
+        _rule_lines = []
+        for _r in _rules[:4]:
+            _txt = str((_r or {}).get("rule", "")).strip()
+            if _txt:
+                _rule_lines.append("• " + _txt[:500])
+        if _rule_lines:
+            system_prompt += (
+                "\n\nBINDING RULES FOR THIS REPOSITORY (ARIA's own constitution — "
+                "these are the rules your work is reviewed against; follow them "
+                "exactly, and prefer failing loudly over appearing to succeed):\n"
+                + "\n".join(_rule_lines)
+            )
+            _wire_success_rules(
+                module="coder_llm",
+                summary=f"grounded task={task} in {len(_rule_lines)} constitutional rule(s)",
+            )
+        else:
+            # Retrieval WORKED and matched nothing — distinct from a failure, and
+            # worth seeing: the coder is writing unguided and no store is broken.
+            from ..intel.engine_wiring import wire_failure as _wire_failure_rules
+            _wire_failure_rules(
+                module="coder_llm",
+                detail=f"no constitutional rule matched task={task} — coder is unguided",
+                gap_type="missing_capability", source="coder_llm:constitutional_rules",
+            )
+    except Exception as _rules_e:  # noqa: BLE001 — grounding must never break the call
+        _log.warning(
+            "[coder/llm] constitutional grounding unavailable (non-fatal): %s", _rules_e,
+        )
+        from ..intel.engine_wiring import wire_failure as _wire_failure_rules
+        _wire_failure_rules(
+            module="coder_llm",
+            detail=f"constitutional rule retrieval failed: {_rules_e}",
+            gap_type="source_failure", source="coder_llm:constitutional_rules",
+        )
 
     _log.info(
         "[coder/llm] task=%s prefer_model=%s pinned_provider=%s max_tokens=%d prompt_len=%d",

@@ -2979,6 +2979,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-24T18:46:37Z"
+    },
+    {
+      "c_number": "C-262",
+      "title": "autonomous coder: edit-mode 400s, and test/heal stages carry none of ARIA's playbook or constitutional rules",
+      "claimed_at": "2026-08-25T05:41:53Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
