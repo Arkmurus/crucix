@@ -2027,6 +2027,79 @@ async def get_code_knowledge() -> dict:
 ERROR_LOG_KEY = "crucix:aria:error_log"
 MAX_ERRORS = 200
 
+#: R-F4322 (C-270) — slots RESERVED for ERROR/CRITICAL entries, which a
+#: WARNING flood may not take. Measured live 2026-08-25: the ledger held 200
+#: entries spanning 1.4 HOURS at ~140 warnings/hour, so a real ERROR was
+#: evicted within ninety minutes and `window_errors_24h` reported the CAP
+#: rather than a count. `error_streak.py:96` documents the same defect.
+#:
+#: A RESERVE, NOT A BIGGER BUFFER. Raising MAX_ERRORS only moves the horizon
+#: — the flood still wins — and §1 forbids that band-aid. Half is deliberate:
+#: errors are rare in the healthy case, so the reserve is mostly unused and
+#: warnings still get ~199 of 200 slots (pinned by a test), while under an
+#: error storm neither class can starve the other.
+ERROR_RESERVE = 100
+
+
+def _trim_error_log(entries: list, max_entries: int | None = None,
+                    error_reserve: int | None = None) -> list:
+    """Trim the ledger to ``max_entries``, guaranteeing ERRORs a floor.
+
+    R-F4322 (C-270). The old trim was ``entries[-MAX_ERRORS:]`` over a list
+    that `error_log_handler` fills with EVERY WARNING+ from any ``aria.*``
+    logger. Warnings therefore evicted errors, and the ledger — the thing a
+    human or an agent READS to diagnose — could only see the last ~1.4h.
+    Worse, its silence was indistinguishable from a clean period, the same
+    absence-reads-as-health shape §1 records for three Phase A gates.
+
+    R-F2622 already protects the GATE with a durable, TTL-less streak anchor;
+    this protects the diagnostic RECORD. The two are complementary — do not
+    "simplify" either into the other.
+
+    Classification goes through ``error_streak.is_reset_type``, the ONE
+    definition of what counts as an ERROR, shared so the write and read paths
+    cannot drift. If that import fails we fall back to the ORIGINAL tail
+    slice: degrading to the old behaviour is honest, whereas treating every
+    entry as an error would let warnings fill the reserve and quietly undo
+    the fix.
+
+    Chronological order is preserved — readers page through this list, so
+    reordering it would misreport when things happened.
+    """
+    max_entries = MAX_ERRORS if max_entries is None else int(max_entries)
+    error_reserve = ERROR_RESERVE if error_reserve is None else int(error_reserve)
+    if max_entries <= 0:
+        return []
+    if len(entries) <= max_entries:
+        return list(entries)
+
+    try:
+        from . import error_streak as _es
+        _is_err = _es.is_reset_type
+    except Exception:  # noqa: BLE001 — see docstring: degrade to the old trim
+        return entries[-max_entries:]
+
+    reserve = max(0, min(error_reserve, max_entries))
+    keep: set[int] = set()
+    if reserve:
+        err_idx = []
+        for i, e in enumerate(entries):
+            try:
+                if _is_err(str((e or {}).get("type") or "")):
+                    err_idx.append(i)
+            except Exception:  # noqa: BLE001 — a malformed row is not an error
+                continue
+        keep.update(err_idx[-reserve:])
+
+    # Fill whatever the reserve did not claim with the most RECENT entries,
+    # so recency still governs the ordinary case.
+    for i in range(len(entries) - 1, -1, -1):
+        if len(keep) >= max_entries:
+            break
+        keep.add(i)
+
+    return [e for i, e in enumerate(entries) if i in keep]
+
 # R-F1510: circuit breaker for record_error. When the state_store is under
 # lock contention (SQLite "database is locked"), every WARNING log from the
 # store triggers error_log_handler → record_error → set_json → _upsert,
@@ -2120,8 +2193,9 @@ async def record_error(error_type: str, message: str, file: str = "",
             "traceback": traceback[:1000],
             "timestamp": time.time(),
         })
-        if len(errors) > MAX_ERRORS:
-            errors = errors[-MAX_ERRORS:]
+        # R-F4322 (C-270) — reserve slots for ERRORs so a WARNING flood
+        # cannot evict them and blind the ledger to the last ~1.4h.
+        errors = _trim_error_log(errors)
         await rs.set_json(ERROR_LOG_KEY, errors, ex=7 * 86400)
         _SI_ERRORS_RECORDED += 1
         # R-F2622: advance the durable gate-#3 streak anchor. The ledger

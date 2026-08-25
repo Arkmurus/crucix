@@ -59,7 +59,8 @@ from .codebase_reader import CodebaseReader
 # old "validator removed / fully autonomous" comments overstated the autonomy.
 from typing import Any as _Any
 from .fly_deployer import DeployResult, FlyDeployer
-from .gap_detector import Gap, GapDetector, GapSeverity, GapType
+from .gap_detector import (AUTONOMY_LEVEL, Gap, GapDetector,
+                           GapSeverity, GapType)
 from .r_counter import RNumberCounter
 from ..intel.autonomous_coder import AutonomousCoder  # R-F1003 (kept for injection/back-compat)
 from .sovereign_llm import (  # R-F1025: real LLM-backed coder (the contract self_coder reads)
@@ -470,6 +471,67 @@ def build_coder_reward_record(
     }
 
 
+def _report_unfixable_severe(not_auto_fixable: list) -> tuple[list, list]:
+    """Split severe non-auto-fixable gaps and report each for what it is.
+
+    R-F4323 (C-271). R-F4115 (C-148) added one WARNING here for a real and
+    dangerous case: ``auto_fixable`` comes from
+    ``AUTONOMY_LEVEL.get(type, (False, ...))``, so a renamed or unknown
+    gap_type silently returns False and a CRITICAL gap is dropped while the
+    loop still looks healthy — the R-F3791 goes-blind-rather-than-fails
+    shape. That intent is preserved exactly.
+
+    What it could not do is tell that case apart from a DELIBERATE policy.
+    ``missing_capability`` and ``opportunity`` are both registered
+    (gap_detector.py) as ``(False, True, False)`` — "operator decides". So
+    the warning fired on working behaviour: measured live 2026-08-25, 16
+    times inside a 1.4-hour ledger window, always naming
+    ``['missing_capability']`` as "absent from AUTONOMY_LEVEL" when it is
+    present and correct.
+
+    A warning that is always on is a warning nobody reads, and — the part
+    that matters — it could no longer surface the rot it was built for: a
+    genuinely unregistered type would produce a message indistinguishable
+    from the 16 benign ones. §1's "a guard that cannot fail", applied to an
+    alarm that cannot be heard.
+
+    Two populations, two responses, deliberately at different log levels:
+      * ABSENT from AUTONOMY_LEVEL -> WARNING. Registry rot; severe gaps are
+        being dropped silently until someone adds the type.
+      * PRESENT, auto_fixable False -> INFO. Working as designed, waiting on
+        a human (§21e). Still said out loud, because quieting a false alarm
+        must not make these gaps invisible.
+
+    Returns ``(unregistered, operator_decides)`` so a caller can act on the
+    split rather than re-deriving it.
+    """
+    severe = [g for g in not_auto_fixable if g.severity >= GapSeverity.HIGH]
+    if not severe:
+        return [], []
+
+    unregistered = [g for g in severe if g.gap_type not in AUTONOMY_LEVEL]
+    operator_decides = [g for g in severe if g.gap_type in AUTONOMY_LEVEL]
+
+    if unregistered:
+        logger.warning(
+            "[aria_coder] R-F4115/R-F4323: %d SEVERE gap(s) carry a gap_type "
+            "ABSENT from AUTONOMY_LEVEL: %s. This is a registry gap — the type "
+            "was renamed or never registered, and severe gaps are being "
+            "dropped silently until it is added.",
+            len(unregistered),
+            sorted({g.gap_type for g in unregistered})[:8],
+        )
+    if operator_decides:
+        logger.info(
+            "[aria_coder] R-F4323: %d SEVERE gap(s) await an OPERATOR decision "
+            "— gap_type(s) %s are registered non-auto-fixable by design, not "
+            "missing from the registry.",
+            len(operator_decides),
+            sorted({g.gap_type for g in operator_decides})[:8],
+        )
+    return unregistered, operator_decides
+
+
 class ARIACoder:
     """The autonomous self-coding engine — orchestrator only.
 
@@ -645,19 +707,9 @@ class ARIACoder:
                 len(below_severity), len(not_auto_fixable),
                 sorted({g.gap_type for g in not_auto_fixable})[:8] or "-",
             )
-        # A CRITICAL/HIGH gap that is not auto_fixable is not triage — it is a
-        # gap_type the AUTONOMY_LEVEL registry does not know about. Say so
-        # loudly; silence here is how a renamed type blinds the whole loop.
-        _severe_unfixable = [g for g in not_auto_fixable
-                             if g.severity >= GapSeverity.HIGH]
-        if _severe_unfixable:
-            logger.warning(
-                "[aria_coder] R-F4115: %d SEVERE gap(s) are not auto_fixable — "
-                "gap_type(s) %s are absent from AUTONOMY_LEVEL. This is a "
-                "registry gap, not a triage decision.",
-                len(_severe_unfixable),
-                sorted({g.gap_type for g in _severe_unfixable})[:8],
-            )
+        # R-F4323 (C-271) — registry ROT and a deliberate
+        # operator-decides policy are different findings.
+        _report_unfixable_severe(not_auto_fixable)
 
         if pending_skip:
             logger.info(
