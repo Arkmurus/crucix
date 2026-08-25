@@ -3165,18 +3165,25 @@
       "title": "the CLI serves the base model under the adapter name and no surface can tell",
       "claimed_at": "2026-08-25T23:28:17Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4335",
+        "R-F4336"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-25T23:56:28Z"
     },
     {
       "c_number": "C-282",
       "title": "a narrated tool call is dropped silently and the turn ends with zero calls",
       "claimed_at": "2026-08-25T23:28:17Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4337"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-25T23:56:28Z"
     },
     {
       "c_number": "C-283",

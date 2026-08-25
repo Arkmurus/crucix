@@ -37244,27 +37244,30 @@
       "title": "sovereign model identity preflight - a colliding model id must never serve silently",
       "claimed_at": "2026-08-25T23:28:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f48ac33",
+      "notes": null,
+      "shipped_at": "2026-08-25T23:56:18Z"
     },
     {
       "r_number": "R-F4336",
       "title": "repo-tracked collision-proof sovereign vLLM launcher",
       "claimed_at": "2026-08-25T23:28:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f48ac33",
+      "notes": null,
+      "shipped_at": "2026-08-25T23:56:18Z"
     },
     {
       "r_number": "R-F4337",
       "title": "re-ask once when the sovereign narrates a tool instead of calling it",
       "claimed_at": "2026-08-25T23:28:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f48ac33",
+      "notes": null,
+      "shipped_at": "2026-08-25T23:56:19Z"
     },
     {
       "r_number": "R-F4338",
