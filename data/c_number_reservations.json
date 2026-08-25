@@ -3087,6 +3087,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-273",
+      "title": "the sovereign cannot drive the CLI: 31 tool schemas destroy her tool-calling",
+      "claimed_at": "2026-08-25T10:54:00Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
