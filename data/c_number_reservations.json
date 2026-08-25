@@ -3150,6 +3150,33 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-280",
+      "title": "the corpus teacher cannot teach what the eval demands",
+      "claimed_at": "2026-08-25T23:25:01Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-281",
+      "title": "the CLI serves the base model under the adapter name and no surface can tell",
+      "claimed_at": "2026-08-25T23:28:17Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-282",
+      "title": "a narrated tool call is dropped silently and the turn ends with zero calls",
+      "claimed_at": "2026-08-25T23:28:17Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
