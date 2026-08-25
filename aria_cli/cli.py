@@ -57,7 +57,8 @@ from . import __version__
 from . import brain as brain_mod
 from .agent import Agent, AgentUI
 from .llm import LLMClient, LLMConfig
-from .prompt import build_system_prompt
+from .prompt import (build_compact_system_prompt, build_system_prompt,
+                     compact_prompt_active)
 from .safety import WriteGuard
 from .tools import ToolResult, Toolbox
 
@@ -1921,8 +1922,13 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
             f"  [warning] LLM provider '{cfg.provider}' does NOT support "
             f"tool-calling — the coder will have NO tools (no read/edit/run). "
             f"{_remedy}."))
-    system_prompt = build_system_prompt(
-        root=cwd, self_mode=self_mode, repo_root=repo_root)
+    # R-F4325 (C-273) — a 7B-class sovereign cannot act under the full
+    # prompt (measured 0/5 correct tool calls, and degenerate output).
+    if compact_prompt_active(cfg.provider):
+        system_prompt = build_compact_system_prompt(root=cwd)
+    else:
+        system_prompt = build_system_prompt(
+            root=cwd, self_mode=self_mode, repo_root=repo_root)
     theme = getattr(args, "theme", "dark")
     ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color, theme=theme)
     toolbox.on_output = ui.tool_output

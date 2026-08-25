@@ -712,6 +712,61 @@ def _query_coding_rag(task_hint: str = "") -> str:
         return ""
 
 
+#: R-F4325 (C-273) — the system prompt a 7B-class sovereign can still act under.
+#:
+#: MEASURED live 2026-08-25, five representative CLI tasks scored on whether the
+#: CORRECT tool was called, with the narrowed tool set from `agent.py`:
+#:
+#:     full CLI prompt   20,885 ch  ->  0/5   (and degenerate output)
+#:     this prompt          344 ch  ->  4/5
+#:     identity line only   140 ch  ->  5/5
+#:
+#: The rules below cost exactly one task (5/5 -> 4/5) and are kept anyway: an
+#: agent that edits files and runs commands without "root cause, not a band-aid"
+#: and "verify before claiming" is the more dangerous failure. That trade is
+#: recorded here rather than buried, because it is the kind of thing a later
+#: session should be able to revisit with a stronger checkpoint.
+#:
+#: This is the CLI half of R-F1337, which the server has had since 2026:
+#: aria_engine.py:719 "serve the compact prompt when a small sovereign model
+#: (ARIA-LLM, 7B-class) is wired as chain primary."
+_COMPACT_SOVEREIGN_PROMPT = """You are ARIA, an autonomous coding agent in the operator's repository {root} on {platform}. Act with the tools; do not describe commands.
+
+Rules: reserve an R-number before code; fix the root cause, never a band-aid; run the test before claiming it passes; never delete data.
+
+Work in small steps: inspect with a tool, then act, then verify."""
+
+#: Providers that need it. Mirrors agent._NARROW_TOOL_PROVIDERS — the two halves
+#: are one fix and were measured together; neither works alone (narrowed tools
+#: under the full prompt still scored 0/5).
+_COMPACT_PROMPT_PROVIDERS = frozenset({"aria-llm"})
+
+
+def compact_prompt_active(provider: str) -> bool:
+    """Should ``provider`` get the compact prompt?
+
+    Default ON for a measured small model, OFF otherwise, and overridable with
+    ARIA_CLI_COMPACT_PROMPT=0/1 — the same shape as the server's
+    ARIA_LLM_COMPACT_PROMPT, so an operator who knows both surfaces finds the
+    same lever in both places.
+    """
+    flag = (os.getenv("ARIA_CLI_COMPACT_PROMPT") or "").strip()
+    if flag in ("0", "1"):
+        return flag == "1"
+    return (provider or "").strip().lower() in _COMPACT_PROMPT_PROVIDERS
+
+
+def build_compact_system_prompt(*, root: Path) -> str:
+    """The whole system prompt for a small sovereign model. Deliberately tiny.
+
+    R-F4325 (C-273). Not a truncation of the full prompt — a REPLACEMENT.
+    Clipping the full prompt does not help: measured at 200/500/1k/2k/4k/6k/
+    8k/12k chars, every truncation still scored 0 tool calls, because what
+    breaks her is the register and density of that prompt, not only its size.
+    """
+    return _COMPACT_SOVEREIGN_PROMPT.format(root=root, platform=platform.system())
+
+
 def build_system_prompt(*, root: Path, self_mode: bool,
                         repo_root: Path | None = None,
                         task_hint: str = "") -> str:

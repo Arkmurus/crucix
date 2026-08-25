@@ -113,6 +113,77 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+#: R-F4325 (C-273) — the largest tool set the sovereign can actually USE.
+#:
+#: Measured live 2026-08-25 against the served endpoint (Mistral-7B-Instruct-v0.3
+#: as aria-llm-v0.4-dpo), scoring whether the CORRECT tool was called across six
+#: representative CLI tasks:
+#:
+#:     read_file,list_dir,grep,run,edit_file   5/6   <- this set
+#:     read_file,list_dir,glob,grep,run        4/6
+#:     + glob            (6 tools)             3/6
+#:     + write_file      (6 tools)             2/6
+#:     ALL 31 tools (what the CLI sent)        0/5
+#:
+#: At 31 tools she gets NOTHING right and emits degenerate text ("ToS",
+#: "ToDo not----------", the operator's "you are you are you are..."). This is
+#: not a capability cut: 5 tools at 5/6 is strictly more working capability
+#: than 31 tools at 0/5.
+#:
+#: Scoring CORRECTNESS rather than "did a call happen" is load-bearing — the
+#: first-3-tools set scored 5/5 on presence and 1/5 on correctness, because she
+#: answered every task with read_file. A presence-only guard would have called
+#: that a perfect result.
+SOVEREIGN_TOOL_NAMES = ("read_file", "list_dir", "grep", "run", "edit_file")
+SOVEREIGN_MAX_TOOLS = len(SOVEREIGN_TOOL_NAMES)
+
+#: Providers whose tool budget is narrow enough to need the set above. Keyed by
+#: provider because the limit is a property of the MODEL, not of the CLI — the
+#: same reasoning as R-F4318's per-provider window table. Everything else keeps
+#: all 31: DeepSeek and Anthropic handle them, and narrowing them would be a
+#: capability loss bought for nothing.
+_NARROW_TOOL_PROVIDERS = frozenset({"aria-llm"})
+
+
+def _all_tool_names() -> set[str]:
+    """Every tool the CLI can EXECUTE, regardless of what it advertises."""
+    return {s["function"]["name"]
+            for s in _dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)}
+
+
+def tool_schemas_for_provider(provider: str) -> list[dict]:
+    """The tools[] block to advertise to ``provider``.
+
+    R-F4325 (C-273). Narrowing is scoped to the provider whose ceiling was
+    MEASURED, and fails OPEN: an unknown provider gets the full set, because a
+    concession made to one small model must not silently become the default for
+    every model added later.
+
+    This narrows what is ADVERTISED, never what `_dispatch` can execute — a
+    later turn or a sub-agent may still call any tool by name.
+
+    ARIA_CLI_SOVEREIGN_TOOLS overrides the list (comma-separated) so a stronger
+    checkpoint can be widened without a deploy. An override that names nothing
+    real falls back to the measured default rather than emptying tools[]: an
+    empty block would turn the agent into a chatbot silently, which is the
+    failure mode this fix exists to end.
+    """
+    full = _dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)
+    if (provider or "").strip().lower() not in _NARROW_TOOL_PROVIDERS:
+        return full
+
+    wanted = [n.strip() for n in
+              (os.getenv("ARIA_CLI_SOVEREIGN_TOOLS") or "").split(",") if n.strip()]
+    if not wanted:
+        wanted = list(SOVEREIGN_TOOL_NAMES)
+
+    by_name = {s["function"]["name"]: s for s in full}
+    picked = [by_name[n] for n in wanted if n in by_name]
+    if not picked:
+        picked = [by_name[n] for n in SOVEREIGN_TOOL_NAMES if n in by_name]
+    return picked
+
+
 def _dedup_tool_schemas(schemas: list[dict]) -> list[dict]:
     """R-F2398 — return schemas with duplicate function names removed, keeping
     the FIRST occurrence (base wins, matching _dispatch which checks the base
@@ -252,7 +323,9 @@ class Agent:
         # function name so a name present in both lists (the fetch_url overlap
         # that shipped the "Tool names must be unique." HTTP 400 and bricked
         # every CLI turn) can never malform the provider request again.
-        self._all_schemas = _dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)
+        # R-F4325 (C-273) — advertise only what THIS provider can use.
+        self._all_schemas = tool_schemas_for_provider(
+            getattr(getattr(llm, "config", None), "provider", ""))
         self._all_mutating = MUTATING_TOOLS | CODER_MUTATING_TOOLS
         # R-F1299: per-call LLM watchdog timeout for this turn (None → default).
         self._call_timeout: float | None = None
