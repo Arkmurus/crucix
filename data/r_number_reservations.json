@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4137,
+  "next_available": 4317,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -35277,6 +35277,24 @@
       "r_number": "R-F4136",
       "title": "repair stale DPO launcher regression guards",
       "claimed_at": "2026-08-18T05:32:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4313",
+      "title": "CLI sub-agents (spawn_subagent tool)",
+      "claimed_at": "2026-08-25T07:56:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4314",
+      "title": "CLI lifecycle hooks (PreToolUse/PostToolUse/Stop)",
+      "claimed_at": "2026-08-25T07:56:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
