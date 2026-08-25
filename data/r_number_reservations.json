@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4328,
+  "next_available": 4330,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37171,6 +37171,24 @@
       "r_number": "R-F4327",
       "title": "the sovereign completion ceiling derives from throughput and timeout (C-275)",
       "claimed_at": "2026-08-25T11:55:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4328",
+      "title": "task-RAG is skipped where it disables the model it is meant to help (C-276)",
+      "claimed_at": "2026-08-25T12:25:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4329",
+      "title": "recover tool calls the sovereign emits as content JSON (C-277)",
+      "claimed_at": "2026-08-25T12:33:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
