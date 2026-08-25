@@ -35287,18 +35287,20 @@
       "title": "CLI sub-agents (spawn_subagent tool)",
       "claimed_at": "2026-08-25T07:56:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "727717a4",
+      "notes": null,
+      "shipped_at": "2026-08-25T08:23:15Z"
     },
     {
       "r_number": "R-F4314",
       "title": "CLI lifecycle hooks (PreToolUse/PostToolUse/Stop)",
       "claimed_at": "2026-08-25T07:56:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "727717a4",
+      "notes": null,
+      "shipped_at": "2026-08-25T08:23:15Z"
     }
   ]
 }

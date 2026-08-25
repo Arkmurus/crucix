@@ -3006,9 +3006,12 @@
       "title": "the teaching loop could stall for days and nothing said so",
       "claimed_at": "2026-08-25T08:11:51Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4316"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-25T08:28:54Z"
     }
   ]
 }

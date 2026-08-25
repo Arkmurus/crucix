@@ -16334,3 +16334,71 @@ files touching `capability_gaps`, `autonomous.tasks`, `record_gap` or
 `reasoning_router`: **7 failures before, 7 after, zero newly red**, 1189 → 1204
 passed. `test_rf3901_gap_types_registered::test_gate_b_is_clean` also fails at
 HEAD and was attributed by running it there, not assumed.
+
+## C-264 · the teaching loop could stall for days and nothing said so (fixed, R-F4316)
+
+Claude's side of the Claude↔ARIA bridge is serviced **only when a Claude session
+runs the inbox**. When none does, ARIA's question simply sits there. Not
+hypothetical: a reply in this very log went out **four days late**, and the
+apology inside it names the cause — *"the bridge is only serviced when a Claude
+session runs the inbox, and no session did"*. Nothing anywhere said she was
+waiting.
+
+That is precisely the failure mode §19e exists to forbid — work blocked on a
+human, left for that human to discover on their own — applied to the mechanism by
+which ARIA is supposed to learn from a stronger agent. The operator's standing
+direction is that Claude teaches ARIA continuously; a channel that can stall
+invisibly cannot deliver that.
+
+**The fix is visibility, not a scheduler.** There is no durable Claude-side
+scheduler to build on, and this was checked rather than assumed:
+
+* A **cloud routine** gets a fresh git checkout and no secrets. `.agent_bridge/`
+  is **gitignored** (`.gitignore:134`), and the canonical log lives in
+  aria-intel's state store behind a token the sandbox does not have. Such a
+  routine would run, find an empty mailbox, and report success having taught
+  nothing — the "a guard whose universe is empty always certifies" shape, built
+  on purpose.
+* A **session cron** is session-only and dies with the session.
+
+So the durable half is to make the stall loud, and let whichever session does
+open — or the operator — see it.
+
+**Implementation.** `pending_questions()` pairs questions to answers from the
+existing log; `announce_stalled_questions()` emits one gap per stalled question.
+It rides the **existing 2-minute `collab_drain`** via `drain_for_aria`, so there
+is no new loop to keep alive.
+
+Three properties are load-bearing, each pinned by a mutation-tested guard:
+
+1. **Tri-state on the store.** `_read_log` returns `[]` on failure, so "no
+   messages" and "could not look" are the same value — the C-254 shape, **in the
+   module C-254 was found in**. Reusing it would report a perfectly healthy
+   teaching loop at exactly the moment the store is broken. `_read_log_strict`
+   returns `None`, and `pending_questions` reports `readable: False` /
+   `count: None`, never a comforting zero. A test deliberately pins that
+   `_read_log` still collapses, so nobody "simplifies" the strict read away.
+2. **Once per QUESTION, not per check.** At one drain every two minutes, a gap
+   per check is 720/day — the self-sustaining ledger flood already recorded for
+   `sanctions_coverage_degraded` and the Brave non-DD refusals.
+3. **Only Claude can clear it.** An answer counts only when `frm == "claude"`.
+   Otherwise ARIA replying to her own question would let the loop mark itself
+   served — a channel certifying its own health.
+
+The hook is on **both live return paths** of `drain_for_aria`, and the quiet one
+matters most: "nothing inbound to drain" is exactly the state in which she is
+waiting and nothing else would notice. Asserted by AST, because that is the easy
+branch to drop in a later edit.
+
+`collab_question_stalled` is registered in `VALID_GAP_TYPES` — an unregistered
+type lands under a name nothing filters on, the §21b dark condition R-F3428
+records reaching by that route. It is deliberately **not** class-fingerprinted:
+it is already bounded at one per question, and C-263 records the guard that
+correctly rejects over-collapsing actionable types.
+
+**Verification.** 12 tests; seven guards mutation-tested and each confirmed RED
+when broken on purpose (collapse the strict read, drop the dedupe, let any reply
+clear it, ignore the age threshold, count notes as questions, drop the quiet-path
+hook, unregister the gap type). Blast radius = the 74 test files touching
+`collab_bridge`, `drain_for_aria`, `capability_gaps` or the gap-type registry:
+**4 failures before, the same 4 after, zero newly red**, 525 → 537 passed.
