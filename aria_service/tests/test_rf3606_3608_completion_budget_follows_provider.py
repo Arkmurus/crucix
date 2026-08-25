@@ -194,9 +194,12 @@ def test_sovereign_ceiling_still_binds_at_its_own_boundary():
     from aria_service.llm.aria_llm_provider import (
         clamp_for_sovereign, SOVEREIGN_COMPLETION_CEILING,
     )
-    assert SOVEREIGN_COMPLETION_CEILING == 800
-    assert clamp_for_sovereign(8000) == 800
-    assert clamp_for_sovereign(4000) == 800
+    # R-F4327 (C-275): the ceiling is now DERIVED from measured throughput and the chat timeout, so this asserts the CEILING BINDS rather than a frozen 800 — the constant was calibrated for ~10 tok/s hardware and the live box measures 26-33. The guard is unchanged in substance: remove or move the clamp and this still fails.
+    from aria_service.llm.aria_llm_provider import sovereign_completion_ceiling
+    ceiling = sovereign_completion_ceiling()
+    assert clamp_for_sovereign(8000) == ceiling
+    assert clamp_for_sovereign(4000) == ceiling
+    assert ceiling < 4000, "the ceiling must still BIND, not merely exist"
     assert clamp_for_sovereign(256) == 256, "must only ever lower"
 
 
@@ -214,7 +217,8 @@ def test_the_ceiling_is_applied_on_the_sovereign_CHAT_path(monkeypatch):
     monkeypatch.setattr(mr.aria_llm_provider, "complete", _fake_complete)
     res = _run(mr._sovereign_complete("sys", "usr", max_tokens=4000, timeout=40.0))
     assert res is not None
-    assert seen["max_tokens"] == 800, (
+    from aria_service.llm.aria_llm_provider import sovereign_completion_ceiling
+    assert seen["max_tokens"] == sovereign_completion_ceiling(), (
         f"sovereign chat call was sent {seen['max_tokens']} tokens, not the ceiling"
     )
 

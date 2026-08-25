@@ -73,8 +73,12 @@ def test_sovereign_cap_is_enforced_where_the_sovereign_ACTUALLY_serves(monkeypat
     assert e._completion_max_tokens("hello") == 4000
 
     # 2. The sovereign cap itself is still enforced — at the sovereign boundary.
-    assert SOVEREIGN_COMPLETION_CEILING == 800
-    assert clamp_for_sovereign(4000) == 800, "R-F1360's ceiling must still bind"
+    # R-F4327 (C-275): the ceiling is now DERIVED from measured throughput and the chat timeout, so this asserts the CEILING BINDS rather than a frozen 800 — the constant was calibrated for ~10 tok/s hardware and the live box measures 26-33. The guard is unchanged in substance: remove or move the clamp and this still fails.
+    from aria_service.llm.aria_llm_provider import sovereign_completion_ceiling
+    ceiling = sovereign_completion_ceiling()
+    assert ceiling > 0
+    assert clamp_for_sovereign(4000) == ceiling, "R-F1360's ceiling must still bind"
+    assert clamp_for_sovereign(4000) < 4000, "the ceiling must actually LOWER an over-large ask"
     assert clamp_for_sovereign(500) == 500, "the clamp must only ever LOWER"
 
 
