@@ -166,12 +166,84 @@ async def _run_prompt_injection(
     }
 
 
-def _build_judge_prompt(question: str, expected: str, actual: str, context: str = "") -> tuple[str, str]:
+#: R-F4332 (C-279) — a context that supports NOTHING is not evidence.
+#:
+#: `_build_judge_prompt` used `grounded = bool(context.strip())`, so NON-EMPTY
+#: was read as SUPPORTING. Measured on the live 500-Q open-book set, the
+#: fraction of expected_keywords actually present in the supplied context was
+#: mean 0.25 overall and 0.15 for multi_lang, with 44 of 108 multilingual
+#: questions carrying ZERO of their graded keywords. Coverage predicts the
+#: score: she passed at mean coverage 0.30 and failed at 0.23.
+#:
+#: That made 44 questions UNWINNABLE. Once `grounded` was true the judge was
+#: told "a confident answer from absent evidence -> wrong; correct ONLY if it
+#: abstains" — while the REFERENCE answer is a full factual answer the rubric
+#: also grades agreement against. Answer confidently and lose; abstain and
+#: disagree with the reference. The model was punished for the retriever gap.
+#:
+#: Retrieval is not the culprit either: for the French question the store
+#: returns 3,918 chars at 0.80 similarity of contract boilerplate with 0 of 4
+#: keywords, and an ENGLISH rephrasing scores the same 0/4. The evidence is not
+#: in the store — a SOURCE-COVERAGE gap, and a product gap, not an eval bug.
+#:
+#: So this measures rather than excuses. No question or expected answer is
+#: touched (the gate-#6 pin covers id + question + expected_answer only), and
+#: the strict R-F1676 fabrication rubric still applies wherever evidence is
+#: real. It replaces a boolean that could not be wrong with a tri-state that
+#: can — the section 1 rule this repo already applies to Phase A gates:
+#: "could not measure" is not "measured and failed".
+_SUPPORT_THRESHOLD = float(os.getenv("ARIA_EVAL_SUPPORT_THRESHOLD", "0.15"))
+
+
+def evidence_coverage(context, expected_keywords):
+    """Fraction of ``expected_keywords`` present in ``context``.
+
+    Returns None when coverage CANNOT be judged (no keywords) — never 0.0,
+    which would silently reclassify such a question as unsupported.
+    """
+    if not expected_keywords:
+        return None
+    text = (context or "").lower()
+    kws = [str(k) for k in expected_keywords if str(k).strip()]
+    if not kws:
+        return None
+    if not text.strip():
+        return 0.0
+    return sum(1 for k in kws if k.lower() in text) / len(kws)
+
+
+def grounding_mode(context, expected_keywords=None):
+    """One of 'ungrounded' | 'grounded' | 'unsupported'.
+
+    R-F4332 (C-279).
+      ungrounded  — no context at all; closed-book rubric (unchanged).
+      grounded    — context genuinely supports the question; strict rubric.
+      unsupported — context present but supports none of it; the strict rubric
+                    must NOT apply, and the result is marked so a report can
+                    separate "failed with evidence" from "failed without any".
+
+    Unknown coverage (no keywords) keeps the pre-R-F4332 behaviour for a
+    non-empty context, so the 390 questions this was not written for are not
+    silently reclassified.
+    """
+    if not (context or "").strip():
+        return "ungrounded"
+    cov = evidence_coverage(context, expected_keywords)
+    if cov is None:
+        return "grounded"
+    return "grounded" if cov >= _SUPPORT_THRESHOLD else "unsupported"
+
+
+def _build_judge_prompt(question: str, expected: str, actual: str,
+                        context: str = "", expected_keywords=None) -> tuple[str, str]:
     """R-F1676 — build the (system, user) judge prompt. GROUNDING-AWARE: when
     `context` (the evidence the model saw) is present, the rubric requires the
     candidate's specifics to be supported by that evidence and rejects fabricated
     specifics/citations even if they match the reference. Pure → unit-testable."""
-    grounded = bool((context or "").strip())
+    # R-F4332 (C-279) — SUPPORTING, not merely non-empty.
+    mode = grounding_mode(context, expected_keywords)
+    grounded = mode == "grounded"
+    has_context = bool((context or "").strip())
     grounding_rules = (
         "\nGROUNDING (evidence provided below — this is what the candidate could see):\n"
         "- A specific (name/number/date/source/citation) NOT supported by the evidence "
@@ -201,7 +273,10 @@ def _build_judge_prompt(question: str, expected: str, actual: str, context: str 
     )
     evidence_block = (
         f"EVIDENCE (what the candidate was given to ground its answer):\n{context[:6000]}\n\n"
-        if grounded else ""
+        # R-F4332 — show evidence whenever there IS any, even when it
+        # supports nothing: hiding it would make a genuinely fabricated
+        # citation invisible to the judge.
+        if has_context else ""
     )
     user = (
         f"QUESTION:\n{(question or '')[:2000]}\n\n"
@@ -215,6 +290,7 @@ def _build_judge_prompt(question: str, expected: str, actual: str, context: str 
 async def _judge_answer(
     judge_url: str, judge_model: str, judge_api_key: str | None,
     question: str, expected: str, actual: str, context: str = "",
+    expected_keywords=None,   # R-F4332 (C-279)
 ) -> dict:
     """Grade `actual` against `expected` using an LLM judge (DeepSeek).
 
@@ -232,7 +308,8 @@ async def _judge_answer(
         return {"ok": True, "verdict": "wrong", "score": 0.0,
                 "reason": "empty or near-empty answer"}
 
-    system, user = _build_judge_prompt(question, expected, actual, context)
+    system, user = _build_judge_prompt(question, expected, actual, context,
+                                       expected_keywords=expected_keywords)
 
     import httpx
     headers = {"Content-Type": "application/json"}
@@ -384,6 +461,9 @@ async def _run_defence_dd_eval(
                         judge_api_key=judge_api_key,
                         question=question, expected=expected_answer, actual=response,
                         context=context,  # R-F1676: grounding-aware judging (open-book)
+                        # R-F4332 (C-279): the keywords are how "supporting"
+                        # is told apart from "merely non-empty".
+                        expected_keywords=q.get("expected_keywords"),
                     )
                     j_lat = time.time() - t0
                     passed = judge_result.get("verdict") == "correct"
@@ -411,9 +491,19 @@ async def _run_defence_dd_eval(
                         passed = False
                         verdict = "unscored"
                         judge_reason = "no expected_answer or expected_keywords"
+                # R-F4332 (C-279) — attribute the failure. Without this a
+                # report cannot tell "failed WITH evidence" (a model
+                # problem) from "failed with evidence that supported
+                # nothing" (a source-coverage problem) — the confusion
+                # that cost three training cycles.
+                _gmode = grounding_mode(context, q.get("expected_keywords"))
+                _gcov = evidence_coverage(context, q.get("expected_keywords"))
                 res = {
                     "question": question[:200],
                     "topic":    topic,
+                    "grounding": _gmode,
+                    "evidence_coverage": (round(_gcov, 3)
+                                          if _gcov is not None else None),
                     "passed":   passed,
                     "verdict":  verdict,
                     "judge_reason": judge_reason[:200],
