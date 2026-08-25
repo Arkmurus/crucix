@@ -76,18 +76,44 @@ def test_the_allocation_never_exceeds_the_window(window, completion) -> None:
     assert _alloc(b) <= window, f"allocation {_alloc(b)} > window {window}: {b}"
 
 
+def _wire_schemas():
+    """EXACTLY what agent.py:255 puts on the wire — not TOOL_SCHEMAS alone."""
+    from aria_cli.coder_tools import CODER_TOOL_SCHEMAS
+    return ag._dedup_tool_schemas(list(ag.TOOL_SCHEMAS) + list(CODER_TOOL_SCHEMAS))
+
+
 def test_the_tool_schemas_are_reserved() -> None:
     """FINDING 6 — the reserve was unpinned: zeroing it left every test green.
 
-    Tool schemas are sent on every call and belong to no message, so a budget
-    that ignores them overflows by exactly their size. Measured live via the
-    served tokenizer: 7,147 chars -> 1,936 tokens for the 31-tool set.
+    R-F4321, SECOND PASS — and the first version of this test was itself the
+    defect it was written to catch. It measured `TOOL_SCHEMAS`: 14 tools, 7,147
+    chars, 1,936 tokens. What `agent.py:255` actually sends is
+    `_dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)` — 31 tools, 15,486
+    chars, 4,230 tokens against the served tokenizer. So the test went GREEN
+    while the reserve was short by ~1,230 tokens on every single call.
+
+    A guard aimed at the wrong object certifies nothing, however carefully it is
+    written. Caught by a peer review, not by me. It now measures the wire set,
+    and the reserve is DERIVED from that set rather than hardcoded — adding a
+    32nd tool moves the budget by itself instead of rotting it.
     """
     import json
     b = P.context_budget(window_tokens=32768, completion_tokens=8192)
-    real = len(json.dumps(ag.TOOL_SCHEMAS)) // 3
-    assert b["tools"] >= real, (
-        f"reserve {b['tools']} is below the real schema cost {real}")
+    wire_chars = len(json.dumps(_wire_schemas()))
+    # the tokenizer's real answer for this set, from scripts/admin probing
+    assert wire_chars > 12000, (
+        f"the wire schema set is only {wire_chars} chars — is this TOOL_SCHEMAS "
+        "alone again?")
+    assert b["tools"] >= wire_chars // 4, (
+        f"reserve {b['tools']} tok cannot cover {wire_chars} chars of schemas")
+
+
+def test_the_reserve_tracks_the_real_tool_set() -> None:
+    """The anti-rot property: the reserve is measured, not maintained."""
+    import json
+    assert P._tool_schema_tokens() >= len(json.dumps(_wire_schemas())) // 4
+    assert P._tool_schema_tokens() >= 4230, (
+        "below the tokenizer's measured cost for the live tool set")
 
 
 def test_both_consumers_derive_from_the_same_budget() -> None:
@@ -173,9 +199,22 @@ def test_a_window_too_small_to_host_the_cli_says_so() -> None:
 
 
 def test_the_windows_we_actually_serve_do_fit() -> None:
+    """32,768 is what the sovereign serves; 65,536 is DeepSeek. 16,384 is kept
+    in the list because it is what the pod served until 2026-08-25 and a
+    regression that made it unhostable would be worth knowing about."""
     for window, completion in ((16384, 4096), (32768, 8192), (65536, 8192)):
         b = P.context_budget(window_tokens=window, completion_tokens=completion)
         assert b["fits"] is True, (window, b)
+
+
+def test_a_16k_window_leaves_almost_no_room_for_guidance() -> None:
+    """Recorded as a FACT, not asserted away: with 31 tools (15,486 chars), a
+    7,000-token base prompt and a 4,096 completion, a 16,384 window has ~126
+    tokens of slack. It technically hosts the CLI and cannot carry the
+    constitution. This is why the pod was raised to 32,768."""
+    b = P.context_budget(window_tokens=16384, completion_tokens=4096)
+    assert b["fits"] is True
+    assert b["guidance_tokens"] < 1000
 
 
 # -- the operating floor survives ANY window ------------------------------
@@ -219,8 +258,13 @@ def test_the_prompt_still_fits_after_the_floor_was_added(window, monkeypatch):
     monkeypatch.setenv("ARIA_LLM_MAX_MODEL_LEN", str(window))
     sp = P.build_system_prompt(root=ROOT, self_mode=True, repo_root=ROOT)
     b = P.context_budget()
-    # measured 3.10-3.69 chars/token; 3 is the conservative divisor used here
+    # measured 3.10-3.69 chars/token; 3 is the conservative divisor used here.
     est = len(sp) // 3
-    assert est <= b["guidance_tokens"] + b["overhead"], (
-        f"system prompt ~{est} tokens exceeds its allocation "
-        f"({b['guidance_tokens']} guidance + {b['overhead']} overhead)")
+    # Compare against guidance_CHARS, not guidance_TOKENS: `_GUIDANCE_FLOOR_CHARS`
+    # deliberately overrides the budget so a tiny window never ships an EMPTY
+    # constitution, and at 16,384 that floor is the binding term (75 tokens of
+    # budget, 667 tokens of floor). Asserting against the pre-floor number would
+    # demand the code break its own documented guarantee.
+    allowed = b["guidance_chars"] // 3 + b["overhead"]
+    assert est <= allowed, (
+        f"system prompt ~{est} tokens exceeds its allocation ({allowed})")

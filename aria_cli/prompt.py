@@ -70,12 +70,58 @@ _GUIDANCE_MAX_CHARS = int(os.getenv("ARIA_CODER_GUIDANCE_MAX_CHARS", "200000"))
 # AGENTS.md (37,308) sit far under its share; proportional distribution spends
 # whatever room exists where the text actually is.
 
-#: Room the tool schemas need. They are sent on EVERY call and belong to no
-#: message, so a budget that ignores them overflows by exactly their size —
-#: which is what C-269 was. MEASURED via the served tokenizer: 7,147 chars ->
-#: 1,936 tokens for the live 31-tool set. 3,000 leaves headroom for growth
-#: without pricing in a tool set we do not have.
-_TOOL_SCHEMA_RESERVE_TOKENS = 3000
+#: FALLBACK only — the real figure is MEASURED by `_tool_schema_tokens()` below.
+#:
+#: R-F4321, second pass. The first version of this hardcoded 3,000 from a
+#: measurement of `TOOL_SCHEMAS` (14 tools, 7,147 chars, 1,936 tok). That is
+#: NOT what goes on the wire. `agent.py:255` sends
+#: `_dedup_tool_schemas(TOOL_SCHEMAS + CODER_TOOL_SCHEMAS)` — 31 tools, 15,486
+#: chars, **4,230 tokens** measured against the served tokenizer. The reserve
+#: was short by ~1,230 on every call.
+#:
+#: The test written to pin it measured the same wrong set, so it went green
+#: while the budget was under — a guard aimed at the wrong object certifies
+#: nothing, which is the exact shape this whole line of work keeps finding.
+#: Caught by a peer review, not by me.
+#:
+#: So the number is no longer hand-maintained: adding a tool now moves the
+#: budget by itself. A constant here would rot the moment someone adds tool 32,
+#: exactly as _GUIDANCE_MAX_CHARS rotted three times.
+_TOOL_SCHEMA_RESERVE_FALLBACK = 5000
+
+
+def _tool_schema_tokens() -> int:
+    """Tokens the tool schemas occupy on the wire, measured from the real set.
+
+    Lazily imported: `agent` imports this module, so a top-level import would
+    cycle. Any failure falls back to a figure ABOVE the measured 4,230 — a
+    reserve that guesses low re-creates the overflow, so the safe direction is
+    to over-reserve and lose a little guidance.
+    """
+    global _TOOL_SCHEMA_TOKENS_CACHE
+    if _TOOL_SCHEMA_TOKENS_CACHE is not None:
+        return _TOOL_SCHEMA_TOKENS_CACHE
+    tokens = _TOOL_SCHEMA_RESERVE_FALLBACK
+    try:
+        import json
+
+        from aria_cli.agent import TOOL_SCHEMAS, _dedup_tool_schemas
+        from aria_cli.coder_tools import CODER_TOOL_SCHEMAS
+
+        wire = _dedup_tool_schemas(list(TOOL_SCHEMAS) + list(CODER_TOOL_SCHEMAS))
+        # No extra safety multiplier: _CHARS_PER_TOKEN is 3 and schemas actually
+        # tokenize at 3.69 chars/token, so this already over-reserves by ~22%
+        # (15,486/3 = 5,162 against a measured 4,230). Stacking another margin
+        # on top would spend a fifth of a 16k window on nothing, and an
+        # over-tight budget silently costs guidance the model had room for.
+        tokens = max(int(len(json.dumps(wire)) / _CHARS_PER_TOKEN), 1000)
+    except Exception:  # noqa: BLE001
+        pass
+    _TOOL_SCHEMA_TOKENS_CACHE = tokens
+    return tokens
+
+
+_TOOL_SCHEMA_TOKENS_CACHE: int | None = None
 #: Room for the conversation itself — a prompt that fits with nothing left to
 #: say has not fitted.
 _CONVERSATION_RESERVE_TOKENS = 2000
@@ -199,8 +245,8 @@ def context_budget(*, window_tokens: int | None = None,
 
     window = int(window_tokens)
     completion = int(completion_tokens)
-    slack = max(0, window - completion
-                - _TOOL_SCHEMA_RESERVE_TOKENS - _PROMPT_OVERHEAD_TOKENS)
+    tools = _tool_schema_tokens()
+    slack = max(0, window - completion - tools - _PROMPT_OVERHEAD_TOKENS)
     guidance_tok = int(slack * _GUIDANCE_SLACK_SHARE)
     history_tok = slack - guidance_tok
     # `fits` is reported rather than silently absorbed. The FIXED costs — the
@@ -210,11 +256,11 @@ def context_budget(*, window_tokens: int | None = None,
     # small to host this CLI, and saying so is more useful than shipping a
     # zero-guidance prompt that 400s anyway. Tri-state discipline (§1): a caller
     # can act on "cannot fit" but not on a silently truncated number.
-    fixed = completion + _TOOL_SCHEMA_RESERVE_TOKENS + _PROMPT_OVERHEAD_TOKENS
+    fixed = completion + tools + _PROMPT_OVERHEAD_TOKENS
     return {
         "window": window,
         "completion": completion,
-        "tools": _TOOL_SCHEMA_RESERVE_TOKENS,
+        "tools": tools,
         "overhead": _PROMPT_OVERHEAD_TOKENS,
         "guidance_tokens": guidance_tok,
         "history_tokens": history_tok,
