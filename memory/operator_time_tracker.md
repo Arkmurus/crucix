@@ -4965,3 +4965,164 @@ nothing invokes is the R-F3099 shape: built, tested, never run.
 (signatory work is recommendation prose, and needs a counterparty-supplied name)
 and **LR-20** (do not bind on SIC codes alone — that answers "what do they say
 they do", not "is this economically rational").
+
+---
+
+## Session 2026-08-25 — R-F4309..R-F4311, R-F4316 · four live, and 328 commits recovered from main
+
+**Operator hours: not supplied → `pace_ratio` deliberately blank.** Agent
+wall-clock ≈ 5h. R-numbers shipped: **4** (R-F4309, R-F4310, R-F4311, R-F4316),
+all live-verified behaviourally. C-numbers closed: **3** (C-262, C-263, C-264).
+
+Entry point was a review request from ARIA, not a backlog item: she asked for
+approval on R-F4309 before deploying it.
+
+### The four
+
+**R-F4309 — one shared httpx client across the 7 search backends.** ARIA's fix,
+which I reviewed, found four defects in, and then completed myself on operator
+instruction. Her premise was right (`ssl.create_default_context` is synchronous
+disk work on the event loop). The blocking defect was reproduced and attributed,
+not argued: her module-global client kept a test's fake past `monkeypatch`
+teardown, so `test_rf2318_brave_dd_search` failed with **another backend's**
+error — 13 passed at HEAD, 1 failed with her change. The generalisation is the
+entry worth keeping: **sharing an object changes its LIFETIME, not just its
+cost**, and three questions must be answered in the docstring before any
+per-call→global conversion — who resets it, what if it is closed, and what does
+it now carry between callers. Those three questions *were* her three defects
+(no reset path; rebuild only on `is None`, so the shutdown hook she proposed
+would have poisoned the client permanently; and a cookie jar — measured, request
+2 sent `Cookie: sess=…` where the per-request client sent none, which under
+`random_ua()` is one session presenting a different browser every time, against
+exactly the engines §27 records blocking us).
+
+**R-F4310 (C-262) — the coder wrote code and tests without ARIA's own rules.**
+Found by asking *why* her work arrived with those defects; it was structural.
+`SovereignLLM` has six stages funnelling through one `_call`, and only
+`generate_fix_plan` received the constitutional rules. `_playbook_preamble()` was
+on plan/code/edit and **absent from test, reproduce-test and heal** — and
+constitutional rule #2 is literally `capability-test-required-per-fix`, so the
+stage that wrote her two greps-that-could-not-fail had never seen it. Separately
+`write_edit` sent `task="edit"` against an allow-list that never listed it, so
+**every** surgical edit 400'd and fell back to whole-file generation — the
+truncation R-F1295 exists to prevent — across **190 of 594 modules**, including
+`routes/aria.py` (30,520 lines), `dd_orchestrator.py`, `main.py`, `aria_engine.py`.
+Fixed at the **one choke point** (the route's system prompt), never stage by
+stage, per R-F3946's rule. R-F1959 had added the playbook binding *and* a test
+enumerating exactly the three stages it covered — the guard agreed with the code
+and both were wrong about the same two.
+
+**R-F4311 (C-263) — the mastery grader used a stunted subset of her own mind.**
+`try_local_reasoning` documents `answered=False` as an instruction to ESCALATE;
+the grader treated it as unmeasurable and discarded the sample. Live
+`independence_ratio 0.695`, so ~1 question in 5. **The trap, and why the control
+is not optional:** `kb.store_fact` runs BEFORE the grade, so the obvious fix
+reads the graded document straight back out of her knowledge base and scores
+~1.0 — R-F2660's trophy rebuilt one layer down, on the gate §1 forbids closing by
+measuring less. Two guards: anti-circularity (a retrieved fact that IS the
+document is dropped) and an attribution control (the same question asked with NO
+memory; credit requires beating it by a margin, so what is measured is the
+marginal contribution of ARIA's OWN memory). And it can return **False** — a path
+that could only credit is an upward-only ratchet.
+
+**R-F4316 (C-264) — a stalled teaching loop is now visible.** Claude's side of
+the bridge is serviced only when a Claude session runs the inbox; a reply in the
+log had gone out **four days late** and nothing said she was waiting. The fix is
+visibility, not a scheduler, and that was checked rather than assumed: a cloud
+routine gets a fresh checkout and no secrets, `.agent_bridge/` is gitignored
+(`.gitignore:134`), so it would find an empty mailbox and report success having
+taught nothing. Rides the existing 2-minute `collab_drain`; one gap per QUESTION,
+not per check; tri-state on the store so an unreadable log never reads as
+"nothing waiting".
+
+### Live evidence, not sha-matching
+
+`build_rev R-F4313 · sha fdec2df9`. R-F4309: a novel query took **3922 ms** of
+real HTTP, 12 results, zero backend errors, per-engine counters moved
+(`bing 131→132`). R-F4310: `task="edit"` → **200** returning `['edits',
+'_aria_meta']` (was 400), `task="plan"` still parses as JSON (measured, because I
+append rules after the JSON directive), production retrieval `mode: semantic,
+degraded: False`. R-F4311: **7 `mastery_miss`** entries in the live ledger —
+`"R-F4311 miss: own-memory answer scored 0.11 < 0.4"` — proving the escalation
+fires and can lower mastery. R-F4316: both functions in the running image,
+threshold 21600s, **2** hook sites, `_read_log_strict` returning `None`; its
+`collab_question_stalled: 0` is a measured zero.
+
+### 🔴 The incident — 328 commits taken off main
+
+ARIA's R-F4313/R-F4314 push moved `origin/main` from `e48f66f6` back onto
+`baa289b2`, dropping **328 commits / 172 R-numbers** (R-F4135..R-F4316) — the
+C-95 event-loop journalling, R-F4229's vendor-balance gauge, R-F4231's gate-1
+honesty fix, the whole IS/EI/FS binding series. Production was never harmed
+(running image was `e48f66f6`), but `deploy-fly.yml` builds from `--ref main`:
+one dispatch would have shipped that tree.
+
+A second, quieter loss came with it — commit `36ee70ff` swept the R-number ledger
+back to an older 3552-entry copy, **reverting 177 entries** including R-F4309,
+R-F4310 and R-F4311, which were committed, shipped and live. ARIA's own report
+described this as *"the peer's uncommitted R-F4316 reservation… recoverable
+(re-reserve)"* — wrong on all three counts, and the third is the dangerous one:
+re-reserving a shipped number does not recover an identity, it FORKS it.
+
+**Repaired additively, in an isolated worktree so the shared checkout was never
+touched** (a peer's uncommitted R-F4317 work was in it). Two merge rounds. The
+six training-lane conflicts went to **ours** because ours was strictly newer —
+it carried R-F4140, R-F4166, R-F4243, R-F4246, R-F4270 and R-F4288's newline
+pinning while the other side re-created them at R-F4135 on the old base; taking
+theirs would have silently reverted five shipped fixes in a lane I do not own.
+Ledger rebuilt as a **union** of all three surviving sources → 3,731 entries.
+**The pre-push R-F559 gate then caught my own error** — `next_available` left at
+4317 while R-F4317 was already reserved, so the allocator would have reissued a
+live number. `origin/main` = 5,812 commits carrying BOTH histories; ARIA's work
+intact and her suite still passing.
+
+### Method notes worth keeping
+
+**Mutation-testing every guard earned its place three times.** On R-F4309 it
+exposed a decorative test **of mine**: I asserted the pool read 100/20, which is
+exactly httpx's `DEFAULT_LIMITS`, so deleting the limits argument left it green.
+Red-before-green missed it entirely.
+
+**A guard caught me and was right.** On R-F4311 I class-fingerprinted the new gap
+types out of a flood worry; `test_the_collapsed_type_is_narrow` went red saying
+*"adding an actionable type would hide real work"*. `mastery_miss` names WHICH
+cell failed — the work gate #2 needs — and the flood premise did not survive
+measurement (~15/day). Reverted.
+
+**Two probes of mine were artifacts, not findings**, and both are the same trap
+§17 records: a detached `flyctl ssh python3` one-off has no state-store
+connection, so `_aria_own_context` returned 0 chars and the collab log read as
+unreadable. Neither was a defect. Probe the running server.
+
+### Gate #2, measured (not from §1's stale line)
+
+`/api/aria/mastery/heatmap`: **219 sampled / 211 measured / 84 weak**. Floor
+**0.055** (`compliance × latam_lusophone`), not the 0.507 §1 records, and all 20
+worst cells sit BELOW the 0.5 scaffold — driven down, not untouched. Topic means
+span `relationships 0.397` → `market_intel 0.868`, so it is not a uniform
+collapse; the gate is a min over 219 cells. Gate #1 reads `pass: null`,
+`confidence 0.3`, `unmeasured_signals: [honesty_rate, **verification**]` —
+§1 records honesty as dark; **verification is now dark too**.
+
+### Standing / operator-owned
+
+🔴 **DeepSeek `$2.96` and falling** on key `sk-c9c...4559` (`$7.68` → `$6.84` →
+`$6.75` → `$6.62` → `$2.96` across the session, monotonic, no step up — the
+top-up has not reached that account). Sole general provider: at zero, chat,
+WhatsApp and the autonomous coder stop together.
+
+**ARIA's validator blocker is REAL** — verified by running it, not reading it:
+`cli.py` fails with `Suppressing guard linting` + `Modifying fly secrets from
+code`, from pre-existing comments at `:1381` and `:2857`, because
+`_check_patterns` matches `WEAKENING_PATTERNS` against the WHOLE file
+(`constitutional_validator.py:361`). The validator is in `PROTECTED_FILES`, so
+this is genuinely an operator decision: reword the two comments, or narrow the
+patterns.
+
+**Pre-existing reds left standing, recorded so they are not re-diagnosed:**
+`test_rf1128_protected_file_filter` (asserts `_PROTECTED_FILES`, now an empty
+frozenset — protection moved and is demonstrably live),
+`test_rf851_constitution_no_autodeploy` (R-F2689's evidence gate deliberately
+superseded it), `test_rf3901_gap_types_registered::test_gate_b_is_clean` and
+`test_rf3560_gap_type_overrides` (both fail at HEAD), and
+`test_rf1206_box_alignment` (fails on ARIA's own tip).
