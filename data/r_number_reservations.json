@@ -37014,9 +37014,10 @@
       "title": "autonomous coder reasons with ARIA's full playbook and rules at every stage, and edit-mode reaches the route",
       "claimed_at": "2026-08-25T05:41:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "df0faff8",
+      "notes": null,
+      "shipped_at": "2026-08-25T06:21:31Z"
     }
   ]
 }

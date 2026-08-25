@@ -2985,9 +2985,12 @@
       "title": "autonomous coder: edit-mode 400s, and test/heal stages carry none of ARIA's playbook or constitutional rules",
       "claimed_at": "2026-08-25T05:41:53Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4310"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-25T06:21:31Z"
     }
   ]
 }
