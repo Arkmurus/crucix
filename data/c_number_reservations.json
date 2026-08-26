@@ -3316,6 +3316,18 @@
       "title": "six pod scripts still pin the cache to the small disk",
       "claimed_at": "2026-08-26T07:02:29Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4350"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T07:18:47Z"
+    },
+    {
+      "c_number": "C-296",
+      "title": "CLI: vLLM streaming tool-parser re-emission corrupts a correct tool call",
+      "claimed_at": "2026-08-26T07:20:27Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

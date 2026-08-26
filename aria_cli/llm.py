@@ -523,6 +523,64 @@ def recover_tool_calls_from_content(
     return calls, leftover
 
 
+def _repair_streamed_arguments(fragments: list[str]) -> tuple[str, bool]:
+    """R-F4351 (C-296) — assemble streamed ``arguments`` deltas into valid JSON.
+
+    The OpenAI streaming contract says argument deltas concatenate, and for a
+    well-formed stream that is exactly right. vLLM's Mistral tool parser does
+    something else. MEASURED LIVE 2026-08-26 against the sovereign pod: the
+    SAME payload non-streamed returns a clean call, while streamed it sends 21
+    deltas whose first 20 assemble to a string missing the closing quote —
+
+        delta[11] 'l'   delta[17] ', "timeout": 1'
+
+    — and then delta 21 re-emits the COMPLETE object::
+
+        '{"command": "cat README.md | wc -l", "timeout": 10}'
+
+    Concatenating all 21 yields ``{"command": "cat README.md | wc -l,
+    "timeout": 10{"command": ...}``, which fails ``json.loads``. So the
+    transport CORRUPTED a call the model got right, and the turn ended
+    "tools: 0 calls" with the model narrating about JSON formatting.
+
+    Two conditions are load-bearing, because a repair that could invent a call
+    would be worse than the defect — a fabricated ``run`` EXECUTES:
+
+      * the concatenation is tried FIRST and returned untouched when it parses,
+        so a healthy stream is never second-guessed;
+      * only a fragment that is ITSELF a complete JSON **object** may be taken,
+        and the LAST such wins (the re-emission is the model's final word).
+        A fragment like ``'0'`` or ``'l'`` parses as JSON but is not an
+        arguments object, and taking it would silently drop every real field.
+
+    When nothing complete was ever emitted — the genuinely truncated case,
+    where vLLM stopped at an invalid ``\\C`` escape and the rest of the
+    generation was discarded — the broken text is handed back unchanged so
+    ``agent.py`` reports an honest parse error. There is nothing to recover and
+    guessing a command is not an option.
+
+    Returns ``(arguments, repaired)``. Pure: does not mutate ``fragments``.
+    """
+    joined = "".join(fragments)
+    try:
+        json.loads(joined)
+        return joined, False          # healthy stream — leave it alone
+    except Exception:  # noqa: BLE001 — malformed: look for a re-emission
+        pass
+    for frag in reversed(fragments):
+        candidate = frag.strip()
+        try:
+            parsed = json.loads(candidate)
+        except Exception:  # noqa: BLE001 — not a complete value; keep looking
+            continue
+        # The dict test is the whole guard, not a formality: a lone ``0`` or
+        # ``10`` delta is VALID JSON, and taking one would replace the whole
+        # arguments object with a scalar — silently dropping every real field.
+        if isinstance(parsed, dict):
+            return candidate, True
+    return joined, False              # nothing complete — stay honest
+
+
 def _wire_messages(messages: list[dict], provider: str) -> list[dict]:
     """The ONE thing that prepares a message array for the wire.
 
@@ -651,6 +709,10 @@ class LLMClient:
         self._client = httpx.Client(timeout=self.config.timeout)
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        #: R-F4351 (C-296) — §21a metrics. Repairs mean the serving stack is
+        #: emitting partial deltas; failures mean a call was genuinely lost.
+        self.stream_arg_repairs = 0
+        self.stream_arg_failures = 0
 
     @property
     def supports_tools(self) -> bool:
@@ -910,6 +972,7 @@ class LLMClient:
         url = f"{self.config.base_url}/chat/completions"
         content_parts: list[str] = []
         tool_acc: dict[int, dict] = {}
+        arg_frags: dict[int, list[str]] = {}   # R-F4351 — per-slot argument deltas
         in_tok = out_tok = 0
 
         try:
@@ -960,12 +1023,39 @@ class LLMClient:
                         if fn.get("name"):
                             slot["function"]["name"] = fn["name"]
                         if fn.get("arguments"):
-                            slot["function"]["arguments"] += fn["arguments"]
+                            # R-F4351: keep the FRAGMENTS, not just their
+                            # concatenation — the re-emission repair below can
+                            # only see vLLM's final complete object if the
+                            # delta boundaries survive.
+                            arg_frags.setdefault(idx, []).append(fn["arguments"])
         except httpx.HTTPError as exc:
             # R-F1418 — network/DNS/timeout errors are always transient
             raise LLMError(f"could not reach LLM endpoint {url}: {exc}", transient=True) from exc
 
         content = "".join(content_parts)
+        # R-F4351 (C-296) — resolve each slot's argument deltas. §21a: BOTH
+        # outcomes are announced, because a silent repair hides a serving
+        # defect and a silent failure is the "tools: 0 calls" turn this fixes.
+        for idx, frags in arg_frags.items():
+            resolved, repaired = _repair_streamed_arguments(frags)
+            tool_acc[idx]["function"]["arguments"] = resolved
+            name = tool_acc[idx]["function"].get("name") or "?"
+            if repaired:
+                self.stream_arg_repairs += 1
+                logger.warning(
+                    "[R-F4351] streamed arguments for '%s' did not parse across "
+                    "%d deltas; recovered the re-emitted complete object "
+                    "(vLLM partial-delta tool parser)", name, len(frags))
+            else:
+                try:
+                    json.loads(resolved)
+                except Exception:  # noqa: BLE001 — honest failure, not a repair
+                    self.stream_arg_failures += 1
+                    logger.warning(
+                        "[R-F4351] streamed arguments for '%s' are unparseable "
+                        "and no complete object was emitted across %d deltas; "
+                        "passing through for an honest parse error: %.200s",
+                        name, len(frags), resolved)
         tool_calls = [tool_acc[i] for i in sorted(tool_acc)]
         if not tool_calls:
             # R-F4329 (C-277) — §13: the stream-bypass rule exists because a

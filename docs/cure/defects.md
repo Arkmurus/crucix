@@ -16854,3 +16854,69 @@ memory growth on its own, and that is not evidence it also caused this. The
 empirical test is cheap and is the next step: with C-292 deployed, re-read
 `autonomous.busy_seconds`. If the engine still parks with the task counter flat,
 this is independent and needs its own root-cause pass.
+
+## C-296 · the CLI corrupted a tool call the sovereign got right (fixed — R-F4351)
+
+Operator report: the `aria` CLI "is actually not able to perform any tasks".
+Every `run`-shaped request ended `tools: 0 calls` with ARIA narrating *about*
+JSON formatting — "the arguments are not being parsed as JSON" — instead of
+acting.
+
+**The model was not at fault on this path.** Measured live 2026-08-26 against
+`aria-llm-v0.4-dpo` on the pod, replaying the CLI's own captured payload
+byte-for-byte. Non-streamed, vLLM returns a clean call:
+
+    {"command": "cat README.md | wc -l", "timeout": 10}      # parses
+
+Streamed, the SAME payload produces 21 argument deltas. Deltas 1–20 assemble to
+a string missing the closing quote after `-l` (delta 11 is `l`, delta 17 opens
+`, "timeout": 1`), and then delta 21 re-emits the **complete object again**:
+
+    delta[21] '{"command": "cat README.md | wc -l", "timeout": 10}'
+
+`chat_stream` concatenated all 21 per the OpenAI streaming contract
+(`llm.py:963`), yielding `{"command": "cat README.md | wc -l, "timeout":
+10{"command": ...}` — unparseable. `agent.py` recorded an honest parse error,
+the broken text went back into the history, and the model spent the next turn
+explaining JSON to the operator. **A correct call, destroyed in transport.**
+
+Fixed by keeping the delta boundaries and, *only when the concatenation fails to
+parse*, taking the last fragment that is itself a complete JSON object. Four
+mutation tests pin the guards; each one deleted turns a test red:
+
+  * the concatenation is tried FIRST — a healthy stream is never rewritten. This
+    is not cosmetic: arguments containing a nested object stream that inner
+    object as its own delta, so a fragment scan would return `{"old": …}` and
+    silently discard every outer field — a wrong call that still parses.
+  * only an **object** may be taken. A lone `0` or `10` delta is valid JSON.
+  * the **last** complete object wins; the re-emission is the model's final word.
+  * nothing complete anywhere → the broken text passes through unchanged, so
+    `agent.py` still reports a parse error. A fabricated `run` EXECUTES; there is
+    nothing to recover and guessing is not an option.
+
+§21a: both outcomes announce (`logger.warning` + `stream_arg_repairs` /
+`stream_arg_failures` counters), because a silent repair hides a serving defect
+and a silent failure is the `tools: 0 calls` turn this fixes.
+
+**RESIDUAL, NOT FIXED HERE — model-side, belongs with the tool-use training.**
+The same live pass measured three defects this repair deliberately does not
+touch, because each is a generation fault and a client-side guess would be worse
+than the failure:
+
+  1. **Invalid JSON escapes on Windows paths.** The model emits `C:\Code\Aria`
+     inside a JSON string; `\C` is not a valid escape, vLLM's parser stops there
+     and discards the rest of the generation (121 completion tokens produced,
+     ~12 characters delivered). Repairing lone backslashes is **lossy and must
+     not be shipped**: `\t`, `\n`, `\b`, `\f`, `\r` are all valid escapes, so
+     `C:\temp` is genuinely ambiguous — verified, `\fly-io` repairs to a
+     formfeed.
+  2. **A doubled `[TOOL_CALLS]` marker plus a trailing `$$$R-1$$$` sentinel**,
+     which defeat the R-F4329 content-recovery net (`llm.py:496` strips the
+     marker once).
+  3. **Narrated calls and empty turns** — the R-F4337 class, still live on
+     `edit_file`.
+
+The fly-logs request in the operator's report is case 1 and **still fails after
+this fix**; that is the intended behaviour of the safety branch, not a
+regression. Root cause is the adapter's tool-JSON formatting and the fix belongs
+in the tool-use curriculum, not the transport.
