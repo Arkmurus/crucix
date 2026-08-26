@@ -17190,3 +17190,23 @@ be closing it by measuring less (§1).
 Note the ordering this implies: C-301 removed the gap-ledger flood, which was
 one route from this failure to a gate reset. The `aria.routes` ERROR is a
 SECOND, independent route, and it is still open.
+
+**Do NOT read the degraded PERCENTAGE as a trend — it tracks which autonomous
+task is running.** Measured across the two builds and nearly filed as a
+regression:
+
+    bc0164e5:  12/30 health samples degraded (40%)
+    92627039:   9/12 health samples degraded (75%)
+
+The rise is not a regression and R-F4356 cannot have caused it — that commit
+touches `capability_gaps.py` and tests only, nothing on the LLM path. The
+mechanism is the CALLER:
+
+    before steady: aria.researcher x15 (spaced)          llm.fallback 17
+    after  steady: aria.intel.adversarial_challenge x15  llm.fallback 15
+
+Identical failed-attempt volume; `adversarial_challenge` runs in a tight loop
+while `researcher` is spaced, so the same breaches compress into fewer minutes
+and more `/health` samples land inside an exhaustion window. **Compare breaches
+per active caller, not degraded percentage per sample window** — and note the
+sample sizes differ (30 vs 12) and the second sits closer to boot.
