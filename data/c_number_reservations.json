@@ -3217,9 +3217,24 @@
       "title": "the run tool reported exit 0 for a command PowerShell never found",
       "claimed_at": "2026-08-26T00:07:57Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4342"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T00:24:46Z"
+    },
+    {
+      "c_number": "C-287",
+      "title": "a truncated tool_call arguments string wedged every following turn with HTTP 400",
+      "claimed_at": "2026-08-26T00:17:50Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4343"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T00:24:46Z"
     }
   ]
 }

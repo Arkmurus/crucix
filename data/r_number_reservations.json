@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4343,
+  "next_available": 4344,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37301,18 +37301,30 @@
       "title": "never re-ask into a message position the provider rejects (R-F4337 regression)",
       "claimed_at": "2026-08-26T00:07:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1c3eb8f9",
+      "notes": null,
+      "shipped_at": "2026-08-26T00:24:45Z"
     },
     {
       "r_number": "R-F4342",
       "title": "run must not report success for a command that does not exist",
       "claimed_at": "2026-08-26T00:07:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1c3eb8f9",
+      "notes": null,
+      "shipped_at": "2026-08-26T00:24:45Z"
+    },
+    {
+      "r_number": "R-F4343",
+      "title": "an unparseable tool_call arguments string must never reach the wire",
+      "claimed_at": "2026-08-26T00:17:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1c3eb8f9",
+      "notes": null,
+      "shipped_at": "2026-08-26T00:24:46Z"
     }
   ]
 }
