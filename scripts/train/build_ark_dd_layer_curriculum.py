@@ -432,6 +432,131 @@ PAIRS: list[dict] = [
         ),
     },
     {
+        "id": "route_shell", "layer": "2", "mode": "routing",
+        "q": "Which layer would catch a shell company?",
+        "a": (
+            "No single layer does; a shell is a composite finding, and expecting one layer to "
+            "return it is how the pattern gets missed.\n\n"
+            "Layer 1 contributes the ghost-score signals — founding date and registered-address "
+            "pattern. Layer 2 contributes the network shape: one director across many entities, "
+            "shared accommodation addresses, clusters that incorporate together. Layer 5c asks "
+            "whether the commercial story holds up, which is where an entity with no operating "
+            "footprint but a large stated contract fails. Layer 6 is where those combine into a "
+            "verdict through the competing-hypotheses matrix.\n\n"
+            "Operator action: if you want the shell question answered, read those sections "
+            "together rather than looking for a 'shell: yes' field. Each signal alone has an "
+            "innocent explanation — new companies are new, formation agents are lawful — and it is "
+            "the conjunction that carries the weight."
+        ),
+    },
+    {
+        "id": "route_diversion", "layer": "5", "mode": "routing",
+        "q": "Which layer catches a diversion risk?",
+        "a": (
+            "Mostly Layer 5c (commercial coherence), with Layer 4 setting the frame and Layer 9 "
+            "deciding whether it is your problem.\n\n"
+            "Layer 4 classifies the item and the destination — what is controlled, which bloc's "
+            "rules reach this route. Layer 5c asks whether the deal makes sense on its own terms: "
+            "does the stated end use fit the volume, does the customer fit the product, does the "
+            "route fit the geography. Layer 9 then tells you whether the authorities that reach "
+            "your nexus actually restrict it.\n\n"
+            "Diversion is the classic case where every list check passes and the deal still does "
+            "not add up, which is precisely the gap 5c exists to fill.\n\n"
+            "Operator action: treat a coherence flag as a question to put to the counterparty in "
+            "writing. An end-use statement that cannot be given in writing is itself the finding."
+        ),
+    },
+    {
+        "id": "route_pep", "layer": "1", "mode": "routing",
+        "q": "Where does PEP exposure show up?",
+        "a": (
+            "In two places, and conflating them loses the more interesting one.\n\n"
+            "Layer 1 classifies PEP exposure for the TARGET itself — the entity or person being "
+            "screened. Layer 2 screens the directors and beneficial owners one hop out, which is "
+            "where PEP exposure usually actually sits: the company is unremarkable and a "
+            "controlling person is not.\n\n"
+            "Operator action: a PEP finding is not a block. It sets the standard of diligence and "
+            "the approval level required, and it is the reason the source of funds question stops "
+            "being routine. Reporting it as adverse is as wrong as omitting it."
+        ),
+    },
+    {
+        "id": "fail_no_registry", "layer": "1", "mode": "failure",
+        "q": "The registry lookup failed. What should the report say?",
+        "a": (
+            "It should say the registry could not be reached, in the data_gaps for that section, "
+            "and the section status should reflect PARTIAL rather than OK.\n\n"
+            "What it must NOT do is report the absence of an adverse registry finding as a clean "
+            "registry check. Those are different claims and only one of them was established. A "
+            "no-hit produced from a source that never answered is not a no-hit.\n\n"
+            "Operator action: treat the identity question as open. If the decision turns on "
+            "corporate existence or standing, that has to be resolved another way before the "
+            "decision, not inferred from the silence."
+        ),
+    },
+    {
+        "id": "fail_partial_screen", "layer": "1", "mode": "failure",
+        "q": "One sanctions source was unreachable during the screen. Is the result still a clean screen?",
+        "a": (
+            "No, and this is the most dangerous place to round up.\n\n"
+            "A no-hit produced from a reduced source set is not a clean screen. It is a screen "
+            "against the sources that answered, and the honest output is a third state: could not "
+            "screen against the full set, naming which source was missing and when it was tried.\n\n"
+            "Reporting it as clean converts an unknown into a false assurance, and the reader "
+            "cannot see the difference — which is what makes it worse than a red finding.\n\n"
+            "Operator action: re-run when the source recovers. If the decision cannot wait, "
+            "escalate with the gap stated so the risk is accepted knowingly rather than by "
+            "omission."
+        ),
+    },
+    {
+        "id": "fail_conflict", "layer": "3", "mode": "failure",
+        "q": "Two sources disagree about the registered address. What happens?",
+        "a": (
+            "Layer 3 surfaces it as a contradiction rather than picking a winner. The marker is "
+            "explicit — flagged as sources disagreeing, requiring human review — and it "
+            "deliberately does not resolve silently to whichever source is more recent or more "
+            "convenient.\n\n"
+            "Silent resolution is the failure mode worth avoiding: it produces a confident single "
+            "answer whose disagreement the reader never sees, and address conflicts are exactly "
+            "where a real finding hides.\n\n"
+            "Operator action: read a contradiction as an open question, not as noise. Two "
+            "registered addresses can mean a stale filing, or a redomiciliation, or two different "
+            "entities being conflated under one name — and the third possibility changes the whole "
+            "report."
+        ),
+    },
+    {
+        "id": "fail_cost_cap", "layer": "all", "mode": "failure",
+        "q": "A run stopped early on the cost cap. How should that be read?",
+        "a": (
+            "As an incomplete run that says so, which is the design. Cost is tracked per layer "
+            "precisely so a cap can halt a run that is burning its budget inside one layer instead "
+            "of spending it silently.\n\n"
+            "The sections that did not run carry SKIPPED rather than a clean status, so the report "
+            "distinguishes 'nothing adverse found' from 'never looked'.\n\n"
+            "Operator action: check WHICH layers were skipped against what the decision needs. If "
+            "the skipped layer is the one that would have answered your question, the run has not "
+            "answered it, and re-running scoped to that layer is cheaper than re-running "
+            "everything."
+        ),
+    },
+    {
+        "id": "contrast_5b_8", "layer": "8", "mode": "contrast",
+        "q": "What is the difference between Layer 5b and Layer 8?",
+        "a": (
+            "They both look for a constructed picture, but at different objects.\n\n"
+            "Layer 5b scores how the counterparty COMMUNICATES — linguistic distancing, "
+            "unverifiable credentials, urgency pressure. It reads the messages.\n\n"
+            "Layer 8 examines the structural picture the counterparty PRESENTS — procurement "
+            "fronting, diversion routing, arrangements that exist to be looked at favourably. It "
+            "reads the setup.\n\n"
+            "Operator action: a 5b flag is usually a reason to slow the exchange down and get "
+            "things in writing. A Layer 8 flag is usually an escalation, because asking a "
+            "constructed picture for more documents produces a better-constructed picture."
+        ),
+    },
+    {
         "id": "unobservable", "layer": "all", "mode": "boundary",
         "q": "One of the layers reported no output at all. Did it fail?",
         "a": (
@@ -449,20 +574,147 @@ PAIRS: list[dict] = [
 ]
 
 
+#: R-F4360 — QUESTION-FORM AUGMENTATION, and the reasoning matters because
+#: padding a corpus is usually the wrong instinct.
+#:
+#: The measured failure is not that she gives a poor answer about Layer 2 — it
+#: is that she does not RECOGNISE the question as being about her own stack, and
+#: answers the OSI model instead. That is an invariance failure: one fact, many
+#: askings, and she only maps some of them. So the augmentation varies the
+#: QUESTION and holds the answer fixed, which is exactly the axis that is broken.
+#:
+#: Sizing is deliberate, not arbitrary. The corpus is ~24.3k rows; the last
+#: attempt put ~64 rows against it (0.26%) and moved the eval by net -3,
+#: p>0.05. These templates take the hand-authored facts to ~1.5% of the corpus,
+#: which is the weight at which a factual axis has a chance of registering.
+#:
+#: THE HONEST COST: variants of one fact share an assistant turn verbatim, so
+#: the model can memorise a string rather than the knowledge. That is an
+#: accepted trade for factual recall — it is how the fact is meant to be
+#: recalled — but it is why the underlying FACTS are hand-authored from source
+#: and only the questions are generated. Generating answers too would multiply
+#: whatever is wrong in one of them by twelve.
+#:
+#: Phrasings are deliberately operator-voice rather than the textbook
+#: "What does Layer N (Name) do?" form. That form belongs to the eval, and the
+#: contamination pre-flight already caught three of them in the first cut.
+_VARIANTS: dict[str, list[str]] = {
+    # EVERY TEMPLATE MUST NAME ITS SUBJECT. A first cut included context-free
+    # follow-ups ("How should I read that?", "Talk me through your steps") and
+    # they COLLIDED ACROSS PAIRS: 23 identical question strings mapped to 23
+    # different answers, which teaches contradiction rather than knowledge.
+    # A duplicate-question test now pins this.
+    "describe": [
+        "Talk me through {ref}.",
+        "What actually happens in {ref}?",
+        "I'm new to ARK-DD — explain {ref}.",
+        "What is {ref} for?",
+        "Give me {ref} in plain terms.",
+        "What does {ref} contribute to the verdict?",
+        "When does {ref} matter to a decision?",
+        "I'm reading a DD report — what should the {short} section tell me?",
+        "What would I lose if {ref} were skipped?",
+        "Summarise {ref} for someone about to act on the report.",
+        "What inputs does {ref} use, and what does it produce?",
+    ],
+    "routing": [
+        "{q}",
+        "{q} Which part of the DD stack handles it?",
+        "{q} Where in ARK-DD does it surface?",
+        "{q} If I could only read one section, which?",
+        "{q} Which layers do I need to read together?",
+    ],
+    "failure": [
+        "{q}",
+        "{q} How should the report handle it?",
+        "{q} What is the honest output there?",
+        "{q} What should I NOT conclude from it?",
+        "{q} Does it invalidate the run?",
+    ],
+    "contract": [
+        "{q}",
+        "{q} Why does the report bother with it?",
+        "{q} What would go wrong if it were dropped?",
+        "{q} How should an operator read it?",
+    ],
+    "boundary": [
+        "{q}",
+        "{q} Is that a problem with the run?",
+        "{q} What is the correct interpretation?",
+        "{q} Does it mean something went wrong?",
+    ],
+    "contrast": [
+        "{q}",
+        "{q} Give me the practical difference.",
+        "{q} When would I care about one rather than the other?",
+    ],
+    "orientation": [
+        "{q}",
+        "Give me the ARK-DD stack end to end.",
+        "How is the DD stack structured?",
+        "Walk me through the ARK-DD layers.",
+        "What are the numbered ARK-DD layers and why does the order matter?",
+    ],
+    "disambiguation": [
+        "{q}",
+        "Someone told me ARK-DD Layer 2 is about network packets. Right?",
+        "Is ARK-DD's Layer 2 the same as the OSI one?",
+        "Clear up what Layer 2 means in ARK-DD.",
+    ],
+    "applied": [
+        "{q}",
+        "{q} Walk me through how you would approach it.",
+        "{q} What would that look like in practice?",
+    ],
+}
+
+#: Human-readable references so a generated question reads naturally.
+_REF = {
+    "1": ("Layer 1, the identity layer", "identity"),
+    "2": ("Layer 2, the network layer", "network"),
+    "3": ("Layer 3, the triangulation layer", "verification"),
+    "4": ("Layer 4, the compliance layer", "compliance"),
+    "5": ("Layer 5, the digital layer", "digital"),
+    "6": ("Layer 6, the synthesis layer", "synthesis"),
+    "7": ("Layer 7, report assembly", "report"),
+    "8": ("Layer 8, counter-intelligence", "counter-intelligence"),
+    "9": ("Layer 9, sanctions divergence", "sanctions divergence"),
+    "10": ("Layer 10, the forensic layer", "forensic"),
+    "all": ("the ARK-DD stack", "report"),
+}
+
+
+def _questions_for(p: dict) -> list[str]:
+    """Every asking of one fact. Deduped, original first."""
+    ref, short = _REF.get(p["layer"], ("the ARK-DD stack", "report"))
+    out, seen = [], set()
+    for tpl in [ "{q}" ] + _VARIANTS.get(p["mode"], []):
+        q = tpl.format(q=p["q"], ref=ref, short=short)
+        if q not in seen:
+            seen.add(q)
+            out.append(q)
+    return out
+
+
 def _rows() -> list[dict]:
-    return [{
+    rows = []
+    for p in PAIRS:
+        for i, q in enumerate(_questions_for(p)):
+            rows.append({
         "messages": [
             {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": p["q"]},
+            {"role": "user", "content": q},
             {"role": "assistant", "content": p["a"]},
         ],
         "topic": f"ark_dd_layer_{p['layer']}_{p['id']}",
+        "variant": i,
         "layer": p["layer"],
         "mode": p["mode"],
         "external": bool(p.get("external", False)),
         "confidence": "high",
         "source": "claude_authored:R-F4360",
-    } for p in PAIRS]
+            })
+    return rows
 
 
 def main() -> int:

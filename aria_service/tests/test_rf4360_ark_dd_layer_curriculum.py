@@ -300,6 +300,43 @@ def test_no_row_licenses_invention(rows):
         assert "never invent" in s, r["topic"]
 
 
+def test_no_question_maps_to_two_different_answers(rows):
+    """THE AUGMENTATION'S OWN FAILURE MODE, found by auditing the generated
+    corpus rather than by assuming it was fine.
+
+    The variant templates initially included context-free follow-ups — "How
+    should I read that?", "Talk me through your steps" — which do not name their
+    subject and therefore COLLIDED ACROSS PAIRS: 23 identical question strings
+    each mapped to a different answer. That is worse than no augmentation. It
+    teaches the model that one question has several unrelated correct answers,
+    which is a direct push toward the confident-irrelevance failure this whole
+    curriculum exists to fix.
+
+    Every template now names its subject. This test is the guard that keeps it
+    that way, because the next person adding a template will reach for exactly
+    the natural-sounding context-free phrasing that caused it.
+    """
+    import collections
+    by_q = collections.defaultdict(set)
+    for r in rows:
+        by_q[r["messages"][1]["content"]].add(r["messages"][2]["content"])
+    conflicts = {q: len(a) for q, a in by_q.items() if len(a) > 1}
+    assert not conflicts, (
+        f"{len(conflicts)} question(s) map to more than one answer — a "
+        f"context-free variant template has collided across pairs: "
+        f"{list(conflicts)[:3]}")
+
+
+def test_the_augmentation_is_proportionate_to_the_corpus(rows):
+    """~64 rows against ~24k (0.26%) moved the last eval by net -3, p>0.05.
+    A curriculum too dilute to register is indistinguishable from one that is
+    wrong, because both produce a null — and the null gets read as 'the
+    hypothesis failed' rather than 'the dose was too small'."""
+    assert len(rows) >= 150, (
+        f"only {len(rows)} rows — at ~24k corpus rows this is under 0.6% and "
+        f"repeats the dilution that produced the last null result")
+
+
 def test_rows_are_valid_chat_training_rows(rows):
     for r in rows:
         assert [m["role"] for m in r["messages"]] == ["system", "user", "assistant"]
