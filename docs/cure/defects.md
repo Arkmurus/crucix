@@ -16788,11 +16788,25 @@ the state store, so once reads were slow it always exceeded the 2.5s budget, and
 every single call leaked.
 
 **It was self-worsening, which is why it presented as three unrelated faults.**
-Each abandoned build pins the parsed module graph in its frame (the memory
-growth) and holds five concurrent state_store reads open (the read-timeout
-storm), which makes `_gather_signals` slower, which makes the next call more
-likely to time out and leak. One cause, three symptoms, none of them the
-database the warning text names.
+Each abandoned build holds five concurrent `_gather_signals` state_store reads
+open, and — because `build_structure()` re-runs `scan_modules()` and
+`_fingerprint()` through `asyncio.to_thread` on EVERY call, warm cache included
+— also a full filesystem scan per caller. ~101 of those at once contends the
+thread pool and the read pool, which makes `_gather_signals` slower, which makes
+the next call more likely to time out and leak. One cause, several symptoms,
+none of them the database the warning text names.
+
+**CORRECTION, recorded because the first draft of this entry got it wrong.**
+That draft said each abandoned build "pins the parsed module graph in its
+frame", offering it as the memory-growth mechanism. It does not: on a warm cache
+`build_structure` returns `_CACHE["data"]`, the SAME object, so N leaked tasks
+hold N references to ONE graph, not N copies. **The memory growth is measured
+and correlated; its mechanism is NOT established** and must not be asserted —
+per-task retained allocations (each caller's own partial result dict,
+`organ_table` output, and the gathered signals, gaps capped at 200) are a
+candidate, not a finding. The falsifiable test is the deploy: if RSS keeps
+climbing after `asyncio_tasks` goes flat, there is a second holder and this leak
+was never the memory story.
 
 **The fix is single-flight, and the shield STAYS.** Both paths now share the one
 `_COVERAGE_TASK`. The shield was never the bug: it protects the one shared build
