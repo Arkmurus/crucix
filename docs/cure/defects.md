@@ -17578,3 +17578,38 @@ printing none.
 
 Mutation-tested, including a suffix-only variant that is unique but still not the
 real key: uniqueness alone is not the property — **resolvability** is.
+
+### C-308 addendum — the three dead Lane B sources are NOT code-fixable (measured 2026-08-26)
+
+Probed FROM THE MACHINE THAT RUNS THEM (aria-intel), which is the only valid
+place to measure them:
+
+    AfDB   curl-default 403 · browser-UA 403 · honest-UA 403   -> IP block
+    SEACE  000 (TLS/connection failure)
+    SAM.gov 404 keyless (live log shows 429 "Message throttled out") -> needs key
+
+**A local probe said the opposite and would have produced a wrong fix.** From a
+residential IP every pool UA returns 200 from AfDB, and so does an honest
+descriptive one. That made "the UA rotation is stale, identify ourselves per
+§27b" look like the answer. It is not: from the datacenter EVERY user agent gets
+403, so the UA is irrelevant and the change would have done nothing. §22 —
+measure where the failure happens, not where it is convenient.
+
+§27 is explicit that this class has no code fix: *"you cannot code your way out
+of an IP block"*, and residential proxies *"must not be proposed"* because they
+mean evading controls a provider is using to refuse us — untenable for a
+due-diligence product. So AfDB is an operator decision (licensed feed, or drop
+the source), not an engineering task.
+
+SAM.gov is a credential, and the north star already lists it as Phase 3 priority
+#2 ("SAM.gov opportunities free key and correct endpoint").
+
+**Recorded but deliberately NOT changed: `ua_rotation.random_headers()` is
+browser impersonation.** Its own docstring says it exists so "anti-bot
+fingerprinters (Cloudflare/AWS WAF/Akamai) don't trivially identify the request
+as non-browser" and to push "through most 'Default-deny anything that isn't a
+browser' rules". That is the same evasion §27 rules out for residential proxies,
+and the pool is two years stale (Chrome 123/124, Firefox 125). It is a policy
+inconsistency worth resolving — but it is NOT the cause of any of the three
+failures above, and changing it on that basis would be a speculative fix on a
+disproven hypothesis.
