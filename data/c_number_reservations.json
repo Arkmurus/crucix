@@ -3451,9 +3451,12 @@
       "title": "WA: /teach and /correct write permanent memory with no role gate",
       "claimed_at": "2026-08-26T11:56:11Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4361"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T12:00:32Z"
     }
   ]
 }

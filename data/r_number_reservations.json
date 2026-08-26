@@ -37498,9 +37498,10 @@
       "title": "WA memory-write commands are gated only by the bootstrap allow-list, so opening access opens permanent memory",
       "claimed_at": "2026-08-26T11:56:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f396f62a",
+      "notes": null,
+      "shipped_at": "2026-08-26T12:00:32Z"
     }
   ]
 }
