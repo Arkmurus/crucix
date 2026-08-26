@@ -37429,9 +37429,9 @@
       "title": "the R-number test guard could not see a whole test tree (C-298)",
       "claimed_at": "2026-08-26T08:39:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "superseded",
       "commit_sha": null,
-      "notes": null
+      "notes": "superseded by R-F4353 (aria-c0) — same defect, one number; implementation credited there"
     }
   ]
 }

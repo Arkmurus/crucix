@@ -3364,9 +3364,9 @@
       "title": "verify_commit hardcoded two test directories and aria_cli/tests was a third",
       "claimed_at": "2026-08-26T08:39:50Z",
       "claimed_by": "claude",
-      "status": "open",
+      "status": "superseded",
       "r_numbers": [],
-      "notes": null
+      "notes": "superseded by C-298 — same defect, collided with a peer mid-fix"
     }
   ]
 }
