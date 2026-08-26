@@ -17613,3 +17613,61 @@ and the pool is two years stale (Chrome 123/124, Firefox 125). It is a policy
 inconsistency worth resolving — but it is NOT the cause of any of the three
 failures above, and changing it on that basis would be a speculative fix on a
 disproven hypothesis.
+
+### C-302 — RESOLVED 2026-08-26 by R-F4357 + R-F4358; remedy chosen against the USP
+
+**Measured over a 25-minute window (4,302 log lines) on `f70d073f`, plus 18
+`/health` samples:**
+
+    ceiling breaches            0     (were 80 / 65 / 10 on the prior builds)
+    breaker OPEN                0     (was 7 / 6 per boot)
+    refusals into silence       0     (were 102 / 34)
+    aria.* ERROR                0     (2 ERRORs are trafilatura, a third-party
+                                       logger on invalid HTML — correctly NOT a
+                                       gate-#3 reset type)
+    llm_chain_exhausted         0/18  (was 11/12 samples)
+    last_exhaustion_age_s       None
+    gate #3 streak              294+ min and holding across four deploys
+
+And the four callers C-302 named as losing work — `researcher`,
+`adversarial_challenge`, `metacognitive.codegen`, `self_improve` — report **zero**
+failures each.
+
+**THE REMEDY CHOSEN, and why the other three were rejected.** C-302 listed four
+options and deliberately picked none, pending a business-model decision. That
+decision has been made and the choice follows the USP:
+
+* **Per-workload deadlines (R-F4358) — TAKEN.** The structural fix. A caller
+  declares WHAT it wants; the deadline is a consequence, not a second free
+  parameter. It was also the ONLY remedy that reduces the breach RATE, which is
+  what gate #3 measures — a vendor fallback rescues the lost call but the
+  sovereign attempt still breaches and still logs.
+* **Never cool the sole provider (R-F4357) — TAKEN.** Removed the outage class:
+  a refusal that routes nowhere is not a routing decision.
+* **Raise the ceiling — REJECTED.** A band-aid in the §1 sense: one number
+  governing two workload classes with different output-length distributions
+  (C-304), and a global bump makes every SHORT call hang proportionally longer
+  before failing.
+* **Vendor fallback — REJECTED BY THE BUSINESS MODEL, not by cost.** The operator
+  is explicit: *"aria is no longer using third party reasoning"*, and vendor
+  spend is assigned to user accounts by membership tier. Re-introducing a paid
+  provider behind the sovereign would contradict the USP (her own reasoning,
+  compounding, zero marginal cost) and would re-arm the very cost cap C-305 had
+  to remove to stop her going dark. It would trade a solved problem for the one
+  we just solved.
+* **Faster hardware / smaller model — NOT NEEDED.** The provider was never slow:
+  measured 0.83s for `/v1/models` and 1.1s for a real completion, mid-incident.
+  Once the deadline matched the work, the existing pod was sufficient.
+
+**HONEST RESIDUAL: the chain is depth-1 on a single self-hosted pod.**
+`chain_order: ["aria_llm"]`, `resilient: false`. That is now a deliberate,
+evidenced choice rather than an oversight, and the USP-aligned mitigation is
+sovereign AVAILABILITY, not a vendor — verified live: `ARIA_RUNPOD_AUTOSTART=1`
+with a 0–24 window and `ARIA_RUNPOD_POD_ID` set, so a crashed pod restarts itself
+24/7 (§24). The remaining exposure is host failure or preemption of that pod —
+real, rarer than the stopped-pod case, and an infrastructure question rather than
+a routing one.
+
+**Do NOT re-open this by re-adding a vendor to the chain.** If depth-1 ever needs
+answering, the USP-consistent answer is a second SOVEREIGN capacity, not a
+third-party model.

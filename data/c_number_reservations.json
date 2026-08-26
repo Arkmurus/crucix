@@ -3397,9 +3397,13 @@
       "title": "the sole LLM provider cannot meet its 15s ceiling, so ARIA is degraded 40% of the time",
       "claimed_at": "2026-08-26T09:33:10Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4357",
+        "R-F4358"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T15:07:20Z"
     },
     {
       "c_number": "C-303",
