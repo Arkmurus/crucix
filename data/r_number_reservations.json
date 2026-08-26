@@ -37548,9 +37548,10 @@
       "title": "the R-tag derivation is starved by CI's shallow clone and renders no-r-tag as if nothing shipped",
       "claimed_at": "2026-08-26T15:54:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0e8257c4",
+      "notes": null,
+      "shipped_at": "2026-08-26T15:57:40Z"
     }
   ]
 }

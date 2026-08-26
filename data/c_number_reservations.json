@@ -3515,9 +3515,12 @@
       "title": "shallow clone makes the deploy banner unable to measure, and it reports that as measured-nothing",
       "claimed_at": "2026-08-26T15:54:17Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4366"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T15:57:40Z"
     }
   ]
 }
