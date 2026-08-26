@@ -3256,6 +3256,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-290",
+      "title": "she abstains on questions whose evidence is present, costing the grounded score",
+      "claimed_at": "2026-08-26T01:10:47Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

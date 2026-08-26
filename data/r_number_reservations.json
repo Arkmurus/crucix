@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4346,
+  "next_available": 4347,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37344,6 +37344,15 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": "title originally mis-cited C-286 (another session s defect); corrected to C-289 per section 26a - a register whose identifiers cannot be cited has lost the property that makes it a register."
+    },
+    {
+      "r_number": "R-F4346",
+      "title": "curriculum: use the evidence you were given",
+      "claimed_at": "2026-08-26T01:10:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
