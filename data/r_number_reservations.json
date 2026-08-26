@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4365,
+  "next_available": 4366,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37532,6 +37532,15 @@
       "commit_sha": "5ca8f2e0",
       "notes": null,
       "shipped_at": "2026-08-26T14:35:14Z"
+    },
+    {
+      "r_number": "R-F4365",
+      "title": "the deploy workflows derive the R-tag from HEAD alone, so a docs commit renders no-r-tag on a build shipping R-numbers",
+      "claimed_at": "2026-08-26T15:19:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

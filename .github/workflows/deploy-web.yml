@@ -57,8 +57,7 @@ jobs:
         run: |
           GIT_SHA=$(git rev-parse HEAD)
           SHORT=$(git rev-parse --short HEAD)
-          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+' | head -1)
-          R_TAG=${R_TAG:-no-r-tag}
+          R_TAG=$(bash scripts/ci/derive_r_tag.sh)   # R-F4365 (C-311) — one derivation
           echo "git_sha=$GIT_SHA"   >> $GITHUB_OUTPUT
           echo "short=$SHORT"       >> $GITHUB_OUTPUT
           echo "r_tag=$R_TAG"       >> $GITHUB_OUTPUT

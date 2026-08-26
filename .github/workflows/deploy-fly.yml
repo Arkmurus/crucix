@@ -106,8 +106,7 @@ jobs:
         continue-on-error: true
         run: |
           GIT_SHA=$(git rev-parse HEAD)
-          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
-          R_TAG=${R_TAG:-no-r-tag}
+          R_TAG=$(bash scripts/ci/derive_r_tag.sh)   # R-F4365 (C-311) — one derivation
           echo "=== Canary deploy ==="
           echo "Building with ARIA_BUILD_GIT_SHA=$GIT_SHA ARIA_BUILD_R_TAG=$R_TAG"
           # Deploy with --strategy canary to update only one machine first
@@ -148,8 +147,7 @@ jobs:
         continue-on-error: true
         run: |
           GIT_SHA=$(git rev-parse HEAD)
-          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
-          R_TAG=${R_TAG:-no-r-tag}
+          R_TAG=$(bash scripts/ci/derive_r_tag.sh)   # R-F4365 (C-311) — one derivation
           echo "Building with ARIA_BUILD_GIT_SHA=$GIT_SHA ARIA_BUILD_R_TAG=$R_TAG"
           flyctl deploy --remote-only --app aria-intel --wait-timeout 900 \
             --build-arg ARIA_BUILD_GIT_SHA="$GIT_SHA" \

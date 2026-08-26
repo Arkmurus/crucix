@@ -3497,6 +3497,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T14:35:14Z"
+    },
+    {
+      "c_number": "C-311",
+      "title": "deploy banner under-claims: workflow R-tag derivation never got deploy.ps1's fixes",
+      "claimed_at": "2026-08-26T15:19:33Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

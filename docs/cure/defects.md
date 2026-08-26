@@ -17671,3 +17671,52 @@ a routing one.
 **Do NOT re-open this by re-adding a vendor to the chain.** If depth-1 ever needs
 answering, the USP-consistent answer is a second SOVEREIGN capacity, not a
 third-party model.
+
+## C-311 · the deploy banner under-claims what the build ships (fixed — R-F4365)
+
+MEASURED LIVE 2026-08-26 — aria-intel served, for a build containing **R-F4362
+and R-F4364**:
+
+    {"build_rev": "no-r-tag · sha f70d073f"}
+
+All four deploy workflows derived the tag from HEAD's subject alone:
+
+    R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+' | head -1)
+    R_TAG=${R_TAG:-no-r-tag}
+
+The commit at HEAD was a docs commit, so the banner read *this build ships
+nothing* on a build containing everything.
+
+**Not cosmetic.** `/health/live` renders this as `build_rev`, and CLAUDE.md §11
+makes it the anchor of deploy verification — *"a deploy is NOT done until you
+have PROVEN it live … CONFIRM the build_rev matches your commit"*. A banner that
+misreports the build corrodes the one check the protocol rests on.
+
+**`scripts/deploy.ps1` had already solved this three times and none of it reached
+the workflows** — which §11 now names the PRIMARY path (*"prefer dispatch over
+deploy.ps1"*). Ported: R-F3357 (empty range), R-F3247 (registry bookkeeping,
+excluded BY SUBJECT), R-F3371 (ships-nothing, and take only the FIRST R-number
+in a subject). Fixed in one place, still open in the one that runs — the same
+shape as C-298, C-300 and C-308.
+
+**One derivation, four call sites.** `scripts/ci/derive_r_tag.sh` replaces four
+copies (deploy-fly ×2, deploy-wa, deploy-web), and a test fails if any workflow
+sets `R_TAG` without it — so a fifth variant cannot appear.
+
+**A bounded window, not a since-last-deploy range.** deploy.ps1 ranges from the
+newest `deploy-*` tag because IT creates those tags; the workflow path does not.
+Measured here, the newest deploy tag is **257 commits and six days behind HEAD**,
+so ranging from it would make every workflow deploy claim six days of R-numbers —
+and walking it cost ~500 git invocations and timed out locally. A derivation too
+slow to run is not a derivation. The sha remains the authoritative half of
+`build_rev`; the tag is the human-readable half.
+
+Live check: the banner would now read `R-F4364+R-F4362+R-F4363+R-F4360` instead
+of `no-r-tag`, in 0.5s.
+
+Six tests, four mutants, all killed. Two survived the first pass and both were
+real: the exclusion rules were asserted against the REAL repo, where the same
+R-numbers legitimately appear via their fix commits — vacuous by construction.
+They are now tested against a CONTROLLED history where each rule is the only
+thing that can exclude its commit, including a `chore: ship-mark` that touches
+CODE so the by-subject rule has to act on its own.
