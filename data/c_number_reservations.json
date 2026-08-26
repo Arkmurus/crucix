@@ -3412,6 +3412,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T10:33:26Z"
+    },
+    {
+      "c_number": "C-304",
+      "title": "sovereign deadlines must be derived from requested tokens, not constants",
+      "claimed_at": "2026-08-26T10:48:28Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

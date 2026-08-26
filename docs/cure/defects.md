@@ -17291,3 +17291,59 @@ asserts the value the provider observes. The other "survivor" was an instrument
 fault: the mutant's anchor matched an unrelated `return False` earlier in the
 file. **A mutant that does not mutate the code under test proves nothing** —
 check the anchor before believing a survival.
+
+## C-304 · a deadline set independently of the output it requests is impossible by arithmetic (fixed — R-F4358)
+
+R-F4357 removed the OUTAGE half of C-302 — the sovereign can no longer be
+refused or clamped into silence. This is the other half, and it surfaced the
+moment R-F4357 deployed: breaches moved from **15.0s to 60.0s**, proving the
+caller's real deadline now reaches the provider, and proving 60s still is not
+enough.
+
+**MEASURED on the live pod, 2026-08-26, minutes after the R-F4357 deploy:**
+
+    max_tokens=128    completion=128     7.5s  -> 17.1 tok/s
+    max_tokens=512    completion=512    47.4s  -> 10.8 tok/s
+    max_tokens=1024   completion=1024   54.9s  -> 18.7 tok/s
+
+    8 breaches, all at 60.0s:  4 x adversarial_challenge  4 x llm.fallback
+
+`adversarial_challenge` asks for `max_tokens=800, timeout=60.0`
+(`adversarial_challenge.py:1393-1397`). At the slowest measured 10.8 tok/s that
+output needs **~74s of generation** before any queue or prompt-eval overhead.
+**The deadline cannot be met by arithmetic.** No amount of warming, retrying or
+capacity changes it, because the two numbers were chosen independently of one
+another.
+
+**THE RULE: a caller declares WHAT it wants; the deadline is a CONSEQUENCE of
+that, not a second free parameter.** `_workload_deadline` derives the floor from
+`max_tokens` at the MEASURED rate and honours the declared value whenever it is
+already larger.
+
+**Why not just raise the constant:** it is the same defect one notch along. A
+bigger fixed number is still independent of the request — too long for a
+128-token call (the caller hangs on a fault it could have failed fast), too
+short for a 4096-token one. That is C-182's lesson (one deadline serving two
+classes), and C-302 already records that a global bump makes every SHORT call
+hang proportionally longer before failing.
+
+**Load-bearing properties, each pinned and each mutation-tested:**
+
+* **Only ever RAISES.** Silently shortening a caller's budget is this same
+  defect pointed the other way.
+* The default rate is the **SLOWEST** measured, deliberately — a deadline
+  derived from an optimistic rate is impossible-by-arithmetic all over again.
+* The cap bounds the **derived extension only**; a caller that explicitly asked
+  for longer still gets it. The cap exists to stop us *inventing* time, not to
+  overrule an explicit budget.
+* Fails SAFE on an unusable `max_tokens` — returns the declared deadline rather
+  than throwing inside the LLM path or inventing a size we were not told.
+* **Scoped to the sole-provider path.** Where a real fallback exists the clamp
+  still applies: deriving a longer deadline there would delay the very handover
+  the clamp exists to make.
+* §21a: `deadline_extension_count()` — every increment is a caller whose
+  declared budget could not produce what it asked for. The derivation is a
+  SAFETY NET, not a licence to leave those budgets wrong; the count is what
+  names the call sites to fix at source.
+
+Twelve tests, six mutants, all killed.

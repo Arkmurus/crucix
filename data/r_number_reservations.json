@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4358,
+  "next_available": 4359,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37462,6 +37462,15 @@
       "commit_sha": "086493d3",
       "notes": null,
       "shipped_at": "2026-08-26T10:33:26Z"
+    },
+    {
+      "r_number": "R-F4358",
+      "title": "a deadline set independently of the output size it requests is impossible by arithmetic",
+      "claimed_at": "2026-08-26T10:48:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -475,7 +475,7 @@ class LLMHealthChecker:
                 # R-F4357 (C-303) — the clamp preserves budget for a fallback;
                 # with none it only manufactures the failures that open the
                 # breaker and take ARIA dark.
-                eff_timeout = _effective_call_timeout(timeout)
+                eff_timeout = _effective_call_timeout(timeout, max_tokens)
                 try:
                     return await inner.complete(
                         system_prompt, user_message,
@@ -537,7 +537,81 @@ def _sole_dial() -> bool:
         return False
 
 
-def _effective_call_timeout(timeout: float) -> float:
+#: R-F4358 (C-304) — the sovereign's MEASURED generation rate, tokens/second.
+#: Measured against the live pod 2026-08-26 with real prompts:
+#:     max_tokens=128  -> 17.1 tok/s     512 -> 10.8 tok/s     1024 -> 18.7 tok/s
+#: The default is the SLOWEST observed, deliberately: a deadline derived from an
+#: optimistic rate is the same impossible-by-arithmetic defect this fixes.
+#: Env-overridable so a faster pod, a smaller model or a quantised build can be
+#: reflected without a deploy.
+_SOVEREIGN_TOKENS_PER_S = float(os.getenv("ARIA_LLM_TOKENS_PER_S", "10.8"))
+
+#: Queue wait + prompt evaluation before the first output token. Not the
+#: generation itself — that is the term above.
+_SOVEREIGN_DEADLINE_OVERHEAD_S = float(
+    os.getenv("ARIA_LLM_DEADLINE_OVERHEAD_S", "12"))
+
+#: Ceiling on the DERIVED extension only. A runaway `max_tokens` must not buy an
+#: unbounded hang; an explicit caller budget above this is still honoured,
+#: because the cap exists to stop us INVENTING time, not to overrule a caller.
+_SOVEREIGN_DEADLINE_CAP_S = float(os.getenv("ARIA_LLM_DEADLINE_CAP_S", "600"))
+
+_deadline_extensions = 0
+
+
+def deadline_extension_count() -> int:
+    """R-F4358 §21a — how many deadlines this process had to stretch.
+
+    Every increment is a caller whose declared budget could not produce the
+    output it asked for. The derivation is a SAFETY NET, not a licence to leave
+    those budgets wrong: this count is what tells the operator which call sites
+    to correct at the source.
+    """
+    return _deadline_extensions
+
+
+def _workload_deadline(max_tokens: object, declared: float) -> float:
+    """R-F4358 (C-304) — the time `max_tokens` of output actually needs.
+
+    THE DEFECT. A caller declares WHAT it wants and, separately, HOW LONG it
+    will wait — two numbers chosen independently, so nothing keeps them
+    consistent. Live: `adversarial_challenge` asks for `max_tokens=800` with
+    `timeout=60.0`; at the measured 10.8 tok/s that output needs ~74s of
+    generation before any overhead. **The deadline cannot be met by
+    arithmetic**, so the call fails every time, forever — no amount of warming,
+    retrying or capacity changes it.
+
+    Raising the constant instead would be the same defect one notch along: a
+    bigger fixed number is still independent of the request, too long for a
+    128-token call and too short for a 4096-token one. That is the C-182 lesson
+    (one deadline serving two classes) and C-302 already records that a global
+    bump makes every SHORT call hang proportionally longer before failing.
+
+    ONLY EVER RAISES. `max(declared, …)` — silently shortening a caller's budget
+    is this same defect pointed the other way. Fails SAFE on an unusable
+    `max_tokens`: returns the declared deadline untouched rather than throwing
+    inside the LLM path or inventing a size we were not told.
+    """
+    global _deadline_extensions
+    try:
+        n = int(max_tokens)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return declared
+    if n <= 0 or _SOVEREIGN_TOKENS_PER_S <= 0:
+        return declared
+    needed = _SOVEREIGN_DEADLINE_OVERHEAD_S + (n / _SOVEREIGN_TOKENS_PER_S)
+    needed = min(needed, _SOVEREIGN_DEADLINE_CAP_S)   # bound the DERIVED part only
+    if needed <= declared:
+        return declared
+    _deadline_extensions += 1
+    logger.debug(
+        "[R-F4358] deadline raised %.1fs -> %.1fs for %d tokens — the declared "
+        "budget could not produce the requested output", declared, needed, n,
+    )
+    return needed
+
+
+def _effective_call_timeout(timeout: float, max_tokens: object = 0) -> float:
     """R-F4357 (C-303) — the sovereign's per-call deadline.
 
     The clamp exists to preserve budget for a FALLBACK: line 67 states it as
@@ -552,7 +626,9 @@ def _effective_call_timeout(timeout: float) -> float:
     caller asking for less than the clamp still gets exactly what it asked for.
     """
     if _sole_dial():
-        return timeout
+        # R-F4358 (C-304) — with nothing to fall back to, the only sane deadline
+        # is the one the requested output actually needs.
+        return _workload_deadline(max_tokens, timeout)
     return min(timeout, _ARIA_LLM_CALL_TIMEOUT)
 
 
