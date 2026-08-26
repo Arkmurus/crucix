@@ -53,35 +53,16 @@ V04_REPORT="${EVAL_DIR}/aria_llm_v0_4_eval.json"
 # So: honour an inherited HF_HOME, otherwise pick whichever candidate has the
 # most free space, and refuse to start when the winner cannot hold the model.
 # Failing in one second with the number beats failing in ten minutes at ENOSPC.
-# --- R-F4347:hf-cache BEGIN (extracted verbatim by test_rf4347) ---
-# Candidates are overridable so the selection can be exercised against real
-# directories in a test, and so a pod with a different disk layout needs no
-# code edit. The defaults are the pod of record.
-HF_CACHE_CANDIDATES="${HF_CACHE_CANDIDATES:-/workspace/.cache/huggingface /root/.cache/huggingface}"
-_hf_free_mb(){ df -Pm "$1" 2>/dev/null | awk 'NR==2{print $4+0}'; }
-if [ -z "${HF_HOME:-}" ]; then
-  _best=""; _best_free=0
-  for _cand in $HF_CACHE_CANDIDATES; do
-    mkdir -p "$_cand" 2>/dev/null || continue
-    _f=$(_hf_free_mb "$_cand"); [ -z "$_f" ] && _f=0
-    if [ "$_f" -gt "$_best_free" ]; then _best="$_cand"; _best_free="$_f"; fi
-  done
-  export HF_HOME="${_best:-/workspace/.cache/huggingface}"
-  echo "[hf-cache] HF_HOME=$HF_HOME (${_best_free} MB free)"
-else
-  mkdir -p "$HF_HOME" 2>/dev/null || true
-  echo "[hf-cache] HF_HOME=$HF_HOME (inherited)"
-fi
-# ~15G for a 7B in bf16 plus room to unpack; overridable for a smaller base.
-HF_MIN_FREE_MB="${HF_MIN_FREE_MB:-18000}"
-_free=$(_hf_free_mb "$HF_HOME"); [ -z "$_free" ] && _free=0
-if [ "$_free" -lt "$HF_MIN_FREE_MB" ]; then
-  echo "[FATAL] HF_HOME=$HF_HOME has ${_free} MB free, need ${HF_MIN_FREE_MB} MB." >&2
-  echo "        The base model is ~15G. Free space, or set HF_HOME to a bigger disk." >&2
-  df -Pm / /workspace 2>/dev/null >&2
-  exit 1
-fi
-# --- R-F4347:hf-cache END ---
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This used to point the cache at /workspace, a 20G volume whose own comment
+# mis-named it the container disk; see hf_cache_select.sh for the measurement.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 # ONLINE — base must download fresh (no volume cache). HF_TOKEN honoured if set.
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
 rm -f "$EVAL_DIR/_cycle_status"

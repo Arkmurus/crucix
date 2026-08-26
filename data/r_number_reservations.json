@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4350,
+  "next_available": 4351,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37379,6 +37379,15 @@
       "r_number": "R-F4349",
       "title": "the model was told to answer only from evidence the judge already knew supported nothing (C-294)",
       "claimed_at": "2026-08-26T06:57:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4350",
+      "title": "the HF_HOME disk fix was applied to one of seven scripts (C-295)",
+      "claimed_at": "2026-08-26T07:02:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

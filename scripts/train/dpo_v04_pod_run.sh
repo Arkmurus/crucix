@@ -41,7 +41,17 @@ DPO_EPOCHS="${DPO_EPOCHS:-1}"
 DPO_BETA="${DPO_BETA:-0.3}"     # was 0.1 — higher = stays closer to the SFT reference
 DPO_LR="${DPO_LR:-2e-6}"        # was 5e-6 — gentler updates
 DPO_REPORT="${EVAL_DIR}/aria_llm_v0_4_dpo_eval.json"
-export HF_HOME=/workspace/.cache/huggingface
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This line used to hardcode the cache onto /workspace, a 20G volume whose own
+# comment mis-named it the container disk; see hf_cache_select.sh for the
+# measurement and why it fails closed.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
 rm -f "$EVAL_DIR/_cycle_status"
 trap 'rc=$?; echo "$rc" > "$EVAL_DIR/_cycle_status" 2>/dev/null || true' EXIT

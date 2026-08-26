@@ -38,7 +38,17 @@ selfstop(){ echo "[selfrun] self-stop pod ${RUNPOD_POD_ID:-?}"; curl -s -X POST 
 trap selfstop EXIT
 cd /workspace
 pip install -q "transformers==4.46.3" "peft==0.13.2" "accelerate>=0.34" bitsandbytes sentencepiece protobuf fastapi uvicorn httpx 2>&1 | tail -3
-export HF_HOME=/workspace/.cache/huggingface
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This line used to hardcode the cache onto /workspace, a 20G volume whose own
+# comment mis-named it the container disk; see hf_cache_select.sh for the
+# measurement and why it fails closed.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 export BASE_MODEL=unsloth/mistral-7b-instruct-v0.3
 EVALSET=/workspace/datasets/aria_eval_openbook.jsonl
 SCR=/workspace/crucix/scripts/train

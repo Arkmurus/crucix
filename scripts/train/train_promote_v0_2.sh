@@ -26,6 +26,16 @@
 # the run (~1-2h on an A100/H100). Run it OUTSIDE her serving window or when
 # a brief downtime is acceptable.
 set -uo pipefail
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This used to point the cache at /workspace, a 20G volume whose own comment
+# mis-named it the container disk; see hf_cache_select.sh for the measurement.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 
 BASE_MODEL="mistralai/Mistral-7B-Instruct-v0.3"
 SFT="/workspace/checkpoints/aria_llm_v0_1_sft"
@@ -61,7 +71,7 @@ serve() {  # serve <lora_path> <name>
   local disk_gb
   disk_gb=$(df -BG --output=size / 2>/dev/null | tail -1 | tr -dc '0-9')
   if [ "${disk_gb:-0}" -ge 80 ] && python -c "import vllm" 2>/dev/null; then
-    HF_HOME=/workspace/.cache/huggingface VLLM_USE_DEEP_GEMM=0 \
+    HF_HOME="$HF_HOME" VLLM_USE_DEEP_GEMM=0 \
       nohup python -m vllm.entrypoints.openai.api_server \
         --model "${BASE_MODEL}" --enable-lora \
         --lora-modules "${name}=${lora}" \
@@ -80,7 +90,7 @@ serve() {  # serve <lora_path> <name>
   fi
 
   # Reliable shim fallback (transformers+peft 4-bit).
-  HF_HOME=/workspace/.cache/huggingface \
+  HF_HOME="$HF_HOME" \
   ADAPTER="${lora}" MODEL_NAME="${name}" PORT=${PORT} BASE_MODEL="${BASE_MODEL}" \
     setsid nohup python "${SCRIPTS}/serve_eval_shim.py" \
       > "${LOGS}/shim_${name}.log" 2>&1 < /dev/null &

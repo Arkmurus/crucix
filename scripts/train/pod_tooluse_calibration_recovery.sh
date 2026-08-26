@@ -11,7 +11,17 @@ VERDICT=/workspace/eval/aria_tooluse_sft_child_verdict.json
 DIAGNOSTICS=/workspace/eval/aria_tooluse_curve_diagnostics.tgz
 SCRIPTS=/workspace/crucix/scripts/train
 PORT=8888
-export HF_HOME=/workspace/.cache/huggingface
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This line used to hardcode the cache onto /workspace, a 20G volume whose own
+# comment mis-named it the container disk; see hf_cache_select.sh for the
+# measurement and why it fails closed.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 cd /workspace/crucix || exit 1
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 require_watchdog(){

@@ -78,7 +78,11 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 echo "[driver] pushing driver + current scripts + grounded corpus + open-book eval..."
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train"
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/v0_4_pod_run.sh   root@"$HOST":/workspace/ || { echo "[driver] FATAL scp driver"; exit 1; }
-for f in sft_train.py serve_eval_shim.py eval_aria_llm.py; do
+# R-F4350 (C-295) — hf_cache_select.sh MUST ship: every pod script now sources
+# it and fails closed without it. /workspace/crucix/scripts/train is the second
+# path its loader searches, so v0_4_pod_run.sh (which runs from /workspace)
+# finds it here too.
+for f in sft_train.py serve_eval_shim.py eval_aria_llm.py hf_cache_select.sh; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
 done
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$TRAIN_CORPUS" root@"$HOST":/workspace/datasets/aria_grounded_v1.jsonl  || { echo "[driver] FATAL scp corpus"; exit 1; }

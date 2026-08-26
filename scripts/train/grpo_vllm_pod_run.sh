@@ -19,7 +19,17 @@ PORT=8888
 NUM_GEN="${NUM_GEN:-6}"; GRPO_EPOCHS="${GRPO_EPOCHS:-1}"; GRPO_LR="${GRPO_LR:-1e-6}"
 BATCH="${BATCH:-6}"; VLLM_GPU_MEM="${VLLM_GPU_MEM:-0.30}"
 GRPO_REPORT="${EVAL_DIR}/aria_llm_grpo_v2_eval.json"
-export HF_HOME=/workspace/.cache/huggingface
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This line used to hardcode the cache onto /workspace, a 20G volume whose own
+# comment mis-named it the container disk; see hf_cache_select.sh for the
+# measurement and why it fails closed.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 export PYTHONPATH="/workspace/crucix:${PYTHONPATH:-}"
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$GRPO_OUT")" /workspace/datasets
 rm -f "$EVAL_DIR/_cycle_status"

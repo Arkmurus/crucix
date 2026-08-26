@@ -179,7 +179,16 @@ ssh -i "$SSH_ID" -o StrictHostKeyChecking=no -p "$POD_PORT" "root@$POD_HOST" bas
   mkdir -p /workspace/logs
 
   # R-F1454: load from volume HF cache (gated model, no HF token on pod)
-  export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
+  # R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+  # This used to point the cache at /workspace, a 20G volume whose own comment
+  # mis-named it the container disk; see hf_cache_select.sh for the measurement.
+  _hfsel=""
+  for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+    [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+  done
+  [ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+  . "$_hfsel"
+  hf_cache_select || exit 1
   export HF_HUB_OFFLINE=1
   export TRANSFORMERS_OFFLINE=1
 

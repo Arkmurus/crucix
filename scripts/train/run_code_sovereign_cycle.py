@@ -31,6 +31,7 @@ import runpod_exec_smoke as SM
 _STATUS = _REPO / "data" / "eval_reports" / "code_sovereign_cycle_status.json"
 _SFT_TRAIN = _REPO / "scripts" / "train" / "sft_train.py"
 _SHIM = _REPO / "scripts" / "train" / "serve_eval_shim.py"
+_HF_SELECT = Path(__file__).resolve().parent / "hf_cache_select.sh"
 _TRAIN_FILE = _REPO / "data" / "training" / "code_sft_v1.jsonl"
 _EVAL_TIER = _REPO / "data" / "eval" / "mined_code_eval_tier.jsonl"
 _EVAL_SCORER = _REPO / "scripts" / "eval" / "eval_mined_tier.py"
@@ -108,8 +109,11 @@ def main():
                 pass
             time.sleep(10)
         _status(phase="2_ship")
+        # R-F4350 (C-295) — the cache-disk selector must reach the pod BEFORE
+        # any command that sources it, or those commands fail closed.
         for local, remote in [(_SFT_TRAIN, "/workspace/sft_train.py"),
                               (_SHIM, "/workspace/serve_eval_shim.py"),
+                              (_HF_SELECT, "/workspace/hf_cache_select.sh"),
                               (_TRAIN_FILE, "/workspace/code_sft_v1.jsonl")]:
             if not SM._scp(host, port, local, remote):
                 report["error"] = f"scp {local.name} failed"; _status(phase="fail_scp", **report); return
@@ -121,7 +125,7 @@ def main():
         _status(phase="3_sft")
         launch = (
             "nohup bash -c '"
-            "export HF_HOME=/workspace/.cache/huggingface; "
+            ". /workspace/hf_cache_select.sh && hf_cache_select || exit 1; "
             "pip install -q --disable-pip-version-check trl==0.12.2 transformers>=4.46 "
             "peft datasets accelerate fastapi uvicorn pydantic bitsandbytes 2>&1; "
             f"python /workspace/sft_train.py --base-model {_BASE} "
@@ -154,7 +158,7 @@ def main():
         _status(phase="4_serve")
         SM._ssh(host, port, "pkill -f jupyter 2>/dev/null; pkill -f serve_eval_shim 2>/dev/null; sleep 2", 30)
         serve_cmd = (
-            f"export HF_HOME=/workspace/.cache/huggingface; "
+            f". /workspace/hf_cache_select.sh && hf_cache_select || exit 1; "
             f"nohup env BASE_MODEL={_BASE} ADAPTER={_ADAPTER_DIR} MODEL_NAME={_SERVED} "
             f"PORT={_PORT} python /workspace/serve_eval_shim.py "
             "> /workspace/shim.log 2>&1 & echo started")

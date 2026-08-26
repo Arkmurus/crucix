@@ -40,11 +40,15 @@ records `inspect.getsource` line slicing silently returning a different
 function's body when a peer commit shifted the file (R-F3597), and the same
 fragility applies to `sed -n '34,80p'`.
 
-THE `df` SHIM IS THE POINT OF THE FIRST TEST. Free space cannot be faked on a
-real filesystem, so the test puts a scripted `df` on PATH. That also exercises
-the awk parse of `df -Pm` output, which is itself a real failure point — a
-changed column order would silently yield 0 MB free and, before the fail-fast
-guard, would have picked a disk at random.
+SCOPE NARROWED BY R-F4350 (C-295). This file originally also drove the
+cache-disk selection, which R-F4347 fixed INLINE in `v0_4_pod_run.sh`. R-F4350
+then found the same pin in EIGHTEEN more scripts and replaced all nineteen with
+one sourced helper, `scripts/train/hf_cache_select.sh`. Those three tests moved
+with the code to `test_rf4350_hf_cache_disk_is_one_definition.py`, which drives
+the same cases against the helper and adds an enumeration guard so a twentieth
+script cannot quietly reintroduce the pin. What remains here is what is
+genuinely R-F4347's: the verdict gate, and the check that the mistaken
+"container disk" comment has not come back.
 """
 from __future__ import annotations
 
@@ -72,12 +76,6 @@ def _between(text: str, start: str, end: str) -> str:
     return text[i:j]
 
 
-def _hf_cache_block() -> str:
-    src = POD_RUN.read_text(encoding="utf-8")
-    return _between(src, "# --- R-F4347:hf-cache BEGIN",
-                    "# --- R-F4347:hf-cache END")
-
-
 def _verdict_block() -> str:
     """The cycle driver could not be marker-annotated: it was EXECUTING at the
     time and Windows refused the replace — which was the OS preventing an edit
@@ -89,45 +87,6 @@ def _verdict_block() -> str:
                     'echo "[driver] === v0.5 GROUNDED CYCLE RESULT')
 
 
-def _bash_path(p) -> str:
-    """bash sees POSIX paths. A Windows path in a `case` pattern would have its
-    backslashes eaten as escapes and match nothing — which made the shim report
-    0 MB for every candidate and the fail-fast guard fire on all three tests.
-    """
-    try:
-        out = subprocess.run(["cygpath", "-u", str(p)], capture_output=True,
-                             text=True, timeout=30)
-        if out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip()
-    except Exception:
-        pass
-    return str(p).replace("\\", "/")
-
-
-def _df_shim(tmp_path: pathlib.Path, free_by_path: dict) -> pathlib.Path:
-    """A `df -Pm` reporting scripted free space, in the real column layout."""
-    bindir = tmp_path / "shim"
-    bindir.mkdir(exist_ok=True)
-    lines = [
-        "#!/usr/bin/env bash",
-        'args=(); for a in "$@"; do [ "$a" = "-Pm" ] && continue; args+=("$a"); done',
-        'echo "Filesystem 1048576-blocks Used Available Capacity Mounted-on"',
-        'for p in "${args[@]}"; do',
-        '  case "$p" in',
-    ]
-    for path, free in free_by_path.items():
-        lines.append('    ' + path + '*) echo "fake 100000 1 ' + str(free) + ' 1% $p" ;;')
-    lines += [
-        '    *) echo "fake 100000 1 0 100% $p" ;;',
-        '  esac',
-        'done',
-    ]
-    sh = bindir / "df"
-    sh.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    sh.chmod(0o755)
-    return bindir
-
-
 def _run(script: str, cwd: pathlib.Path, env: dict) -> subprocess.CompletedProcess:
     e = dict(os.environ)
     e.update(env)
@@ -135,59 +94,23 @@ def _run(script: str, cwd: pathlib.Path, env: dict) -> subprocess.CompletedProce
                           cwd=str(cwd), env=e, timeout=120)
 
 
-# ------------------------------------------- (1) THE CAPABILITY TEST: disk
-
-def test_it_picks_the_disk_with_room_instead_of_the_pinned_small_one(tmp_path):
-    """THE LIVE SYMPTOM. The pinned candidate has 2 GB, the other has 122 GB.
-    Choosing the pinned one is what produced ENOSPC ten minutes into a paid
-    GPU run."""
-    small, big = tmp_path / "vol", tmp_path / "overlay"
-    small.mkdir()
-    big.mkdir()
-    shim = _df_shim(tmp_path, {_bash_path(small): 2000, _bash_path(big): 122000})
-    r = _run(_hf_cache_block() + '\necho "PICKED=$HF_HOME"', tmp_path, {
-        "PATH": str(shim) + os.pathsep + os.environ["PATH"],
-        "HF_CACHE_CANDIDATES": _bash_path(small) + " " + _bash_path(big),
-        "HF_HOME": "",
-    })
-    assert r.returncode == 0, r.stderr[-800:]
-    assert "PICKED=" + _bash_path(big) in r.stdout, (
-        "picked the smaller disk — this is the ENOSPC defect.\n"
-        + r.stdout + "\n" + r.stderr)
-
-
-def test_it_refuses_to_start_when_no_disk_can_hold_the_model(tmp_path):
-    """FAIL FAST WITH THE NUMBER. Before this, the run died at ENOSPC after
-    pulling gigabytes; the operator saw a torch traceback rather than a disk
-    problem. One second and a stated figure beats ten minutes and a stack."""
-    a, b = tmp_path / "a", tmp_path / "b"
-    a.mkdir()
-    b.mkdir()
-    shim = _df_shim(tmp_path, {_bash_path(a): 2000, _bash_path(b): 3000})
-    r = _run(_hf_cache_block(), tmp_path, {
-        "PATH": str(shim) + os.pathsep + os.environ["PATH"],
-        "HF_CACHE_CANDIDATES": _bash_path(a) + " " + _bash_path(b),
-        "HF_HOME": "",
-    })
-    assert r.returncode == 1, "started anyway on a full disk:\n" + r.stdout
-    assert "FATAL" in r.stderr and "3000 MB free" in r.stderr, r.stderr
-    assert "18000" in r.stderr, (
-        "the requirement is not stated, so the message is not actionable")
-
-
-def test_an_inherited_HF_HOME_is_honoured(tmp_path):
-    """The `export` overwrote any inherited value, so the cache could not be
-    redirected without editing the script — on a pod, mid-incident."""
-    chosen = tmp_path / "chosen"
-    chosen.mkdir()
-    shim = _df_shim(tmp_path, {_bash_path(chosen): 99000})
-    r = _run(_hf_cache_block() + '\necho "PICKED=$HF_HOME"', tmp_path, {
-        "PATH": str(shim) + os.pathsep + os.environ["PATH"],
-        "HF_HOME": _bash_path(chosen),
-    })
-    assert r.returncode == 0, r.stderr[-800:]
-    assert "PICKED=" + _bash_path(chosen) in r.stdout, r.stdout
-    assert "inherited" in r.stdout, r.stdout
+# -------- (1) THE DISK TESTS MOVED TO R-F4350 --------
+#
+# R-F4347 fixed the cache-disk pin INLINE in v0_4_pod_run.sh, and these tests
+# extracted that block by marker. R-F4350 (C-295) then found the same pin in
+# EIGHTEEN more scripts and replaced all nineteen with one sourced helper,
+# scripts/train/hf_cache_select.sh — so the block these tests read no longer
+# exists, and keeping a marker-extraction against a deleted block would fail
+# for the right reason but the wrong cause.
+#
+# The behaviour is not less covered, it is better covered:
+# test_rf4350_hf_cache_disk_is_one_definition.py drives the same three cases
+# (picks the roomy disk / refuses when none fits / honours an inherited
+# HF_HOME) against the shared helper, and adds an enumeration guard so a
+# twentieth script cannot quietly reintroduce the pin.
+#
+# What stays here is what is genuinely R-F4347's: the verdict gate below, and
+# the check that the mistaken "container disk" comment has not returned.
 
 
 def test_the_mistaken_container_disk_comment_is_gone():

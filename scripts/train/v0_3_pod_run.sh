@@ -35,7 +35,17 @@ V03_REPORT="${EVAL_DIR}/aria_llm_v0_3_eval.json"
 V02_REPORT="${EVAL_DIR}/aria_llm_v0_2_eval.json"
 # Base weights live in the PERSISTENT volume cache (container ~/.cache is wiped on
 # restart). Gated on HF + no token, so resolve strictly from the cache.
-export HF_HOME=/workspace/.cache/huggingface
+# R-F4350 (C-295) — ONE definition of which disk holds the HF cache.
+# This line used to hardcode the cache onto /workspace, a 20G volume whose own
+# comment mis-named it the container disk; see hf_cache_select.sh for the
+# measurement and why it fails closed.
+_hfsel=""
+for _d in "$(dirname "${BASH_SOURCE[0]:-$0}")" /workspace/crucix/scripts/train /workspace; do
+  [ -f "$_d/hf_cache_select.sh" ] && { _hfsel="$_d/hf_cache_select.sh"; break; }
+done
+[ -n "$_hfsel" ] || { echo "[FATAL] hf_cache_select.sh not found — refusing to guess a cache disk." >&2; exit 1; }
+. "$_hfsel"
+hf_cache_select || exit 1
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"

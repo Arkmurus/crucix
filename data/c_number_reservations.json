@@ -3310,6 +3310,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-295",
+      "title": "six pod scripts still pin the cache to the small disk",
+      "claimed_at": "2026-08-26T07:02:29Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
