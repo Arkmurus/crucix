@@ -3570,6 +3570,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T21:02:26Z"
+    },
+    {
+      "c_number": "C-317",
+      "title": "train the coder on a code-specialised base",
+      "claimed_at": "2026-08-26T21:23:07Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4372"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T21:48:33Z"
     }
   ]
 }

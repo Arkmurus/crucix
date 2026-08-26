@@ -63,7 +63,11 @@ serve_and_eval(){                      # $1 = adapter path or "", $2 = out json,
   done
   [ "$ready" = 1 ] || { log "FATAL shim never became ready ($tag)"; stop_shim; return 1; }
   log "shim ready — evaluating $tag over $(wc -l < "$EVAL_FILE") held-out rows…"
-  python /workspace/crucix/scripts/train/eval_tooluse.py \
+  # R-F4372 (C-317) — the SCORER is selectable. eval_tooluse scores DD honesty
+  # (citations, sanctions verdicts, no-false-clean); a coder trajectory has no
+  # subject and no sources, so scoring one with the other reports a number about
+  # a different capability. Default unchanged, so the DD cycle is untouched.
+  python "/workspace/crucix/${EVAL_SCRIPT:-scripts/train/eval_tooluse.py}" \
     --eval-file "$EVAL_FILE" --target "http://127.0.0.1:$PORT/v1" \
     --model aria-tooluse --out "$out"
   local rc=$?
@@ -116,16 +120,38 @@ print(f"runtime OK: CUDA {torch.version.cuda}, GPU {torch.cuda.get_device_name(0
 PY
 
 log "verifying base architecture…"
-python - "$BASE_MODEL" <<'PY' || { log "FATAL base mismatch"; exit 1; }
+# R-F4372 (C-317) — the signature is DECLARED, not hardcoded, so a deliberate
+# base change is possible and an ACCIDENTAL one is still caught. The default is
+# the Mistral signature this gate has always enforced, so an unset variable
+# behaves exactly as before — and an EMPTY one falls back to that default rather
+# than matching everything, because a guard you can disable by clearing a
+# variable is not a guard.
+python - "$BASE_MODEL" "${BASE_SIGNATURE:-}" <<'PY' || { log "FATAL base mismatch"; exit 1; }
+import json
 import sys
 from transformers import AutoConfig
+
+MISTRAL = {"model_type": "mistral", "vocab_size": 32768,
+           "num_hidden_layers": 32, "hidden_size": 4096,
+           "intermediate_size": 14336}
+raw = (sys.argv[2] or "").strip()
+try:
+    want = json.loads(raw) if raw else MISTRAL
+except Exception as exc:
+    print(f"BASE_SIGNATURE is not JSON ({exc}) - refusing to run unguarded",
+          file=sys.stderr)
+    sys.exit(1)
+if not isinstance(want, dict) or not want:
+    print("BASE_SIGNATURE must be a non-empty object - refusing to run "
+          "unguarded", file=sys.stderr)
+    sys.exit(1)
+
 cfg = AutoConfig.from_pretrained(sys.argv[1])
-want = {"model_type": "mistral", "vocab_size": 32768, "num_hidden_layers": 32,
-        "hidden_size": 4096, "intermediate_size": 14336}
-bad = {k: (getattr(cfg, k, None), v) for k, v in want.items() if getattr(cfg, k, None) != v}
+bad = {k: (getattr(cfg, k, None), v) for k, v in want.items()
+       if getattr(cfg, k, None) != v}
 if bad:
     print(f"BASE MISMATCH: {bad}", file=sys.stderr); sys.exit(1)
-print("base OK: Mistral-7B-Instruct-v0.3 signature confirmed")
+print(f"base OK: signature confirmed for {sys.argv[1]} ({want.get('model_type')})")
 PY
 
 # ---- 1. BASELINE FIRST -----------------------------------------------------

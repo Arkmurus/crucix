@@ -1,0 +1,325 @@
+{
+  "rows": 18,
+  "steps": 57,
+  "rates": {
+    "acted": 0.2632,
+    "right_tool": 0.1228,
+    "args_parse": 0.2632,
+    "args_valid": 0.2632,
+    "prose": 0.7368,
+    "error": 0.0
+  },
+  "counts": {
+    "steps": 57,
+    "acted": 15,
+    "right_tool": 7,
+    "args_parse": 15,
+    "args_valid": 15,
+    "prose": 42
+  },
+  "per_family": {
+    "task_create_then_run": {
+      "steps": 6,
+      "acted": 3,
+      "args_parse": 3,
+      "args_valid": 3,
+      "prose": 3
+    },
+    "task_fix_and_verify": {
+      "steps": 9,
+      "acted": 3,
+      "right_tool": 1,
+      "args_parse": 3,
+      "args_valid": 3,
+      "prose": 6
+    },
+    "task_ground_before_acting": {
+      "steps": 9,
+      "prose": 9
+    },
+    "task_multi_file_change": {
+      "steps": 12,
+      "acted": 2,
+      "args_parse": 2,
+      "args_valid": 2,
+      "prose": 10
+    },
+    "task_recover_from_a_bad_path": {
+      "steps": 9,
+      "acted": 5,
+      "right_tool": 4,
+      "args_parse": 5,
+      "args_valid": 5,
+      "prose": 4
+    },
+    "task_run_a_failing_test_then_fix_it": {
+      "steps": 12,
+      "prose": 10,
+      "acted": 2,
+      "right_tool": 2,
+      "args_parse": 2,
+      "args_valid": 2
+    }
+  },
+  "failures": [
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_recover_from_a_bad_path",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "wrong tool",
+      "got": "list_dir",
+      "expected": "grep"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "wrong tool",
+      "got": "run",
+      "expected": "write_file"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "wrong tool",
+      "got": "list_dir",
+      "expected": "read_file"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_recover_from_a_bad_path",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_recover_from_a_bad_path",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "wrong tool",
+      "got": "list_dir",
+      "expected": "grep"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "wrong tool",
+      "got": "run",
+      "expected": "write_file"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "wrong tool",
+      "got": "run",
+      "expected": "read_file"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_fix_and_verify",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_ground_before_acting",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_recover_from_a_bad_path",
+      "why": "wrong tool",
+      "got": "list_dir",
+      "expected": "read_file"
+    },
+    {
+      "family": "task_recover_from_a_bad_path",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_multi_file_change",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "wrong tool",
+      "got": "run",
+      "expected": "write_file"
+    },
+    {
+      "family": "task_create_then_run",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "user"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    },
+    {
+      "family": "task_run_a_failing_test_then_fix_it",
+      "why": "answered in prose",
+      "after": "tool"
+    }
+  ],
+  "measure": "teacher-forced next-action; NOT end-to-end task completion"
+}

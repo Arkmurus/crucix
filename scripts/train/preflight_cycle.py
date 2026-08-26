@@ -244,14 +244,31 @@ def check_base_model(
     name: str,
     *,
     loader: Callable[[str], Any] | None = None,
+    signature: str = "",
 ) -> Result:
-    """The declared base must BE Mistral-7B-Instruct-v0.3, by signature.
+    """The declared base must match a DECLARED signature.
 
     Fails closed: a config that cannot be read is unproven, not acceptable.
+
+    R-F4372 (C-317) — the signature was hardcoded to Mistral-7B-Instruct-v0.3.
+    That is right as a DEFAULT and wrong as a law: it made a deliberate base
+    change indistinguishable from an accidental one, so the only way to train on
+    a code-specialised base was to delete the guard. Now the expected signature
+    is stated by the caller and still enforced. An EMPTY value falls back to the
+    Mistral default rather than matching everything — a guard you can disable by
+    clearing a variable is not a guard.
     """
     res = Result("base-model")
     if not name:
         return res.fail("no base model declared")
+    want = MISTRAL_V03_SIGNATURE
+    if str(signature).strip():
+        try:
+            want = json.loads(signature)
+        except Exception as exc:  # noqa: BLE001
+            return res.fail(f"--base-signature is not JSON ({exc}) — unproven")
+        if not isinstance(want, dict) or not want:
+            return res.fail("--base-signature must be a non-empty object")
     if loader is None:
         try:
             from transformers import AutoConfig  # noqa: PLC0415 — optional heavy dep
@@ -266,13 +283,16 @@ def check_base_model(
     if not isinstance(cfg, dict):
         cfg = {k: getattr(cfg, k, None) for k in MISTRAL_V03_SIGNATURE}
     bad = {
-        k: (cfg.get(k), want)
-        for k, want in MISTRAL_V03_SIGNATURE.items()
-        if cfg.get(k) != want
+        k: (cfg.get(k), expect)
+        for k, expect in want.items()
+        if cfg.get(k) != expect
     }
     if bad:
-        return res.fail(f"{name} is not Mistral-7B-Instruct-v0.3 (got, want): {bad}")
-    return res.ok(f"{name} — mistral, vocab 32768, 32L, 4096d")
+        return res.fail(f"{name} does not match the declared signature "
+                        f"(got, want): {bad}")
+    return res.ok(
+        f"{name} — {want.get('model_type')}, vocab {want.get('vocab_size')}, "
+        f"{want.get('num_hidden_layers')}L, {want.get('hidden_size')}d")
 
 
 # --------------------------------------------------------------------------
@@ -290,6 +310,130 @@ def _load(path: Path) -> list[dict]:
         except json.JSONDecodeError as exc:
             raise SystemExit(f"{path}:{ln} is not valid JSON: {exc}") from exc
     return rows
+
+
+# --------------------------------------------------------------------------
+# R-F4372 (C-317) — CODER-corpus checks.
+#
+# The checks above encode a DD corpus: every row names a SUBJECT entity, the
+# split must keep entities disjoint, and `validate_trace` scores citations and
+# sanctions verdicts. A coding trajectory has no subject and no sources, so on a
+# coder corpus those three checks fail for reasons that say nothing about
+# whether the data is fit to train on — and a gate that always fails gets
+# switched off, which is how the paid path loses its only pre-spend guard.
+#
+# These are the SAME QUESTIONS asked of the right corpus: is every row valid by
+# its own builder's rules, does the eval leak into the train split, and does the
+# training data overlap the frozen benchmark.
+# --------------------------------------------------------------------------
+
+def check_coder_schema(rows: Sequence[dict]) -> Result:
+    """Every call names a real tool and uses only declared parameters.
+
+    The rules come from `coder_tool_contract`, the same module the builder and
+    the evaluator read, so this gate cannot drift from what was trained — the
+    reason `check_schema` reuses `validate_trace`.
+    """
+    res = Result("coder-schema")
+    try:
+        from scripts.train.coder_tool_contract import BANNED, TOOL_PARAMS
+    except Exception as exc:  # noqa: BLE001
+        return res.fail(f"coder contract unavailable ({exc}) — rules unproven")
+
+    bad: list[str] = []
+    for i, row in enumerate(rows):
+        msgs = row.get("messages") or []
+        ids = set()
+        calls = 0
+        for m in msgs:
+            if m.get("role") == "assistant":
+                low = (m.get("content") or "").lower()
+                for phrase in BANNED:
+                    if phrase in low:
+                        bad.append(f"row {i}: teaches a refusal ({phrase!r})")
+                        break
+            for tc in (m.get("tool_calls") or []):
+                calls += 1
+                fn = tc.get("function") or {}
+                name = fn.get("name")
+                cid = tc.get("id") or ""
+                ids.add(cid)
+                if name not in TOOL_PARAMS:
+                    bad.append(f"row {i}: unknown tool {name!r}")
+                    continue
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except Exception:  # noqa: BLE001
+                    bad.append(f"row {i}: {name} arguments are not JSON")
+                    continue
+                undeclared = sorted(set(args) - TOOL_PARAMS[name])
+                if undeclared:
+                    bad.append(f"row {i}: {name} undeclared {undeclared}")
+                if len(cid) != 9 or not cid.isalnum():
+                    bad.append(f"row {i}: tool id {cid!r} is not 9 alphanumeric")
+        if calls < 2:
+            bad.append(f"row {i}: {calls} call-turn(s) — too shallow to teach depth")
+        for m in msgs:
+            if m.get("role") == "tool" and m.get("tool_call_id") not in ids:
+                bad.append(f"row {i}: orphan tool message")
+    if bad:
+        return res.fail(f"{len(bad)} problem(s) — {_describe(bad, len(bad))}")
+    return res.ok(f"{len(rows)} rows valid against the coder tool contract")
+
+
+def _coder_prompt(row: dict) -> str:
+    for m in row.get("messages") or []:
+        if m.get("role") == "user":
+            return " ".join(str(m.get("content") or "").split()).lower()
+    return ""
+
+
+def check_coder_leakage(train: Sequence[dict], evalset: Sequence[dict]) -> Result:
+    """No held-out TASK may also appear in training.
+
+    The coder split is deliberately by FAMILY TAIL, not by entity: train and
+    eval share families on purpose, because the question is whether she learned
+    the SHAPE. So the leakage that matters is an identical prompt on both sides,
+    which would let a memorised answer score as a learned one.
+    """
+    res = Result("coder-leakage")
+    if not evalset:
+        return res.fail("eval set is empty — nothing is held out")
+    seen = {_coder_prompt(r) for r in train}
+    leaked = sorted({p for r in evalset if (p := _coder_prompt(r)) and p in seen})
+    if leaked:
+        return res.fail(
+            f"{len(leaked)} held-out prompt(s) also appear in train — "
+            f"{_describe([p[:60] for p in leaked], len(leaked))}")
+    return res.ok(f"{len(evalset)} held-out prompts, none seen in train")
+
+
+def check_coder_contamination(rows: Sequence[dict], golden: Sequence[str]) -> Result:
+    """The training data must not contain a frozen-benchmark question.
+
+    `check_contamination` compares SUBJECTS; coder rows have none, so it passes
+    vacuously — a pass that proves nothing is worse than no check, because it
+    reads as cleared. This compares the prompt text instead.
+    """
+    res = Result("coder-contamination")
+    if not golden:
+        return res.skip("no golden set supplied — contamination UNPROVEN")
+    norm = [" ".join(str(g).split()).lower() for g in golden if str(g).strip()]
+    if not norm:
+        return res.skip("golden set held no questions — contamination UNPROVEN")
+    hits: list[str] = []
+    for i, row in enumerate(rows):
+        p = _coder_prompt(row)
+        if not p:
+            continue
+        for g in norm:
+            if len(g) > 25 and (g in p or p in g):
+                hits.append(f"row {i}: {p[:60]}")
+                break
+    if hits:
+        return res.fail(f"{len(hits)} row(s) overlap the frozen set — "
+                        f"{_describe(hits, len(hits))}")
+    return res.ok(f"{len(rows)} rows checked against {len(norm)} frozen questions")
 
 
 def _golden_subjects(path: Path | None) -> list[str]:
@@ -317,6 +461,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-model", default="",
                     help=f"declared base (expected {ARIA_BASE_MODEL}); enables render/length/architecture checks")
     ap.add_argument("--max-seq-len", type=int, default=4096)
+    ap.add_argument("--kind", choices=("dd", "coder"), default="dd",
+                    help="which corpus this is. 'dd' keeps every existing "
+                         "check unchanged; 'coder' swaps the three that encode "
+                         "a subject-bearing DD row.")
+    ap.add_argument("--base-signature", default="",
+                    help="JSON config signature the base must match. Defaults "
+                         "to Mistral-7B-Instruct-v0.3, so an unset value "
+                         "behaves exactly as before.")
     ap.add_argument("--strict", action="store_true",
                     help="treat SKIPPED as blocking — use on the paid path")
     args = ap.parse_args(argv)
@@ -338,16 +490,27 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[ note ] tokenizer unavailable: {exc}")
 
-    checks = [
-        check_schema(allrows),
-        check_subjects(allrows),
-        check_split(train, evalset),
-        check_contamination(train, _golden_subjects(args.golden_set)),
+    golden = _golden_subjects(args.golden_set)
+    if args.kind == "coder":
+        checks = [
+            check_coder_schema(allrows),
+            check_coder_leakage(train, evalset),
+            check_coder_contamination(train, golden),
+        ]
+    else:
+        checks = [
+            check_schema(allrows),
+            check_subjects(allrows),
+            check_split(train, evalset),
+            check_contamination(train, golden),
+        ]
+    checks += [
         check_render(allrows, tokenizer),
         check_length(allrows, tokenizer, args.max_seq_len),
     ]
     if args.base_model:
-        checks.append(check_base_model(args.base_model))
+        checks.append(check_base_model(args.base_model,
+                                       signature=args.base_signature))
     else:
         checks.append(Result("base-model").skip("not declared (--base-model) — architecture unproven"))
 

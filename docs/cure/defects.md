@@ -18024,3 +18024,85 @@ curriculum makes a model a good *engineer* — it teaches her to act, not what t
 write. The ceiling is the base model: `Mistral-7B-Instruct-v0.3` is a
 general-purpose chat model with weak coding. That is an operator decision and it
 is recorded in the report, not decided here.
+
+## C-317 · the whole training pipeline assumed a DD corpus on a Mistral base (fixed — R-F4372)
+
+Operator: *"launch the training cycle, but use a code specialised base instead
+of mistral"*. Four separate places refused, and every one of them was a guard
+doing its job rather than an obstacle to delete.
+
+**1. THE SHIM RETURNED NO TOOL CALLS — the one that would have wasted the run.**
+`serve_eval_shim` ignored the `tools` block and returned only `content`. That is
+harmless for `eval_tooluse.py`, which scores the model's final PROSE, and fatal
+for any eval asking whether she CALLS a tool: every response scores "answered in
+prose" for the base AND the trained adapter alike. The result is flat, and a
+flat result reads as *training changed nothing* rather than as a broken
+instrument. Caught before the spend, not after. The shim now passes `tools` to
+the chat template and parses both wire formats back out — ChatML
+`<tool_call>` for the code base, `[TOOL_CALLS]` for the incumbent — and does so
+ONLY when tools were offered, so the DD path is byte-identical.
+
+**2. THE SCORER WAS THE WRONG ONE.** `eval_tooluse` validates citations,
+sanctions verdicts and no-false-clean. A coding trajectory has no subject and no
+sources. Its own docstring says it best — *"Spending GPU hours and then
+reporting an unrelated number is worse than not measuring at all"* — so
+`eval_coder_tooluse` measures the defect C-316 recorded, one metric per symptom:
+`acted` (or refused in prose), `right_tool`, `args_valid` (the invented
+`recursive`). It is TEACHER-FORCED and says so in its own output; an agentic
+harness against a live sandbox is the stronger measure and is the declared next
+step. Choosing the honest weaker measure over a fabricated stronger one is the
+point.
+
+**3. THE BASE GATE AND THE PRE-FLIGHT HARDCODED MISTRAL.** Both compared against
+a literal `Mistral-7B-Instruct-v0.3` signature, which made a DELIBERATE base
+change indistinguishable from an accidental one — so the only way to train on a
+code base was to delete the guard. The signature is now DECLARED and still
+enforced, and an EMPTY value falls back to the Mistral default rather than
+matching everything: a guard you can disable by clearing a variable is not a
+guard.
+
+**4. THE PRE-FLIGHT'S THREE DD CHECKS.** `check_schema`/`check_subjects`/
+`check_split` require a subject-bearing row. On a coder corpus they fail for
+reasons that say nothing about fitness to train, and a gate that always fails is
+a gate that gets bypassed. `--kind coder` swaps in the same three QUESTIONS
+asked of the right corpus, and **it immediately earned itself**: it caught two
+held-out prompts that also appeared in train. Root cause — `WRONGNAMES` held
+both `NOTES.txt` and `notes.txt`, which are ONE file on Windows and one question
+to any case-insensitive reader, but produced different answers. Exact-match
+dedupe could not see it. Fixed by shape: no case-variants in the pool, and the
+dedupe key is now normalised.
+
+**THE POD, and why a run-scoped override exists.** R-F4241 routes every launcher
+through one pod of record so the fleet reuses rather than accumulates — right
+for a single workstream, and it has no concept of two. Measured 2026-08-26: the
+pod of record was mid-run for another agent (shim up since 16:29, two eval
+processes, **no completion sentinel**), so reusing it would have destroyed a
+five-hour evaluation. `adopt` is the sanctioned way to move pods but REWRITES
+the shared record, silently redirecting their next launch onto this pod. So
+`POD_ID` is per-run and writes nothing; the record still names their pod.
+Verified after launch: it does.
+
+**Base selection was measured, not asserted.** Configs read live from the Hub,
+and the chat templates rendered locally with the real tokenizers:
+
+    Qwen2.5-Coder-32B   system turn SURVIVES; clean <tool_call>/<tool_response>
+    Mistral-7B-v0.3     system turn LOST (R-F4338 again), and the tool result
+                        renders as INVALID JSON: {"content": def add(a,b)... }
+
+So the incumbent's template was corrupting tool results into training. GPU choice
+was measured too: the only 80GB card in stable stock was H100 80GB HBM3, and the
+pod image is torch 2.4, which rules out the cheaper 96GB Blackwell entirely.
+
+**Completion-only loss is deliberately OFF.** Its marker is Mistral-specific,
+but that is not the reason: `last_boundary_end` masks everything before the LAST
+marker, so on a multi-turn trajectory it would train only the closing prose and
+mask out every tool call — precisely what this corpus exists to teach.
+
+**Baseline captured before spending anything**, against the live sovereign on
+the same eval — 57 steps, stratified across all six families:
+
+    acted 26.3%   right_tool 12.3%   args_valid 26.3%   prose 73.7%
+    task_ground_before_acting: 0 of 9 — she never acts on that family at all
+
+That is the "before". The cycle evaluates base AND trained on the identical
+held-out rows, so the result will be a delta, not a bare number.

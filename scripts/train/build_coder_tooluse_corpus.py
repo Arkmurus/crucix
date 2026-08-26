@@ -83,26 +83,16 @@ SYSTEM = (
     "Work in small steps: inspect with a tool, then act, then verify."
 )
 
-#: Only these may appear in a call. The live failure was `recursive`, invented
-#: for list_dir; a corpus that contains one undeclared argument teaches that
-#: inventing them is allowed.
-TOOL_PARAMS = {
-    "read_file": {"path", "offset", "limit"},
-    "write_file": {"path", "content"},
-    "edit_file": {"path", "old_string", "new_string", "replace_all"},
-    "list_dir": {"path"},
-    "grep": {"pattern", "path", "glob", "type", "output_mode",
-             "case_insensitive", "context", "before", "after", "head_limit"},
-    "run": {"command", "timeout", "cwd", "run_in_background"},
-}
-
-#: Phrases that must NEVER appear in an assistant turn. She learned these from
-#: the base model and they are the single most damaging thing she says.
-BANNED = (
-    "i cannot execute", "i cannot modify", "i cannot edit", "i cannot run",
-    "i cannot create", "unable to execute", "unable to modify",
-    "you must manually", "i cannot execute code", "you should execute",
+# R-F4372 (C-317) — TOOL_PARAMS and BANNED moved to `coder_tool_contract`, a
+# module with no heavy imports, so the EVALUATOR can read the same contract on a
+# training pod where `aria_cli` is not installed. Re-exported here because this
+# module is where they were defined and callers already import them from it; the
+# definition itself must exist in exactly one place.
+from scripts.train.coder_tool_contract import (  # noqa: E402
+    BANNED, DESCRIPTIONS, TOOL_PARAMS, tool_schemas,
 )
+
+__all__ = ["BANNED", "DESCRIPTIONS", "TOOL_PARAMS", "tool_schemas"]
 
 
 def _call_id(*parts: object) -> str:
@@ -185,8 +175,11 @@ SETTINGS = ["TIMEOUT", "RETRIES", "MAX_WORKERS", "BATCH_SIZE", "PORT",
 # length 5 the combined period is 5, so variant 0 and variant 5 would be the
 # same row wearing a different date.
 NOTEFILES = ["notes.md", "RELEASE.md", "changelog.md", "plan.md", "TODO.md"]
-WRONGNAMES = ["NOTES.txt", "notes.txt", "Notes.MD", "note.md", "README.txt",
-              "release.md", "notes.markdown"]
+# No two entries may differ ONLY by case: Windows treats them as one file,
+# so they produce the same prompt with different answers - a contradiction
+# that exact-match dedupe cannot see. `_pool_is_case_unique` pins this.
+WRONGNAMES = ["NOTES.txt", "Notes.MD", "note.md", "README.txt",
+              "release.md", "notes.markdown", "CHANGES.txt"]
 GREETINGS = ["HELLO", "READY", "OK-1", "STARTED", "ONLINE", "GREEN"]
 CASEFUNCS = ["title_case", "to_title", "titleise", "capitalise_words",
              "proper_case", "titlecase", "as_title", "headline_case",
@@ -441,7 +434,11 @@ def _drop_contradictions(rows: list[dict]) -> list[dict]:
     out: list[dict] = []
     dupes = 0
     for row in rows:
-        user = next(m["content"] for m in row["messages"] if m["role"] == "user")
+        raw = next(m["content"] for m in row["messages"] if m["role"] == "user")
+        # Normalised: two prompts differing only in case or spacing are the
+        # SAME question to a reader and to preflight_cycle, so comparing the
+        # raw text let a case-variant pair through as "distinct".
+        user = " ".join(str(raw).split()).lower()
         answer = row["messages"][-1]["content"]
         prior = seen.get(user)
         if prior is None:

@@ -71,10 +71,75 @@ import asyncio
 _gpu_lock = asyncio.Lock()
 
 
-def _blocking_generate(messages, max_tokens, temperature):
-    prompt = _tok.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True,
-    )
+def parse_tool_calls(text):
+    """R-F4372 (C-317) — recover tool calls a model wrote as TEXT.
+
+    THE SHIM RETURNED ONLY `content` AND IGNORED `tools`. That was harmless for
+    `eval_tooluse.py`, which scores the model's final PROSE answer, and fatal
+    for any eval that measures whether she CALLS a tool: every response would
+    score "answered in prose" for the base AND the trained adapter alike — a
+    flat result that reads as "training did nothing" rather than as a broken
+    instrument.
+
+    Two wire formats, because the shim must not be tied to one base:
+
+        ChatML / Qwen   <tool_call>{"name": ..., "arguments": {...}}</tool_call>
+        Mistral         [TOOL_CALLS] [{"name": ..., "arguments": {...}}]
+
+    Returns a list of OpenAI-shaped tool_calls, or [] — and [] genuinely means
+    "she wrote prose", which is a real measurement, not a parse failure.
+    """
+    calls, body = [], (text or "").strip()
+
+    def _emit(obj):
+        if not isinstance(obj, dict):
+            return
+        name = obj.get("name")
+        if not name:
+            return
+        args = obj.get("arguments", {})
+        if not isinstance(args, str):
+            args = _json.dumps(args, ensure_ascii=False)
+        calls.append({
+            "id": f"call{len(calls):05d}", "type": "function",
+            "function": {"name": name, "arguments": args},
+        })
+
+    if "<tool_call>" in body:
+        for chunk in body.split("<tool_call>")[1:]:
+            frag = chunk.split("</tool_call>")[0].strip()
+            try:
+                _emit(_json.loads(frag))
+            except Exception:
+                continue
+        return calls
+
+    if "[TOOL_CALLS]" in body:
+        frag = body.split("[TOOL_CALLS]", 1)[1].strip()
+        # The array may be followed by prose; take the first balanced value.
+        dec = _json.JSONDecoder()
+        try:
+            parsed, _ = dec.raw_decode(frag)
+        except Exception:
+            return calls
+        for obj in (parsed if isinstance(parsed, list) else [parsed]):
+            _emit(obj)
+    return calls
+
+
+def _blocking_generate(messages, max_tokens, temperature, tools=None):
+    # `tools=` is passed ONLY when the caller sent them: a tokenizer whose
+    # template does not accept the kwarg must keep working exactly as before,
+    # and the DD eval sends no tools at all.
+    try:
+        prompt = _tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+            **({"tools": tools} if tools else {}),
+        )
+    except TypeError:
+        prompt = _tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
     inputs = _tok(prompt, return_tensors="pt", truncation=True,
                   max_length=8192).to(_model.device)
     with torch.no_grad():
@@ -158,14 +223,24 @@ async def chat(req: Request):
             _sse(messages, max_tokens, temperature),
             media_type="text/event-stream",
         )
+    tools = body.get("tools") or None
     async with _gpu_lock:  # serialise GPU; one generation at a time
         text = await asyncio.to_thread(
-            _blocking_generate, messages, max_tokens, temperature,
+            _blocking_generate, messages, max_tokens, temperature, tools,
         )
+    # R-F4372 — only when tools were OFFERED. Parsing unconditionally could turn
+    # prose that merely quotes a call into an executed one, and would change the
+    # payload the DD eval has always received.
+    message = {"role": "assistant", "content": text}
+    finish = "stop"
+    if tools:
+        calls = parse_tool_calls(text)
+        if calls:
+            message = {"role": "assistant", "content": None, "tool_calls": calls}
+            finish = "tool_calls"
     return {
         "id": "shim", "object": "chat.completion", "model": MODEL_NAME,
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
-                     "finish_reason": "stop"}],
+        "choices": [{"index": 0, "message": message, "finish_reason": finish}],
     }
 
 

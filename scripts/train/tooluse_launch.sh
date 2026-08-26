@@ -71,8 +71,14 @@ die(){ log "FATAL: $*"; release; exit 1; }
 
 # ---- pre-flight on the free side of the spend -------------------------------
 log "pre-flight (strict)…"
+# R-F4372 (C-317) — the KIND and the base signature travel with the dataset.
+# Unset, this is byte-identical to before: --kind dd and the Mistral signature.
+# Without them a coder corpus fails three DD-shaped checks for reasons that say
+# nothing about whether it is fit to train on, and a gate that always fails is
+# a gate that gets bypassed.
 "$PYBIN" -m scripts.train.preflight_cycle \
   --train-file "$TRAIN_LOCAL" --eval-file "$EVAL_LOCAL" \
+  --kind "${PREFLIGHT_KIND:-dd}" --base-signature "${BASE_SIGNATURE:-}" \
   --base-model "$BASE_MODEL" --golden-set "$GOLDEN" --strict || {
     log "BLOCKED: pre-flight failed — not starting a pod."; exit 3; }
 
@@ -81,14 +87,34 @@ SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliv
 TSSH(){ timeout 75 $SSH "$@"; }
 
 # ---- create + start (one step, retried: R-F3417) ---------------------------
-POD_ID=""; HOST=""; PORT=""
+# R-F4372 (C-317) — POD_ID is a RUN-SCOPED override, and it deliberately does
+# NOT touch the pod of record.
+#
+# R-F4241 routes every launcher through `_create_v04_pod.py` so the fleet reuses
+# one pod instead of accumulating, and that is right for a single workstream.
+# It has no concept of TWO concurrent ones. Measured 2026-08-26: the pod of
+# record (0s340zc01cyk96) was mid-run for another agent — shim up since 16:29,
+# two eval_aria_llm processes, no completion sentinel — so reusing it would have
+# destroyed a five-hour evaluation.
+#
+# `adopt` is the sanctioned way to move pods, but it REWRITES the shared record,
+# which would silently redirect the other agent's next launch onto this pod. So
+# this override is per-run and writes nothing: the record still names their pod,
+# and this cycle runs beside it. Unset, every path below behaves exactly as before.
+POD_ID="${POD_ID:-}"; HOST=""; PORT=""
+SUPPLIED_POD="$POD_ID"
 for i in $(seq 1 "$MAX_TRIES"); do
-  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
+  if [ -n "$SUPPLIED_POD" ]; then
+    POD_ID="$SUPPLIED_POD"
+    log "using CALLER-SUPPLIED pod $POD_ID — pod of record not consulted or modified"
+  else
+    POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
+  fi
   if [ -z "$POD_ID" ]; then
     log "[try $i/$MAX_TRIES] create rejected (no capacity) — retry ${RETRY_SECS}s"
     sleep "$RETRY_SECS"; continue
   fi
-  log "CREATED pod $POD_ID (try $i/$MAX_TRIES) — waiting for RUNNING…"
+  log "pod $POD_ID (try $i/$MAX_TRIES) — waiting for RUNNING…"
   HOST=""; PORT=""
   for j in $(seq 1 "$START_WAIT_TICKS"); do
     PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY")
@@ -97,6 +123,9 @@ for i in $(seq 1 "$MAX_TRIES"); do
     sleep 10
   done
   [ -n "$HOST" ] && [ -n "$PORT" ] && { log "RUNNING $HOST:$PORT"; break; }
+  # A pod the CALLER supplied is not ours to churn: retrying would create
+  # nothing new and releasing it could stop something else's work.
+  [ -n "$SUPPLIED_POD" ] && die "supplied pod $POD_ID never reported RUNNING with SSH"
   log "[try $i/$MAX_TRIES] pod $POD_ID never provisioned — releasing it"
   release; POD_ID=""; sleep "$RETRY_SECS"
 done
@@ -135,6 +164,13 @@ RSCP scripts/train/sft_train.py             /workspace/crucix/scripts/train/sft_
 RSCP scripts/train/eval_tooluse.py          /workspace/crucix/scripts/train/eval_tooluse.py    || die "scp eval"
 RSCP scripts/train/serve_eval_shim.py       /workspace/crucix/scripts/train/serve_eval_shim.py || die "scp shim"
 RSCP scripts/train/build_tooluse_corpus.py  /workspace/crucix/scripts/train/build_tooluse_corpus.py || die "scp validator"
+# R-F4372 (C-317) — the coder scorer and the contract it reads. Pushed
+# unconditionally: they are two small files, and a cycle that selects
+# EVAL_SCRIPT only to find it absent would fail AFTER the GPU is running.
+# `coder_tool_contract` has no heavy imports on purpose — the builder it was
+# split out of imports aria_cli, which is not installed here.
+RSCP scripts/train/eval_coder_tooluse.py    /workspace/crucix/scripts/train/eval_coder_tooluse.py  || die "scp coder eval"
+RSCP scripts/train/coder_tool_contract.py   /workspace/crucix/scripts/train/coder_tool_contract.py || die "scp coder contract"
 RSCP scripts/train/__init__.py              /workspace/crucix/scripts/train/__init__.py        || true
 RSCP "$TRAIN_LOCAL" /workspace/datasets/aria_tooluse_train.jsonl                               || die "scp train set"
 RSCP "$EVAL_LOCAL"  /workspace/datasets/aria_tooluse_eval.jsonl                                || die "scp eval set"
@@ -148,7 +184,7 @@ TSSH -p "$PORT" root@"$HOST" \
 
 log "starting cycle detached…"
 TSSH -p "$PORT" root@"$HOST" \
-  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS GEN_TRAIN=$GEN_TRAIN GEN_LIMIT=$GEN_LIMIT GEN_FILE=/workspace/datasets/aria_tooluse_generation.jsonl setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
+  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS GEN_TRAIN=$GEN_TRAIN GEN_LIMIT=$GEN_LIMIT BASE_SIGNATURE='${BASE_SIGNATURE:-}' EVAL_SCRIPT='${EVAL_SCRIPT:-}' MAX_SEQ='${MAX_SEQ:-4096}' OUT_DIR='${OUT_DIR:-/workspace/checkpoints/aria_tooluse_v1}' GEN_FILE=/workspace/datasets/aria_tooluse_generation.jsonl setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || die "cycle did not start"
 
 mkdir -p "$(dirname "$STATE_FILE")"

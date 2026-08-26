@@ -207,3 +207,29 @@ def test_variants_differ_so_she_learns_the_shape_not_one_filename(rows):
     users = [m["content"] for r in rows for m in r["messages"]
              if m["role"] == "user"]
     assert len(set(users)) == len(users), "two variants produced identical tasks"
+
+
+# ── R-F4372 (C-317): case-variant names are the same file, and the same task ─
+
+def test_the_wrong_name_pool_has_no_case_variants():
+    """A pool holding both "NOTES.txt" and "notes.txt" produces two prompts that
+    a case-insensitive reader — and Windows itself — sees as ONE, with two
+    different correct answers. Exact-match dedupe cannot see that; the coder
+    pre-flight caught it as train/eval leakage after the split."""
+    lowered = [w.lower() for w in B.WRONGNAMES]
+    dupes = {w for w in lowered if lowered.count(w) > 1}
+    assert not dupes, f"case-variant wrong-names collide: {sorted(dupes)}"
+
+
+def test_dedupe_treats_case_and_spacing_as_the_same_question(tmp_path):
+    """The dedupe key must normalise. Two rows whose prompts differ only in case
+    are the same question, so if their answers differ it is a contradiction —
+    not two distinct examples."""
+    a = {"messages": [{"role": "user", "content": "Read NOTES.txt now."},
+                      {"role": "assistant", "content": "date is 2026-01-01"}],
+         "family": "f"}
+    b = {"messages": [{"role": "user", "content": "read notes.txt  now."},
+                      {"role": "assistant", "content": "date is 2026-09-09"}],
+         "family": "f"}
+    with pytest.raises(RuntimeError, match="contradictory"):
+        B._drop_contradictions([a, b])
