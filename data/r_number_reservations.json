@@ -37331,9 +37331,10 @@
       "title": "the tracked sovereign launcher omitted the tool-call parser flags",
       "claimed_at": "2026-08-26T00:46:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cdb29381",
+      "notes": null,
+      "shipped_at": "2026-08-26T00:52:34Z"
     }
   ]
 }

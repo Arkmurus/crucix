@@ -3241,9 +3241,12 @@
       "title": "the collision was actively restored by an untracked respawn supervisor on the pod",
       "claimed_at": "2026-08-26T00:46:20Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4344"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T00:52:34Z"
     }
   ]
 }
