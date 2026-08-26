@@ -17549,3 +17549,32 @@ value density, not plumbing:
 Three Lane B sources are down and each one narrows the funnel: **AfDB 403**,
 **SAM.gov 429**, **SEACE Peru SSL CERTIFICATE_VERIFY_FAILED**. North star Phase 4
 ("source reliability repair") names this work.
+
+## C-310 · the trace id on every answer identifies nothing (fixed — R-F4364)
+
+From the operator's live WhatsApp transcript, 2026-08-26. Every reply across
+hours and unrelated questions — Estonia country risk, a Lagos security
+assessment, "what about DD?" — carried the SAME footer token:
+
+    *Trace:* `tr_17877`
+
+`trace_stream.py:132` builds `tr_{int(time.time()*1000)}_{uuid4[:6]}`, which is
+unique. `confidence_footer.py:448` rendered `tid[:8]`. In this era
+`int(time.time()*1000)` begins `17877`, so the rendered form is **constant for
+roughly three years**. Proven: two ids fifteen minutes apart render identically.
+
+**It matters more than it looks.** The footer's own docstring promises the reader
+can "pull the full DD lifecycle via /api/aria/trace/{trace_id}", and
+`trace_stream.get_trace` resolves by EXACT key. So the one token printed on every
+customer-facing answer — whose entire purpose is to make an answer traceable —
+was unresolvable **by construction**. When the operator reports a bad answer,
+there was no way back to its lifecycle. That is the capability needed to diagnose
+the answer-quality problems being reported, and it was silently absent.
+
+The entropy is in the SUFFIX; truncating from the front keeps only the part every
+id shares. Rendering the id in full is the only form that satisfies the promise
+the footer makes — a token that looks actionable and is not is worse than
+printing none.
+
+Mutation-tested, including a suffix-only variant that is unique but still not the
+real key: uniqueness alone is not the property — **resolvability** is.

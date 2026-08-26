@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4364,
+  "next_available": 4365,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37522,6 +37522,15 @@
       "commit_sha": "a2d09cc1",
       "notes": null,
       "shipped_at": "2026-08-26T14:14:24Z"
+    },
+    {
+      "r_number": "R-F4364",
+      "title": "the trace id on every answer is truncated to a constant prefix and identifies nothing",
+      "claimed_at": "2026-08-26T14:32:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

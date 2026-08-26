@@ -3481,6 +3481,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T14:14:25Z"
+    },
+    {
+      "c_number": "C-310",
+      "title": "footer trace id truncated to tr_17877 for every request; lookup impossible",
+      "claimed_at": "2026-08-26T14:32:27Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

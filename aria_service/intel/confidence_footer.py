@@ -443,12 +443,25 @@ def build_footer(
             br = rnum.group(1)
         proof_bits.append(f"*Build:* {br}")
     if trace_id:
+        # R-F4364 (C-310) — PRINT THE WHOLE ID; A PREFIX IDENTIFIES NOTHING.
+        #
+        # This rendered `tid[:8]`. Trace ids are `tr_{ms}_{uuid6}`
+        # (trace_stream.py:132), and in this era `int(time.time()*1000)` begins
+        # `17877` — so every answer for roughly three years printed the SAME
+        # token. Measured from the operator's live WhatsApp transcript: Estonia
+        # country risk, a Lagos security assessment and "what about DD?" all
+        # carried `tr_17877`, hours apart.
+        #
+        # The entropy is in the SUFFIX; truncating from the front keeps only the
+        # part every id shares. And this docstring promises the reader can "pull
+        # the full DD lifecycle via /api/aria/trace/{trace_id}", which
+        # `trace_stream.get_trace` resolves by EXACT key — so a shortened token
+        # is unresolvable by construction. A token that looks actionable and is
+        # not is worse than printing none: when a bad answer is reported there is
+        # no way back to its lifecycle.
         tid = str(trace_id).strip()
-        if len(tid) > 12:
-            tid_short = tid[:8]
-        else:
-            tid_short = tid
-        proof_bits.append(f"*Trace:* `{tid_short}`")
+        if tid:
+            proof_bits.append(f"*Trace:* `{tid}`")
     if proof_bits:
         lines.append("  ·  ".join(proof_bits))
 
