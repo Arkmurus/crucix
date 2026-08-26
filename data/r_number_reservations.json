@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4371,
+  "next_available": 4372,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37558,32 +37558,45 @@
       "title": "non-streamed re-issue when streamed tool arguments are corrupt",
       "claimed_at": "2026-08-26T19:55:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "33613898",
+      "notes": null,
+      "shipped_at": "2026-08-26T20:38:17Z"
     },
     {
       "r_number": "R-F4368",
       "title": "recover the split/nameless Mistral TOOL_CALLS array",
       "claimed_at": "2026-08-26T20:07:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "33613898",
+      "notes": null,
+      "shipped_at": "2026-08-26T20:38:17Z"
     },
     {
       "r_number": "R-F4369",
       "title": "steer after a tool result via the tool message (Mistral-legal)",
       "claimed_at": "2026-08-26T20:07:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "33613898",
+      "notes": null,
+      "shipped_at": "2026-08-26T20:38:18Z"
     },
     {
       "r_number": "R-F4370",
       "title": "remove DeepSeek from the CLI provider set and default to the sovereign",
       "claimed_at": "2026-08-26T20:26:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "33613898",
+      "notes": null,
+      "shipped_at": "2026-08-26T20:38:18Z"
+    },
+    {
+      "r_number": "R-F4371",
+      "title": "build a real executed multi-turn coder tool-use corpus",
+      "claimed_at": "2026-08-26T20:44:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -3558,6 +3558,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T20:37:36Z"
+    },
+    {
+      "c_number": "C-316",
+      "title": "she has never been trained to call a coding tool",
+      "claimed_at": "2026-08-26T20:44:37Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4371"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T21:02:26Z"
     }
   ]
 }

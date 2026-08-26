@@ -17942,3 +17942,85 @@ same CLI, tasks and tools. Removing DeepSeek is the directive and is done; it
 does not by itself make her a better coder, and the residual is in the model, not
 the CLI. The lever that would move it is the adapter's multi-turn tool-call
 behaviour — she reasons correctly and then declines to act.
+
+## C-316 · she has never once been trained to call a coding tool (fixed — R-F4371)
+
+The operator's report, after C-313/C-314 restored her ability to act at all:
+*"she is an horrible coder"*. She is not a bad coder. She is an untrained one,
+and the corpus says so exactly. Measured across every `data/training/*.jsonl`
+on 2026-08-26:
+
+    tool-use trajectories                     5,310
+    distinct tool names ever seen                 7   (screen, web_search,
+                                                       companies_house_*)
+    trajectories using ANY coder tool             0
+    trajectories with ONE call-turn           76.1%
+
+Zero. `read_file`, `edit_file`, `run`, `list_dir`, `grep` have never appeared in
+her training. So when the coder CLI advertises them she is fully out of
+distribution and answers from the base model's priors — and the live failures
+map one-to-one onto that, rather than being separate bugs:
+
+    "I cannot execute or modify files. You must manually edit the `calc.py` file."
+    list_dir(path=..., recursive=True)   -> unexpected keyword argument 'recursive'
+    read_file("C:\path\to\file.txt")     -> a placeholder path, invented whole
+
+and the 76% single-call skew is why she stops after one step on a task that is
+plainly unfinished. **C-314's CLI steer makes her take the next step; it cannot
+make her know what the step is.** That is what this corpus is for.
+
+**R-F4371 builds the missing shape from REAL executions.** The constraint is
+inherited from R-F3366 and is the thing to defend: every tool result is produced
+by actually executing `aria_cli.tools.Toolbox` — the same class, methods and
+result formatting `agent.py::_record_tool` puts on the wire at inference — so
+nothing here is a model's idea of what a tool would have said. The assistant's
+CALLS come from a deterministic scripted policy, not a teacher model: the
+trajectory is known-correct by construction, so there is nothing to grade and no
+per-row cost. Six families, 100 variants each, every one run in a throwaway
+sandbox that never touches the operator's repo.
+
+Live figures: **210 → 352 trajectories, mean 3.2 call-turns**, all six coder
+tools exercised, corpus-wide coder tool calls **0 → 680+**, distinct tool names
+**7 → 13**.
+
+**THREE REAL DEFECTS WERE CAUGHT BY THE BUILDER'S OWN GUARDS, and each would
+have silently poisoned the corpus:**
+
+1. **Fabricated tool output.** The first version read
+   `getattr(result, "content", str(result))`. `ToolResult` has no `.content`,
+   so every tool message became a Python dataclass repr —
+   `ToolResult(output='...', is_error=False, ...)`. It raised nothing and looked
+   fine. A corpus of invented tool output aimed straight at the moat. The
+   fallback is gone; `result.output` or a `TypeError`.
+2. **A false green.** The red→green family runs the same module twice either
+   side of an edit. The red run writes `__pycache__/strutil.*.pyc`, and when the
+   edit landed inside the filesystem's mtime granularity the green run imported
+   the STALE bytecode and failed identically — so the row would have taught
+   "I fixed it" over an unchanged result. Caught by the per-row `verify()`,
+   fixed with `python -B`.
+3. **A recovery from an error that never happened.** Windows filesystems are
+   case-insensitive, so the (wrong, real) pair `release.md` / `RELEASE.md` is one
+   file: the "wrong" read SUCCEEDED. The wrong path must now genuinely differ.
+
+**And a fourth, from the variant space itself.** `_drop_contradictions` refuses
+two rows that answer an IDENTICAL question differently. It fired twice — once
+where the setting's value cycled at 9 while its name cycled at 8, and once where
+a single generic phrasing ("the test is failing") was a function of nothing and
+so collided across variants. Each row was individually true; the PAIR is poison,
+because for a 7B it teaches that the same question has several answers. Exact
+duplicates are collapsed; a genuine contradiction RAISES rather than being
+dropped, because a silent drop hides a variant space that has stopped varying.
+
+Thirteen tests, including one that asserts the recorded tool text IS the
+Toolbox's byte-for-byte (the guard that would have caught defect 1), one that
+proves the builder RAISES on an unverified outcome rather than skipping it, and
+one that proves the undeclared-argument guard fires where the trajectory is
+WRITTEN and not only where it is validated.
+
+**WHAT THIS DOES NOT DO, stated plainly.** 352 rows against 5,310 shifts the
+act-after-tool-result share from 23.9% to ~27% corpus-wide; a focused training
+mix, not the full corpus, is what will move her behaviour. And no tool-use
+curriculum makes a model a good *engineer* — it teaches her to act, not what to
+write. The ceiling is the base model: `Mistral-7B-Instruct-v0.3` is a
+general-purpose chat model with weak coding. That is an operator decision and it
+is recorded in the report, not decided here.
