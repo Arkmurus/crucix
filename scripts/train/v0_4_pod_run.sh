@@ -31,7 +31,51 @@ SCRIPTS="/workspace/crucix/scripts/train"
 PORT=8888
 EPOCHS="${EPOCHS:-3}"
 V04_REPORT="${EVAL_DIR}/aria_llm_v0_4_eval.json"
-export HF_HOME=/workspace/.cache/huggingface          # container disk (ephemeral; pod stops at end)
+# R-F4347 (C-291) — PUT THE CACHE ON A DISK THAT HAS ROOM, AND FAIL FAST IF
+# NONE DOES.
+#
+# This line hardcoded HF_HOME=/workspace/.cache/huggingface and its own comment
+# called that "container disk". It is not: on the pod of record /workspace is a
+# 20G VOLUME and / is a 120G overlay. Measured 2026-08-26 mid-failure:
+#     /dev/md0   20G   20G  1.5M  100%  /workspace
+#     overlay   120G   16M  120G    1%  /
+# The base model is ~15G, so the download filled the volume and died with
+# "OSError: No space left on device (os error 28)" AFTER pulling gigabytes —
+# and because `export` (not ${HF_HOME:-...}) overwrote any inherited value, the
+# cache could not be redirected from outside either.
+#
+# Worse, the driver still PRINTED A GATE VERDICT for the run: "judge-DD=0.3
+# (n=500) | G1 accuracy: FAIL". No checkpoint existed — that number came from a
+# stale local report, right after the log said "report not pulled". A training
+# run that produced no model reported a score for it, which is the
+# absence-reads-as-measurement shape §1 records for the Phase A gates.
+#
+# So: honour an inherited HF_HOME, otherwise pick whichever candidate has the
+# most free space, and refuse to start when the winner cannot hold the model.
+# Failing in one second with the number beats failing in ten minutes at ENOSPC.
+_hf_free_mb(){ df -Pm "$1" 2>/dev/null | awk 'NR==2{print $4+0}'; }
+if [ -z "${HF_HOME:-}" ]; then
+  _best=""; _best_free=0
+  for _cand in /workspace/.cache/huggingface /root/.cache/huggingface; do
+    mkdir -p "$_cand" 2>/dev/null || continue
+    _f=$(_hf_free_mb "$_cand"); [ -z "$_f" ] && _f=0
+    if [ "$_f" -gt "$_best_free" ]; then _best="$_cand"; _best_free="$_f"; fi
+  done
+  export HF_HOME="${_best:-/workspace/.cache/huggingface}"
+  echo "[hf-cache] HF_HOME=$HF_HOME (${_best_free} MB free)"
+else
+  mkdir -p "$HF_HOME" 2>/dev/null || true
+  echo "[hf-cache] HF_HOME=$HF_HOME (inherited)"
+fi
+# ~15G for a 7B in bf16 plus room to unpack; overridable for a smaller base.
+HF_MIN_FREE_MB="${HF_MIN_FREE_MB:-18000}"
+_free=$(_hf_free_mb "$HF_HOME"); [ -z "$_free" ] && _free=0
+if [ "$_free" -lt "$HF_MIN_FREE_MB" ]; then
+  echo "[FATAL] HF_HOME=$HF_HOME has ${_free} MB free, need ${HF_MIN_FREE_MB} MB." >&2
+  echo "        The base model is ~15G. Free space, or set HF_HOME to a bigger disk." >&2
+  df -Pm / /workspace 2>/dev/null >&2
+  exit 1
+fi
 # ONLINE — base must download fresh (no volume cache). HF_TOKEN honoured if set.
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$SFT_OUT")"
 rm -f "$EVAL_DIR/_cycle_status"

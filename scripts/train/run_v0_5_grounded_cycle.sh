@@ -38,6 +38,8 @@ EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"   # 
 [ -s "$EVAL_LOCAL" ]   || { echo "[driver] FATAL: open-book eval set missing: $EVAL_LOCAL"; exit 1; }
 echo "[driver] grounded corpus $(wc -l < "$TRAIN_CORPUS") rows; open-book eval $(wc -l < "$EVAL_LOCAL") Q"
 
+# R-F4347 — freshness marker: anything older than this is a previous run.
+_RUN_STARTED="$(mktemp)"
 KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"
 SSH="ssh -i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=10"
 jget(){ python -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') or '')" 2>/dev/null; }
@@ -118,6 +120,38 @@ scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eva
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/deepseek_baseline_eval.json data/eval_reports/deepseek_baseline_openbook.json 2>/dev/null || echo "[driver] (deepseek report not pulled)"
 
 # 6. Local G1 verdict — grounded v0.5 (open-book) vs DeepSeek 0.316 parity
+# R-F4347 (C-291) — A RUN THAT PRODUCED NO MODEL MUST NOT REPORT A SCORE.
+#
+# Observed 2026-08-26: SFT died with "No space left on device", the driver
+# logged "[FATAL] SFT training produced no checkpoint", then "(v0.5 grounded
+# report not pulled)" — and then printed
+#     v0.5 GROUNDED (open-book): judge-DD=0.3 (n=500) | leak_rate=0.2
+#     G1 accuracy: FAIL (v0.5 0.3 vs 0.316 parity)
+# There was no checkpoint and no new report. That 0.3 came from the STALE local
+# file left by an earlier run, presented as this run's result. A reader — human
+# or agent — would take it as the trained model's score and conclude the
+# curriculum failed, when nothing had been trained at all.
+#
+# Two conditions now gate the verdict, and BOTH are required:
+#   * the remote cycle exited 0, and
+#   * the report file is NEWER than this run's start (it was actually pulled).
+# Freshness is checked rather than mere existence, because the file always
+# exists after the first successful cycle — existence is exactly what made the
+# stale read look valid.
+if [ "${RC:-1}" != "0" ]; then
+  echo "[driver] cycle FAILED (exit ${RC:-unknown}) — NO VERDICT."
+  echo "[driver] refusing to print a G1 result for a run that produced no model."
+  echo "[driver] diagnose with: /workspace/logs/sft_train_v0_4.log on the pod"
+  stop_pod
+  exit 1
+fi
+_REPORT=data/eval_reports/aria_llm_v0_5_grounded_eval.json
+if [ ! -f "$_REPORT" ] || [ "$_REPORT" -ot "$_RUN_STARTED" ]; then
+  echo "[driver] report is missing or older than this run — NO VERDICT."
+  echo "[driver] (a stale report from an earlier cycle is not this run's result)"
+  stop_pod
+  exit 1
+fi
 echo "[driver] === v0.5 GROUNDED CYCLE RESULT — GATE G1 (local) ==="
 python - <<'PY'
 import json, os

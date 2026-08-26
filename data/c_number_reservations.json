@@ -3265,6 +3265,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-291",
+      "title": "the training cache is pinned to the small volume and fails at ENOSPC mid-download",
+      "claimed_at": "2026-08-26T01:24:27Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
