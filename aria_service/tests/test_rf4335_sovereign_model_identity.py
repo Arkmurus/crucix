@@ -355,7 +355,11 @@ def test_the_launcher_refuses_a_colliding_pair(tmp_path):
     proc = subprocess.run(
         [shutil.which("bash"), str(LAUNCHER)],
         env={"PATH": "/usr/bin:/bin", "BASE_NAME": "aria-llm-v0.4-dpo",
-             "SERVED_NAME": "aria-llm-v0.4-dpo", "ADAPTER_PATH": str(tmp_path)},
+             "SERVED_NAME": "aria-llm-v0.4-dpo", "ADAPTER_PATH": str(tmp_path),
+             # R-F4344 made BASE_MODEL mandatory: defaulting it to an HF repo id
+             # made vLLM re-download weights onto a quota'd volume and killed the
+             # engine (recorded in the pod supervisor). Explicit or nothing.
+             "BASE_MODEL": "/snapshots/base"},
         capture_output=True, text=True, timeout=120)
     assert proc.returncode == 2, f"launcher did not refuse: rc={proc.returncode}"
     assert "REFUSING TO START" in proc.stderr
@@ -443,3 +447,45 @@ def test_the_re_ask_still_happens_after_a_user_turn(tmp_path):
     built = _agent(tmp_path, llm)
     built.run_turn("review the logs")
     assert llm.calls == 3, "the re-ask stopped firing where it was measured to work"
+
+
+# -- R-F4344: a launcher missing the tool-call flags LOOKS like a bad model ----
+
+SUPERVISOR = ROOT / "scripts/train/pod_serve_vllm_supervised.sh"
+
+
+def _launch_flags(path):
+    """Only the flag lines of the vLLM invocation — never comments or messages."""
+    return " ".join(ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()
+                    if ln.strip().startswith("--"))
+
+
+@pytest.mark.parametrize("path", [LAUNCHER, SUPERVISOR])
+def test_a_launcher_must_enable_tool_calling(path):
+    """R-F4344 — the first version of serve_sovereign.sh omitted these, and
+    without them vLLM NEVER emits a tool_calls block: every turn comes back as
+    prose and reads exactly like the model being incapable. Caught only by
+    diffing the running process before relaunching, not by the script's own
+    logic. A replacement launcher must be diffed against what it replaces."""
+    flags = _launch_flags(path)
+    assert "--enable-auto-tool-choice" in flags, f"{path.name}: tool calling off"
+    assert "--tool-call-parser" in flags, f"{path.name}: no tool-call parser"
+
+
+@pytest.mark.parametrize("path", [LAUNCHER, SUPERVISOR])
+def test_no_launcher_gives_the_base_and_the_adapter_one_name(path):
+    """C-281/C-288 — THE SUPERVISOR IS WHY IT KEPT COMING BACK. The pod ran a
+    `while true` loop with `--served-model-name aria-llm-v0.4-dpo` hardcoded
+    beside `--lora-modules aria-llm-v0.4-dpo=...`, so every crash — and every
+    manual fix — silently restored the collision. It was untracked, which is
+    exactly why it could drift. Tracked here so this test governs it."""
+    flags = _launch_flags(path)
+    if "--served-model-name" not in flags:
+        pytest.skip("no explicit base name in this launcher")
+    served = flags.split("--served-model-name", 1)[1].split()[0].strip('"')
+    lora = flags.split("--lora-modules", 1)[1].split()[0].strip('"')
+    lora_name = lora.split("=", 1)[0]
+    assert served != lora_name, (
+        f"{path.name} names the base and the adapter '{served}' — the base wins "
+        f"resolution and the fine-tune is silently inert (C-281)"
+    )
