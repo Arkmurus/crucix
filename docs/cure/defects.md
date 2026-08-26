@@ -16403,6 +16403,64 @@ hook, unregister the gap type). Blast radius = the 74 test files touching
 `collab_bridge`, `drain_for_aria`, `capability_gaps` or the gap-type registry:
 **4 failures before, the same 4 after, zero newly red**, 525 → 537 passed.
 
+## C-272 · a mastery floor breach reported a comparison its own numbers deny (fixed, R-F4324)
+
+**Symptom.** The learning system's remediation path emitted, live:
+
+```
+MASTERY HARD FLOOR BREACH: sanctions (50% < 50%) — remediation flagged
+```
+
+and recorded a capability gap reading *"Mastery for 'sanctions' dropped below
+hard floor (50% < 50%). Remediation: re-inject domain knowledge."*
+
+**Mechanism — not rounding.** R-F796 clamps a negative update so a topic cannot
+be driven below its floor:
+
+```python
+m["score"] = max(topic_hard_floor, proposed)          # student.py
+m["_rf796_proposed_breach"] = (proposed < topic_hard_floor)
+```
+
+On that branch the score is set to **exactly** the floor. The post-update check
+fires on `m["score"] < floor or rf796_breach`, and both the WARNING and the gap
+rendered `f"{score:.0%} < {floor:.0%}"`. With `score == floor` that string can
+never be true — so the clamped branch printed `X% < X%` for **every** topic,
+**every** time, by construction, and called it a drop.
+
+**Why it matters.** Two different events shared one sentence, and they demand
+opposite readings:
+
+| state | meaning | correct response |
+|---|---|---|
+| `score < floor` | mastery **is** below the floor | genuine breach — remediate |
+| clamp held at floor | an update *would* have gone below | pressure, **contained** |
+
+The second is the defence *working*. Reporting it as "dropped below hard floor"
+told the weekly remediation loop and the §21e gap consumer that mastery had
+failed. An operator could not tell which event occurred, and the only signal
+that anything was wrong was that the numbers contradicted the words.
+
+This is the §1 "certified by an absence" class inverted: a claim its own
+evidence actively **denies**. A reader trusting the sentence acts on a breach
+that is not there; a reader trusting the numbers concludes the instrument is
+broken and stops reading it.
+
+**Fix.** `student.floor_event_detail()` / `floor_event_summary()` — one pair,
+kept adjacent, because the log line and the gap detail were two independent
+copies of the same wrong format string and that is how the defect survived. The
+held case names the proposed score (*"held AT its hard floor (50%) (an update
+would have taken it to 43%)"*), which makes it strictly **more** informative
+than the false version was. The genuine-breach wording is unchanged, so the fix
+does not trade a false positive for a false negative.
+
+**Verification.** `test_rf4324_floor_breach_states_a_true_comparison.py` — RED
+first, reproducing the exact live string through the real `update_mastery`;
+5 passed after. Mutation-checked: forcing `_held = False` turns the capability
+test RED again, so the assertion binds to the discriminator rather than to
+incidental wording. Swept across every entry in `HARD_FLOORS`, because the
+defect was structural rather than topic-specific.
+
 ## C-281 · the CLI served the base model under the adapter's name and nothing could tell (fixed, R-F4335, R-F4336)
 
 **Symptom, in the operator's words:** ARIA in the terminal would not perform
@@ -16618,6 +16676,69 @@ argument including healthy ones · drop the malformed call instead of repairing 
 **Live result:** the turn that previously died with `Session Complete ✗` and an
 HTTP 400 now runs to `Session Complete ✓`. It still does not finish the task —
 that is C-281 (the untuned base model is answering), not this.
+
+## C-291 · the training cache filled the wrong disk, and the driver then scored a run that never trained (fixed, R-F4347)
+
+**Two defects in one run (2026-08-26). The second is the dangerous one.**
+
+**(1) The cache was pinned to the small disk by a mistaken comment.**
+`scripts/train/v0_4_pod_run.sh` read:
+
+```bash
+export HF_HOME=/workspace/.cache/huggingface   # container disk
+```
+
+`/workspace` is **not** the container disk. Measured on the pod mid-failure:
+
+```
+/dev/md0   20G   20G  1.5M  100%  /workspace     <- a 20G VOLUME
+overlay   122G   16M  122G    1%  /              <- the actual container disk
+```
+
+The base model is ~15G, so the download filled the volume and died with
+`OSError: No space left on device (os error 28)` after pulling gigabytes of a
+paid GPU-hour. Because it used `export` rather than `${HF_HOME:-...}` it also
+overwrote any inherited value, so the cache could not be redirected from
+outside either — on a pod, mid-incident. The comment is what let it survive
+review: it asserted the wrong disk was the right one, so a reader checking the
+line agreed with it.
+
+**(2) The driver printed a gate verdict for a run that produced no model.**
+After the FATAL, and immediately after logging *"(v0.5 grounded report not
+pulled)"*, it printed:
+
+```
+v0.5 GROUNDED (open-book): judge-DD=0.3 (n=500) | leak_rate=0.2
+G1 accuracy: FAIL (v0.5 0.3 vs 0.316 parity)
+```
+
+There was no checkpoint and no new report. That `0.3` came from the **stale
+local file left by an earlier cycle**, presented as this run's result. A reader
+— human or agent — would take it as the trained model's score and conclude the
+curriculum had failed, when nothing had been trained at all. Same
+absence-reads-as-measurement shape §1 records for three Phase A gates, applied
+to a training verdict.
+
+**Fix.** Honour an inherited `HF_HOME`; otherwise pick whichever candidate has
+the **most** free space; refuse to start when the winner cannot hold the model
+(`HF_MIN_FREE_MB`, default 18000). Failing in one second with the number beats
+failing in ten minutes at ENOSPC. The verdict now requires **both** that the
+remote cycle exited 0 **and** that the report is newer than this run's start —
+freshness rather than existence, because the file always exists after the first
+successful cycle, and existence is exactly what made the stale read look valid.
+
+**Verification.** `test_rf4347_training_disk_and_verdict.py` drives the real
+shell blocks, extracted by **content anchor** rather than line number (§16 /
+R-F3597). A scripted `df` on PATH supplies free space that cannot be faked on a
+real filesystem, which also exercises the `awk` parse of `df -Pm` output.
+7 passed. Mutation-tested, and it **caught a confound in the test itself**: the
+first version of the failed-run test left the report stale and asserted only
+`"NO VERDICT"` — with the RC gate deleted, the *freshness* guard blocked
+instead, and both guards print `"NO VERDICT"`, so it passed against the mutant.
+It bound to neither mechanism. Corrected to isolate the gate; all 4 mutations
+now caught. Live-confirmed on the re-run:
+`[hf-cache] HF_HOME=/root/.cache/huggingface (122865 MB free)`, training at
+100% GPU.
 
 ## C-292 · /health leaked a permanently-running coverage build on every poll (fixed, R-F4348)
 

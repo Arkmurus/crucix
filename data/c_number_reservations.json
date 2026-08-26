@@ -3084,9 +3084,12 @@
       "title": "mastery floor breach reported that its own comparison denies",
       "claimed_at": "2026-08-25T09:50:45Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4324"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T01:44:12Z"
     },
     {
       "c_number": "C-273",
@@ -3271,9 +3274,12 @@
       "title": "the training cache is pinned to the small volume and fails at ENOSPC mid-download",
       "claimed_at": "2026-08-26T01:24:27Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4347"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T01:44:12Z"
     },
     {
       "c_number": "C-292",

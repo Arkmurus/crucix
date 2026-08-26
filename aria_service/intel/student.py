@@ -141,6 +141,71 @@ HARD_FLOORS: dict[str, float] = {
     "export_control":      0.50,
 }
 
+def floor_event_detail(
+    topic: str,
+    score: float,
+    floor: float,
+    held: bool,
+    proposed: float | None = None,
+) -> str:
+    """Describe a floor event in terms its own numbers support (R-F4324/C-272).
+
+    THE DEFECT THIS REPLACES. The WARNING and the recorded gap both rendered
+    ``f"{score:.0%} < {floor:.0%}"``. On the R-F796 clamped branch the score is
+    set to ``max(floor, proposed)``, i.e. EXACTLY the floor — so that string
+    could never be true there. It printed "sanctions (50% < 50%)" for every
+    topic, every time, and called it "dropped below hard floor".
+
+    TWO EVENTS, TWO SENTENCES, because they demand opposite readings:
+
+        held=False   mastery IS below the floor — a genuine breach
+        held=True    an update WOULD have gone below; the clamp held it
+
+    The held case is downward PRESSURE, contained. It is still worth
+    reporting — that is why R-F796 flagged it — and naming the proposed score
+    makes it strictly more informative than the false version was: the reader
+    can see how hard the floor was pushed. What it must not do is tell the
+    remediation loop that mastery has failed when the defence worked.
+
+    Do NOT "simplify" this back into one format string. The single sentence is
+    the whole defect.
+    """
+    if held:
+        pushed = (f" (an update would have taken it to {proposed:.0%})"
+                  if proposed is not None else "")
+        return (
+            f"Mastery for '{topic}' is being held AT its hard floor "
+            f"({score:.0%}){pushed}. The floor prevented the drop; repeated "
+            f"pressure means the underlying knowledge is weakening. "
+            f"Remediation: re-inject domain knowledge."
+        )
+    return (
+        f"Mastery for '{topic}' dropped below hard floor "
+        f"({score:.0%} < {floor:.0%}). Remediation: re-inject domain knowledge."
+    )
+
+
+def floor_event_summary(
+    topic: str,
+    score: float,
+    floor: float,
+    held: bool,
+    proposed: float | None = None,
+) -> str:
+    """The short form used in the rate-limited WARNING line (R-F4324).
+
+    Same two states as :func:`floor_event_detail`, kept adjacent to it so a
+    later edit cannot fix one message and leave the other asserting the
+    comparison its numbers deny — which is exactly how the defect survived:
+    the log line and the gap detail were two independent copies of one wrong
+    format string.
+    """
+    if held:
+        pushed = f" <- {proposed:.0%}" if proposed is not None else ""
+        return f"{topic} (held at {score:.0%}{pushed})"
+    return f"{topic} ({score:.0%} < {floor:.0%})"
+
+
 TOPICS = [
     "compliance", "procurement", "market_intel", "technical",
     "geopolitics", "osint", "finance", "relationships",
@@ -624,6 +689,9 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
     mastery = await _load_mastery()
     now = time.time()
     remediation_needed: list[str] = []
+    # R-F4324/C-272 — topic -> (score, floor, held, proposed) so the two
+    # messages below can state which floor event actually occurred.
+    _floor_events: dict[str, tuple] = {}
     for topic in topics:
         if topic not in mastery:
             mastery[topic] = {"score": INITIAL_MASTERY, "samples": 0,
@@ -669,6 +737,7 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             # Track whether the unclamped drop would have breached so
             # the post-update floor check still surfaces remediation.
             m["_rf796_proposed_breach"] = (proposed < topic_hard_floor)
+            m["_rf796_proposed_score"] = proposed
 
         # R-F664 (2026-05-17): FSRS spaced-repetition update. Additive to
         # the EWMA score above — FSRS schedules the NEXT review, EWMA
@@ -692,9 +761,18 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         # but the operator still needs to see the remediation signal.
         floor = HARD_FLOORS.get(topic, 0.50)
         rf796_breach = m.pop("_rf796_proposed_breach", False)
+        rf796_proposed = m.pop("_rf796_proposed_score", None)
         if m["score"] < floor or rf796_breach:
             m["below_floor"] = True
             m["floor"] = floor
+            # R-F4324/C-272 — record WHICH event this was. The clamp sets
+            # score := max(floor, proposed), so on the clamped branch score
+            # EQUALS floor and "score < floor" is false. Both messages below
+            # rendered it as a strict inequality anyway ("50% < 50%") and
+            # called it a drop. Carrying the distinction here is what lets
+            # them say what actually happened.
+            _held = bool(rf796_breach) and m["score"] >= floor
+            _floor_events[topic] = (m["score"], floor, _held, rf796_proposed)
             if topic not in remediation_needed:
                 remediation_needed.append(topic)
         else:
@@ -727,14 +805,24 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         if fresh:
             logger.warning(
                 "MASTERY HARD FLOOR BREACH: %s — remediation flagged",
-                ", ".join(f"{t} ({mastery[t]['score']:.0%} < {HARD_FLOORS.get(t, 0.5):.0%})" for t in fresh),
+                ", ".join(
+                    floor_event_summary(t, *_floor_events[t]) if t in _floor_events
+                    else f"{t} ({mastery[t]['score']:.0%} < {HARD_FLOORS.get(t, 0.5):.0%})"
+                    for t in fresh
+                ),
             )
         try:
             from . import capability_gaps
             for topic in remediation_needed:
                 _t = asyncio.create_task(capability_gaps.record_gap(
                     gap_type="knowledge_gap",
-                    detail=f"Mastery for '{topic}' dropped below hard floor ({mastery[topic]['score']:.0%} < {HARD_FLOORS.get(topic, 0.5):.0%}). Remediation: re-inject domain knowledge.",
+                    detail=(
+                        floor_event_detail(topic, *_floor_events[topic])
+                        if topic in _floor_events else
+                        floor_event_detail(
+                            topic, mastery[topic]["score"],
+                            HARD_FLOORS.get(topic, 0.5), held=False)
+                    ),
                     source="student.update_mastery",
                 ))
                 _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
