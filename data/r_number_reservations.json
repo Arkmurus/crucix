@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4340,
+  "next_available": 4341,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37282,6 +37282,15 @@
       "r_number": "R-F4339",
       "title": "defence-ecosystem mastery curriculum across the five customer jobs (C-284)",
       "claimed_at": "2026-08-25T23:50:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4340",
+      "title": "regional mastery curriculum targeting the zero cells on the live heatmap (C-285)",
+      "claimed_at": "2026-08-25T23:57:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

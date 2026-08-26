@@ -3202,6 +3202,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-285",
+      "title": "83 measured weak mastery cells have no curriculum",
+      "claimed_at": "2026-08-25T23:57:34Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
