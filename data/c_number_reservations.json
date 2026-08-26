@@ -3247,6 +3247,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T00:52:34Z"
+    },
+    {
+      "c_number": "C-289",
+      "title": "grounded-refusal DPO teaches abstention where acquisition is the correct move",
+      "claimed_at": "2026-08-26T00:53:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

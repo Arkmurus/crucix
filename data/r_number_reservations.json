@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4345,
+  "next_available": 4346,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37335,6 +37335,15 @@
       "commit_sha": "cdb29381",
       "notes": null,
       "shipped_at": "2026-08-26T00:52:34Z"
+    },
+    {
+      "r_number": "R-F4345",
+      "title": "curriculum: use the tool to ACQUIRE rather than abstain (C-289)",
+      "claimed_at": "2026-08-26T00:53:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "title originally mis-cited C-286 (another session s defect); corrected to C-289 per section 26a - a register whose identifiers cannot be cited has lost the property that makes it a register."
     }
   ]
 }
