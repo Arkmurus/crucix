@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -162,6 +163,19 @@ NARRATION_STEER = (
     "Do not write code, do not explain. Call the tool now."
 )
 
+#: R-F4369 (C-314) — the mid-task steer. It is appended to the LAST TOOL
+#: MESSAGE, never added as a new user message: R-F4341 measured that
+#: ``tool -> user`` makes Mistral 400 ("conversation roles must alternate"),
+#: which is why the retry had to be switched off for exactly the multi-step
+#: case. Riding on the tool message keeps the sequence
+#: ``user -> assistant(tool_calls) -> tool`` legal, so this recovers that case
+#: rather than reopening the 400.
+TOOL_RESULT_STEER = (
+    "\n\nYou have this result but the task is not finished, and you DO have the "
+    "tools to finish it. Call the next tool now. Do not explain, do not write "
+    "code blocks, and do not say you are unable to edit or run things."
+)
+
 #: NOT USED, and the reason is worth keeping. vLLM here rejects
 #: `tool_choice="required"` outright ("must either be a named tool or auto"),
 #: and a NAMED tool is supported but would pick the tool FOR her from this
@@ -205,6 +219,54 @@ def looks_like_narrated_tool_call(content: str, offered: list[str]) -> str:
         if f"{name}(" in body or fenced:
             return name
     return ""
+
+
+#: R-F4369 (C-314) — phrases in which the model denies being able to ACT. The
+#: operator's live failure was verbatim "I cannot execute or modify files. You
+#: must manually edit the `calc.py` file", emitted while holding `edit_file`.
+_DENIAL_RE = re.compile(
+    r"\b(?:i\s+(?:can\s*not|cannot|can't|am\s+unable\s+to|don'?t\s+have\s+"
+    r"(?:the\s+)?(?:ability|access|permission))"
+    r"|you\s+(?:must|will\s+need\s+to|should)\s+(?:manually\s+)?"
+    r"(?:edit|change|run|create|apply|make))\b",
+    re.IGNORECASE)
+
+#: The denial only counts when it is about acting on the repo. "I cannot tell
+#: which branch you meant" is a request for information, and steering someone
+#: who lacks information just makes them guess.
+_ACTION_WORD_RE = re.compile(
+    r"\b(?:execute|modify|edit|write|create|run|apply|change|save|file|files|"
+    r"command|code)\b", re.IGNORECASE)
+
+
+def looks_like_stalled_after_tool(content: str, offered: list[str]) -> bool:
+    """Did this turn stop mid-task instead of finishing it?
+
+    R-F4369 (C-314). Called only when a turn produced NO tool call while the
+    last message is a tool result — i.e. work was in flight and nothing
+    happened. It answers one question: is this a stall, or a finished report?
+
+    That distinction is the whole guard. Measured 2026-08-26: steering a turn
+    that HAD finished ("Run `git --version` and tell me the version") made her
+    invent an ``edit_file`` on a file nobody had mentioned. An unconditional
+    steer is therefore not an option — it converts a correct answer into a
+    wrong action.
+
+    Two stall shapes, both measured:
+
+      * a CAPABILITY DENIAL — "I cannot execute or modify files. You must
+        manually edit the `calc.py` file" — while the tool was advertised;
+      * a DESCRIBED action — R-F4337's shape, reached through a tool result
+        rather than a user turn.
+
+    Everything else is treated as a finished answer and ends the turn.
+    """
+    body = (content or "").strip()
+    if not body:
+        return False
+    if _DENIAL_RE.search(body) and _ACTION_WORD_RE.search(body):
+        return True
+    return bool(looks_like_narrated_tool_call(body, offered or []))
 
 
 def _all_tool_names() -> set[str]:
@@ -897,6 +959,34 @@ class Agent:
                 # that breaks the request is not a repair.
                 _restatable = (len(self.messages) >= 2
                                and self.messages[-2].get("role") == "user")
+
+                # R-F4369 (C-314) — the mid-task stall. R-F4341 correctly
+                # refused to append a user message after a tool result; the
+                # steer therefore rides ON that tool message, which is
+                # Mistral-legal. Bounded by position, not by a counter: a tool
+                # message is steered at most ONCE, so a steer that does not help
+                # cannot loop, while a genuinely new step can still be nudged.
+                if (not _restatable
+                        and self._all_schemas
+                        and len(self.messages) >= 2
+                        and self.messages[-2].get("role") == "tool"
+                        and (getattr(getattr(self.llm, "config", None),
+                                     "provider", "") or "").strip().lower()
+                        in _NARRATION_RETRY_PROVIDERS
+                        and TOOL_RESULT_STEER not in (
+                            self.messages[-2].get("content") or "")
+                        and looks_like_stalled_after_tool(
+                            resp.content,
+                            [sc["function"]["name"] for sc in self._all_schemas])):
+                    self.ui.info("[R-F4369] stalled mid-task - steering once")
+                    # Same principle as R-F4337: THE STALL MUST LEAVE THE
+                    # HISTORY. At temperature 0 she copies her own last answer,
+                    # so leaving it in context asks her to write it again.
+                    self.messages.pop()
+                    self.messages[-1]["content"] = (
+                        (self.messages[-1].get("content") or "")
+                        + TOOL_RESULT_STEER)
+                    continue
                 if (self._narration_retries < NARRATION_RETRY_LIMIT
                         and _restatable
                         and self._all_schemas

@@ -3521,6 +3521,43 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T15:57:40Z"
+    },
+    {
+      "c_number": "C-313",
+      "title": "the CLI streams tool calls to a serving stack that corrupts them",
+      "claimed_at": "2026-08-26T19:55:11Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4367"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T20:21:01Z"
+    },
+    {
+      "c_number": "C-314",
+      "title": "the sovereign cannot take a second step: no steer, and a malformed tool-call array",
+      "claimed_at": "2026-08-26T20:07:24Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4368",
+        "R-F4369"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T20:21:01Z"
+    },
+    {
+      "c_number": "C-315",
+      "title": "DeepSeek is removed from the coder CLI; ARIA reasons for herself",
+      "claimed_at": "2026-08-26T20:26:39Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4370"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T20:37:36Z"
     }
   ]
 }

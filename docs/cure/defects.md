@@ -17759,3 +17759,186 @@ clone and one that reverts the checkout to depth-1.
 A test also had to be corrected: its first version required `fetch-depth` to sit
 immediately under `with:` and failed against a CORRECT workflow, which would have
 sent the next reader to edit the wrong file.
+
+## C-313 · the CLI streams tool calls to a serving stack that corrupts them (fixed — R-F4367)
+
+**The operator's report: "she is not able to code, not able to run any command."**
+Reproduced first try through the real CLI, on the operator's own configuration
+(`ARIA_CODER_LLM_PROVIDER=aria-llm`, `aria-llm-v0.4-dpo` on the RunPod vLLM):
+
+    aria -p "Run the shell command: git --version"
+      ARIA  The command argument contains a comma, which is not valid JSON...
+      tools:   0 calls
+
+**The model was right and the transport was wrong.** The same payload, sent both
+ways to the same pod in the same minute:
+
+    non-streamed   5/5 clean tool calls
+    streamed       2/5   — and all three failures were `run`
+
+vLLM's Mistral parser drops the delta carrying the closing `"}`, so the
+arguments arrive as `{"command": "git status` — unterminated. `agent.py:944`
+reports "could not parse arguments as JSON", the tool never runs, and the turn
+ends `tools: 0 calls` with the model narrating about JSON formatting. That the
+three failures were all `run` is not a coincidence: they carry the longest
+string values.
+
+R-F4351 (C-296) already recovers the OTHER shape — where vLLM re-emits the
+complete object as a final delta — and deliberately refuses to guess when
+nothing complete was emitted. **That refusal is correct and is unchanged.** A
+dropped quote cannot be reconstructed without inventing a command, and a
+fabricated `run` EXECUTES. What was missing is that there was somewhere else to
+look: the non-streamed channel, measured 5/5 on this exact endpoint.
+
+**The fix is stronger evidence, not a better guess** (the C-41 idiom): when
+streamed arguments are unrecoverable, re-issue the identical request
+non-streamed, once. Fixed by SHAPE, not by a provider allow-list, so a future
+serving stack with the same defect is covered and this cannot rot.
+
+Three refusals keep it honest — a raising re-issue, an empty one, or one that is
+also corrupt all keep the original broken call so the operator sees an honest
+parse error rather than a synthesised command.
+
+Live after the fix, same command: `run(git --version)` → exit 0,
+`git version 2.55.0.windows.3`, `tools: 1 calls`. The repair fires on
+essentially every real coding turn — `[R-F4367] ... recovered 1 call(s) by
+re-issuing non-streamed` appears once per task in the CLI log.
+
+Nine tests; six mutants, all killed.
+
+## C-314 · the sovereign can read code but never change it (partially fixed — R-F4368, R-F4369)
+
+Four coding tasks through the real CLI, same tasks, same prompts, same tools:
+
+    aria-llm    1/4    every failure stopped at EXACTLY one tool call
+    deepseek    4/4
+
+The one that passed was the single-step `run`. Two failures ended with her
+telling the operator "I cannot execute or modify files. You must manually edit
+the `calc.py` file" — while holding `edit_file` and `run` in her advertised set.
+
+Two CLI defects were found and fixed, and both are real, but **neither moved the
+benchmark: it is still 1/4.** That is recorded here rather than dressed up,
+because the remaining cause is not in the CLI.
+
+**R-F4369 — she was never nudged.** R-F4337's narration retry is gated on
+`messages[-2]["role"] == "user"` (R-F4341, which correctly measured that
+appending a user message after a `tool` message makes Mistral 400 with
+"conversation roles must alternate"). That gate switches the retry off for
+exactly the mid-task case, which is where all multi-step coding lives. Measured
+on an identical second-turn history: no steer → prose; steer → a real
+`edit_file` call with the right arguments. The steer now rides ON the tool
+message, keeping `user → assistant(tool_calls) → tool` legal, so it recovers the
+case R-F4341 had to give up on instead of reopening the 400. Bounded by
+POSITION, not a counter: a tool message is steered at most once, so a steer that
+does not help cannot loop.
+
+The trigger is narrow on purpose. Measured: steering a turn that had already
+finished made her invent an `edit_file` on a file nobody had mentioned. Only a
+capability denial or a described action counts as a stall; a finished report
+ends the turn.
+
+**R-F4368 — and then the call was thrown away.** Once steered she does emit a
+tool call, but on a second turn it never reaches the `tool_calls` channel:
+measured 5/5 as `[TOOL_CALLS]` text, in an array vLLM's Mistral parser is right
+to refuse, because `name` and `arguments` are split across sibling objects or
+the name is absent entirely:
+
+    [{"arguments": {...}}, {"name": "edit_file", "id": "104be20cf"}]
+    [{"arguments": {"command": "python hello.py"}}]
+
+Pairing the split shape is bookkeeping — the name is present, one object over.
+The nameless shape is DERIVED from the offered schemas and only when exactly one
+tool can accept those keys; ambiguity, an undeclared key, or a missing required
+field all refuse the whole array.
+
+**WHAT IS NOT FIXED, and why no more CLI code should be thrown at it.** Traced
+against the live pod, the residual is the model reasoning correctly and then
+declining to act:
+
+    turn 1  "I cannot execute arbitrary code or run commands directly."
+    turn 3  "the result is -1 ... the bug remains."   → and stops
+
+Turn 3 is a true statement, correctly derived from a tool result she requested.
+It is not a denial and not a described call, so no honest text predicate
+separates it from a finished report — and a predicate that steered it anyway is
+the one measured to invent edits. This is a capability boundary of
+`aria-llm-v0.4-dpo`, not a transport defect, and the control proves it: the same
+CLI, tasks and tool set score 4/4 on a tool-capable provider.
+
+**Operator decision, not a code fix:** `ARIA_CODER_LLM_PROVIDER=aria-llm` in
+`.env` is what points the coder CLI at the 7B sovereign. It is a CLI-only
+variable and is independent of `ARIA_LLM_PRIMARY_ALL`, so the coder can be moved
+to a tool-capable provider while the pod stays 24/7 chain-primary for ARIA's
+reasoning and compounding exactly as declared in CLAUDE.md §24.
+
+Twenty-one tests; ten mutants, all killed — two of which survived the first run
+and exposed real holes (a name/argument count mismatch, and an undeclared
+argument key that would have executed `ls` while discarding the field the model
+meant to constrain it with).
+
+## C-315 · DeepSeek is removed from the coder CLI; ARIA reasons for herself (fixed — R-F4370)
+
+Operator directive 2026-08-26, verbatim: *"remove deepseek from cli, aria must
+use her own reasoning now, ensure it is root pricision and surgically"*.
+
+**Changing the default would not have been the fix.** DeepSeek could reach the
+CLI by four routes, and three survive a default change:
+
+1. the default — `"deepseek" if DEEPSEEK_API_KEY else "aria"` (R-F1937)
+2. `--provider deepseek`
+3. `LLM_PROVIDER=deepseek`, a generic var the wider stack sets
+4. **any unrecognised provider** — `_PROVIDER_BASE_URLS.get(provider,
+   "https://api.deepseek.com/v1")` silently sent a typo'd name to the vendor
+
+Route 4 is the one that matters most: the output looks identical whichever model
+served it, which is precisely the blindness R-F4303 refuses. So the name is gone
+from all four provider tables and the vendor default under them is gone with it.
+`test_no_deepseek_endpoint_survives_anywhere_in_the_client` reads the module
+source and fails on a live `api.deepseek.com` string, because a URL that is one
+edit from serving has not been removed.
+
+**It fails closed, and the refusal names the directive.** With nothing
+configured `from_env` now raises instead of selecting whatever has a key.
+`_REMOVED_PROVIDERS` carries the reason and the remedy rather than letting the
+name vanish into a `KeyError` — a bare failure gets "fixed" by restoring the
+table entry, which is the revert-by-tidying CLAUDE.md §17 records happening
+three times to the Brave/WA capability.
+
+**The delivery half.** A function that starts raising creates an obligation at
+every call site. `prompt.py` already handled it (R-F4321 documented exactly this
+path); `cli.py:1900` did not, and an uncaught `LLMError` would have met the
+operator as a traceback — reading as a broken CLI rather than as a
+configuration message. Both are covered, and the "No LLM API key found" text
+now points at `ARIA_LLM_URL` instead of `DEEPSEEK_API_KEY`.
+
+**Test fallout was re-expressed, not deleted.** Nine existing tests used
+`deepseek` as a stand-in for "an external provider with its own key and a large
+window"; they now use `openai`, which is the same thing for their purpose, with
+a note saying why the vehicle moved. Two were rewritten rather than
+re-parameterised:
+
+* `test_rf1937_cli_default_deepseek.py` — its actual FINDING (never default to
+  the ~122s tool-less `/api/aria` brain path) is still pinned; only its REMEDY
+  was withdrawn. `aria-llm` is a different endpoint from `aria`.
+* `test_a_second_call_without_the_override_is_unaffected` (R-F4318) — **this one
+  would have gone VACUOUS while still passing.** It asserts that a later
+  `from_env()` does not inherit an earlier `provider_override`; with deepseek
+  removed, both the ambient and the overridden call resolved to `aria-llm`, so
+  the leak it guards would have been invisible again. The ambient provider is
+  now explicitly a different one.
+
+Twelve new tests; five mutants, all killed — including one that restores the
+default and one that restores the silent vendor fallback.
+
+Live: with `ARIA_CODER_LLM_PROVIDER` unset and a real `DEEPSEEK_API_KEY` still
+in `.env`, the CLI resolves `aria-llm / aria-llm-v0.4-dpo` and no DeepSeek
+endpoint is reachable; `--provider deepseek` prints the named refusal and exits 2.
+
+**What the operator should know, measured this session and NOT fixed by this
+change** (see C-314): on the sovereign the coder is **5/6 on single-step** tasks
+and **1/4 on multi-step coding**, against 4/4 for a tool-capable provider on the
+same CLI, tasks and tools. Removing DeepSeek is the directive and is done; it
+does not by itself make her a better coder, and the residual is in the model, not
+the CLI. The lever that would move it is the adapter's multi-turn tool-call
+behaviour — she reasons correctly and then declines to act.

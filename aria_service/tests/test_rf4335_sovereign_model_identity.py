@@ -419,6 +419,16 @@ def test_no_re_ask_after_tool_results(tmp_path):
     so the whole turn died with an LLM error — strictly worse than the narrating
     turn it replaced, and on exactly the multi-step coding case it exists to
     help. Measured live, both directions: tool -> assistant 200, tool -> user 400.
+
+    R-F4369 (C-314) AMENDED THIS TEST, and what changed is worth stating.
+    R-F4341 enforced the invariant below by suppressing the re-ask entirely,
+    and asserted the SUPPRESSION (``llm.calls == 2``) rather than the invariant.
+    That proxy also blocked the legal way to steer mid-task, which measured
+    1/4 on real coding tasks against 4/4 for a tool-capable provider. The
+    steer now rides ON the tool message, so ``tool -> user`` still never
+    appears — the role assertion below is unchanged and is the real contract.
+    Do NOT "restore" the call-count assertion: it would re-disable the
+    mid-task steer while proving nothing the role check does not already prove.
     """
     (tmp_path / "a.txt").write_text("hi", encoding="utf-8")
     llm = _ScriptedLLM("aria-llm", [
@@ -427,13 +437,17 @@ def test_no_re_ask_after_tool_results(tmp_path):
     ])
     built = _agent(tmp_path, llm)
     built.run_turn("read a.txt then review the logs")
-    assert llm.calls == 2, "a re-ask was issued after tool results"
     roles = [m.get("role") for m in built.messages]
     for i in range(1, len(roles)):
         assert not (roles[i - 1] == "tool" and roles[i] == "user"), (
             f"user message directly after a tool message at {i} — the provider "
             f"returns HTTP 400 on this sequence: {roles}"
         )
+    # R-F4369 — and the steer that replaced the suppression must actually be
+    # where it claims to be: on the tool result, not smuggled in elsewhere.
+    assert any(m.get("role") == "tool"
+               and cli_agent.TOOL_RESULT_STEER in (m.get("content") or "")
+               for m in built.messages), "the mid-task steer did not ride on the tool message"
 
 
 def test_the_re_ask_still_happens_after_a_user_turn(tmp_path):
@@ -489,3 +503,42 @@ def test_no_launcher_gives_the_base_and_the_adapter_one_name(path):
         f"{path.name} names the base and the adapter '{served}' — the base wins "
         f"resolution and the fine-tune is silently inert (C-281)"
     )
+
+
+# -- R-F4369 (C-314): the trigger that decides whether to steer mid-task ------
+
+def test_looks_like_stalled_after_tool_separates_a_stall_from_a_report():
+    """R-F4369 — the predicate the mid-task steer is gated on.
+
+    It exists to answer ONE question after a turn that produced no tool call
+    while a tool result was the last message: did she stop mid-task, or finish?
+
+    That distinction is the whole safety property. Measured live 2026-08-26:
+    steering a turn that had ALREADY finished ("Run `git --version` and tell me
+    the version") made the sovereign invent an `edit_file` on a file nobody had
+    mentioned. So a predicate that fired on everything would convert correct
+    answers into wrong actions, and one that fired on nothing leaves her stuck
+    at one tool call — which is the 1/4 this fix was measured against.
+    """
+    offered = ["read_file", "list_dir", "grep", "run", "edit_file"]
+
+    # The operator's own live failure, verbatim.
+    assert cli_agent.looks_like_stalled_after_tool(
+        "I cannot execute or modify files. You must manually edit the "
+        "`calc.py` file.", offered)
+
+    # R-F4337's shape, reached through a tool result rather than a user turn:
+    # an offered tool named inside a fenced block, i.e. described not called.
+    assert cli_agent.looks_like_stalled_after_tool(
+        "Replace it with:\n```python\ndef add(a, b):\n    return a + b\n```\n"
+        "Then run it to check.", offered)
+
+    # A finished report must END the turn, not be steered.
+    assert not cli_agent.looks_like_stalled_after_tool(
+        "Git version 2.55.0.windows.3 is installed.", offered)
+    assert not cli_agent.looks_like_stalled_after_tool("", offered)
+
+    # "I cannot" about KNOWING, not about acting — steering someone who lacks
+    # information just makes them guess.
+    assert not cli_agent.looks_like_stalled_after_tool(
+        "I cannot tell which branch you meant — there are three.", offered)

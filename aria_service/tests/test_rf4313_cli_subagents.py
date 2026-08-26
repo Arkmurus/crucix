@@ -73,14 +73,18 @@ def test_rf4313_agent_registers_subagent_factory():
     spawn_subagent is usable in the real loop."""
     from pathlib import Path
     from aria_cli.agent import Agent, AgentUI
-    from aria_cli.llm import LLMClient
+    from aria_cli.llm import LLMClient, LLMConfig
     from aria_cli.tools import Toolbox, WriteGuard
 
     class _UI(AgentUI):
         def __init__(self):
             pass
 
-    llm = LLMClient()
+    # R-F4370 (C-315) — explicit config: LLMClient() resolves from_env(),
+    # which now fails closed rather than picking whichever vendor has a
+    # key in the ambient environment. This test is about sub-agent wiring.
+    llm = LLMClient(LLMConfig(provider="aria-llm", model="aria-llm-v0.4-dpo",
+                              base_url="http://127.0.0.1:9/v1"))
     tb = Toolbox(root=Path.cwd(), guard=WriteGuard(self_mode=False))
     agent = Agent(llm=llm, toolbox=tb, system_prompt="p", ui=_UI())
     assert agent.coder_toolbox.subagent_factory is not None

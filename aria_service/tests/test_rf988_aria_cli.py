@@ -13,7 +13,7 @@ import pytest
 
 from aria_cli.agent import Agent, AgentUI
 from aria_cli.cli import find_repo_root, load_dotenv
-from aria_cli.llm import LLMConfig, LLMResponse
+from aria_cli.llm import LLMConfig, LLMError, LLMResponse
 from aria_cli.prompt import build_system_prompt
 from aria_cli.safety import WriteGuard, check_truncation
 from aria_cli.tools import MUTATING_TOOLS, Toolbox
@@ -140,25 +140,35 @@ def test_run_nonzero_marked_error(tmp_path):
 
 
 # ── config + repo detection ───────────────────────────────────────────────────
-def test_llmconfig_deepseek_defaults(monkeypatch):
+def test_llmconfig_defaults_to_arias_own_model(monkeypatch):
+    """R-F4370 (C-315) — was `test_llmconfig_deepseek_defaults`. The coder now
+    defaults to ARIA's own sovereign model; DeepSeek was removed from the CLI
+    by operator directive ("aria must use her own reasoning now"). A stray
+    DEEPSEEK_API_KEY in the environment must no longer select anything."""
     for v in ("ARIA_CODER_LLM_PROVIDER", "LLM_PROVIDER", "ARIA_CODER_LLM_MODEL",
               "LLM_MODEL", "ARIA_CODER_LLM_BASE_URL", "OPENAI_BASE_URL",
               "ARIA_CODER_LLM_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("ARIA_LLM_URL", "https://pod.example/v1")
+    monkeypatch.setenv("ARIA_LLM_MODEL", "aria-llm-v0.4-dpo")
     cfg = LLMConfig.from_env()
-    assert cfg.provider == "deepseek"
-    assert cfg.model == "deepseek-chat"
-    assert cfg.base_url == "https://api.deepseek.com/v1"
+    assert cfg.provider == "aria-llm"
+    assert cfg.model == "aria-llm-v0.4-dpo"
+    assert cfg.base_url == "https://pod.example/v1"
     assert cfg.is_configured is True
 
 
-def test_llmconfig_unconfigured_without_key(monkeypatch):
+def test_llmconfig_unconfigured_refuses_rather_than_substituting(monkeypatch):
+    """R-F4370 — with nothing configured the CLI now RAISES. It used to return
+    a config for whichever vendor happened to have a key, which is how the
+    coder ended up on a model the operator had not chosen."""
     for v in ("ARIA_CODER_LLM_API_KEY", "LLM_API_KEY", "DEEPSEEK_API_KEY",
-              "OPENAI_API_KEY", "GROQ_API_KEY", "ARIA_CODER_LLM_PROVIDER", "LLM_PROVIDER"):
+              "OPENAI_API_KEY", "GROQ_API_KEY", "ARIA_CODER_LLM_PROVIDER",
+              "LLM_PROVIDER", "ARIA_LLM_URL", "ARIA_LLM_MODEL"):
         monkeypatch.delenv(v, raising=False)
-    cfg = LLMConfig.from_env()
-    assert cfg.is_configured is False
+    with pytest.raises(LLMError):
+        LLMConfig.from_env()
 
 
 def test_find_repo_root_detects_crucix():

@@ -187,8 +187,11 @@ def test_the_legacy_aria_provider_still_has_no_tools(monkeypatch) -> None:
 
 
 def test_other_providers_keep_their_tools(monkeypatch) -> None:
-    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    # R-F4370 (C-315) — was `deepseek`, removed from the CLI by operator
+    # directive. `openai` is the same thing this case needs: an external
+    # provider with its own key and a large window.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     client = cli_llm.LLMClient(cli_llm.LLMConfig.from_env())
     try:
         assert client.supports_tools is True
@@ -218,9 +221,13 @@ def test_the_provider_override_re_resolves_the_endpoint(monkeypatch) -> None:
 
 
 def test_no_override_keeps_env_behaviour(monkeypatch) -> None:
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    # R-F4370 (C-315) — was `deepseek`, removed from the CLI by operator
+    # directive. `openai` is the same thing this case needs: an external
+    # provider with its own key and a large window.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     c = cli_llm.LLMConfig.from_env()
-    assert c.provider == "deepseek"
+    assert c.provider == "openai"
 
 
 def test_a_keyless_sovereign_endpoint_is_configured(monkeypatch) -> None:
@@ -233,6 +240,10 @@ def test_a_keyless_sovereign_endpoint_is_configured(monkeypatch) -> None:
 
 def test_other_providers_still_require_a_key(monkeypatch) -> None:
     """The exemption must be narrow — it must not disable the check generally."""
-    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "deepseek")
+    # R-F4370 (C-315) — was `deepseek`, removed from the CLI by operator
+    # directive. `openai` is the same thing this case needs: an external
+    # provider with its own key and a large window.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     c = cli_llm.LLMConfig.from_env()
     assert c.is_configured is False

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4367,
+  "next_available": 4371,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37552,6 +37552,42 @@
       "commit_sha": "0e8257c4",
       "notes": null,
       "shipped_at": "2026-08-26T15:57:40Z"
+    },
+    {
+      "r_number": "R-F4367",
+      "title": "non-streamed re-issue when streamed tool arguments are corrupt",
+      "claimed_at": "2026-08-26T19:55:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4368",
+      "title": "recover the split/nameless Mistral TOOL_CALLS array",
+      "claimed_at": "2026-08-26T20:07:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4369",
+      "title": "steer after a tool result via the tool message (Mistral-legal)",
+      "claimed_at": "2026-08-26T20:07:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4370",
+      "title": "remove DeepSeek from the CLI provider set and default to the sovereign",
+      "claimed_at": "2026-08-26T20:26:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

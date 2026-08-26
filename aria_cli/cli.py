@@ -56,7 +56,7 @@ if __package__ in (None, ""):
 from . import __version__
 from . import brain as brain_mod
 from .agent import Agent, AgentUI
-from .llm import LLMClient, LLMConfig
+from .llm import LLMClient, LLMConfig, LLMError
 from .model_identity import session_model_identity  # R-F4335 (C-281)
 from .prompt import (build_compact_system_prompt, build_system_prompt,
                      compact_prompt_active)
@@ -1897,15 +1897,25 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     # R-F4303 — the override goes IN, so base_url/model/key are resolved for the
     # provider actually selected. Assigning cfg.provider afterwards left the
     # endpoint pointing at the previous provider.
-    cfg = LLMConfig.from_env(provider_override=args.provider)
+    # R-F4370 (C-315) — from_env now FAILS CLOSED (no ARIA_LLM_URL, a withdrawn
+    # provider, an endpoint-less one) rather than quietly selecting a vendor.
+    # Catching it here is the delivery half of that: an uncaught LLMError would
+    # meet the operator as a traceback, which reads as a broken CLI rather than
+    # as the configuration message it is.
+    try:
+        cfg = LLMConfig.from_env(provider_override=args.provider)
+    except LLMError as exc:
+        print(color.red(f"  {exc}"))
+        sys.exit(2)
     if args.model:
         cfg.model = args.model
 
     if not cfg.is_configured:
         print(color.red(
-            "No LLM API key found. Set DEEPSEEK_API_KEY (or LLM_API_KEY) in your "
-            "environment, or use --provider ollama for a local model.\n"
-            "  PowerShell:  $env:DEEPSEEK_API_KEY = 'sk-...'"))
+            f"No credential found for provider '{cfg.provider}'.\n"
+            "  ARIA's own model needs no key — set ARIA_LLM_URL + ARIA_LLM_MODEL "
+            "and leave ARIA_CODER_LLM_PROVIDER unset.\n"
+            "  PowerShell:  $env:ARIA_LLM_URL = 'https://<pod>/v1'"))
         sys.exit(2)
 
     llm = LLMClient(cfg)
@@ -2919,7 +2929,7 @@ def _run_cli(argv: list[str] | None = None) -> int:
                         help="Force self-mode (crucix guardrails + brain wiring).")
     parser.add_argument("--general", dest="general", action="store_true",
                         help="Force general mode (no crucix constitution / brain wiring).")
-    parser.add_argument("--provider", default="", help="LLM provider override (deepseek, openai, groq, ollama, ...).")
+    parser.add_argument("--provider", default="", help="LLM provider override (aria-llm is the default; openai, groq, ollama, ... also work). DeepSeek was removed by R-F4370.")
     parser.add_argument("--model", default="", help="Model override.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour.")
     parser.add_argument("--theme", choices=["dark", "light", "claude"], default="dark",

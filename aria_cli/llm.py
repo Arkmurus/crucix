@@ -39,8 +39,15 @@ logger = logging.getLogger("aria_cli.llm")
 
 # Base-url defaults mirror aria_service/llm/factory.py so the CLI talks to the
 # same endpoints ARIA already uses.
+#: R-F4370 (C-315) — DEEPSEEK IS DELIBERATELY ABSENT FROM EVERY TABLE BELOW.
+#: Operator directive 2026-08-26: "remove deepseek from cli, aria must use her
+#: own reasoning now". Removing it from the tables — rather than only changing
+#: the default — is the whole point: while `deepseek` remained a resolvable
+#: name it could still be reached by `--provider`, by LLM_PROVIDER, or by the
+#: unknown-provider base-url fallback that used to send ANY unrecognised
+#: provider to api.deepseek.com. A vendor that can still be selected by a typo
+#: has not been removed.
 _PROVIDER_BASE_URLS = {
-    "deepseek": "https://api.deepseek.com/v1",
     "openai": "https://api.openai.com/v1",
     "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
@@ -54,7 +61,6 @@ _PROVIDER_BASE_URLS = {
     "aria-llm": "",
 }
 _PROVIDER_DEFAULT_MODELS = {
-    "deepseek": "deepseek-chat",
     "openai": "gpt-4o",
     "groq": "llama-3.3-70b-versatile",
     "openrouter": "openrouter/auto",
@@ -70,7 +76,6 @@ _PROVIDER_DEFAULT_MODELS = {
 # sends the RIGHT key to the selected provider — never ARIA's internal token to
 # an external API (that 401'd every DeepSeek call).
 _PROVIDER_KEY_ENV = {
-    "deepseek": "DEEPSEEK_API_KEY",
     "openai": "OPENAI_API_KEY",
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
@@ -91,7 +96,6 @@ _PROVIDER_KEY_ENV = {
 #: A window is a property of the MODEL, so it lives here rather than in a
 #: constant that silently encodes one vendor's capacity.
 _PROVIDER_WINDOWS = {
-    "deepseek":   65536,
     "openai":     128000,
     "groq":       131072,
     "openrouter": 128000,
@@ -101,6 +105,24 @@ _PROVIDER_WINDOWS = {
     "aria-llm":   16384,   # overridden by ARIA_LLM_MAX_MODEL_LEN
 }
 _DEFAULT_WINDOW = 65536
+
+#: R-F4370 (C-315) — the CLI's default provider. ARIA reasons for herself.
+_DEFAULT_PROVIDER = "aria-llm"
+
+#: Providers deliberately withdrawn, and why. Kept as a NAMED REFUSAL rather
+#: than deleted silently: a bare KeyError would send the next reader to
+#: re-add the table entry, which is the revert this repo has already watched
+#: happen three times to a Brave/WA capability (CLAUDE.md §17).
+_REMOVED_PROVIDERS = {
+    "deepseek": (
+        "provider 'deepseek' has been removed from the ARIA coder CLI "
+        "(R-F4370, operator directive 2026-08-26: \"remove deepseek from cli, "
+        "aria must use her own reasoning now\"). The coder runs on ARIA's own "
+        "model: set ARIA_LLM_URL + ARIA_LLM_MODEL and leave "
+        "ARIA_CODER_LLM_PROVIDER unset (or =aria-llm). Do not re-add a vendor "
+        "entry to fix this message."
+    ),
+}
 
 
 class LLMError(RuntimeError):
@@ -135,15 +157,22 @@ class LLMConfig:
         """Resolve config from env. ARIA_CODER_* overrides, then the generic
         LLM_*/DEEPSEEK_* vars that the rest of the stack already uses.
 
-        R-F1937: default to DIRECT ``deepseek`` when DEEPSEEK_API_KEY is present.
-        The old default ``aria`` builds base_url ``{ARIA_SERVICE_URL}/api/aria``
-        and chat() appends ``/chat/completions`` — i.e. it hits the HEAVY brain
-        full-chat pipeline, NOT a fast coder endpoint (the prior docstring's
-        "/api/aria/coder/llm" claim was wrong). That path times out (~122s
-        measured), so a *coder* CLI must never default to it. Direct deepseek
-        answers the same prompt in ~1.7s. ``aria`` stays available as an explicit
-        opt-in via ARIA_CODER_LLM_PROVIDER/LLM_PROVIDER=aria; if no deepseek key
-        is set we fall back to ``aria`` (unchanged from before).
+        R-F4370 (C-315) — THE DEFAULT IS THE SOVEREIGN, AND DEEPSEEK IS GONE.
+        Operator directive 2026-08-26: "remove deepseek from cli, aria must use
+        her own reasoning now."
+
+        This reverses R-F1937, which defaulted to DIRECT ``deepseek`` whenever
+        DEEPSEEK_API_KEY was present. That reasoning is still sound about the
+        thing it measured — the ``aria`` provider hits the brain's heavy
+        full-chat pipeline and times out (~122s), so a coder must never default
+        THERE — but ``aria`` and ``aria-llm`` are different endpoints. The
+        sovereign vLLM answers in ~2-8s with native tool-calling, so the
+        premise that forced a vendor default no longer holds.
+
+        It fails CLOSED. With no ``ARIA_LLM_URL`` this raises rather than
+        selecting some other model, for the same reason R-F4303 refuses to
+        guess a version: being answered by a model you did not choose, with
+        nothing in the output saying so, is worse than being told no.
         """
         # R-F4303 (C-256) — a --provider flag must reach RESOLUTION, not be
         # stamped on afterwards. cli.py used to call from_env() and only then set
@@ -162,8 +191,16 @@ class LLMConfig:
             (provider_override or "").strip()
             or os.getenv("ARIA_CODER_LLM_PROVIDER")
             or os.getenv("LLM_PROVIDER")
-            or ("deepseek" if os.getenv("DEEPSEEK_API_KEY") else "aria")
+            or _DEFAULT_PROVIDER
         ).strip().lower()
+
+        # R-F4370 (C-315) — a REMOVED provider must say so, not fail obscurely.
+        # Without this, `--provider deepseek` resolves an empty base_url and the
+        # CLI dies on a malformed URL, which reads as a bug rather than as the
+        # directive it is. Naming the directive is what stops a future session
+        # "restoring" the table entry to fix the error message.
+        if provider in _REMOVED_PROVIDERS:
+            raise LLMError(_REMOVED_PROVIDERS[provider], transient=False)
 
         # R-F1280: api-key resolution MUST be provider-aware. The old order put
         # ARIA_INTERNAL_TOKEN ahead of the provider-specific key, so with
@@ -224,12 +261,25 @@ class LLMConfig:
             if not api_key:
                 api_key = os.getenv("ARIA_INTERNAL_TOKEN", "")
         else:
+            # R-F4370 (C-315) — no vendor default. This used to end in
+            # `.get(provider, "https://api.deepseek.com/v1")`, so ANY
+            # unrecognised provider — a typo, a removed name, a new one nobody
+            # wired — was silently answered by DeepSeek. That is the same
+            # class as R-F4303's refusal to guess a version: the output looks
+            # identical whichever model served it.
             base_url = (
                 os.getenv("ARIA_CODER_LLM_BASE_URL")
                 or os.getenv("OPENAI_BASE_URL")
                 or (f"{ollama_url}/v1" if provider == "ollama"
-                    else _PROVIDER_BASE_URLS.get(provider, "https://api.deepseek.com/v1"))
+                    else _PROVIDER_BASE_URLS.get(provider, ""))
             ).rstrip("/")
+            if not base_url:
+                raise LLMError(
+                    f"provider {provider!r} has no endpoint. Set "
+                    f"ARIA_CODER_LLM_BASE_URL, or use ARIA's own model "
+                    f"(unset ARIA_CODER_LLM_PROVIDER, with ARIA_LLM_URL set). "
+                    f"Refusing to fall back to another vendor.",
+                    transient=False)
 
         timeout = float(os.getenv("ARIA_CODER_LLM_TIMEOUT", "30"))
         max_tokens = int(os.getenv("ARIA_CODER_LLM_MAX_TOKENS", "8192"))
@@ -439,6 +489,87 @@ def _extract_call_blocks(body: str) -> tuple[list, str]:
     return items, nl.join(prose).strip()
 
 
+def _derive_tool_name(args: dict, tools: list[dict]) -> str:
+    """The single offered tool whose schema accepts exactly these keys, or "".
+
+    R-F4368 (C-314). Measured 2026-08-26: the sovereign's second-turn
+    ``[TOOL_CALLS]`` array sometimes carries ``arguments`` with NO ``name`` at
+    all — ``[{"arguments": {"command": "python hello.py"}}]``.
+
+    This is a DERIVATION, not a guess, and the difference is the uniqueness
+    check: the keys must satisfy one offered tool's required set, fall inside
+    its declared properties, and match NO OTHER offered tool. Two candidates
+    means there is nothing to derive and we refuse — picking one would be
+    invention, and a fabricated ``run`` EXECUTES.
+    """
+    if not isinstance(args, dict) or not args:
+        return ""
+    keys = set(args)
+    hits: list[str] = []
+    for t in tools or []:
+        fn = (t or {}).get("function") or {}
+        name = fn.get("name")
+        params = fn.get("parameters") or {}
+        props = set((params.get("properties") or {}).keys())
+        required = set(params.get("required") or [])
+        if not name or not props:
+            continue
+        # Every supplied key must be declared, and every required key supplied.
+        if keys <= props and required <= keys:
+            hits.append(name)
+    return hits[0] if len(hits) == 1 else ""
+
+
+def _pair_split_tool_call_items(items: list, tools: list[dict]) -> list:
+    """Normalise the sovereign's malformed second-turn arrays to ``items``.
+
+    R-F4368 (C-314). Two shapes, both measured live, both refused by vLLM's
+    Mistral parser (correctly — ``raw["name"]`` raises), so the call was lost::
+
+        [{"arguments": {...}}, {"name": "edit_file", "id": "104be20cf"}]
+        [{"arguments": {"command": "python hello.py"}}]
+
+    In the first the name is PRESENT, one object over; pairing it is bookkeeping,
+    not interpretation. In the second it is derived, or refused.
+
+    Returns ``items`` UNCHANGED when it is already well-formed or cannot be
+    repaired — the caller's R-F4329 validation then rejects it, so a failure to
+    repair can never become a permissive path.
+    """
+    if not isinstance(items, list) or not items:
+        return items
+    if not all(isinstance(it, dict) for it in items):
+        return items
+    # Already canonical (or something else entirely) — do not touch it.
+    if all(it.get("name") and isinstance(it.get("arguments"), dict) for it in items):
+        return items
+
+    arg_objs = [it for it in items if isinstance(it.get("arguments"), dict)
+                and not it.get("name")]
+    name_objs = [it for it in items if it.get("name")
+                 and not isinstance(it.get("arguments"), dict)]
+    if not arg_objs:
+        return items
+
+    # The split shape: pair positionally, and only when the counts line up.
+    # A mismatch means we would be choosing which name goes with which call.
+    if name_objs:
+        if len(name_objs) != len(arg_objs):
+            return items
+        return [{"name": n.get("name"), "arguments": a.get("arguments")}
+                for a, n in zip(arg_objs, name_objs)]
+
+    # The nameless shape: derive each, and refuse the WHOLE array if any one
+    # cannot be derived — R-F4329's all-or-nothing rule, for the same reason.
+    paired = []
+    for a in arg_objs:
+        name = _derive_tool_name(a.get("arguments"), tools)
+        if not name:
+            return items
+        paired.append({"name": name, "arguments": a.get("arguments")})
+    return paired if len(paired) == len(items) else items
+
+
 def recover_tool_calls_from_content(
     content: str, tools: list[dict] | None, provider: str,
 ) -> tuple[list[dict], str]:
@@ -505,6 +636,11 @@ def recover_tool_calls_from_content(
     items, leftover = _extract_call_blocks(body)
     if not items:
         return [], content
+
+    # R-F4368 (C-314) — repair the two malformed arrays the sovereign emits on
+    # a SECOND turn before validating. Leaves a well-formed array untouched, so
+    # every guarantee below is still enforced on whatever comes out.
+    items = _pair_split_tool_call_items(items, tools)
 
     calls: list[dict] = []
     for i, it in enumerate(items):
@@ -579,6 +715,26 @@ def _repair_streamed_arguments(fragments: list[str]) -> tuple[str, bool]:
         if isinstance(parsed, dict):
             return candidate, True
     return joined, False              # nothing complete — stay honest
+
+
+def _arguments_parse(tool_call: dict) -> bool:
+    """True when this tool call's ``arguments`` are usable by ``agent.py``.
+
+    R-F4367 (C-313). ``agent.py:944`` does ``json.loads(raw_args)`` and reports
+    "could not parse arguments as JSON" on failure, so this asks exactly the
+    question that decides whether the tool will RUN — not a looser one. A dict
+    is already parsed and counts as fine; anything else is checked as text.
+    """
+    args = (tool_call.get("function") or {}).get("arguments")
+    if isinstance(args, dict):
+        return True
+    if not isinstance(args, str):
+        return False
+    try:
+        json.loads(args)
+    except Exception:  # noqa: BLE001 — unparseable is the whole question
+        return False
+    return True
 
 
 def _wire_messages(messages: list[dict], provider: str) -> list[dict]:
@@ -713,6 +869,10 @@ class LLMClient:
         #: emitting partial deltas; failures mean a call was genuinely lost.
         self.stream_arg_repairs = 0
         self.stream_arg_failures = 0
+        #: R-F4367 (C-313) — corrupt streamed turns rescued by a non-streamed
+        #: re-issue. A rising count means the pod's tool parser is degrading;
+        #: a silent repair would hide that.
+        self.stream_arg_reissues = 0
 
     @property
     def supports_tools(self) -> bool:
@@ -737,6 +897,45 @@ class LLMClient:
             self._client.close()
         except Exception:
             pass
+
+    def _reissue_unstreamed(self, messages: list[dict],
+                            tools: list[dict] | None) -> "LLMResponse | None":
+        """R-F4367 (C-313) — re-ask the SAME question without streaming.
+
+        Returns the clean response, or ``None`` to keep the streamed one. It is
+        a repair attempt, never a new dependency: every failure path returns
+        ``None`` so the caller hands ``agent.py`` the honest broken call rather
+        than killing the session.
+
+        Three refusals are load-bearing, because inventing a call is worse than
+        losing one — a fabricated ``run`` EXECUTES:
+
+          * the re-issue raised            → keep the original;
+          * it produced no tool call       → keep the original, because an empty
+            answer is not evidence the model wanted nothing;
+          * its arguments are ALSO corrupt → keep the original, so the parse
+            error the operator sees names the model's first attempt.
+        """
+        try:
+            resp = self.chat(messages, tools=tools)
+        except Exception as exc:  # noqa: BLE001 — a repair must not raise
+            logger.warning("[R-F4367] non-streamed re-issue failed (%s); "
+                           "passing the corrupt streamed call through", exc)
+            return None
+        if not resp.tool_calls:
+            logger.warning("[R-F4367] non-streamed re-issue returned no tool "
+                           "call; keeping the corrupt streamed one")
+            return None
+        if not all(_arguments_parse(tc) for tc in resp.tool_calls):
+            logger.warning("[R-F4367] non-streamed re-issue is ALSO corrupt; "
+                           "staying honest rather than guessing a call")
+            return None
+        self.stream_arg_reissues += 1
+        logger.warning(
+            "[R-F4367] streamed tool arguments were truncated by the serving "
+            "stack; recovered %d call(s) by re-issuing non-streamed",
+            len(resp.tool_calls))
+        return resp
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         # ARIA provider uses the server's /api/aria/chat endpoint
@@ -1068,11 +1267,24 @@ class LLMClient:
                 tool_calls, content = _rec, _rest
                 logger.info("[R-F4329] recovered %d tool call(s) from streamed "
                             "content", len(_rec))
+        self.total_input_tokens += in_tok
+        self.total_output_tokens += out_tok
+
+        # R-F4367 (C-313) — the stream truncated a call the model got right.
+        # Measured 2026-08-26 on the sovereign pod: the same five payloads gave
+        # 5/5 clean tool calls non-streamed and 2/5 streamed, and all three
+        # streamed failures were `run` — i.e. exactly "she cannot run any
+        # command". A dropped closing quote cannot be reconstructed without
+        # guessing, so we do not guess: we re-ask the SAME question over the
+        # channel that is not broken. Stronger evidence, not a better guess.
+        if tool_calls and any(not _arguments_parse(tc) for tc in tool_calls):
+            reissued = self._reissue_unstreamed(messages, tools)
+            if reissued is not None:
+                return reissued
+
         raw_message: dict = {"role": "assistant", "content": content}
         if tool_calls:
             raw_message["tool_calls"] = tool_calls
-        self.total_input_tokens += in_tok
-        self.total_output_tokens += out_tok
         return LLMResponse(
             content=content, tool_calls=tool_calls, raw_message=raw_message,
             input_tokens=in_tok, output_tokens=out_tok,

@@ -69,10 +69,13 @@ def test_the_config_knows_the_model_window(monkeypatch) -> None:
 
 
 def test_a_big_window_provider_keeps_a_big_budget(monkeypatch) -> None:
-    """The fix must not shrink DeepSeek's headroom - that would make every long
-    coding session compact needlessly."""
-    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    """The fix must not shrink a big-window provider's headroom - that would
+    make every long coding session compact needlessly."""
+    # R-F4370 (C-315) — was `deepseek`, removed from the CLI by operator
+    # directive. `openai` is the same thing this case needs: an external
+    # provider with its own key and a large window.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     c = cli_llm.LLMConfig.from_env()
     assert c.max_model_len >= 64000
 
@@ -138,8 +141,11 @@ def test_the_compaction_budget_is_derived_not_fixed(monkeypatch) -> None:
 
 
 def test_a_large_window_still_gets_a_large_budget(monkeypatch) -> None:
-    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    # R-F4370 (C-315) — was `deepseek`, removed from the CLI by operator
+    # directive. `openai` is the same thing this case needs: an external
+    # provider with its own key and a large window.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     from aria_cli import agent as ag
     c = cli_llm.LLMConfig.from_env()
     # Scaled with the window rather than a literal: the history share is now a
@@ -199,14 +205,18 @@ def test_the_provider_override_does_not_export_to_the_environment(monkeypatch) -
 def test_a_second_call_without_the_override_is_unaffected(monkeypatch) -> None:
     """The observable consequence of the leak: the next caller silently got the
     previous caller's provider."""
-    monkeypatch.delenv("ARIA_CODER_LLM_PROVIDER", raising=False)
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    # R-F4370 (C-315) — the ambient provider must DIFFER from the override,
+    # or this case cannot fail. Once deepseek was removed the plain call also
+    # resolved to `aria-llm`, which would have made the assertion vacuous
+    # while still passing — the leak it guards would be invisible again.
+    monkeypatch.setenv("ARIA_CODER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setenv("ARIA_LLM_URL", "http://sovereign.invalid/v1")
     monkeypatch.setenv("ARIA_LLM_MODEL", "aria-llm-v0.4-dpo")
 
     cli_llm.LLMConfig.from_env(provider_override="aria-llm")
     plain = cli_llm.LLMConfig.from_env()
-    assert plain.provider == "deepseek", (
+    assert plain.provider == "openai", (
         f"a later call inherited the earlier override ({plain.provider})")
 
 

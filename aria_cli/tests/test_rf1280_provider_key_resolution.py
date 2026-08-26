@@ -9,6 +9,14 @@ so the CLI sent ARIA's internal token to DeepSeek's API and every call 401'd
 
 The fix: pick the credential that belongs to the selected provider.
 ARIA_INTERNAL_TOKEN is only correct for the in-house ``aria`` provider.
+
+R-F4370 (C-315) changed the VEHICLE, not the contract. Two cases below used
+``deepseek`` as the example external provider; DeepSeek has since been removed
+from the CLI entirely (operator directive: "aria must use her own reasoning
+now"), so selecting it now raises. They are re-expressed against ``mistral`` —
+another external provider with its own key var — because what R-F1280 protects
+is "the RIGHT key goes to the SELECTED provider", which is provider-agnostic
+and still exactly as load-bearing.
 """
 from __future__ import annotations
 
@@ -38,15 +46,16 @@ def _clean_env(monkeypatch):
         monkeypatch.delenv(v, raising=False)
 
 
-def test_deepseek_provider_uses_deepseek_key_not_internal_token(monkeypatch):
-    """The exact failing combo: provider=deepseek with both keys present."""
-    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+def test_external_provider_uses_its_own_key_not_the_internal_token(monkeypatch):
+    """The exact failing SHAPE: an external provider with both keys present.
+    (Was provider=deepseek; see the module docstring on why the vehicle moved.)"""
+    monkeypatch.setenv("LLM_PROVIDER", "mistral")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "internal-token-ENDS9c2a")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-ENDS4559")
+    monkeypatch.setenv("MISTRAL_API_KEY", "sk-mistral-ENDS4559")
     cfg = LLMConfig.from_env()
-    assert cfg.provider == "deepseek"
-    assert cfg.api_key == "sk-deepseek-ENDS4559", (
-        "deepseek must use DEEPSEEK_API_KEY, not ARIA_INTERNAL_TOKEN"
+    assert cfg.provider == "mistral"
+    assert cfg.api_key == "sk-mistral-ENDS4559", (
+        "an external provider must use its OWN key, not ARIA_INTERNAL_TOKEN"
     )
 
 
@@ -62,8 +71,8 @@ def test_aria_provider_uses_internal_token(monkeypatch):
 
 def test_explicit_override_wins(monkeypatch):
     """An explicit ARIA_CODER_LLM_API_KEY beats the provider default."""
-    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-ENDS4559")
+    monkeypatch.setenv("LLM_PROVIDER", "mistral")
+    monkeypatch.setenv("MISTRAL_API_KEY", "sk-mistral-ENDS4559")
     monkeypatch.setenv("ARIA_CODER_LLM_API_KEY", "explicit-override")
     cfg = LLMConfig.from_env()
     assert cfg.api_key == "explicit-override"
