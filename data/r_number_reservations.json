@@ -37360,9 +37360,10 @@
       "title": "HF cache picks a disk with room, and a preflight fails fast if none has",
       "claimed_at": "2026-08-26T01:24:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4f61909a",
+      "notes": null,
+      "shipped_at": "2026-08-26T06:44:49Z"
     },
     {
       "r_number": "R-F4348",
