@@ -184,11 +184,34 @@ def _all_test_files() -> list[Path]:
     the gate: its capability test lives in test/<name>.test.mjs by convention, and
     the verifier simply could not see it. An R-number whose test the gate cannot
     find is reported as undisciplined work, which is a false accusation.
+
+    R-F4353 (C-298) — DISCOVER THE TREES, DO NOT LIST THEM. R-F3281 widened
+    this from one hardcoded directory to two, and a third appeared anyway:
+    `aria_cli/tests` holds 47 test files that this function could not see. The
+    consequence is not cosmetic — it BLOCKS THE PUSH and reports the author as
+    having shipped an R-number with no test, which is the "false accusation"
+    the docstring above already warns about. It happened to R-F4351, whose
+    capability test existed and was simply in a directory nobody had added to
+    the list — and it blocked a second session's four unrelated commits behind
+    it, because the gate runs over the whole push range.
+
+    The cost is worse than a false accusation. A fails-closed hook that cannot
+    be satisfied HONESTLY pushes the next author toward `--no-verify`, which
+    disables the gate for EVERY R-number in the push, not just the one it
+    misjudged. A gate people must route around is a gate that has stopped
+    working.
+
+    A list of known places rots every time a package is added. Globbing
+    `*/tests/test_*.py` finds them by SHAPE instead, so the next package is
+    covered on the day it is created rather than the day someone notices.
+    Kept to one level deep on purpose: it is bounded, fast, and matches the
+    repo's actual layout (`<package>/tests/`), where a full recursive walk
+    would drag in .venv and node_modules.
     """
     out: list[Path] = []
-    py = _REPO / "aria_service" / "tests"
-    if py.exists():
-        out += sorted(py.glob("test_*.py"))
+    for tests_dir in sorted(_REPO.glob("*/tests")):
+        if tests_dir.is_dir():
+            out += sorted(tests_dir.glob("test_*.py"))
     node = _REPO / "test"
     if node.exists():
         out += sorted(node.glob("*.test.mjs"))

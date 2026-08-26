@@ -16920,3 +16920,51 @@ The fly-logs request in the operator's report is case 1 and **still fails after
 this fix**; that is the intended behaviour of the safety branch, not a
 regression. Root cause is the adapter's tool-JSON formatting and the fix belongs
 in the tool-use curriculum, not the transport.
+
+## C-298 · the verify gate could not see a whole test tier, and failed closed (fixed — R-F4353)
+
+R-F4351's capability test lived in `aria_cli/tests/`. `_all_test_files()` in
+`scripts/verify_commit.py` globbed `aria_service/tests/` and the Node `test/`
+directory and nothing else, so the pre-push hook refused the push:
+
+    [R-F559] FAIL - R-numbers missing test file:
+      R-F4351
+
+47 test files in a tier the gate could not see. **No CLI fix could ever satisfy
+it**, however well tested.
+
+This is the SAME defect R-F3281 fixed once for the web tier, and its own
+docstring already named the cost — "an R-number whose test the gate cannot find
+is reported as undisciplined work, which is a false accusation." The real cost
+is worse than that. The gate fails CLOSED over the **whole push range**, so it
+also blocked a second session's four unrelated, correctly-tested commits. And a
+fails-closed hook that cannot be satisfied honestly points the next author at
+`--no-verify`, which disables the gate for EVERY R-number in the push, not just
+the one it misjudged. A gate people route around has stopped working.
+
+**Fixed by discovery, not by a longer list.** R-F3281 widened a hardcoded list
+from one entry to two and a third tier appeared anyway; a list rots every time a
+package is added. `sorted(_REPO.glob("*/tests"))` finds them by SHAPE, so the
+next package is covered the day it is created. Deliberately one level deep — a
+recursive walk would drag in `.venv/` and `node_modules/`.
+
+The tests pin the PROPERTY, not the directories: `test_every_package_tests_dir_
+is_discovered_not_just_listed` compares what the gate enumerates against what is
+actually on disk, so it stays red for a fourth tier. Asserting "aria_cli is in
+the list" would have gone green while the next tier stayed invisible — which is
+precisely how this survived R-F3281. RED 2/4 on the pre-fix verifier, GREEN 4/4
+after.
+
+**Collision note.** Two sessions hit this simultaneously; the implementation
+here is aria-2a's (R-F4354/C-299, released as superseded) landed under the
+earlier reservation so one defect carries one number, per §26a.
+
+**A retracted claim, kept because the mechanism matters.** Mid-collision I
+measured the sibling `test_verify_commit_rf559.py` at 6/9 red and was about to
+record a new standing red. Re-measured on a settled tree it is **9/9 green,
+three runs, and 13/13 alongside these tests**. The 6 failures were a read of
+`scripts/verify_commit.py` while the other session was part-way through writing
+it — `SyntaxError: invalid character` from a half-written file, not a defect.
+Two agents in one tree can produce a reading that looks like a finding; §16
+already records this for suite baselines (`git status` reads clean between
+commits while the instrument moved). Re-measure on a quiet tree before filing.

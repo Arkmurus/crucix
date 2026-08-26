@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4353,
+  "next_available": 4355,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37408,6 +37408,25 @@
       "r_number": "R-F4352",
       "title": "eval-only runner assumed deps a pod restart destroys (C-296)",
       "claimed_at": "2026-08-26T07:41:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "517bc601",
+      "notes": null,
+      "shipped_at": "2026-08-26T08:38:42Z"
+    },
+    {
+      "r_number": "R-F4353",
+      "title": "the R-F559 gate cannot see aria_cli tests, so a CLI fix reads as undisciplined",
+      "claimed_at": "2026-08-26T08:39:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4354",
+      "title": "the R-number test guard could not see a whole test tree (C-298)",
+      "claimed_at": "2026-08-26T08:39:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

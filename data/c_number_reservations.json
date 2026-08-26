@@ -3340,6 +3340,27 @@
       "title": "pod_eval_only.sh never installed the deps it imports",
       "claimed_at": "2026-08-26T07:41:46Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4352"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T08:38:43Z"
+    },
+    {
+      "c_number": "C-298",
+      "title": "R-F559 verifier blind to the aria_cli test tier",
+      "claimed_at": "2026-08-26T08:39:37Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-299",
+      "title": "verify_commit hardcoded two test directories and aria_cli/tests was a third",
+      "claimed_at": "2026-08-26T08:39:50Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null
