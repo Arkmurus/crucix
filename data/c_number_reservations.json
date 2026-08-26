@@ -3487,9 +3487,12 @@
       "title": "footer trace id truncated to tr_17877 for every request; lookup impossible",
       "claimed_at": "2026-08-26T14:32:27Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4364"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T14:35:14Z"
     }
   ]
 }

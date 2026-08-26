@@ -37528,9 +37528,10 @@
       "title": "the trace id on every answer is truncated to a constant prefix and identifies nothing",
       "claimed_at": "2026-08-26T14:32:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ca8f2e0",
+      "notes": null,
+      "shipped_at": "2026-08-26T14:35:14Z"
     }
   ]
 }
