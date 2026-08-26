@@ -42,7 +42,9 @@ mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
 log "persisting full-epoch adapter before evaluation"
 timeout 900 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":/workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1
 tar -tzf "$OUTPUT_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || { log "FATAL recovered adapter invalid"; exit 1; }
-for item in "scripts/train/pod_tooluse_dpo.sh:/workspace/pod_tooluse_dpo.sh" "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" "scripts/train/build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" "scripts/train/serve_eval_shim.py:/workspace/crucix/scripts/train/serve_eval_shim.py" "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh"; do
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector ships with the runner.
+for item in "scripts/train/hf_cache_select.sh:/workspace/hf_cache_select.sh" "scripts/train/pod_tooluse_dpo.sh:/workspace/pod_tooluse_dpo.sh" "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" "scripts/train/build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" "scripts/train/serve_eval_shim.py:/workspace/crucix/scripts/train/serve_eval_shim.py" "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh"; do
   src=${item%%:*}; dst=${item#*:}; timeout 180 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" "$src" root@"$HOST":"$dst" || exit 1
 done
 TSSH -p "$PORT" root@"$HOST" "rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=7200 GRACE=900 COLLECT_GRACE=900 setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_recovery_eval_watch.log 2>&1 </dev/null & echo ARMED" | grep -q ARMED || exit 1

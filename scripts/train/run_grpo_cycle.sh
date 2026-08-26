@@ -80,6 +80,9 @@ for f in grpo_train.py grpo_pod_run.sh grpo_vllm_pod_run.sh serve_eval_shim.py e
 done
 # the selected runner + selfstop also at /workspace root (launched from there)
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$POD_RUN_SCRIPT" root@"$HOST":/workspace/ || exit 1
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN selfstop scp"
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN selfstop scp"
 for f in aria_service/__init__.py aria_service/intel/__init__.py aria_service/intel/grounding_reward.py; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$f" root@"$HOST":/workspace/crucix/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }

@@ -90,6 +90,9 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 # 3. Push the PROVEN on-pod orchestrator + proven trainers + aria_service subtree + datasets
 echo "[driver] pushing proven scripts + aria_service subtree + grounded datasets..."
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/dpo_v04_pod_run.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp orchestrator"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh root@"$HOST":/workspace/ 2>/dev/null || echo "[driver] WARN: self-stop watcher scp failed"
 for f in sft_train.py dpo_train.py serve_eval_shim.py eval_aria_llm.py; do

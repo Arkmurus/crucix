@@ -113,7 +113,11 @@ done
 [ "$ok" -ge 3 ] || { log "FATAL SSH unstable"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" 'mkdir -p /workspace/checkpoints /workspace/datasets /workspace/eval /workspace/logs /workspace/crucix/scripts/train' || exit 1
 RSCP(){ timeout 180 scp -i "$KEYF" $SSH_KEYS -o ConnectTimeout=15 -P "$PORT" "$1" root@"$HOST":"$2" 2>/dev/null; }
+# R-F4350 (C-295) — pod_tooluse_prompt_ablation.sh sources hf_cache_select.sh and
+# fails CLOSED without it, so the selector ships with the runner. The entry sits
+# inside the continuation below; a comment cannot go there.
 for item in \
+  "scripts/train/hf_cache_select.sh:/workspace/hf_cache_select.sh" \
   "scripts/train/pod_tooluse_prompt_ablation.sh:/workspace/pod_tooluse_prompt_ablation.sh" \
   "scripts/train/pod_selfstop_watch_v04.sh:/workspace/pod_selfstop_watch_v04.sh" \
   "scripts/train/eval_tooluse.py:/workspace/crucix/scripts/train/eval_tooluse.py" \

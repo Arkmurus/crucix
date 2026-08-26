@@ -60,6 +60,9 @@ ok=0; for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/nul
 
 # ── 3. Push runner + the frozen 500-Q eval set ───────────────────────────────
 echo "[driver] pushing runner + eval set…"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/baseline_pod_run.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp runner"; exit 1; }
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets"
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" data/eval_reports/aria_eval_500q.jsonl root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl || { echo "[driver] FATAL scp eval set"; exit 1; }

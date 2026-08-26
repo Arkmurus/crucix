@@ -76,6 +76,9 @@ RSCP(){ local s="$1" d="$2" t; for t in 1 2 3 4 5; do
 
 # Push + arm watcher + run
 for j in 1 2 3; do TSSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel /workspace/logs" 2>/dev/null && break; sleep 8; done
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+RSCP scripts/train/hf_cache_select.sh         /workspace/                       || { log "FATAL scp hf_cache_select.sh"; exit 1; }
 RSCP scripts/train/pod_eval_only.sh         /workspace/                       || { log "FATAL scp runner"; exit 1; }
 RSCP scripts/train/pod_selfstop_watch_v04.sh /workspace/                      || { log "FATAL scp watcher"; exit 1; }
 for f in serve_eval_shim.py eval_aria_llm.py; do RSCP "scripts/train/$f" "/workspace/crucix/scripts/train/$f" || { log "FATAL scp $f"; exit 1; }; done

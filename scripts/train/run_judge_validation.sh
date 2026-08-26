@@ -56,6 +56,9 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 
 # 3. Push runner + CURRENT judge-enabled eval + 100-Q set
 echo "[val] pushing runner + CURRENT eval_aria_llm.py (judge-enabled) + eval set..."
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[val] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/baseline_pod_run.sh root@"$HOST":/workspace/ || { echo "[val] FATAL scp runner"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/eval_aria_llm.py root@"$HOST":/workspace/crucix/scripts/train/eval_aria_llm.py || { echo "[val] FATAL scp eval"; exit 1; }
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets"

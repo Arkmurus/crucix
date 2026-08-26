@@ -67,6 +67,9 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 # 3. Push driver + current scripts + eval set (container was wiped on restart)
 echo "[v0.2] pushing driver + scripts + eval set…"
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[v0.2] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/v0_2_eval_pod_run.sh root@"$HOST":/workspace/ || { echo "[v0.2] FATAL scp driver"; exit 1; }
 for f in serve_eval_shim.py eval_aria_llm.py; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" || { echo "[v0.2] FATAL scp $f"; exit 1; }

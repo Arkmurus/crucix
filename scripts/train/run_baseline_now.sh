@@ -29,6 +29,9 @@ echo "[driver] target pod $POD @ $HOST:$PORT"
 $SSH -p "$PORT" root@"$HOST" "echo SSH_OK" | grep -q SSH_OK || { echo "[driver] FATAL: SSH failed"; exit 1; }
 
 echo "[driver] pushing runner + 500-Q eval set…"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+$SCP scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp hf_cache_select.sh"; exit 1; }
 $SCP scripts/train/baseline_pod_run.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp runner"; exit 1; }
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets"
 $SCP data/eval_reports/aria_eval_500q.jsonl root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl || { echo "[driver] FATAL scp eval set"; exit 1; }

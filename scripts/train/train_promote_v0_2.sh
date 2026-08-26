@@ -18,6 +18,9 @@
 #   bash /workspace/train_promote_v0_2.sh
 # Or from the operator box:
 #   scp -i ~/.ssh/runpod_aria -P <port> scripts/train/train_promote_v0_2.sh root@<host>:/workspace/
+#   # R-F4350 (C-295): this script sources hf_cache_select.sh and REFUSES to run
+#   # without it, so upload it too or the run stops immediately.
+#   scp -i ~/.ssh/runpod_aria -P <port> scripts/train/hf_cache_select.sh root@<host>:/workspace/
 #   scp ... data/training/aria_dpo_v1.jsonl root@<host>:/workspace/datasets/
 #   scp ... data/training/aria_eval_500q.jsonl root@<host>:/workspace/datasets/
 #   ssh ... 'bash /workspace/train_promote_v0_2.sh'

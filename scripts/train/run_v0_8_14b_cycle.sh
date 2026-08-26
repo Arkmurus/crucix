@@ -73,6 +73,9 @@ for i in $(seq 1 24); do TSSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 # 3. Push driver + current scripts + v0.8 corpus + open-book eval + self-stop watcher
 echo "[driver] pushing driver + scripts + v0.8 corpus + open-book eval + self-stop watcher..."
 TSSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/logs"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh            root@"$HOST":/workspace/ || { echo "[driver] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/v0_4_pod_run.sh            root@"$HOST":/workspace/ || { echo "[driver] FATAL scp driver"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/pod_selfstop_watch_v04.sh   root@"$HOST":/workspace/ || { echo "[driver] FATAL scp watcher"; exit 1; }
 for f in sft_train.py serve_eval_shim.py eval_aria_llm.py; do

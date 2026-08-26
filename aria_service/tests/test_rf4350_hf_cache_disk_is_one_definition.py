@@ -262,12 +262,91 @@ def test_an_inherited_HF_HOME_wins(tmp_path):
 
 def test_the_driver_ships_the_helper_to_the_pod():
     """Every pod script now fails CLOSED without this file, so a cycle that
-    does not ship it does not run at all. The wiring and the delivery have to
-    land together."""
-    body = DRIVER.read_text(encoding="utf-8")
-    assert "hf_cache_select.sh" in body, (
-        "the driver does not push hf_cache_select.sh — every pod script it "
-        "launches would fail closed")
+    does not ship it does not run at all. Wiring and delivery land together.
+
+    SWEPT ACROSS EVERY DRIVER, not just one — and that widening was earned.
+    The first version checked `run_v0_5_grounded_cycle.sh` alone, so
+    `eval_only_v07.sh` shipped without the helper and I found it by LAUNCHING a
+    run, not by the test. That is precisely the "guard scoped to one file
+    certifies the rest" defect this whole R-number exists to fix, reproduced
+    inside its own test file within the hour.
+
+    A driver here is any local script that PUSHES an on-pod runner; if it sends
+    a script that SOURCES the helper, it must send the helper too.
+
+    BOTH HALVES OF THAT SENTENCE ARE PRECISE ON PURPOSE, because a looser
+    version produced four false positives:
+
+      * "sources the helper" is the FUNCTION CALL `hf_cache_select ||`, not the
+        mere presence of the string. A driver that SHIPS the helper also
+        contains `hf_cache_select.sh`, so string-presence made every patched
+        driver look like a script that needs it — and then flagged anything
+        merely MENTIONING that driver's name.
+      * "pushes" is an scp/RSCP of a LOCAL `scripts/train/...` path.
+        `recover_v0_3.sh` only scp's reports OUT and pushes nothing, so it can
+        need nothing; `run_v04_train_launcher.sh` names another driver in a
+        comment.
+
+    `smoke_cycle.sh` and `tooluse_cycle.sh` push runners (`pod_smoke_sft.sh`,
+    `pod_tooluse_cycle.sh`) that never touch HF_HOME and therefore never source
+    the helper — correctly not required to ship it.
+    """
+    invokes = re.compile(r"^\s*hf_cache_select\b", re.M)
+    pushes = re.compile(r"(?:scp|RSCP)[^\n]*scripts/train/([A-Za-z0-9_.\-]+)")
+
+    def _code(text: str) -> str:
+        """Comment lines are documentation, not delivery. `train_promote_v0_2.sh`
+        carries manual-upload instructions in its header, and reading those as
+        a push made an on-pod runner look like a driver shipping itself."""
+        return "\n".join(ln for ln in text.splitlines()
+                         if not ln.lstrip().startswith("#"))
+
+    sourcing = {o.name for o in TRAIN.glob("*.sh")
+                if invokes.search(_code(o.read_text(encoding="utf-8")))}
+
+    does_scp = re.compile(r"\b(?:scp|RSCP)\b")
+
+    offenders = []
+    for p in TRAIN.glob("*.sh"):
+        body = _code(p.read_text(encoding="utf-8"))
+        # RESPONSIBILITY FOLLOWS THE UPLOAD. A file that performs no scp cannot
+        # be required to ship anything: the twenty `run_tooluse_*` wrappers just
+        # set POD_RUNNER=scripts/train/pod_tooluse_*.sh and delegate to
+        # run_tooluse_dpo.sh, which does the upload and ships the helper. Naming
+        # a runner is not delivering one, and flagging them was this predicate
+        # over-reaching for the second time.
+        if not does_scp.search(body):
+            continue
+        # EVERY `scripts/train/<file>` named on a code line, however it reaches
+        # the pod. Three delivery idioms are in use and a narrower reading
+        # missed one each time:
+        #   scp scripts/train/x.sh root@host:/workspace/     (literal)
+        #   for item in "scripts/train/x.sh:/workspace/x.sh" (src:dst list)
+        #   for f in a.py b.sh; do scp "scripts/train/$f" …  (loop variable)
+        # and `run_tooluse_dpo.sh` reaches its runner through
+        # POD_RUNNER="${POD_RUNNER:-scripts/train/pod_tooluse_dpo.sh}", where
+        # the name appears only in the default. Mutation testing found that
+        # hole in the very file this R-number had just patched.
+        pushed = set(re.findall(r"scripts/train/([A-Za-z0-9_.\-]+\.(?:sh|py))", body))
+        pushed |= set(pushes.findall(body))
+        if re.search(r"scripts/train/\$\{?f\}?", body):
+            for lst in re.findall(r"^\s*for\s+f\s+in\s+([^;]+);\s*do", body, re.M):
+                pushed |= {tok for tok in lst.split()
+                           if re.fullmatch(r"[A-Za-z0-9_.\-]+\.(?:sh|py)", tok)}
+        pushed.discard(p.name)  # a runner naming itself is not a delivery
+        if not (pushed & sourcing):
+            continue
+        # THE HELPER MUST BE IN A PUSH, not merely somewhere in the file.
+        # Mutation testing caught this: deleting the helper from the push list
+        # left the explanatory COMMENT above it still naming the file, so a
+        # string-presence check passed against a driver that no longer shipped
+        # anything. The guard was satisfied by its own documentation.
+        if "hf_cache_select.sh" not in pushed:
+            offenders.append(f"{p.name} -> needs {sorted(pushed & sourcing)}")
+    assert not offenders, (
+        "drivers that push a pod script needing the cache selector but never "
+        f"push the selector itself: {offenders} — every script they launch "
+        f"would fail closed")
 
 
 def test_all_touched_scripts_still_parse():

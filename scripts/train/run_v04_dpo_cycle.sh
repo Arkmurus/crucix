@@ -76,6 +76,9 @@ for i in $(seq 1 24); do $SSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | gr
 # 3. Push driver + scripts (incl dpo_train.py) + aria_service subtree + SFT corpus + DPO pairs + eval set
 echo "[driver] pushing scripts + aria_service subtree + datasets..."
 $SSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel"
+# R-F4350 (C-295) — the pod runner sources hf_cache_select.sh and fails
+# CLOSED without it, so the selector must ship alongside the runner.
+scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/hf_cache_select.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp hf_cache_select.sh"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" scripts/train/dpo_v04_pod_run.sh root@"$HOST":/workspace/ || { echo "[driver] FATAL scp driver"; exit 1; }
 for f in sft_train.py dpo_train.py serve_eval_shim.py eval_aria_llm.py; do
   scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "scripts/train/$f" root@"$HOST":/workspace/crucix/scripts/train/"$f" || { echo "[driver] FATAL scp $f"; exit 1; }
