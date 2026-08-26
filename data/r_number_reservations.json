@@ -37438,9 +37438,10 @@
       "title": "the test gate demands a capability test for R-numbers that were abandoned",
       "claimed_at": "2026-08-26T08:54:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d28d01c",
+      "notes": null,
+      "shipped_at": "2026-08-26T08:58:37Z"
     }
   ]
 }
