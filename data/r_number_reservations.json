@@ -37458,9 +37458,10 @@
       "title": "the sovereign is clamped and cooled out of a chain with nowhere else to go",
       "claimed_at": "2026-08-26T10:18:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "086493d3",
+      "notes": null,
+      "shipped_at": "2026-08-26T10:33:26Z"
     }
   ]
 }
