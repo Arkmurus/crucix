@@ -17,7 +17,12 @@ import os
 import time
 from typing import Any, Optional
 
-from .provider import LLMProvider, LLMResult, ProviderError
+from .provider import (  # R-F4357 (C-303) SOLE_PROVIDER_DIAL
+    SOLE_PROVIDER_DIAL as _SOLE_PROVIDER_DIAL,
+    LLMProvider,
+    LLMResult,
+    ProviderError,
+)
 from .factory import create_llm_provider
 from .openai_compat import KIND_REASONING_TRUNCATED  # R-F3627 — cause-aware paging
 from . import vendor_balance  # R-F4229 — the vendor's OWN prepaid balance
@@ -1508,6 +1513,13 @@ class FallbackProvider(LLMProvider):
             # to the floor — anything less isn't worth dialling out for.
             per_call = max(timeout, self._PROVIDER_MIN_BUDGET)
 
+            # R-F4357 (C-303) — tell the sovereign's warm-gate whether refusing
+            # this dial would route anywhere. `_alt` is already computed above
+            # for R-F3680's "going silent is worse" ruling; the gate lives in
+            # resilience.py and could not see it, so it refused the only
+            # provider there was and took ARIA's reasoning dark.
+            _sole_tok = _SOLE_PROVIDER_DIAL.set(not _alt)
+
             try:
                 attempted += 1
                 called.append(provider.name)
@@ -1540,6 +1552,11 @@ class FallbackProvider(LLMProvider):
                 self._record_failure(provider, stats, e)
                 last_error = e
 
+            finally:
+                # R-F4357 (C-303) — a contextvar set and never reset leaks into
+                # everything that runs later on this task; a stale True would
+                # lift the sovereign's clamp for an unrelated call.
+                _SOLE_PROVIDER_DIAL.reset(_sole_tok)
         # R-F3036 — EVERY candidate provider is gone. A single provider failing
         # is routine (the chain usually covers it); having no LLM at all is an
         # outage, and it has to be distinguishable from a blip on the surfaces
@@ -1632,6 +1649,10 @@ class FallbackProvider(LLMProvider):
                 self._wire_last_resort_dial(
                     provider.name, f"path=stream kind={stats.get('last_kind') or 'unknown'}")
 
+            # R-F4357 (C-303) §13 MIRROR — same declaration on the stream fork.
+            # Web chat streams, so this is the fork a user is likeliest to hit.
+            _sole_tok = _SOLE_PROVIDER_DIAL.set(not _alt)
+
             try:
                 attempted += 1
                 called.append(provider.name)
@@ -1654,6 +1675,11 @@ class FallbackProvider(LLMProvider):
                 self._record_failure(provider, stats, e)
                 last_error = e
 
+            finally:
+                # R-F4357 (C-303) — a contextvar set and never reset leaks into
+                # everything that runs later on this task; a stale True would
+                # lift the sovereign's clamp for an unrelated call.
+                _SOLE_PROVIDER_DIAL.reset(_sole_tok)
         # R-F3613 §13 MIRROR — this fork previously raised WITHOUT recording the
         # exhaustion or wiring it. Consequences, all silent: get_health()
         # .resilient stayed True through a streaming outage, no gap was filed,

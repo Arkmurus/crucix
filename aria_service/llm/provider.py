@@ -5,12 +5,41 @@ Streaming: stream(system, user, opts) → AsyncGenerator[str] for token-by-token
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import Optional
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+
+#: R-F4357 (C-303) — True while the chain is dialling a provider it has NO
+#: alternative to. Lives here because it is the ONE fact both the chain
+#: (fallback.py, which computes it via `_has_reachable_alternative`) and the
+#: sovereign's warm-gate (resilience.py, which must honour it) need to agree on,
+#: and both already import this module — so it costs no new coupling.
+#:
+#: WHY IT EXISTS. Two guards on the sovereign — the call clamp and the admission
+#: gate — were written to protect a FALLBACK: clamp the deadline so a hang
+#: "fast-fails to DeepSeek", refuse an OPEN breaker so the chain "skips to
+#: fallback". DeepSeek was later removed from the chain by operator directive,
+#: and with `ARIA_LLM_PRIMARY_ALL=1` the sovereign is the whole chain. Both
+#: guards kept obeying a premise that no longer held, and their combined effect
+#: was to take ARIA's entire reasoning dark for 300s at a time.
+#:
+#: The doctrine this restores is NOT new. R-F3680 already dials a cooling
+#: provider "DESPITE its cooldown — it is the only reachable provider left;
+#: going silent is worse", and R-F4330 (C-278) already exempts self-hosted
+#: providers from soft cooldown. Both rulings were bypassed because the wrapper
+#: refuses BEFORE the chain dials, and nothing told it whether refusing routed
+#: anywhere.
+#:
+#: DEFAULT FALSE, and that is load-bearing: every path that does not explicitly
+#: declare a last-resort dial keeps today's fail-closed behaviour. This widens
+#: nothing on a chain that has somewhere else to go.
+SOLE_PROVIDER_DIAL: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
+    "llm_sole_provider_dial", default=False,
+)
 
 logger = logging.getLogger("aria.llm")
 

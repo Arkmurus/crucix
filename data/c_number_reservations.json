@@ -3400,6 +3400,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-303",
+      "title": "sole-provider ARIA goes dark: admission gate and call clamp both protect a fallback that no longer exists",
+      "claimed_at": "2026-08-26T10:18:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

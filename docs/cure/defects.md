@@ -17217,3 +17217,77 @@ while `researcher` is spaced, so the same breaches compress into fewer minutes
 and more `/health` samples land inside an exhaustion window. **Compare breaches
 per active caller, not degraded percentage per sample window** — and note the
 sample sizes differ (30 vs 12) and the second sits closer to boot.
+
+## C-303 · the sovereign is clamped and cooled out of a chain with nowhere else to go (fixed — R-F4357)
+
+**Operator, 2026-08-26:** *"aria cannot be on cooldown, she is running on her own
+reasoning and everything else is running on it as well … we cannot have a cool
+down period."* With `ARIA_LLM_PRIMARY_ALL=1` and `chain_order: ["aria_llm"]`,
+cooling the sovereign is not a routing decision. It is a total reasoning outage
+for the whole operating system.
+
+**MEASURED LIVE across two builds:**
+
+    145 x "attempt exceeded its 15.0s wall-clock ceiling"   (one value, uniformly)
+    [circuit_breaker] aria_llm: CLOSED -> OPEN (3 consecutive failures,
+                                reason=server, cooldown=300s)      x4 in one boot
+    [aria_llm] ARIA-LLM unavailable (cold/unproven or breaker OPEN)
+                                — skipping to fallback         <- to NOTHING
+
+**THE LOOP — every step verified in the tree, and it is self-inflicted:**
+
+1. `resilience._HealthCheckedProvider.complete` clamped every sovereign call:
+   `eff_timeout = min(timeout, _ARIA_LLM_CALL_TIMEOUT)` (12s). Its stated
+   purpose, at `resilience.py:67`, is *"clamp the per-call deadline so a hang
+   fast-fails **to DeepSeek**"*.
+2. DeepSeek was removed from the chain by operator directive. **The premise died
+   and the code kept obeying it** — the same shape as R-F4028 (C-98), where a
+   backup tier outlived the reason it existed.
+3. `openai_compat` then floors attempt 0 at `_MIN_RETRY_SECONDS` (15.0), which is
+   why every breach reports 15.0 regardless of what the caller asked for.
+   `adversarial_challenge` asks for **60s** and is handed **15**.
+4. Long-form work crosses 15s **by arithmetic** on a 7B emitting 500–1500 tokens.
+   The provider is NOT slow: measured 0.83s for `/v1/models` and **1.1s for a real
+   completion**, mid-incident.
+5. Each timeout calls `record_user_failure()`; three consecutive open the breaker
+   for 300s.
+6. `_admission()` then refuses EVERY sovereign call for those 300s — and there is
+   no alternative, so ARIA has no reasoning at all.
+7. Each failure logs ERROR on an `aria.*` logger, resetting the Phase A gate #3
+   streak (C-302).
+
+**The doctrine already existed; the gate bypassed it.** R-F3680 dials a cooling
+provider *"DESPITE its cooldown — it is the only reachable provider left; going
+silent is worse"*, and R-F4330 (C-278) already exempts self-hosted providers from
+soft cooldown because *"a cooldown protects a VENDOR relationship … no billing
+domain, no quota, no lockout to deepen"*. Both rulings are correct and neither
+reached this wrapper, which refuses **before** the chain ever dials. The chain
+computes the deciding fact (`_has_reachable_alternative`, on both transports); it
+simply never told the wrapper.
+
+So this is not new policy — it is letting the existing policy apply.
+`SOLE_PROVIDER_DIAL` carries that one fact from the chain to the gate.
+
+**WHAT DELIBERATELY DID NOT CHANGE, each pinned by a test:**
+
+* With an alternative present, the clamp and the fail-closed gate behave exactly
+  as before — fast-failing to a real fallback is right, and this must not become
+  a blanket removal of the guard.
+* Lifting a **ceiling** never raises a **floor**: a caller asking for less than
+  the clamp still gets exactly what it asked for.
+* An unreadable flag resolves to `False` — an unknown must not buy a widened gate.
+* The health checker keeps recording, so a genuinely dead pod is still visible and
+  still fails fast on its own connection error.
+* Removing the cooldown does NOT remove the fallback (R-F4330's crux): the failing
+  request still falls through on that same turn.
+* The flag is reset in a `finally` on both transports — a contextvar set and never
+  reset would lift the clamp for every later call on the same task.
+
+Fourteen tests, six mutants, all killed. Two initially survived and only one was a
+real gap: the §13 check asserted the *string* `SOLE_PROVIDER_DIAL` appeared in
+both methods, which a hardcoded `set(False)` satisfies while leaving the wrapper
+just as blind — replaced by a behavioural test that drives the real chain and
+asserts the value the provider observes. The other "survivor" was an instrument
+fault: the mutant's anchor matched an unrelated `return False` earlier in the
+file. **A mutant that does not mutate the code under test proves nothing** —
+check the anchor before believing a survival.

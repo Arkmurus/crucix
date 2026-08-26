@@ -68,6 +68,7 @@ _HEALTH_CHECK_COOLDOWN = int(os.getenv("ARIA_LLM_HEALTH_COOLDOWN", "300"))
 #   _ARIA_LLM_STREAM_TIMEOUT — same for streaming (more generous; long answers stream > clamp)
 #   _ARIA_LLM_WARM_TTL      — warm-gate: only admit aria_llm if a probe SUCCEEDED this recently
 _ARIA_LLM_CALL_TIMEOUT = float(os.getenv("ARIA_LLM_CALL_TIMEOUT_S", "12"))
+
 _ARIA_LLM_STREAM_TIMEOUT = float(os.getenv("ARIA_LLM_STREAM_TIMEOUT_S", "45"))
 _ARIA_LLM_WARM_TTL = float(os.getenv("ARIA_LLM_WARM_TTL_S", "120"))
 
@@ -441,24 +442,7 @@ class LLMHealthChecker:
             return inner
 
         def _admission() -> tuple[bool, str]:
-            """R-F2686 — may the sovereign take this call? Fails CLOSED.
-
-            Resolved at CALL time (not wrap time): the chain is built at
-            main.py:1735 BEFORE the checker starts at :1758, so an eager read
-            would always see None. A missing checker means nothing has PROVEN
-            the endpoint warm — R-F1957's rule is that unproven = skip, so the
-            honest answer is "no" (route to DeepSeek), never an AttributeError.
-            """
-            hc = _health_checker_instance
-            if hc is None:
-                logger.warning(
-                    "[R-F2686] aria_llm call gated: health checker not started — "
-                    "cannot prove the endpoint warm, skipping to fallback"
-                )
-                return False, "health checker not started (unproven)"
-            if not hc.is_available():
-                return False, "cold/unproven or breaker OPEN"
-            return True, ""
+            return _sovereign_admission()
 
         class _HealthCheckedProvider(LLMProvider):
             name = getattr(inner, "name", "aria_llm")
@@ -488,7 +472,10 @@ class LLMHealthChecker:
                     )
                 # R-F1957: clamp the deadline so a reached-but-hung endpoint
                 # fast-fails to DeepSeek instead of stalling user traffic ~60s.
-                eff_timeout = min(timeout, _ARIA_LLM_CALL_TIMEOUT)
+                # R-F4357 (C-303) — the clamp preserves budget for a fallback;
+                # with none it only manufactures the failures that open the
+                # breaker and take ARIA dark.
+                eff_timeout = _effective_call_timeout(timeout)
                 try:
                     return await inner.complete(
                         system_prompt, user_message,
@@ -522,7 +509,9 @@ class LLMHealthChecker:
                     )
                 # R-F1957: clamp streaming deadline (more generous than complete —
                 # long answers stream past the call-clamp) + feed failures to the breaker.
-                eff_timeout = min(timeout, _ARIA_LLM_STREAM_TIMEOUT)
+                # R-F4357 (C-303) §13 MIRROR — same rule on the stream fork.
+                eff_timeout = (timeout if _sole_dial()
+                               else min(timeout, _ARIA_LLM_STREAM_TIMEOUT))
                 try:
                     async for chunk in inner.stream(
                         system_prompt, user_message,
@@ -538,6 +527,88 @@ class LLMHealthChecker:
 
 
 # Module-level singleton so the wrapper can reference the running checker
+
+def _sole_dial() -> bool:
+    """R-F4357 (C-303) — is the chain dialling with NO alternative to fall to?"""
+    try:
+        from .provider import SOLE_PROVIDER_DIAL
+        return bool(SOLE_PROVIDER_DIAL.get())
+    except Exception:  # noqa: BLE001 — an unreadable flag must not widen the gate
+        return False
+
+
+def _effective_call_timeout(timeout: float) -> float:
+    """R-F4357 (C-303) — the sovereign's per-call deadline.
+
+    The clamp exists to preserve budget for a FALLBACK: line 67 states it as
+    "clamp the per-call deadline so a hang fast-fails to DeepSeek". When there
+    IS no fallback, clamping does not buy a faster route — it converts a slow
+    SUCCESS into a hard failure with nowhere to go, and those failures are what
+    open the breaker that takes ARIA's whole reasoning dark.
+
+    So: clamp while an alternative exists (unchanged), honour the caller's
+    declared deadline when the sovereign is all there is. ``min`` is kept in the
+    lifted branch's spirit — lifting a CEILING must never raise a FLOOR, so a
+    caller asking for less than the clamp still gets exactly what it asked for.
+    """
+    if _sole_dial():
+        return timeout
+    return min(timeout, _ARIA_LLM_CALL_TIMEOUT)
+
+
+def _sovereign_admission() -> tuple[bool, str]:
+    """R-F2686 — may the sovereign take this call?
+
+    Fails CLOSED **while there is somewhere else to go**, which is the whole of
+    R-F2686's original intent: a cold or breaker-OPEN sovereign should be
+    skipped so the chain reaches a healthy provider instead.
+
+    R-F4357 (C-303) — when there is NOWHERE else, a refusal routes to nothing.
+    It is not a routing decision, it is an outage: with
+    ``ARIA_LLM_PRIMARY_ALL=1`` and ``chain_order: ["aria_llm"]``, refusing here
+    means ARIA has no reasoning at all for the breaker's 300s cooldown, and the
+    operator's directive is explicit that she cannot be on cooldown because her
+    whole ecosystem runs on her own reasoning.
+
+    This is not a new policy. R-F3680 already dials a cooling provider "DESPITE
+    its cooldown — it is the only reachable provider left; going silent is
+    worse", and R-F4330 (C-278) already exempts self-hosted providers from soft
+    cooldown. Both were bypassed because this gate refuses BEFORE the chain
+    dials. The chain computes the fact (`_has_reachable_alternative`); it simply
+    never told us.
+
+    A last-resort admission is NOT a claim the endpoint is healthy — it is the
+    judgement that trying beats guaranteed silence. A genuinely dead pod still
+    fails fast on its own connection error, the health checker still records it,
+    and the failing request still falls through on that same turn.
+    """
+    hc = _health_checker_instance
+    _sole = _sole_dial()
+    if hc is None:
+        if _sole:
+            logger.warning(
+                "[R-F4357] aria_llm admitted UNPROVEN — health checker not "
+                "started and no alternative provider exists; trying beats "
+                "guaranteed silence"
+            )
+            return True, ""
+        logger.warning(
+            "[R-F2686] aria_llm call gated: health checker not started — "
+            "cannot prove the endpoint warm, skipping to fallback"
+        )
+        return False, "health checker not started (unproven)"
+    if not hc.is_available():
+        if _sole:
+            logger.warning(
+                "[R-F4357] aria_llm admitted DESPITE a cold/OPEN breaker — it "
+                "is the only reachable provider; refusing would take ARIA's "
+                "reasoning dark rather than route around a fault"
+            )
+            return True, ""
+        return False, "cold/unproven or breaker OPEN"
+    return True, ""
+
+
 _health_checker_instance: LLMHealthChecker = None  # type: ignore[assignment]
 
 
