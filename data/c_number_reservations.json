@@ -3503,9 +3503,12 @@
       "title": "deploy banner under-claims: workflow R-tag derivation never got deploy.ps1's fixes",
       "claimed_at": "2026-08-26T15:19:33Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4365"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T15:27:57Z"
     }
   ]
 }
