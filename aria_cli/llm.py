@@ -541,10 +541,62 @@ def _wire_messages(messages: list[dict], provider: str) -> list[dict]:
     return msgs
 
 
+def _repair_tool_call_arguments(msg: dict) -> dict:
+    """R-F4343 (C-287) — force every ``arguments`` field to be valid JSON.
+
+    MEASURED LIVE on a real coding turn: the sovereign emitted a tool call whose
+    arguments were cut off mid-value —
+
+        {"command": "pytest C:\\\\Users\\\\anton\\\\...\\\\calc.py
+
+    — no closing quote, no closing brace. `agent.py` HANDLES that correctly: it
+    catches the parse error and records a tool result saying so. But the broken
+    assistant message stayed in the history and was echoed on the NEXT request,
+    and the provider rejects it:
+
+        HTTP 400 "Unterminated string starting at: line 1 column 13 (char 12)"
+
+    So one malformed generation wedged every subsequent turn of the session —
+    the operator's "files: 0 changed, tools: 0 calls" on real coding work. The
+    model's own mistake is survivable; echoing it back is what made it fatal.
+
+    Replacing the text with ``{}`` loses nothing: the tool result already told
+    the model its arguments were unparseable, so the feedback survives while the
+    payload becomes valid. Keeping the call (rather than dropping it) also keeps
+    its tool result from becoming an orphan, which the pass below would then
+    discard — taking the error message with it.
+
+    NOT scoped to a provider: an ``arguments`` value that is not a JSON string is
+    invalid in the OpenAI tool contract for everyone, so this can only ever
+    repair something already broken. A dict is serialised rather than blanked —
+    some providers send one, and that IS recoverable.
+    """
+    calls = msg.get("tool_calls") or []
+    repaired: list[dict] = []
+    changed = False
+    for call in calls:
+        fn = call.get("function") or {}
+        args = fn.get("arguments")
+        if isinstance(args, str):
+            try:
+                json.loads(args)
+                repaired.append(call)
+                continue
+            except Exception:  # noqa: BLE001 — malformed: fall through to repair
+                replacement = "{}"
+        elif isinstance(args, dict):
+            replacement = json.dumps(args)
+        else:
+            replacement = "{}"
+        changed = True
+        repaired.append({**call, "function": {**fn, "arguments": replacement}})
+    return {**msg, "tool_calls": repaired} if changed else msg
+
+
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
     """R-F1290 — transport-layer last line of defense. Return a COPY of
     ``messages`` that satisfies the provider's tool-call contract, so a corrupted
-    history can never 400 the API. Two failure modes are repaired:
+    history can never 400 the API. Three failure modes are repaired:
 
       * an ORPHAN ``tool`` message (not preceded by an assistant ``tool_calls``
         block) → dropped. Otherwise: HTTP 400 "Messages with role 'tool' must be
@@ -552,6 +604,9 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
       * a ``tool_calls`` with no following tool message → a synthetic error
         response is inserted. Otherwise: HTTP 400 "tool_calls must be followed by
         tool messages".
+      * an ``arguments`` string that is not valid JSON → replaced with ``{}``
+        (R-F4343). Otherwise: HTTP 400 "Unterminated string ...", which wedged
+        every remaining turn of the session.
 
     The agent loop (agent.py) already repairs its own history (R-F1120/R-F1283),
     but a zombie timeout thread, a resumed session, or any future caller could
@@ -567,6 +622,8 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
         if role == "tool":
             i += 1  # orphan — drop
             continue
+        if role == "assistant" and m.get("tool_calls"):
+            m = _repair_tool_call_arguments(m)  # R-F4343 (C-287)
         out.append(m)
         i += 1
         if role == "assistant" and m.get("tool_calls"):

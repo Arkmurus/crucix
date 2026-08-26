@@ -16509,3 +16509,112 @@ loop and asserts a tool actually executed — an earlier version of that test pa
 a `raw_message` without its `tool_calls`, which the dangling-call repair correctly
 stripped; the FIXTURE was wrong, not the code, and it was fixed rather than the
 code bent to satisfy it.
+
+## C-286 · the run tool reported exit 0 for a command PowerShell never found (fixed, R-F4342)
+
+**Measured on the operator's box:**
+
+```
+definitely-not-a-command-xyz   -> exit code: 0, is_error=False
+R1: pytest --version           -> exit code: 0, is_error=False
+```
+
+`$LASTEXITCODE` is set only by NATIVE EXECUTABLES, so
+`if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }` fell straight through to
+**exit 0** for every FAILING cmdlet, a `CommandNotFoundException` included. The
+docstring recorded the fall-through as deliberate ("it stays $null → exit 0 for
+pure cmdlets") — correct for a cmdlet that SUCCEEDS, and it silently swallowed
+every cmdlet that failed.
+
+**Why this is the coding-quality defect and not a nicety.** §3 requires "run the
+test before claiming it passes" and §23 forbids "fixed/passing" without the real
+pass/fail count. An agent whose shell cannot distinguish *not found* from *worked*
+is structurally incapable of both. It was observed live: a real coding turn ran
+`R1: pytest ...`, was told `exit code: 0`, and reasoned onward about a test run
+that never happened. Same absence-reads-as-success shape §1 records three times
+over in the Phase A gates.
+
+**Fix.** `$?` does capture it, and it is read on the line IMMEDIATELY after the
+command — any statement between resets it, the `$LASTEXITCODE` assignment
+included, which is why the ordering is asserted by a test rather than left to a
+future edit. A native exe still wins, so a real `pytest` exit 1 stays 1 and never
+degrades into a generic 1-from-`$?`. Deliberately biased toward FALSE FAILURE
+over false success: a spurious non-zero makes her look again; a spurious zero
+makes her certify a fix that never ran.
+
+**Verification.** 10 tests, Windows-scoped. Four mutations, each confirmed RED:
+restore the pre-fix propagation · drop the `$?` branch · ignore `$LASTEXITCODE`
+(collapsing every failure to 1) · read `$?` after the assignment. Two of my own
+test expectations were wrong and the code was right — `git status` returning 128
+outside a repo, and `python -m pytest` returning 1 where the system interpreter
+genuinely has no pytest; both were corrected rather than the code bent to match.
+
+### C-282 follow-up · R-F4337 shipped a regression, fixed by R-F4341
+
+The re-ask also fired when the narration followed TOOL results, appending a user
+message straight after a `tool` message. Mistral rejects that outright —
+`HTTP 400 "After the optional system message, conversation roles must alternate
+user/assistant/user/assistant/..."` — so the whole turn died with an LLM error:
+**strictly worse than the narrating turn it replaced**, and it landed on exactly
+the multi-step coding case the fix exists to help. Measured live in both
+directions: `tool -> assistant` 200, `tool -> user` 400.
+
+R-F4341 NARROWS the retry to the position where the 5/5 recovery was actually
+measured — a preceding USER turn — and does nothing elsewhere. There was never a
+measurement that a re-ask helps after tool results, and a repair that breaks the
+request is not a repair. Both halves are pinned: one test proves no user message
+can follow a tool message, another proves the retry still fires where it works,
+so "fixing" this by disabling the feature fails too.
+
+**This is the second time in one session that a fix of mine measured worse than
+doing nothing** (the first: the 0/5 steer). Both were caught only by driving the
+real path afterwards, never by the tests.
+
+## C-287 · a truncated tool_call arguments string wedged every following turn (fixed, R-F4343)
+
+**Captured live off the wire**, mid coding turn — the sovereign emitted a tool
+call cut off mid-value:
+
+```
+{"command": "pytest C:\\Users\\anton\\...\\calc.py
+```
+
+no closing quote, no closing brace. `agent.py` HANDLES that correctly: it catches
+the parse error and records a tool result saying so. But the broken assistant
+message stayed in the history and was echoed on the NEXT request, which the
+provider rejects:
+
+```
+HTTP 400 "Unterminated string starting at: line 1 column 13 (char 12)"
+```
+
+So **one malformed generation killed every remaining turn of the session** — the
+operator's "files: 0 changed, tools: 0 calls" on real coding work, and the error
+that ended the turn outright rather than merely disappointing.
+
+**The model's own mistake is survivable; echoing it back is what made it fatal.**
+That distinction is the fix: `_sanitize_messages` already exists as the
+"transport-layer last line of defense ... so a corrupted history can never 400
+the API" and already repairs two failure modes of exactly this class (orphan
+`tool` messages, dangling `tool_calls`). This is the third, and it belongs beside
+them rather than in a new guard.
+
+**Load-bearing choices.** Valid arguments pass through **byte-identical** —
+re-serialising would reorder keys and restyle spacing under the model's own
+formatting, so a repair that rewrites healthy input is a corruption. The
+malformed call is REPAIRED to `{}` rather than dropped: dropping it would orphan
+its tool message, which the same pass then discards, taking with it the error
+text that tells her the arguments were unparseable. A dict is serialised rather
+than blanked — some providers send one, and that is recoverable. **Not scoped to
+a provider**: an `arguments` value that is not a JSON string is invalid in the
+OpenAI tool contract for everyone, so this can only ever repair something already
+broken, and scoping it would leave the other providers holding the same wedge.
+
+**Verification.** 11 tests, including the exact truncated string captured off the
+wire. Five mutations, each confirmed RED: never invoke the repair · blank every
+argument including healthy ones · drop the malformed call instead of repairing it
+· blank a dict rather than serialising it · mutate the input in place.
+
+**Live result:** the turn that previously died with `Session Complete ✗` and an
+HTTP 400 now runs to `Session Complete ✓`. It still does not finish the task —
+that is C-281 (the untuned base model is answering), not this.

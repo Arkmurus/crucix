@@ -424,7 +424,31 @@ class Toolbox:
             if _ps_command.lstrip().startswith('"'):
                 _ps_command = "& " + _ps_command
             tmp.write(_ps_command)
-            tmp.write("\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n")
+            # R-F4342 (C-286) — $LASTEXITCODE IS ONLY SET BY NATIVE EXECUTABLES,
+            # so the old `if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }`
+            # fell through to exit 0 for every FAILING cmdlet — including a
+            # command that does not exist. Measured on this box:
+            #     definitely-not-a-command-xyz  -> exit code: 0, is_error=False
+            #     R1: pytest --version          -> exit code: 0, is_error=False
+            # ARIA was told a command SUCCEEDED when PowerShell never found it.
+            # A coding agent that cannot tell "not found" from "worked" cannot
+            # verify anything — §3/§23 defeated at the tool layer, and the same
+            # absence-reads-as-success shape §1 records three times over.
+            #
+            # $? DOES capture it (CommandNotFoundException is a non-terminating
+            # error), and it MUST be read on the very next line: any statement in
+            # between resets it, the $LASTEXITCODE assignment included.
+            # A native exe still wins, so a real `pytest` exit 1 stays 1 and
+            # never degrades into a generic 1-from-$?.
+            #
+            # Deliberately biased toward FALSE FAILURE over false success: a
+            # spurious non-zero makes her look again; a spurious zero makes her
+            # certify a fix that never ran.
+            tmp.write("\n$__aria_ok = $?\n"
+                      "$__aria_rc = $LASTEXITCODE\n"
+                      "if ($null -ne $__aria_rc) { exit $__aria_rc }\n"
+                      "if (-not $__aria_ok) { exit 1 }\n"
+                      "exit 0\n")
             tmp.close()
             # R-F2163: prefer PowerShell 7+ (pwsh) — the operator's primary shell —
             # over Windows PowerShell 5.1 (powershell.exe), which lacks && / ||

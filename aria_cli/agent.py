@@ -882,7 +882,23 @@ class Agent:
                 # Re-ask ONCE, imperatively; she authors the call, we never
                 # synthesise one (R-F4329: a fabricated `run` EXECUTES).
                 narrated = ""
+                # R-F4341 — ONLY when the turn we would rewrite is a user turn.
+                # The first version also re-asked when the narration followed
+                # TOOL results, appending a user message straight after a `tool`
+                # message. Mistral rejects that outright:
+                #   HTTP 400 "After the optional system message, conversation
+                #   roles must alternate user/assistant/user/assistant/..."
+                # so the whole turn died with an LLM error — STRICTLY WORSE than
+                # the narrating turn it replaced, and it landed on exactly the
+                # multi-step coding case this is meant to help. Measured live,
+                # both directions: tool -> assistant 200, tool -> user 400.
+                # The 5/5 recovery was measured for re-stating a USER request;
+                # there is no measurement that a re-ask helps here, and a repair
+                # that breaks the request is not a repair.
+                _restatable = (len(self.messages) >= 2
+                               and self.messages[-2].get("role") == "user")
                 if (self._narration_retries < NARRATION_RETRY_LIMIT
+                        and _restatable
                         and self._all_schemas
                         and (getattr(getattr(self.llm, "config", None),
                                      "provider", "") or "").strip().lower()
@@ -904,17 +920,11 @@ class Agent:
                     # she copies her own last answer, so leaving it there asks
                     # her to write it again.
                     self.messages.pop()
-                    if self.messages and self.messages[-1].get("role") == "user":
-                        original = self.messages.pop().get("content") or ""
-                        steer = NARRATION_STEER.format(tool=narrated)
-                        self.messages.append(
-                            {"role": "user",
-                             "content": original.rstrip() + "\n\n" + steer})
-                    else:
-                        # Narration after tool results: nothing to re-state.
-                        self.messages.append(
-                            {"role": "user",
-                             "content": NARRATION_STEER.format(tool=narrated)})
+                    original = self.messages.pop().get("content") or ""
+                    steer = NARRATION_STEER.format(tool=narrated)
+                    self.messages.append(
+                        {"role": "user",
+                         "content": original.rstrip() + "\n\n" + steer})
                     continue
                 return TurnResult(final_text=resp.content, steps=steps)
 

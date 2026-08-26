@@ -400,3 +400,46 @@ def test_the_retry_does_not_force_a_named_tool():
     pick the tool FOR her from this module's guess — converting a wrong guess
     into a wrong execution. Measured recovery is 5/5 with her still choosing."""
     assert cli_agent._TOOL_CHOICE_ON_RETRY == "auto"
+
+
+# -- R-F4341: the re-ask must never land where the provider rejects it --------
+
+def test_no_re_ask_after_tool_results(tmp_path):
+    """R-F4341 — THE REGRESSION R-F4337 SHIPPED. Re-asking after TOOL results
+    appended a user message straight after a `tool` message, which Mistral
+    rejects outright:
+
+        HTTP 400 "After the optional system message, conversation roles must
+        alternate user/assistant/user/assistant/..."
+
+    so the whole turn died with an LLM error — strictly worse than the narrating
+    turn it replaced, and on exactly the multi-step coding case it exists to
+    help. Measured live, both directions: tool -> assistant 200, tool -> user 400.
+    """
+    (tmp_path / "a.txt").write_text("hi", encoding="utf-8")
+    llm = _ScriptedLLM("aria-llm", [
+        _resp(tool_calls=[_call("read_file", {"path": "a.txt"})]),
+        _resp(content=NARRATION),
+    ])
+    built = _agent(tmp_path, llm)
+    built.run_turn("read a.txt then review the logs")
+    assert llm.calls == 2, "a re-ask was issued after tool results"
+    roles = [m.get("role") for m in built.messages]
+    for i in range(1, len(roles)):
+        assert not (roles[i - 1] == "tool" and roles[i] == "user"), (
+            f"user message directly after a tool message at {i} — the provider "
+            f"returns HTTP 400 on this sequence: {roles}"
+        )
+
+
+def test_the_re_ask_still_happens_after_a_user_turn(tmp_path):
+    """R-F4341 must NARROW the retry, not disable it — the 5/5 recovery was
+    measured for exactly this position."""
+    llm = _ScriptedLLM("aria-llm", [
+        _resp(content=NARRATION),
+        _resp(tool_calls=[_call("list_dir", {"path": "."})]),
+        _resp(content="done"),
+    ])
+    built = _agent(tmp_path, llm)
+    built.run_turn("review the logs")
+    assert llm.calls == 3, "the re-ask stopped firing where it was measured to work"
