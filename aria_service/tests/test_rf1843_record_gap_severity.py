@@ -30,6 +30,10 @@ def _no_redis():
     # its full body without a live store.
     with patch.object(capability_gaps, "rs") as rs:
         rs.get = AsyncMock(return_value=None)
+        # R-F4356: the dedupe sentinel is read with get_strict now, so a store
+        # failure cannot masquerade as "no sentinel". None keeps this fixture's
+        # original meaning — key absent, therefore not deduped.
+        rs.get_strict = AsyncMock(return_value=None)
         rs.set = AsyncMock(return_value=True)
         rs.lpush = AsyncMock(return_value=1)
         rs.ltrim = AsyncMock(return_value=True)

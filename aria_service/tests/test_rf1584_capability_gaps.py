@@ -36,6 +36,13 @@ class _FakeRedis:
     async def get(self, key):
         return self.kv.get(key)
 
+    async def get_strict(self, key):
+        # R-F4356: record_gap reads the dedupe sentinel with get_strict so a
+        # store failure is distinguishable from an absent key. This fake never
+        # fails, so a present-or-absent read is the whole contract — same
+        # behaviour these tests already asserted through get().
+        return self.kv.get(key)
+
     async def set(self, key, value, *, ex=None):
         self.kv[key] = value
 

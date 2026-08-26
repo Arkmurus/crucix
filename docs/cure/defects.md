@@ -17003,3 +17003,119 @@ Five mutants, all killed. The last one mattered: with the helper correct but
 never consulted at the call site, every helper test still passed — a decision
 nothing consumes did not happen. The suite now drives `main()` and asserts its
 exit code.
+
+## C-301 · one LLM outage wrote 56 capability gaps in 79 seconds (fixed — R-F4356)
+
+Found monitoring the live logs after the bc0164e5 deploy. During the boot LLM
+episode `record_gap` wrote **56 `llm_provider_failure` entries between 09:06:42
+and 09:08:01** — 81% of every gap recorded in that window, and ~11% of the
+500-slot ledger from a single repeating fact. Actionable
+`module_bug`/`missing_capability` entries are evicted to make room for it.
+
+**Two independent causes. The flood needs both fixed.**
+
+**1 — the fingerprint could never match itself.** `llm/fallback.py:1217` builds
+`detail=f"Provider {name} failed: kind={kind} failures={stats['failures']} …"`
+and `failures` is a MONOTONIC COUNTER, so `_gap_fingerprint` hashed a fresh
+string on every call and the 1h dedupe window was *structurally* unable to fire.
+Observed live: `failures=45`, `46`, `47`…
+
+This is R-F3695's defect in a second gap type. That fix added one entry to
+`_CLASS_FINGERPRINT_GAP_TYPES`, which is **still one entry long** — the flood
+arrived through the door an allow-list does not cover. So the fix here
+normalises volatile values **by shape** (timestamps, hex ids, `name=<number>`,
+bare measurements), and the next gap type is covered on the day it is authored
+rather than the day someone notices. Same lesson as C-298 and the nineteen pod
+scripts: the durable version is a rule the next case satisfies automatically.
+
+The counter-risk is why each pattern is narrow: **over-normalising merges
+distinct defects into one entry, which is worse than the flood, because the
+flood is at least visible.** Provider names, failure kinds and error text are
+untouched, and three parametrised tests pin that gaps differing by provider, by
+kind, or by error text must NOT collapse. Normalisation happens BEFORE the
+200-char truncation — a counter that gains a digit (9→10, 99→100) shifts every
+following character, so truncating first defeats the collapse exactly as an
+episode gets long enough to matter.
+
+**2 — the dedupe read failed open.** Line 575 used non-strict `rs.get`, whose
+None-on-error contract makes "the store timed out" indistinguishable from "no
+sentinel" — so a struggling store answers *not a duplicate* and the gap is
+written. Measured: **13 `capability_gaps:dedupe:*` reads timed out at 09:06:38
+and the burst began at 09:06:42.** A dedupe that fails OPEN under load amplifies
+precisely the flood it exists to prevent — the §17 `spent_usd: 0.0` shape (an
+error rendering as a measurement) applied to a guard.
+
+An unreadable store now DEFERS the gap. That is not caution for its own sake:
+the write is `lpush(critical=True)` on the SAME store, and its failure branch
+logs at ERROR, which R-F3695 traced all the way to a Phase A gate #3 reset.
+Attempting the write when we already know the store is unhealthy converts a
+dedupe failure into a gate reset.
+
+§21a: the deferral is announced ONCE PER PROCESS (every gap defers while the
+store is down, so a per-call warning would be its own flood) and counted per
+gap type on `get_gap_summary()` — the surface `routes/aria.py` already consumes.
+A counter left in a module global cannot tell anyone the ledger has gone lossy,
+and "0 gaps recorded" would be indistinguishable from "nothing went wrong".
+
+Twelve tests, seven mutants, all killed. Two mutants initially SURVIVED and both
+were real gaps in the tests rather than in the fix: normalise-after-truncate
+(no case crossed the 200-char boundary) and the summary surface (the counter was
+not read by anything a test drove).
+
+## C-302 · the sole LLM provider cannot meet its 15s ceiling — ARIA is degraded 40% of the time (open)
+
+Measured on aria-intel over 26 minutes of live logs and 30 `/health` samples,
+2026-08-26, after the bc0164e5 deploy. **Not a boot artefact — the boot window
+is excluded from every figure below.**
+
+    80 log lines: "[aria_llm] attempt exceeded its 15.0s wall-clock ceiling"
+    34 of them in steady state (09:13 onward), long after warmup
+    12 of 30 /health samples reported `degraded` — 40%
+    11 of those 12 name `llm_chain_exhausted`
+    last degraded sample: last_exhaustion_age_s = 6.4
+
+Every failure is at exactly **15.0s**, so this is a ceiling being hit, not a
+variable fault. The subsystems losing calls are ARIA's reasoning surfaces, not
+peripheral ones:
+
+    aria.llm.fallback              30
+    aria.researcher                15   ("Article analysis failed")
+    aria.intel.adversarial_challenge 13
+    aria.metacognitive.codegen      1   (code generation)
+    aria.self_improve               1   (diagnosis)
+
+**The provider is not down.** Probed directly during an exhaustion window:
+`/v1/models` HTTP 200 in 0.83s, and a real completion HTTP 200 in **1.1s**. A
+short prompt is fast; article analysis and code generation on a 7B model are not,
+and they exceed 15s. "The pod is up" and "the pod answers within the ceiling"
+are different claims and only the second one matters here.
+
+**There is no fallback.** `chain_order: ["aria_llm"]`, `resilient: false`.
+groq/openai/gemini are skipped for missing keys and DeepSeek is not in the chain
+at all, so a ceiling breach is a total loss of that call rather than a
+degradation. During boot the breaker flapped `CLOSED → OPEN` four times on "3
+consecutive failures", and for ~2 minutes ARIA had no LLM at all. §17 records
+`general_vendor_depth: 1` / `resilient: false` as an ACCEPTED consequence — but
+that was accepted when the single provider was DeepSeek, a paid always-on
+vendor. The single provider is now a self-hosted GPU pod, and on this same day
+RunPod refused to schedule a sibling pod for over an hour ("not enough free GPUs
+on the host machine"). The premise under which depth-1 was accepted has changed.
+
+**Deliberately NOT fixed here, because every remedy is a judgement call with a
+cost, and picking one quietly would be the wrong kind of surgery:**
+
+  * raise `_TIER_TIMEOUT_S` above 15s — accepts slower turns everywhere, and
+    the ceiling exists to stop a slow provider wedging callers;
+  * re-add a vendor fallback behind the sovereign — costs money and interacts
+    with §17 RULE ONE, which confines Anthropic to DD and Brave to DD + ARIA WA;
+  * serve the sovereign on faster hardware, or a smaller/quantised model —
+    the peer's lane, and currently blocked on GPU availability;
+  * route only the long-form workloads (researcher, codegen) to a vendor and
+    keep short turns on the sovereign.
+
+**Do not "fix" this by silencing `llm_chain_exhausted`.** The 40% degraded
+reading is the honest one; a health surface that stopped reporting it would be
+closing the gap by measuring less (§1), and R-F4024 added that reason precisely
+because a starved subsystem sat beside `status: operational` for a day.
+
+Related: C-301 (the same episode floods the gap ledger; fixed).

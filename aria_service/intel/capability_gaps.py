@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -36,6 +37,11 @@ MAX_GAPS = 500
 # that a recurring real gap (e.g. mastery dropping further at noon)
 # still re-surfaces hourly.
 _DEDUPE_WINDOW_SECONDS = 3600
+#: R-F4356 (C-301) — §21a metrics for the fail-closed dedupe path.
+#: Announced once per process; every subsequent deferral is counted.
+_UNREADABLE_ANNOUNCED = False
+_deferred_counts: dict[str, int] = {}
+
 _DEDUPE_KEY_PREFIX = "crucix:aria:capability_gaps:dedupe:"
 
 
@@ -76,6 +82,53 @@ _CLASS_FINGERPRINT_GAP_TYPES = frozenset({
 })
 
 
+# ── R-F4356 (C-301) — volatile fields, stripped by SHAPE not by allow-list ──
+#
+# MEASURED LIVE 2026-08-26: one LLM outage episode wrote 56 `llm_provider_failure`
+# gaps in 79 seconds — 81% of every gap in the window, ~11% of the 500-slot
+# ledger. `llm/fallback.py:1217` builds
+#   detail=f"Provider {name} failed: kind={kind} failures={stats['failures']} …"
+# and `failures` is a MONOTONIC COUNTER, so the fingerprint below hashed a fresh
+# string every call and the 1h dedupe window was STRUCTURALLY unable to fire.
+# Observed: failures=45, 46, 47…
+#
+# That is R-F3695's defect in a second gap type, and the lesson is the shape of
+# its fix rather than its content: `_CLASS_FINGERPRINT_GAP_TYPES` is an
+# allow-list, so it rots every time a new gap type is authored — it is STILL one
+# entry long, and the flood arrived through the door it does not cover.
+# Normalising by SHAPE covers the next gap type on the day it is written.
+#
+# The counter-risk is real and is the reason each pattern is narrow: over-
+# normalising MERGES DISTINCT DEFECTS into one entry, which is strictly worse
+# than the flood because the flood is at least visible. Provider names, failure
+# kinds and error text are deliberately untouched; only values that cannot
+# identify a defect are collapsed.
+_VOLATILE_SUBS: tuple[tuple[Any, str], ...] = (
+    # ISO-8601 timestamps — first, so their digits are not eaten by later rules
+    (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*"), "<TS>"),
+    # run ids / uuids / hashes: a long hex run that contains at least one digit
+    # (the digit test keeps ordinary words out)
+    (re.compile(r"\b(?=[0-9a-fA-F]{8,}\b)(?=[a-fA-F]*\d)[0-9a-fA-F]{8,}\b"), "<ID>"),
+    # named numeric fields: failures=47, attempt=3, count=12.5
+    (re.compile(r"\b(\w+)=\d+(?:\.\d+)?\b"), r"\1=<N>"),
+    # bare measurements: 30s, 45.5s, 12ms, 88%
+    (re.compile(r"\b\d+(?:\.\d+)?(ms|s|%)\b"), r"<N>\1"),
+)
+
+
+def _normalise_for_fingerprint(detail: str) -> str:
+    """Collapse values that vary between occurrences of the SAME defect.
+
+    Pure: the caller's string is never mutated. Only the dedupe key is
+    normalised — the full detail is still stored on the entry and still read by
+    a human, which is R-F3695's stated contract.
+    """
+    out = detail or ""
+    for pattern, repl in _VOLATILE_SUBS:
+        out = pattern.sub(repl, out)
+    return out
+
+
 def _gap_fingerprint(gap_type: str, detail: str) -> str:
     # High-cardinality telemetry: key on the CLASS so the dedupe window works.
     # The full detail is still stored on the entry and still read by a human —
@@ -83,7 +136,10 @@ def _gap_fingerprint(gap_type: str, detail: str) -> str:
     if gap_type in _CLASS_FINGERPRINT_GAP_TYPES:
         return hashlib.md5(f"{gap_type}|__class__".encode("utf-8"),
                            usedforsecurity=False).hexdigest()
-    return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8"), usedforsecurity=False).hexdigest()
+    # R-F4356: normalise BEFORE truncating, so a volatile field near the 200-char
+    # boundary cannot shift the tail and defeat the collapse.
+    stable = _normalise_for_fingerprint(detail)[:200]
+    return hashlib.md5(f"{gap_type}|{stable}".encode("utf-8"), usedforsecurity=False).hexdigest()
 
 VALID_GAP_TYPES = frozenset({
     # ── R-F3428 — three types already EMITTED in production but unregistered ──
@@ -572,7 +628,45 @@ async def record_gap(
     # F66 dedupe (2026-04-28): same (gap_type, detail) within window = no-op.
     fingerprint = _gap_fingerprint(gap_type, detail)
     dedupe_key = _DEDUPE_KEY_PREFIX + fingerprint
-    if await rs.get(dedupe_key):
+
+    # ── R-F4356 (C-301) — the dedupe read must FAIL CLOSED ──────────────────
+    #
+    # This was non-strict `rs.get`, whose R-F1 None-on-error contract makes "the
+    # store timed out" indistinguishable from "no sentinel" — so a struggling
+    # store answers "not a duplicate" and the gap is written. Measured live
+    # 2026-08-26: 13 dedupe reads timed out at 09:06:38 and the 56-gap burst
+    # began at 09:06:42. A dedupe that fails OPEN under load amplifies precisely
+    # the flood it exists to prevent — the §17 `spent_usd: 0.0` shape (an error
+    # rendering as a measurement) applied to a guard.
+    #
+    # Deferring rather than writing is not caution for its own sake: the write
+    # below is `lpush(critical=True)` on the SAME store, and its failure branch
+    # logs at ERROR, which R-F3695 traced all the way to a Phase A gate #3
+    # reset. Attempting the write when we already know the store is unhealthy
+    # converts a dedupe failure into a gate reset.
+    from .redis_store import StoreReadError  # real class; `rs` may be a double
+    try:
+        _sentinel = await rs.get_strict(dedupe_key)
+    except StoreReadError as _re:
+        global _UNREADABLE_ANNOUNCED
+        if not _UNREADABLE_ANNOUNCED:
+            # §21a — announced ONCE PER PROCESS. Every gap is deferred while the
+            # store is down, so a per-call warning would be its own flood.
+            _UNREADABLE_ANNOUNCED = True
+            logger.warning(
+                "[R-F4356] capability gap deferred — dedupe key unreadable, so "
+                "novelty cannot be verified: %s. Further deferrals this process "
+                "are counted, not logged.", _re,
+            )
+        _deferred_counts[gap_type] = _deferred_counts.get(gap_type, 0) + 1
+        return {
+            "deferred": True,
+            "defer_reason": "store_unreadable",
+            "type": gap_type,
+            "detail": detail,
+            "fingerprint": fingerprint,
+        }
+    if _sentinel:
         logger.debug(
             "Capability gap deduped within %ds window: [%s] %s",
             _DEDUPE_WINDOW_SECONDS, gap_type, detail[:80],
@@ -778,6 +872,12 @@ async def get_gap_summary() -> dict:
         "most_common_unresolved": most_common,
         "latest_unresolved": unresolved[:5],
         "recently_resolved": resolved[:5],
+        # R-F4356 (C-301) §21a — gaps this process DECLINED to record because the
+        # dedupe key was unreadable. Surfaced here rather than left in a module
+        # global: a counter nothing reads cannot tell anyone the ledger is
+        # lossy, and "0 gaps recorded" would otherwise be indistinguishable from
+        # "nothing went wrong". Per-process, so it resets on restart by design.
+        "deferred_store_unreadable": dict(_deferred_counts),
     }
 
 

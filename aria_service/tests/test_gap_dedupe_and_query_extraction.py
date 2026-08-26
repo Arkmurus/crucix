@@ -44,6 +44,7 @@ def test_record_gap_dedupes_within_window():
         with patch("aria_service.intel.capability_gaps.rs.lpush", side_effect=fake_lpush), \
              patch("aria_service.intel.capability_gaps.rs.ltrim", side_effect=fake_ltrim), \
              patch("aria_service.intel.capability_gaps.rs.get", side_effect=fake_get), \
+             patch("aria_service.intel.capability_gaps.rs.get_strict", side_effect=fake_get), \
              patch("aria_service.intel.capability_gaps.rs.set", side_effect=fake_set):
             first = await capability_gaps.record_gap(
                 gap_type="adversarial_critical_failure",
@@ -90,6 +91,7 @@ def test_record_gap_different_detail_not_deduped():
         with patch("aria_service.intel.capability_gaps.rs.lpush", side_effect=fake_lpush), \
              patch("aria_service.intel.capability_gaps.rs.ltrim", side_effect=fake_ltrim), \
              patch("aria_service.intel.capability_gaps.rs.get", side_effect=fake_get), \
+             patch("aria_service.intel.capability_gaps.rs.get_strict", side_effect=fake_get), \
              patch("aria_service.intel.capability_gaps.rs.set", side_effect=fake_set):
             await capability_gaps.record_gap(
                 gap_type="timeout", detail="Backend brave_search unreachable"
