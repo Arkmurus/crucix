@@ -3274,6 +3274,24 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-292",
+      "title": "get_coverage_nonblocking warm path leaks a task per call; drives memory growth and state_store read timeouts",
+      "claimed_at": "2026-08-26T01:31:05Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-293",
+      "title": "autonomous engine parks indefinitely in DRAIN-COLLAB-BRIDGE: unbounded per-note drain loop outlives its 30s timeout",
+      "claimed_at": "2026-08-26T01:37:07Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

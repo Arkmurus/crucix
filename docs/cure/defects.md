@@ -16618,3 +16618,104 @@ argument including healthy ones · drop the malformed call instead of repairing 
 **Live result:** the turn that previously died with `Session Complete ✗` and an
 HTTP 400 now runs to `Session Complete ✓`. It still does not finish the task —
 that is C-281 (the untuned base model is answering), not this.
+
+## C-292 · /health leaked a permanently-running coverage build on every poll (fixed, R-F4348)
+
+Found by a live log cycle on aria-intel, 2026-08-26. `/health` reported
+`status: degraded` with `degraded_reasons: ['autonomous_loop_stalled',
+'state_backend_read_timeouts']`, the log was a continuous wall of
+`state_store.get(...) timed out after 5s — DB may be bloated or under WAL
+recovery`, and the memory-leak detector reported `growth=75.94MB/interval,
+current=7736.1MB`.
+
+**The log's own hypothesis was wrong and worth recording as such.** "DB may be
+bloated or under WAL recovery" is a guess baked into the warning text, and it
+sends the reader at the database. Measured: `aria_state.db` 630 MB with a
+13.6 MB WAL (normal), `/data` 66% used, memory PSI `0.00` across avg10/60/300,
+event loop `healthy` p95 1.0 ms, and the state_store lock `locked=False,
+waiters=0`. Nothing was bloated, wedged, or starved. The store was fine; it was
+being *asked* too much.
+
+**The measurement that found it.** Five blackout wedge dumps 300s apart:
+
+    dump          total pending tasks    pending get_coverage
+    1787706279            276                    61
+    1787706579            298                    71
+    1787706879            329                    81
+    1787707179            359                    92
+    1787707479            380                   101
+
++10 leaked `get_coverage` tasks per 300s — one every 30s, monotonic, **zero
+completions**. 202 of the 380 pending tasks were this one module (101
+`get_coverage` plus their 101 `_safe` children). A backlog drains; this only
+ever grew, which is what distinguishes a leak from load.
+
+**The defect.** `ecosystem_map.get_coverage_nonblocking()` had two branches. The
+COLD one shares a single `_COVERAGE_TASK`, so N callers await ONE build. The
+WARM one — the branch production actually takes, since the cache is warm — did:
+
+    return await asyncio.wait_for(asyncio.shield(get_coverage()), max_wait_s)
+
+`get_coverage()` there constructs a **new coroutine per caller** with no dedup,
+and `asyncio.shield` deliberately prevents the timeout from cancelling it. So
+every timed-out caller abandoned a full build that then ran forever. It is
+called from `GET /api/aria/health`, so the leak rate was simply the poll rate.
+
+The warm branch's comment — *"Structure is cached; the remaining work is cheap
+signal-gathering"* — was the load-bearing false premise. `_gather_signals` reads
+the state store, so once reads were slow it always exceeded the 2.5s budget, and
+every single call leaked.
+
+**It was self-worsening, which is why it presented as three unrelated faults.**
+Each abandoned build pins the parsed module graph in its frame (the memory
+growth) and holds five concurrent state_store reads open (the read-timeout
+storm), which makes `_gather_signals` slower, which makes the next call more
+likely to time out and leak. One cause, three symptoms, none of them the
+database the warning text names.
+
+**The fix is single-flight, and the shield STAYS.** Both paths now share the one
+`_COVERAGE_TASK`. The shield was never the bug: it protects the one shared build
+so a caller's 2.5s timeout cannot throw away a ~6s parse and leave the cache cold
+forever, which is the R-F3062 regression it was written to prevent. The bug was
+applying it to a per-call task, where there is nothing to share and a timeout can
+only orphan. Do not "fix" a future timeout here by cancelling.
+
+**Verification.** Fixture-first: 10 timed-out warm-path calls left **10** pending
+builds before the fix and 1 after; a second test counts builds started (10 → 1).
+A third test pins that the shared build survives a caller's timeout, and it is
+the mutation guard — removing the shield makes it RED (`got 0`), so the leak
+tests cannot be passed by the wrong fix of cancelling. 93 tests green across all
+nine ecosystem/health files.
+
+## C-293 · the autonomous engine parks indefinitely inside a task that declares a 30s timeout (open)
+
+Found in the same log cycle and **deliberately not fixed in C-292's PR**. Live:
+`autonomous.busy_with: DRAIN-COLLAB-BRIDGE`, `busy_seconds: 2611`,
+`seconds_since_last_tick: 2636` — the tick loop had not iterated in 44 minutes,
+so none of the 98 loaded tasks could fire. The blackout detector dumped every
+300s and did not restart it. `Task-1113 (_engine_loop)` is parked at
+`engine.py:1246`, the `await tasks_mod.execute_task(...)`.
+
+`DRAIN-COLLAB-BRIDGE`'s own capability test asserts a timeout **≤30s**
+(`test_rf1410_collab_bridge_drain_task.py`), and the direct-tool branch really is
+wrapped in `asyncio.wait_for(..., timeout=task.timeout_seconds)` (R-F651, added
+after RUN-EVAL-DAILY ran 2h against a 600s timeout and burned $12.76). So a
+timeout that is present and correct-looking was exceeded by ~87x.
+
+The shape to investigate: `collab_bridge.drain_for_aria()` loops over every note
+returned by `poll()` with **no cap and no per-note budget**, and each iteration
+does `brain_hook.absorb(...)` plus a distill capture — many store ops per note.
+`asyncio.wait_for` cancels the inner coroutine but then *waits for the
+cancellation to land*, so a body that is not promptly cancellable extends the
+wait rather than bounding it. R-F4301's own comment records the amplifier: a
+cursor write that fails means "the next drain will re-ingest N notes", and it
+notes "a silent debug line is how 450x accrued".
+
+**Causality vs C-292 is UNPROVEN and must not be asserted.** It is consistent
+with being downstream — a saturated read pool makes every store op in that loop
+slow, and an unreadable/unwritable cursor makes the next drain re-ingest the
+whole backlog — but C-292 is *sufficient* to explain the read timeouts and the
+memory growth on its own, and that is not evidence it also caused this. The
+empirical test is cheap and is the next step: with C-292 deployed, re-read
+`autonomous.busy_seconds`. If the engine still parks with the task counter flat,
+this is independent and needs its own root-cause pass.

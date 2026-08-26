@@ -1583,21 +1583,37 @@ async def get_coverage_nonblocking(max_wait_s: float = 2.5) -> dict[str, Any] | 
     message, and swallowing it here would destroy that diagnostic.
     """
     global _COVERAGE_TASK
-    if _CACHE.get("data") is not None:
-        # Structure is cached; the remaining work is cheap signal-gathering.
-        try:
-            return await asyncio.wait_for(asyncio.shield(get_coverage()), max_wait_s)
-        except asyncio.TimeoutError:
-            return None
-
+    # R-F4348 (C-292) — SINGLE-FLIGHT, warm and cold alike.
+    #
+    # The warm branch used to be its own case:
+    #     return await asyncio.wait_for(asyncio.shield(get_coverage()), max_wait_s)
+    # which constructs a NEW get_coverage() coroutine per caller with no dedup,
+    # while `shield` deliberately stops the timeout cancelling it. So every
+    # timed-out caller abandoned a full build that kept running forever. This
+    # sits on `GET /api/aria/health`, so the leak rate was the poll rate.
+    #
+    # Measured on aria-intel 2026-08-26, five blackout dumps 300s apart: pending
+    # get_coverage tasks 61 -> 71 -> 81 -> 92 -> 101 (+10 per 300s, monotonic,
+    # ZERO completions); 202 of 380 pending tasks were this module. Downstream:
+    # +75.94 MB/interval at 7736 MB RSS (each abandoned build pins the parsed
+    # module graph) and a state_store read-timeout storm (500 hits / 169 distinct
+    # keys per 900s) from ~101 concurrent signal-gathers saturating the read pool.
+    #
+    # The shield is KEPT and is not the bug — it protects the ONE shared build
+    # this docstring describes, so a caller's 2.5s timeout never throws away a
+    # ~6s parse (the R-F3062 cold-cache-forever regression). The bug was applying
+    # it to a per-call task, where there is no sharing for it to protect and a
+    # timeout can only orphan. Do NOT "fix" a future timeout by cancelling here.
     if _COVERAGE_TASK is None or _COVERAGE_TASK.done():
+        _was_cold = _CACHE.get("data") is None
         _COVERAGE_TASK = asyncio.create_task(get_coverage())
         _COVERAGE_TASKS.add(_COVERAGE_TASK)
         _COVERAGE_TASK.add_done_callback(_COVERAGE_TASKS.discard)
-        logger.info(
-            "[R-F3062] ecosystem coverage cold — started a background build; "
-            "callers get 'not measured yet' until it lands"
-        )
+        if _was_cold:
+            logger.info(
+                "[R-F3062] ecosystem coverage cold — started a background build; "
+                "callers get 'not measured yet' until it lands"
+            )
     try:
         return await asyncio.wait_for(asyncio.shield(_COVERAGE_TASK), max_wait_s)
     except asyncio.TimeoutError:
