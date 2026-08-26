@@ -16968,3 +16968,38 @@ it — `SyntaxError: invalid character` from a half-written file, not a defect.
 Two agents in one tree can produce a reading that looks like a finding; §16
 already records this for suite baselines (`git status` reads clean between
 commits while the instrument moved). Re-measure on a quiet tree before filing.
+
+## C-300 · the gate demanded a capability test for R-numbers that produced no code (fixed — R-F4355)
+
+Surfaced pushing the merge to main. Two sessions collided on one defect, the
+later reservation (R-F4354) was released as **superseded** by agreement, and the
+commit recording that release names it — naming it is the point of the record.
+The pre-push hook then refused the push:
+
+    [R-F559] FAIL - R-numbers missing test file:
+      R-F4354
+
+R-F4354 has no code and never will. The gate was asking for a capability test
+proving a user-visible symptom is fixed, for a number that fixed nothing —
+**unsatisfiable at any effort.**
+
+This is the twin of C-298, found one commit later. There the gate could not SEE
+a test tier; here it demands something that cannot exist. Both fail CLOSED over
+the whole push range, and both leave `--no-verify` as the only way forward,
+which disables the gate for every R-number in the push.
+
+**Not a one-off.** The registry holds **57 abandoned + 1 cancelled + 1
+superseded** — 59 numbers that block any commit merely mentioning them,
+including the honest bookkeeping commit that records the abandonment. The
+registry already knew; the gate simply was not reading `status`.
+
+`_NO_CODE_STATUSES` is an ALLOW-LIST, not an inference: `shipped` and
+`in_progress` keep the requirement, an unrecognised status keeps it, and an
+unregistered R-number keeps it (step 3 reports that separately). A typo in a
+status field must not buy an exemption. The skip is ANNOUNCED — a silent skip is
+indistinguishable from the gate not checking at all.
+
+Five mutants, all killed. The last one mattered: with the helper correct but
+never consulted at the call site, every helper test still passed — a decision
+nothing consumes did not happen. The suite now drives `main()` and asserts its
+exit code.

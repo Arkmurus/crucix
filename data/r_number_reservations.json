@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4355,
+  "next_available": 4356,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37432,6 +37432,15 @@
       "status": "superseded",
       "commit_sha": null,
       "notes": "superseded by R-F4353 (aria-c0) — same defect, one number; implementation credited there"
+    },
+    {
+      "r_number": "R-F4355",
+      "title": "the test gate demands a capability test for R-numbers that were abandoned",
+      "claimed_at": "2026-08-26T08:54:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

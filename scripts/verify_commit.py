@@ -105,6 +105,49 @@ def _registry_r_numbers() -> set[str]:
         return set()
 
 
+#: R-F4355 (C-300) — statuses that mean "this R-number produced no code".
+#: An ALLOW-LIST, deliberately: anything unrecognised keeps the requirement, so
+#: a typo in a status field cannot buy an exemption.
+_NO_CODE_STATUSES = frozenset({"abandoned", "cancelled", "superseded"})
+
+
+def _registry_status(rn: str) -> str:
+    """The R-F540 registry's status for ``rn``, or "" when it is unknown."""
+    p = _REPO / "data" / "r_number_reservations.json"
+    if not p.exists():
+        return ""
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    for r in data.get("reservations", []):
+        if r.get("r_number") == rn:
+            return (r.get("status") or "").strip().lower()
+    return ""
+
+
+def _is_test_exempt(rn: str) -> bool:
+    """R-F4355 (C-300) — True when demanding a capability test is IMPOSSIBLE.
+
+    An abandoned, cancelled or superseded R-number has no code, so it can never
+    have a test proving a user-visible symptom is fixed. Demanding one makes the
+    gate unsatisfiable at any effort — and the commit that most reliably names
+    such a number is the honest bookkeeping commit RECORDING the abandonment.
+    Measured: the registry holds 57 abandoned + 1 cancelled + 1 superseded, so
+    59 numbers were landmines; R-F4354 blocked a merge to main the day it was
+    released as superseded by agreement between two sessions.
+
+    This is the twin of R-F4353 (C-298). There the gate could not SEE a test
+    tier; here it asks for something that cannot exist. Both fail CLOSED over
+    the whole push range, and both push the next author toward ``--no-verify``,
+    which disables the gate for EVERY R-number in the push.
+
+    An unregistered R-number is NOT exempt — an unknown number must still be
+    reserved and tested, and step 3 reports it separately.
+    """
+    return _registry_status(rn) in _NO_CODE_STATUSES
+
+
 _REGISTRY_REL = "data/r_number_reservations.json"
 
 
@@ -353,6 +396,13 @@ def main() -> int:
     # ── 2. Validate each R-number has a test file ─────────────────────
     missing_tests: list[str] = []
     for rn in sorted(r_numbers):
+        # R-F4355 — an abandoned/cancelled/superseded R-number produced no code
+        # and can never have a capability test. Say so out loud: a silent skip
+        # would be indistinguishable from the gate not checking at all.
+        if _is_test_exempt(rn):
+            print(f"[R-F559] {rn} exempt: registry status "
+                  f"'{_registry_status(rn)}' — no code, no test required.")
+            continue
         tests = _test_files_present_for(rn)
         if not tests:
             missing_tests.append(rn)

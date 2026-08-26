@@ -3367,6 +3367,15 @@
       "status": "superseded",
       "r_numbers": [],
       "notes": "superseded by C-298 — same defect, collided with a peer mid-fix"
+    },
+    {
+      "c_number": "C-300",
+      "title": "verify gate unsatisfiable for abandoned/superseded R-numbers",
+      "claimed_at": "2026-08-26T08:54:28Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
