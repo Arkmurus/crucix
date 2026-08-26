@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4362,
+  "next_available": 4364,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37502,6 +37502,24 @@
       "commit_sha": "f396f62a",
       "notes": null,
       "shipped_at": "2026-08-26T12:00:32Z"
+    },
+    {
+      "r_number": "R-F4362",
+      "title": "templated news buries every adapter-sourced decision signal below the scan window",
+      "claimed_at": "2026-08-26T14:01:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4363",
+      "title": "replace the DeepSeek-generated grounded corpus with Claude-authored rows (C-307)",
+      "claimed_at": "2026-08-26T14:06:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

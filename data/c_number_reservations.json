@@ -3457,6 +3457,24 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T12:00:32Z"
+    },
+    {
+      "c_number": "C-308",
+      "title": "Golden Intel: decision-grade signals are unreachable because a recency window is full of unpublishable news",
+      "claimed_at": "2026-08-26T14:01:50Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
+    },
+    {
+      "c_number": "C-309",
+      "title": "664 of 928 training rows were DeepSeek-authored against an operator directive",
+      "claimed_at": "2026-08-26T14:06:10Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
