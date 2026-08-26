@@ -46,6 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # R-F4366 (C-312) — the R-tag derivation scans a window of recent
+          # commits; the default depth-1 checkout starves it to HEAD alone.
+          fetch-depth: 50
 
       # SHA-pinned, matching deploy-fly.yml's R-F2237 rule: a moving branch tip
       # running in the FLY_API_TOKEN job would be a total-Fly-compromise on any

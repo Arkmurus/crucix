@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4366,
+  "next_available": 4367,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37542,6 +37542,15 @@
       "commit_sha": "e8ab73e4",
       "notes": null,
       "shipped_at": "2026-08-26T15:27:57Z"
+    },
+    {
+      "r_number": "R-F4366",
+      "title": "the R-tag derivation is starved by CI's shallow clone and renders no-r-tag as if nothing shipped",
+      "claimed_at": "2026-08-26T15:54:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

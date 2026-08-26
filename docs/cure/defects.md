@@ -17720,3 +17720,42 @@ R-numbers legitimately appear via their fix commits — vacuous by construction.
 They are now tested against a CONTROLLED history where each rule is the only
 thing that can exclude its commit, including a `chore: ship-mark` that touches
 CODE so the by-subject rule has to act on its own.
+
+## C-312 · the R-tag derivation is starved by CI's shallow clone, and reports that as "nothing shipped" (fixed — R-F4366)
+
+**R-F4365 was verified locally, shipped, and the banner still read `no-r-tag`.**
+Live after the deploy: `{"build_rev": "no-r-tag · sha 91a87477"}`.
+
+The derivation was correct. The ENVIRONMENT starved it: `actions/checkout@v4`
+defaults to `fetch-depth: 1`, so in CI `git log -n 40` returns exactly ONE commit
+— the `chore: ship-mark` at HEAD, which the script correctly excludes as
+bookkeeping. Nothing found, so it printed "nothing shipped".
+
+Reproduced deterministically:
+
+    git clone --depth 1 ...  ->  commits visible: 1
+                                 script output : no-r-tag
+                                 is shallow    : true
+
+**I made the exact error this session had already recorded twice** — the AfDB
+403 (local probe said UA, the datacenter said IP block) and C-308's addendum
+("measure where the failure happens, not where it is convenient"). Verifying
+R-F4365 on a full local clone and shipping it was the same mistake, committed by
+the person who had just written that rule down.
+
+**TWO FIXES, because the second alone would leave the instrument lying:**
+
+1. `fetch-depth: 50` on the checkout in every deploy workflow that runs the
+   derivation, so the window is actually visible.
+2. A shallow clone with no result now prints `r-tag-unknown-shallow-clone`, not
+   `no-r-tag`. **Could-not-measure is not measured-nothing** — CLAUDE.md's
+   tri-state rule, and the very confusion C-311 exists to fix, one level up. Fix
+   (1) makes (2) unnecessary in the normal path; (2) is what stops a future
+   checkout change from silently re-creating the defect.
+
+Three mutants, all killed — including one that restores `no-r-tag` on a shallow
+clone and one that reverts the checkout to depth-1.
+
+A test also had to be corrected: its first version required `fetch-depth` to sit
+immediately under `with:` and failed against a CORRECT workflow, which would have
+sent the next reader to edit the wrong file.

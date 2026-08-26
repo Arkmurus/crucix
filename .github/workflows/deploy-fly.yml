@@ -69,6 +69,10 @@ jobs:
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]'))
     steps:
       - uses: actions/checkout@v4
+        with:
+          # R-F4366 (C-312) — the R-tag derivation scans a window of recent
+          # commits; the default depth-1 checkout starves it to HEAD alone.
+          fetch-depth: 50
       # R-F2237: SHA-pinned (was @master — a moving branch tip running in the
       # FLY_API_TOKEN job = total-Fly-compromise on any upstream push). Pinned to
       # v1.6 by full commit SHA; bump the SHA + comment together to upgrade.

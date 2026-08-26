@@ -71,4 +71,18 @@ tags=$(git log -n "$WINDOW" --name-only --pretty=format:'@@%s' 2>/dev/null | awk
   END { flush_commit() }
 ' | awk '!seen[$0]++' | head -n "$MAX_TAGS" | tr '\n' '+' | sed 's/+$//')
 
-printf '%s' "${tags:-no-r-tag}"
+# R-F4366 (C-312) — COULD-NOT-MEASURE IS NOT MEASURED-NOTHING.
+#
+# R-F4365 shipped verified locally, where this repo has full history, and the
+# live banner still read `no-r-tag`. Cause: actions/checkout defaults to
+# fetch-depth 1, so CI sees ONE commit — the bookkeeping commit at HEAD, which
+# this correctly excludes. Nothing found, so it printed "nothing shipped".
+#
+# That is the very defect this script exists to fix, one level up. CLAUDE.md's
+# tri-state rule is explicit: "could not measure" is never "measured and
+# failed". A shallow clone cannot see the window, so it says so.
+if [ -z "$tags" ] && [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+  printf '%s' "r-tag-unknown-shallow-clone"
+else
+  printf '%s' "${tags:-no-r-tag}"
+fi
