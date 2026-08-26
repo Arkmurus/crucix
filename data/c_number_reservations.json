@@ -3472,9 +3472,12 @@
       "title": "664 of 928 training rows were DeepSeek-authored against an operator directive",
       "claimed_at": "2026-08-26T14:06:10Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4363"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T14:14:25Z"
     }
   ]
 }

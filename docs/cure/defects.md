@@ -17470,3 +17470,82 @@ documents, images, voice notes, due diligence, screening.
 Five tests, four mutants, all killed — including one that restores the exact
 defect (classified but never consulted) and one that over-gates every command.
 WA Node suite: 165/165.
+
+## C-308 · the channel's slots are spent on signals it cannot publish (fixed — R-F4362)
+
+**Operator, 2026-08-26:** *"golden intel is to do with everything she produces,
+she needs to produce golden and grade A information so users can make informed
+decisions."* The north star names the gap exactly: *"The gap is not the guard.
+The gap is value density."*
+
+**MEASURED LIVE on the exact call the channel makes** (`channelServerHooks.mjs:1134`
+→ `limit=60, grades=A,B`):
+
+    returned 60   suppressed: {non_publishable 166, duplicates 17, over_limit 57}
+    types: natural_hazard 21, sanctions_change 17, active_tender 11,
+           contract_award 6, conflict_escalation 3, competitor_activity 2
+
+**21 of 60 slots — 35% — went to `natural_hazard`**, which is not in
+`_GOLDEN_ALLOWED_TYPES` and can therefore never be posted. At the same moment
+**57 further candidates were dropped `over_limit`**. The feed truncated by
+RECENCY, so unpublishable-but-recent items evicted publishable ones before the
+channel ever saw them.
+
+**THIS IS THE THIRD ITERATION OF ONE DEFECT**, and the progression is recorded in
+the tree itself:
+
+* **R-F2715** raised the window 20 → 60. `get_recent_intel_signals`' own
+  docstring calls that "a treadmill".
+* **R-F2893** selected by GRADE at the source — live 2026-07-23, "the only three
+  Grade A signals sat at positions 66-68 while the cron fetched 60, so the 07:00
+  slot reported 'no Grade A' while three official TED tenders were sitting in
+  the store".
+* **R-F3536** stopped `natural_hazard` BUYING Grade A on source authority alone —
+  "46 of 56 Grade-A signals were natural_hazard ... crowding out every
+  designation and escalation".
+
+Closed by window, then by grade, then by grade-purchase — and it returned by
+**TYPE VOLUME**. R-F4362 selects by what the CONSUMER can publish, which is the
+same move as R-F2893 extended from grade to type.
+
+**ORDERING, NOT REMOVAL.** Nothing is dropped that the limit was not already
+dropping; the Mining Queue and dashboard still receive situational awareness,
+which is real and worth showing. Only *which* signals survive truncation
+changes. Recency is preserved WITHIN each group, so the channel's best-first
+pick and the dashboard's newest-first read both still hold.
+
+**Deliberately NOT a bigger limit** — a constant rots the moment news volume
+rises, which is the treadmill the docstring already named.
+
+**Load-bearing properties, each mutation-tested:**
+
+* The allowed set is read from `golden_intel_bridge._GOLDEN_ALLOWED_TYPES`, the
+  mirror of the Node gate — a second copy would drift and this fix would then be
+  optimising for the wrong consumer. Lazy import: the bridge imports this module.
+* An unknown or missing type is treated as UNPUBLISHABLE — a type we cannot
+  prove publishable must not take a slot a tender needed.
+* An unresolvable allowed set degrades to plain recency **by construction**, so
+  no separate branch is needed; an explicit early return there was removed as
+  dead code that no mutant could kill.
+* The endpoint collects EVERY qualifying signal before ranking. Truncating during
+  collection and ranking the survivors is the defect wearing the fix's clothes —
+  and a mutation proved every helper test still passed with that bug present.
+
+Eight tests, five mutants; all live mutants killed.
+
+### What this does NOT fix, measured and recorded
+
+Golden Intel's pipeline is healthy end to end and the remaining gap is genuinely
+value density, not plumbing:
+
+    poll:      43 feeds, 0 failed, 1,419 articles   (north star recorded 76/41 failed)
+    sanctions: 31,099 designations tracked (UN 1,011 · FCDO 5,135 · EU 5,994 ·
+               OFAC 18,959), 0 new — honest for a quiet week, NOT a defect
+    tenders:   25-27 per crawl across 8 portals; TED 20/20, Contracts Finder, MERX
+    store:     500 signals — 432 classifier_template, 68 source_adapter
+    ready:     9 distribution-ready RIGHT NOW
+    publisher: cron 07:00 + 17:00 Europe/London + startup catch-up — scheduled
+
+Three Lane B sources are down and each one narrows the funnel: **AfDB 403**,
+**SAM.gov 429**, **SEACE Peru SSL CERTIFICATE_VERIFY_FAILED**. North star Phase 4
+("source reliability repair") names this work.

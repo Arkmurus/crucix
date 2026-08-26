@@ -1463,6 +1463,72 @@ def _normalise_intel_signal(signal: dict) -> dict:
     return sig
 
 
+def _channel_publishable_types() -> frozenset:
+    """R-F4362 (C-308) — the signal types the Telegram channel can actually post.
+
+    Read from `golden_intel_bridge._GOLDEN_ALLOWED_TYPES`, which is itself the
+    mirror of the Node gate (`channelServerHooks.mjs:162`) and the dashboard's
+    distribution set. Taking it from there rather than re-listing it here means
+    the ranking below optimises for the SAME rule the consumer gates on — a
+    second copy would drift the first time a type was added, and this fix would
+    then be quietly optimising for the wrong consumer.
+
+    Imported LAZILY: `golden_intel_bridge` imports this module, so a top-level
+    import would be a cycle. Returns an empty set if it cannot be resolved, and
+    the caller treats that as "do not reorder" (see `_rank_for_channel_slots`).
+    """
+    try:
+        from .golden_intel_bridge import _GOLDEN_ALLOWED_TYPES
+        return frozenset(_GOLDEN_ALLOWED_TYPES)
+    except Exception:  # noqa: BLE001 — an unresolvable set must not reorder
+        return frozenset()
+
+
+def _rank_for_channel_slots(signals: list[dict], capped: int) -> list[dict]:
+    """R-F4362 (C-308) — spend the feed's limited slots on signals the consumer
+    can act on.
+
+    THE DEFECT, measured live 2026-08-26 on the exact call the channel makes
+    (`limit=60, grades=A,B`):
+
+        returned 60 — of which natural_hazard 21 (35%)
+        suppressed: over_limit 57
+
+    `natural_hazard` is honest, real, and NOT in the channel's allowed types, so
+    it can never be posted. Meanwhile 57 further candidates — including tenders,
+    contract awards and sanctions changes — were truncated away for exceeding the
+    limit. The feed truncated by RECENCY, so unpublishable-but-recent items
+    evicted publishable ones before the channel ever saw them.
+
+    This is R-F3536's crowding returning through a different door: that fix
+    stopped `natural_hazard` BUYING Grade A on source authority alone, and they
+    still reach Grade B honestly and still consume slots. Closed by grade,
+    reopened by volume.
+
+    ORDERING, NOT REMOVAL. Nothing is dropped that the limit was not already
+    dropping — the Mining Queue and dashboard still receive situational
+    awareness. Only *which* signals survive truncation changes, and recency is
+    preserved WITHIN each group so the channel's best-first pick and the
+    dashboard's newest-first read both still hold.
+
+    Deliberately NOT a bigger limit: a constant rots the moment news volume
+    rises, which is the band-aid §1 forbids and the shape C-298 and C-304 both
+    record. An unresolvable allowed-set means no reorder — an ordering built on
+    an empty set would rank everything unpublishable and be arbitrary.
+    """
+    allowed = _channel_publishable_types()
+    # An EMPTY allowed set degrades to plain recency by construction: nothing is
+    # publishable, so `publishable` is empty and `rest` is the input unchanged.
+    # That is the honest fallback and it needs no separate branch — an explicit
+    # early return here would be unreachable-equivalent, i.e. dead code that no
+    # test could ever kill.
+    publishable = [s for s in signals
+                   if str(s.get("signal_type") or "") in allowed]
+    rest = [s for s in signals
+            if str(s.get("signal_type") or "") not in allowed]
+    return (publishable + rest)[:capped]
+
+
 async def _store_intel_signal(signal: dict) -> None:
     await rs.lpush(_INTEL_SIGNALS_KEY, json.dumps(signal, default=str))
     await rs.ltrim(_INTEL_SIGNALS_KEY, 0, _MAX_INTEL_SIGNALS - 1)
@@ -3041,10 +3107,17 @@ async def get_recent_intel_signals(limit: int = 20, grades: str = "") -> dict:
             suppressed_duplicates += 1
             continue
         seen_signal_keys.add(canonical_key)
-        if len(signals) < capped:
-            signals.append(sig)
-        else:
-            suppressed_over_limit += 1
+        # R-F4362 (C-308) — collect EVERY qualifying signal, then rank, then
+        # truncate. Truncating here (as this did) is truncation by RECENCY, which
+        # is what let 21 unpublishable natural_hazard items evict tenders and
+        # designations from the channel's 60 slots while 57 candidates were
+        # dropped over_limit.
+        signals.append(sig)
+
+    # R-F4362 (C-308) — publishable-first, recency preserved within each group.
+    _qualifying = len(signals)
+    signals = _rank_for_channel_slots(signals, capped)
+    suppressed_over_limit += max(0, _qualifying - len(signals))
 
     by_priority: dict[str, int] = {}
     by_type: dict[str, int] = {}
