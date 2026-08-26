@@ -17196,7 +17196,14 @@ task is running.** Measured across the two builds and nearly filed as a
 regression:
 
     bc0164e5:  12/30 health samples degraded (40%)
-    92627039:   9/12 health samples degraded (75%)
+    92627039:   9/16 health samples degraded (56%)
+
+⚠️ That second figure was first written here as **9/12 = 75%**, read while the
+sampler was still running. The last four samples were all `operational`, so the
+completed window is 56%. **A partial window is not a smaller window — it is a
+biased one**, and quoting one is the same denominator error this note exists to
+warn about, committed while writing the warning. Wait for the sampler to finish
+before quoting its rate.
 
 The rise is not a regression and R-F4356 cannot have caused it — that commit
 touches `capability_gaps.py` and tests only, nothing on the LLM path. The
