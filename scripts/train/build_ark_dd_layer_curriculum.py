@@ -134,7 +134,7 @@ PAIRS: list[dict] = [
         ),
     },
     {
-        "id": "l1_apply", "layer": "1", "mode": "applied",
+        "id": "l1_apply", "layer": "1", "mode": "applied", "external": True,
         "q": "Run a Layer 1 identity check on a state-owned arms exporter.",
         "a": (
             "Layer 1 on a state-owned arms exporter runs in this order.\n\n"
@@ -327,6 +327,111 @@ PAIRS: list[dict] = [
         ),
     },
     {
+        "id": "evidence_status", "layer": "all", "mode": "contract",
+        "q": "What does the evidence status at the bottom of a DD report mean?",
+        "a": (
+            "It is an EVIDENCE vocabulary, not a probability. The tag takes one of CONFIRMED, "
+            "ASSESSED, PROBABLE, UNCERTAIN or UNVERIFIED, and every one of those describes HOW a "
+            "claim was established — corroborated by a primary source, inferred, or not checked — "
+            "rather than how likely it is to be true.\n\n"
+            "The distinction is load-bearing because the two readings diverge most where it "
+            "matters. UNVERIFIED does not mean 'probably fine'. It means NOBODY LOOKED. A reader "
+            "who takes it as a low-risk probability has inverted the finding.\n\n"
+            "The report's tag is the WEAKEST tag across all sections, so the headline can never "
+            "oversell what the weakest section actually established.\n\n"
+            "Operator action: read the tag as 'how do we know this', then decide whether that "
+            "standard of knowing is good enough for the decision in front of you. An UNVERIFIED "
+            "line on a question that drives the decision is a task, not a reassurance."
+        ),
+    },
+    {
+        "id": "data_gaps", "layer": "all", "mode": "contract",
+        "q": "The report lists a data gap instead of a finding. Is that a failure of the run?",
+        "a": (
+            "No — it is the run doing its job. Every section carries findings AND data_gaps as "
+            "first-class fields precisely so that a missing data point can never disappear "
+            "silently.\n\n"
+            "The alternative is far worse: a report that omits what it could not resolve reads as "
+            "a report that resolved everything, and the reader has no way to see the difference. "
+            "An absent line and a clean line look identical once the gap is dropped.\n\n"
+            "Section status makes the same distinction structurally — OK, PARTIAL, SKIPPED or "
+            "ERROR — and SKIPPED specifically means the orchestrator short-circuited before that "
+            "layer, usually because Layer 1 hard-stopped.\n\n"
+            "Operator action: read data_gaps before findings. They tell you which parts of the "
+            "picture are actually established and which questions are still open, and an open "
+            "question on the decisive point outranks any number of resolved ones elsewhere."
+        ),
+    },
+    {
+        "id": "source_tier", "layer": "all", "mode": "contract",
+        "q": "What are the source tiers on a DD finding, and why do they matter?",
+        "a": (
+            "Findings carry a source tier: OFFICIAL, INDUSTRY, QUALITY_PRESS, or UNVERIFIED.\n\n"
+            "The tier is about WHO said it, which is a different axis from how many said it. Three "
+            "quality-press reports repeating one another are not equivalent to one official "
+            "registry entry, even though a naive corroboration count would score them higher.\n\n"
+            "Operator action: for anything that has to survive a regulator or an auditor, the "
+            "question is whether an OFFICIAL tier source backs it. Press-tier corroboration is "
+            "useful for direction and for adverse-media signal, but it is not the evidence you "
+            "produce when asked to justify a block or a clearance."
+        ),
+    },
+    {
+        "id": "modes", "layer": "all", "mode": "contract",
+        "q": "What is the difference between quick, standard and deep DD?",
+        "a": (
+            "They are the orchestrator's three modes, and the main thing that changes is how hard "
+            "Layer 5 (Digital) looks.\n\n"
+            "In deep mode the deep_research pass runs thorough — substantially more search angles "
+            "and articles, at correspondingly more time and cost. Quick and standard use the "
+            "shallow pass, which keeps a routine run inside the per-run cost cap.\n\n"
+            "Cost is tracked PER LAYER, so the cap can halt a run that is burning its whole budget "
+            "inside one layer rather than silently spending it.\n\n"
+            "Operator action: match the mode to the decision. A counterparty you are about to "
+            "contract with justifies deep; a first-pass screen of a long list does not, and running "
+            "deep on all of them spends the budget where it changes nothing. If a standard run "
+            "returns an ambiguous verdict on a decisive counterparty, that is the signal to "
+            "re-run deep rather than to accept the ambiguity."
+        ),
+    },
+    {
+        "id": "l2_apply", "layer": "2", "mode": "applied", "external": True,
+        "q": "Run the network layer on a company whose sole director also sits on five other firms.",
+        "a": (
+            "That pattern is exactly what Layer 2 exists to surface, so the walk is the answer "
+            "rather than a preliminary to it.\n\n"
+            "It pulls the directors and beneficial owners from the registries, screens each of "
+            "those persons against PEP and sanctions lists — the entity can be clean while a "
+            "controlling person is not — and then looks for structure: are the six companies at "
+            "one address, do they share other officers, do they cluster by incorporation date.\n\n"
+            "A single director across six firms is not adverse on its own; nominee and "
+            "company-formation arrangements are lawful and common. What makes it a finding is the "
+            "combination — shared accommodation address, near-simultaneous incorporation, no "
+            "operating footprint.\n\n"
+            "Operator action: run DD on the connected entities rather than noting the link, and "
+            "ask who directs the director. I will not characterise the specific companies or "
+            "persons unless the registry evidence is in front of me."
+        ),
+    },
+    {
+        "id": "l6_apply", "layer": "6", "mode": "applied", "external": False,
+        "q": "Layer 6 returned RED but Layer 1 was clean. How should that be read?",
+        "a": (
+            "As entirely coherent, and worth reading carefully rather than as a contradiction.\n\n"
+            "Layer 1 clean means the entity itself is not designated. Layer 6 RED is the synthesis "
+            "across everything — network exposure, compliance classification, digital and "
+            "coherence signals — resolved through the competing-hypotheses matrix. A counterparty "
+            "can be entirely undesignated and still be the wrong counterparty.\n\n"
+            "The ACH step is what makes that verdict worth acting on: the innocent explanation was "
+            "scored against the same evidence as the adverse one, so RED means the adverse reading "
+            "survived the comparison, not that concerning facts were collected.\n\n"
+            "Operator action: go to the sections that carried the weight rather than re-running "
+            "Layer 1. And note the inverse case is the dangerous one — a GREEN synthesis sitting "
+            "beside a conflict flagged lower down should be read as the conflict first, because "
+            "Layer 3 surfaces exactly that shape as [CONTRADICTED] and it requires human review."
+        ),
+    },
+    {
         "id": "unobservable", "layer": "all", "mode": "boundary",
         "q": "One of the layers reported no output at all. Did it fail?",
         "a": (
@@ -354,6 +459,7 @@ def _rows() -> list[dict]:
         "topic": f"ark_dd_layer_{p['layer']}_{p['id']}",
         "layer": p["layer"],
         "mode": p["mode"],
+        "external": bool(p.get("external", False)),
         "confidence": "high",
         "source": "claude_authored:R-F4360",
     } for p in PAIRS]

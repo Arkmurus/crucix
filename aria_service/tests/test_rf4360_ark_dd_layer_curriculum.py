@@ -210,13 +210,88 @@ def test_5b_and_5c_are_taught_with_their_dominant_meanings(rows):
 
 def test_the_applied_row_keeps_the_refusal_contract(rows):
     """The applied shape must teach the SHAPE of an answer without teaching her
-    to invent findings. Trading that away gives back what the fine-tune bought."""
+    to invent findings. Trading that away gives back what the fine-tune bought.
+
+    SCOPED TO ROWS THAT ASSERT SOMETHING ABOUT AN EXTERNAL ENTITY, via the
+    explicit `external` flag rather than a guess. A first version demanded the
+    caveat on EVERY applied row and failed the Layer 6 one — wrongly. That row
+    asks how to read her OWN report ("Layer 6 returned RED but Layer 1 was
+    clean"), where there is no external fact available to invent; requiring a
+    refusal caveat there would train a reflexive hedge rather than judgement.
+    The flag is on the data, so the scope is auditable instead of inferred from
+    wording.
+    """
     app = [r for r in rows if r["mode"] == "applied"]
     assert app, "no applied row — she also fails 'run a Layer 1 check on X'"
-    for r in app:
+    ext = [r for r in app if r.get("external")]
+    assert ext, "no applied row makes claims about an external entity"
+    for r in ext:
         a = r["messages"][2]["content"].lower()
-        assert "will not" in a or "unless" in a, (
-            f"{r['topic']}: applied row does not bound what it will assert")
+        # "will not" ONLY. An earlier version also accepted "unless", and
+        # mutation testing showed that deleting the actual bound still passed
+        # because an incidental "unless" survived elsewhere in the sentence —
+        # a guard satisfied by a conjunction rather than by the commitment.
+        assert "will not" in a, (
+            f"{r['topic']}: applied row about an external entity does not state "
+            f"what it will NOT assert without evidence")
+
+
+def test_unverified_is_taught_as_nobody_looked_not_as_low_risk(rows):
+    """R-F3550's finding, and the one most likely to be softened by a later
+    edit because the softer reading sounds more helpful.
+
+    `confidence_tag` takes CONFIRMED / ASSESSED / PROBABLE / UNCERTAIN /
+    UNVERIFIED, and those describe HOW a claim was established — not how likely
+    it is to be true. The label used to read "Confidence", which invited a
+    reader to take UNVERIFIED as "probably fine" when it means nobody checked.
+    Two different axes sharing one word, on the line that closes the report.
+
+    A curriculum that taught the probability reading would put that defect back
+    into the model rather than the renderer, where no rename can reach it.
+    Mutation testing added this: replacing "It means NOBODY LOOKED" with "It
+    generally means low risk" passed every other guard in this file.
+
+    SCOPED TO THE ROWS THAT TEACH THE ENUM, discriminated by CONFIRMED
+    appearing alongside UNVERIFIED. `UNVERIFIED` is ALSO a source tier
+    (OFFICIAL / INDUSTRY / QUALITY_PRESS / UNVERIFIED), and a first version of
+    this guard failed that row for not glossing "nobody looked" — which it has
+    no reason to, because there it is the name of a tier rather than a claim
+    about how something was established. Two vocabularies share the word; only
+    one of them carries the misreading.
+    """
+    rows_ = [r for r in rows
+             if "unverified" in r["messages"][2]["content"].lower()
+             and "confirmed" in r["messages"][2]["content"].lower()]
+    assert rows_, "the evidence-status vocabulary is never taught"
+    for r in rows_:
+        a = r["messages"][2]["content"].lower()
+        assert "nobody looked" in a or "not checked" in a, (
+            f"{r['topic']}: UNVERIFIED taught without 'nobody looked' — the "
+            f"whole point of the distinction")
+        for soft in ("probably fine", "low risk", "generally safe"):
+            assert f"means {soft}" not in a and f"is {soft}" not in a, (
+                f"{r['topic']}: UNVERIFIED softened to '{soft}', which inverts "
+                f"the finding for the reader")
+
+
+def test_the_weakest_tag_rule_is_taught(rows):
+    """The report's tag is the WEAKEST across sections, so the headline can
+    never oversell the weakest section. Losing that turns the footer into a
+    summary of the best-evidenced claim.
+
+    SCOPED TO THE EVIDENCE-STATUS ROW. A repo-wide `"weakest" in body` passed
+    even with the rule deleted from that row, because the Layer 3 row also
+    mentions taking the weakest confidence tag — a guard satisfied by a
+    different row than the one it is guarding.
+    """
+    tagged = [r for r in rows
+              if "unverified" in r["messages"][2]["content"].lower()
+              and "confirmed" in r["messages"][2]["content"].lower()]
+    assert tagged, "the evidence-status vocabulary is never taught"
+    for r in tagged:
+        assert "weakest" in r["messages"][2]["content"].lower(), (
+            f"{r['topic']}: teaches the tag vocabulary without the weakest-tag "
+            f"rule — the status then reads as the report's strongest section")
 
 
 def test_no_row_licenses_invention(rows):
