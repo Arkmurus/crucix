@@ -37508,9 +37508,10 @@
       "title": "templated news buries every adapter-sourced decision signal below the scan window",
       "claimed_at": "2026-08-26T14:01:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "13215681",
+      "notes": null,
+      "shipped_at": "2026-08-26T14:20:37Z"
     },
     {
       "r_number": "R-F4363",

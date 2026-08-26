@@ -3463,9 +3463,12 @@
       "title": "Golden Intel: decision-grade signals are unreachable because a recency window is full of unpublishable news",
       "claimed_at": "2026-08-26T14:01:50Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4362"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T14:20:37Z"
     },
     {
       "c_number": "C-309",
