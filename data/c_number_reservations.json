@@ -3385,9 +3385,12 @@
       "title": "capability-gap flood: volatile fields in the dedupe fingerprint + dedupe fails open",
       "claimed_at": "2026-08-26T09:20:54Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4356"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T09:47:35Z"
     },
     {
       "c_number": "C-302",

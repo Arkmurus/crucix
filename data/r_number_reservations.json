@@ -37448,9 +37448,10 @@
       "title": "a monotonic counter in the gap detail made dedupe structurally impossible",
       "claimed_at": "2026-08-26T09:20:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "28e1efaa",
+      "notes": null,
+      "shipped_at": "2026-08-26T09:47:35Z"
     }
   ]
 }
