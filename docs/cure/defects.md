@@ -17097,17 +17097,38 @@ degradation. During boot the breaker flapped `CLOSED → OPEN` four times on "3
 consecutive failures", and for ~2 minutes ARIA had no LLM at all. §17 records
 `general_vendor_depth: 1` / `resilient: false` as an ACCEPTED consequence — but
 that was accepted when the single provider was DeepSeek, a paid always-on
-vendor. The single provider is now a self-hosted GPU pod, and on this same day
-RunPod refused to schedule a sibling pod for over an hour ("not enough free GPUs
-on the host machine"). The premise under which depth-1 was accepted has changed.
+vendor. The single provider is now a self-hosted GPU pod, which is a different
+risk class, so the premise under which depth-1 was accepted has changed.
+
+⚠️ **A first draft of this entry overstated that risk and the correction
+matters.** It cited RunPod refusing to schedule a sibling pod for over an hour
+the same day ("not enough free GPUs on the host machine") as evidence the
+sovereign can vanish. **It is not evidence of that.** That mechanism is
+specifically *stop → GPU reclaimed → host full*, and the production sovereign is
+always-on per §24, so it never enters that path — it answered HTTP 200 all day
+and served a 1.1s completion mid-incident. The honest residual risk is host
+failure or preemption: real, but rarer and different from what was observed.
+Do not re-import the stranded-pod anecdote as if it applied here.
 
 **Deliberately NOT fixed here, because every remedy is a judgement call with a
 cost, and picking one quietly would be the wrong kind of surgery:**
 
-  * raise `_TIER_TIMEOUT_S` above 15s — accepts slower turns everywhere, and
-    the ceiling exists to stop a slow provider wedging callers;
-  * re-add a vendor fallback behind the sovereign — costs money and interacts
-    with §17 RULE ONE, which confines Anthropic to DD and Brave to DD + ARIA WA;
+  * raise `_TIER_TIMEOUT_S` above 15s — **a band-aid in the §1 sense, and the
+    diagnosis says why.** The model is not slow: a short completion measured
+    1.1s. What breaches is long-form — `researcher` article analysis, codegen —
+    where a 7B emitting 500–1500 tokens crosses 15s *by arithmetic*, while a
+    chat turn never will. **One number is governing two workload classes with
+    completely different output-length distributions; that is the
+    mis-specification.** A global bump buys the long-form calls at the price of
+    making every short call hang four times longer before failing. The
+    structural fix is a PER-WORKLOAD deadline — fail a chat turn fast at 15s,
+    derive the long-form deadline from expected token count. Same lesson as
+    C-182, where one deadline served two attempt classes and made a
+    reasoning-model timeout uncurable;
+  * re-add a vendor fallback behind the sovereign — costs money, interacts with
+    §17 RULE ONE (Anthropic is DD-only, Brave is DD + ARIA WA), and **would
+    reverse an explicit operator directive** to remove DeepSeek from the chain.
+    Operator-only for that reason, not merely on cost;
   * serve the sovereign on faster hardware, or a smaller/quantised model —
     the peer's lane, and currently blocked on GPU availability;
   * route only the long-form workloads (researcher, codegen) to a vendor and
@@ -17119,3 +17140,19 @@ closing the gap by measuring less (§1), and R-F4024 added that reason precisely
 because a starved subsystem sat beside `status: operational` for a day.
 
 Related: C-301 (the same episode floods the gap ledger; fixed).
+
+**Observed alongside, NOT attributed — the discriminator, so nobody re-chases it
+blind.** `memory_leak_detector` reported `LEAK DETECTED — growth=119.85MB/
+interval, current=6495.0MB`, with GC reclaiming <1MB on three consecutive runs
+(so it is LIVE memory, not garbage). That reading is equally consistent with
+growth-by-design: ~533k facts are resident, §7 forbids eviction, and C-95's
+journal means `_load` replays over a full snapshot, so the whole graph sits in
+memory. **What separates them is whether growth tracks FACT COUNT or TIME** —
+fact-count-proportional is design; a flat ~120MB/interval regardless of ingest
+is a leak. One sample cannot tell them apart, so this is recorded as an
+observation and deliberately not filed as a defect.
+
+**Also one sample, also not a claim:** `state_backend` read timeouts fell 25 → 3
+across the bc0164e5 → 92627039 boots. Plausibly the ~220 fewer store ops from
+C-301 (four ops per undeduped gap × 55 gaps not written), but a single pair of
+boots is not causation. Re-measure across the next boot before repeating it.
