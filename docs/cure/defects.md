@@ -17347,3 +17347,74 @@ hang proportionally longer before failing.
   names the call sites to fix at source.
 
 Twelve tests, six mutants, all killed.
+
+## C-305 · ARIA is capped on money that was never spent, and gated on somebody else's bill (fixed — R-F4359)
+
+**Operator, 2026-08-26:** *"aria is no longer using third party reasoning
+therefore there is no need to have a monthly cap in aria itself as well as the
+operators and admin teams"* — and earlier, *"vendor spend will be assigned via
+their respective accounts, their membership tier … we cannot have that cap on
+the actual aria but on the users only"*.
+
+**TWO DEFECTS, ONE CONSEQUENCE: ARIA goes dark.**
+
+**1 — the sovereign is billed at Claude rates.** `aria-llm-v0.4-dpo` is absent
+from `PRICING`, so `_get_price` falls through to `DEFAULT_PRICING`, which R-F2766
+deliberately set to Claude Sonnet `(3.00, 15.00)` *"ahead of the DeepSeek→Claude
+switch"* — correct for an unknown VENDOR model, wrong for a machine rented by the
+hour. The table already encodes the right idea: `llama3.1:70b` is `(0.0, 0.0)`
+because it is self-hosted. The sovereign was simply never added.
+
+    live, 2026-08-26:  aria_llm charged $14.02 for 3.5M tokens it did not cost
+    this month:        323,380,129 DeepSeek tokens really cost      $67.72
+    same volume at DEFAULT_PRICING (all traffic now sovereign):  $2,134.31
+    monthly cap:                                                   $600.00
+
+**2 — the cap gate is provider-blind.** `MeteredProvider._enforce_spend_caps`
+called `assert_daily_cap()` + `assert_monthly_cap()` before EVERY call whatever
+the provider, so even priced at zero ARIA's reasoning would still be blocked the
+moment unrelated PAID spend — a DD run pinned to Anthropic under §17 RULE ONE —
+crossed the cap. `assert_monthly_cap` **raises**: the call does not degrade, it
+does not happen.
+
+**THE RULE, and it needs no policy carve-out: a cap counts dollars AT RISK, and
+a flat-rate provider puts none at risk.** One fact delivers every clause:
+
+* ARIA's reasoning is 100% sovereign → never capped, never dark;
+* operator/admin reasoning rides the same provider → uncapped too;
+* per-user caps still bind on VENDOR-backed work — the spend being assigned to
+  accounts by tier;
+* genuine vendor spend keeps its brake. §17 records an exhausted Anthropic key
+  taking DD down; removing that brake would trade one outage for another.
+
+**Derived, not a second list.** Zero-cost is read from `PRICING` itself, so a
+provider cannot be uncapped in one place and billed in another. The key is a
+PREFIX (`aria-llm`), so every adapter — including the `aria-llm-base` id vLLM
+echoes for a LoRA request, and the v0.7 nobody has trained — resolves without
+anyone editing a list. A list is what rotted here in the first place.
+
+**Fails safe toward PAID:** an unknown name resolves to `DEFAULT_PRICING`, i.e.
+not zero, so an unrecognised provider is treated as a vendor and stays capped.
+
+The pod's hourly rent is real and is not hidden — it is infrastructure spend
+tracked as pod hours (§24, ~$0.44/hr), not per-token vendor billing. Recording it
+at Claude rates did not make it visible; it made it fiction, and the cap then
+fired on the fiction.
+
+Nineteen tests, six mutants, all killed — including "helper correct but never
+consulted at the call site", the trap that survived the first mutation pass on
+C-300 earlier the same day.
+
+### Other limiters — MEASURED, and deliberately NOT changed
+
+The directive was to remove limitations ahead of more users. Only the cost cap
+was proven to strand ARIA. The rest have live headroom, and raising a limit
+without evidence is the band-aid §1 forbids:
+
+    llm queue:  active 1 / max_concurrent 24,  queued 0,  dropped 0
+    rate limit: ARIA_LLM_RPM default 150 (docstring still says "50 for tier 1
+                Anthropic" — a VENDOR tier rationale that no longer applies)
+
+Neither is binding today. Watch `llm_fallback_stats.queued` / `.dropped` and
+revisit when real user load produces a non-zero number — at which point the
+right limit is what the POD can serve, not what a vendor tier allowed.

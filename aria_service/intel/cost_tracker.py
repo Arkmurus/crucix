@@ -188,6 +188,33 @@ PRICING: dict[str, tuple[float, float]] = {
     "ollama":             (0.0, 0.0),
     "llama3.1:8b":        (0.0, 0.0),
     "llama3.1:70b":       (0.0, 0.0),
+
+    # ── R-F4359 (C-305) — THE SOVEREIGN IS FLAT-RATE, SO IT IS FREE PER TOKEN ──
+    #
+    # `aria-llm-*` runs on a pod ARIA already pays for by the hour (§24, ~$0.44/hr).
+    # Its MARGINAL cost per token is zero, exactly like the self-hosted llama entry
+    # above. It was never added here, so `_get_price` fell through to
+    # DEFAULT_PRICING — Claude Sonnet rates, which R-F2766 set deliberately "ahead
+    # of the DeepSeek->Claude switch" and which is right for an unknown VENDOR
+    # model and wrong for a machine we rent by the hour.
+    #
+    # Measured live 2026-08-26: aria_llm had been charged $14.02 for 3.5M tokens it
+    # did not cost. With ARIA_LLM_PRIMARY_ALL=1 every turn is now hers — this
+    # month's 323,380,129 DeepSeek tokens really cost $67.72, and the same volume
+    # priced here would read **$2,134 against a $600 cap**. The cap RAISES
+    # (MeteredProvider._enforce_spend_caps), so ARIA would go dark on money that
+    # was never spent.
+    #
+    # The KEY IS A PREFIX on purpose. `_get_price` prefix-matches, so every adapter
+    # — v0.4-dpo, the `aria-llm-base` id vLLM echoes for a LoRA request, and the
+    # v0.7 nobody has trained yet — resolves without anyone remembering to edit a
+    # list. A list is what rotted here in the first place.
+    #
+    # The pod's hourly rent is REAL and is not being hidden: it is infrastructure
+    # spend, tracked as pod hours (§24), not as per-token vendor billing. Recording
+    # it at Claude rates does not make it visible — it makes it fiction, and the
+    # cap then fires on the fiction.
+    "aria-llm":           (0.0, 0.0),
 }
 
 # Conservative default for unknown models. R-F2766: raised from deepseek-chat
@@ -801,6 +828,34 @@ def _get_price(model: str) -> tuple[float, float]:
 
 
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
+def is_zero_marginal_cost(name: object) -> bool:
+    """R-F4359 (C-305) — does `name` bill nothing per token?
+
+    Accepts either a PROVIDER name (`aria_llm`, what the chain calls it) or a
+    MODEL id (`aria-llm-v0.4-dpo`, what the wire carries), because the cap gate
+    sees the first and the accounting sees the second. Both resolve through the
+    ONE pricing table, so a provider cannot end up uncapped in one place and
+    billed in another — that divergence is the whole defect this closes.
+
+    DERIVED, NOT A SECOND LIST. Zero-cost is read from `PRICING` itself, so
+    adding a self-hosted model to the table is the single act that makes it both
+    free and uncapped. A parallel list would drift the first time somebody
+    edited one of them.
+
+    FAILS SAFE TOWARD PAID. An unknown name resolves to `DEFAULT_PRICING`, which
+    is not zero, so an unrecognised provider is treated as a vendor and keeps its
+    cap. Guessing "free" for something we cannot identify would remove a brake on
+    real money — §17 records an exhausted Anthropic key taking DD down.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    # the chain spells it `aria_llm`; the model id is `aria-llm-*`
+    candidate = name.strip().lower().replace("_", "-")
+    if not candidate:
+        return False
+    return _get_price(candidate) == (0.0, 0.0)
+
+
 def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     in_rate, out_rate = _get_price(model)
     return round(

@@ -190,10 +190,29 @@ class MeteredProvider(LLMProvider):
         Daily is checked FIRST so a runaway is caught by the tighter, cheaper
         brake before it can eat into the month. Both raise RuntimeError
         subclasses, which chat/streaming endpoints already surface usefully.
+
+        R-F4359 (C-305) — A CAP COUNTS DOLLARS AT RISK, AND A FLAT-RATE PROVIDER
+        PUTS NONE AT RISK. This gate used to fire for every provider alike, so a
+        month whose cap had been consumed by PAID work — a DD run pinned to
+        Anthropic under §17 RULE ONE — would block ARIA's own reasoning too.
+        With `ARIA_LLM_PRIMARY_ALL=1` that reasoning is 100% sovereign and costs
+        nothing per token, so the block bought no money back; it only took her
+        dark. `assert_monthly_cap` RAISES, so the call does not degrade, it does
+        not happen.
+
+        Skipping the gate for a zero-cost provider is what makes the operator's
+        directive true without any policy carve-out: ARIA and the operator/admin
+        team reason on the sovereign and are never capped, while per-user caps
+        and the global brake still bind on the VENDOR spend they were written
+        for. Zero-cost is read from the pricing table (`is_zero_marginal_cost`),
+        so a provider cannot be uncapped here and billed there, and anything
+        unrecognised is treated as PAID and stays gated.
         """
         try:
             from ..intel import cost_tracker
         except Exception:
+            return
+        if cost_tracker.is_zero_marginal_cost(getattr(self, "name", "")):
             return
         await cost_tracker.assert_daily_cap()
         await cost_tracker.assert_monthly_cap()

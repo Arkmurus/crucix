@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4359,
+  "next_available": 4360,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37472,6 +37472,15 @@
       "commit_sha": "99569bf7",
       "notes": null,
       "shipped_at": "2026-08-26T10:55:23Z"
+    },
+    {
+      "r_number": "R-F4359",
+      "title": "the cost cap gates ARIA's zero-marginal-cost reasoning on vendor spend",
+      "claimed_at": "2026-08-26T10:57:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
