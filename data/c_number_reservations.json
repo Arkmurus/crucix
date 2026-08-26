@@ -3235,6 +3235,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T00:24:46Z"
+    },
+    {
+      "c_number": "C-288",
+      "title": "the collision was actively restored by an untracked respawn supervisor on the pod",
+      "claimed_at": "2026-08-26T00:46:20Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
