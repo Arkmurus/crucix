@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4361,
+  "next_available": 4362,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37487,6 +37487,16 @@
       "r_number": "R-F4360",
       "title": "ARIA cannot describe her own ARK-DD layer stack (C-303)",
       "claimed_at": "2026-08-26T11:47:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "765e1d78",
+      "notes": null,
+      "shipped_at": "2026-08-26T11:54:24Z"
+    },
+    {
+      "r_number": "R-F4361",
+      "title": "WA memory-write commands are gated only by the bootstrap allow-list, so opening access opens permanent memory",
+      "claimed_at": "2026-08-26T11:56:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

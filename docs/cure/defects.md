@@ -17418,3 +17418,55 @@ without evidence is the band-aid §1 forbids:
 Neither is binding today. Watch `llm_fallback_stats.queued` / `.dropped` and
 revisit when real user load produces a non-zero number — at which point the
 right limit is what the POD can serve, not what a vendor tier allowed.
+
+## C-307 · WA memory-write commands are gated only by the bootstrap allow-list (fixed — R-F4361)
+
+**Operator, 2026-08-26:** *"for aria wa at the moment remove all limitations"*,
+ahead of more users testing.
+
+The limitation actually blocking testers is `WA_ALLOWED_SENDERS`. Live on
+aria-wa it holds **one number**; every other sender is refused with *"This ARIA
+number is restricted to verified users."*
+
+    WA_REQUIRE_VERIFIED_SENDER = 1
+    WA_ALLOWED_SENDERS         = <one number>
+    WA_DM_ENABLED              = unset  -> defaults TRUE  (DMs already work)
+    WA_KEYWORD_AUTO_RESPONSE   = unset  -> defaults false (proactive alerts off)
+    ARIA_VOICE_ALWAYS_REPLY    = false  -> explicitly OFF (voice notes ignored)
+
+**Opening that list was a one-way door.** `handleCommand` checked
+`_waSenderAllowed` and nothing else, so opening it also opened `/teach` and
+`/correct` — which write facts CLAUDE.md §7 forbids ever evicting. The
+listener's own warning says so verbatim: *"every /command including /teach and
+/correct, which WRITE INTO HER PERMANENT MEMORY (§7, no eviction)"*. A poisoned
+fact would be permanent.
+
+**The policy already existed and nothing consulted it.** `waCapability.mjs`
+defines `CAP_MEMORY_WRITE`, and `capabilityForCommand('teach'|'correct')`
+returns it. A repo-wide search found **no production caller** — only a test
+asserting the mapping against itself. A classification with no consumer did not
+happen: the policy was written down, tested, and never enforced. Same shape as
+C-300 (helper correct, never consulted) and the `unavailable_sources` escape
+hatch in C-39.
+
+So this invents no policy — it gives the existing one a consumer, which is what
+makes the allow-list safe to open. Everything else opens freely: questions,
+documents, images, voice notes, due diligence, screening.
+
+**Load-bearing properties:**
+
+* ADMIN means a **BOUND imaria.io account** in `ARIA_WA_ADMIN_USER_IDS`, never a
+  phone number — `roleForBinding` already argues a handset "can be lent,
+  spoofed, or re-issued by a carrier while the account behind a pairing code
+  cannot".
+* Fails **CLOSED** on any unrecognised role; an unknown role must never buy the
+  strongest capability in the system.
+* The capability is **derived from the command**, not re-listed at the call
+  site, so a future memory-writing command is covered by classifying it in ONE
+  place.
+* It must NOT sweep ordinary commands into the admin lock — that would be this
+  fix re-creating the limitation it exists to remove. Pinned by test.
+
+Five tests, four mutants, all killed — including one that restores the exact
+defect (classified but never consulted) and one that over-gates every command.
+WA Node suite: 165/165.

@@ -106,7 +106,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';         // R-F1930 (C1): p
 import { buildOperationalEvent, linkedGrantState, linkedMessageAllowed } from '../../lib/whatsapp/waGovernance.mjs';
 import { extractPairingCode, identitiesFromMessage, newBinding, newPairing,
          pairingState, publicBindingView, resolveBoundUser } from '../../lib/whatsapp/waBinding.mjs';
-import { roleForBinding, maySeeSystemInternals, ROLE_ADMIN } from '../../lib/whatsapp/waCapability.mjs';
+import { roleForBinding, maySeeSystemInternals, ROLE_ADMIN,
+         mayWriteMemory, capabilityForCommand, CAP_MEMORY_WRITE }   // R-F4361 (C-307)
+  from '../../lib/whatsapp/waCapability.mjs';
 
 // R-F1930 (C1): ambient context for the inbound message pipeline. onMessagesUpsert
 // runs each batch inside _waCtx.run({sock, account}); sendReply reads the store to
@@ -2053,6 +2055,27 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
   if (!_waSenderAllowed(senderJid)) {
     console.warn(`[ARIA Listener] command dropped command=${cmd} reason=sender_not_allowed`);
     return '⛔ Not authorized to run this command.';
+  }
+  // ── R-F4361 (C-307) — PERMANENT-MEMORY WRITES NEED A ROLE, NOT JUST ACCESS ──
+  //
+  // `/teach` and `/correct` write facts CLAUDE.md §7 forbids ever evicting, so a
+  // wrong or malicious one is permanent. Before this, the ONLY thing between a
+  // stranger and that write was WA_ALLOWED_SENDERS — the bootstrap list, which
+  // the operator needs opened so testers can use ARIA. Opening it therefore also
+  // opened permanent memory; this gate is what makes opening it safe.
+  //
+  // `waCapability.mjs` already classified these commands as CAP_MEMORY_WRITE and
+  // NOTHING CONSULTED IT — a policy with no consumer did not happen. The
+  // capability is derived from the command here rather than re-listed, so a new
+  // memory-writing command is covered by classifying it in ONE place.
+  if (capabilityForCommand(cmd) === CAP_MEMORY_WRITE
+      && !mayWriteMemory(_waRole(senderJid))) {
+    console.warn(`[ARIA Listener] R-F4361 memory-write refused command=${cmd} `
+      + `reason=not_admin — /teach and /correct write PERMANENT memory (§7, no `
+      + `eviction) and require a BOUND account in ARIA_WA_ADMIN_USER_IDS.`);
+    return '⛔ That command writes my permanent memory, so it is limited to a '
+      + 'bound admin account. Everything else — questions, documents, images, '
+      + 'voice notes, due diligence — is open to you.';
   }
   // R-F1804 (audit #4): rate-limit per user before any LLM-backed work.
   if (_waCmdRateLimited(String(senderJid || 'unknown'), String(cmd || '').toLowerCase())) {

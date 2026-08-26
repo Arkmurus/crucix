@@ -3445,6 +3445,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-307",
+      "title": "WA: /teach and /correct write permanent memory with no role gate",
+      "claimed_at": "2026-08-26T11:56:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
