@@ -17156,3 +17156,37 @@ observation and deliberately not filed as a defect.
 across the bc0164e5 → 92627039 boots. Plausibly the ~220 fewer store ops from
 C-301 (four ops per undeduped gap × 55 gaps not written), but a single pair of
 boots is not causation. Re-measure across the next boot before repeating it.
+
+### C-302 escalation — it is a PHASE A BLOCKER, not just capability loss
+
+Measured 2026-08-26 on `92627039`, and this reframes the entry above. The
+ceiling breach is not confined to losing the call. One breach surfaced as:
+
+    09:55:55Z | ERROR | aria.routes | [coder/llm] llm.complete failed:
+               [aria_llm] attempt exceeded its 15.0s wall-clock ceiling
+
+That is an ERROR on an `aria.*` logger, which `error_log_handler` mirrors as
+`log:error` → `is_reset_type` True → the gate #3 clean streak resets. The live
+gate confirms it to the second:
+
+    gate_3_zero_errors: pass=false, streak_basis="last_error",
+                        clean_since=1787738155  ->  2026-08-26T09:55:55+00:00
+
+`clean_since` is the exact timestamp of that ERROR. **Gate #3 requires 7 PROVEN
+clean days, and the streak had been running for six minutes.**
+
+Breaches are continuous — 80 in 26 minutes on the previous build, 65 in 12 on
+this one — so while C-302 is live the streak cannot plausibly reach 7 days.
+**Phase A gate #3 is structurally unclosable until the ceiling is fixed**, which
+promotes this from "reasoning capability is degraded" to "Phase A cannot exit".
+
+This is the same chain R-F3695 documented (a high-frequency failure logging at
+ERROR resets the streak), arriving through a different door — and R-F3695's
+ruling applies unchanged: **the root cause is the failure rate, not the ERROR
+level.** Do not close this by downgrading the log line. If breaches still happen
+after a fix, gate #3 should say so; making the gate pass by logging less would
+be closing it by measuring less (§1).
+
+Note the ordering this implies: C-301 removed the gap-ledger flood, which was
+one route from this failure to a gate reset. The `aria.routes` ERROR is a
+SECOND, independent route, and it is still open.
