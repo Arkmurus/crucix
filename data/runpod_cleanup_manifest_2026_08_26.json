@@ -1,0 +1,623 @@
+{
+  "recorded_at": "2026-08-26",
+  "reason": "operator directive: delete unutilised pods",
+  "protected": [
+    {
+      "id": "nxic0okse17k03",
+      "why": "PRODUCTION sovereign LLM served at ARIA_LLM_URL - deleting takes ARIA dark (depth-1 chain)"
+    },
+    {
+      "id": "ftswhh4b044y5l",
+      "why": "training run in flight at time of cleanup"
+    },
+    {
+      "id": "i5r1ptnsvgfyna",
+      "why": "20GB volume holds the v0.8 adapter and the unread crash log from 07:51:42"
+    }
+  ],
+  "deleted": [
+    {
+      "id": "vsvnepi32nb805",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 13:05:52 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "fxm6zr2hfqjm2e",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 12:57:22 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.53
+    },
+    {
+      "id": "l6o0j96gfqwqui",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 23 2026 07:34:32 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.99
+    },
+    {
+      "id": "glsf8en0ey7jgz",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 12:46:13 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "5iq3f7k9z2wymg",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 11:46:34 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "jvg2q6043tudp3",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 10:43:18 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "smx0wh0n22unl2",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Tue Aug 18 2026 07:10:45 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "cr9o8x2zv2c6ro",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 19:54:27 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "qmr3ze3su2516b",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 18:56:46 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "1hgqf06ggbh0y1",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 11:57:20 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "qrbgthsbeu41fl",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 07:21:58 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "2259sqvjzrycpb",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 06:46:18 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.44
+    },
+    {
+      "id": "2q25iqveb2dzek",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 06:28:39 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.99
+    },
+    {
+      "id": "zq4v6vh1ksccst",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Mon Aug 17 2026 04:15:47 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "wlatwe1458y6aw",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 20:54:54 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "zvjf5rb3858ljf",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 20:24:56 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "nk40jb6pb9u7tm",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 19:52:39 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.99
+    },
+    {
+      "id": "ntxz6u3nigs4h8",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 19:36:26 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.99
+    },
+    {
+      "id": "8cb9rpfnm61md2",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 18:06:56 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 0.53
+    },
+    {
+      "id": "59qys6x6ahh32v",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 17:36:01 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "y3is0ac3rwvtrr",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 16:27:37 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "uccn42smgkkr1e",
+      "name": "aria-v04-train",
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 14:36:33 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 120,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "7a19fgc1byhr43",
+      "name": "aria-cycle6-grpo",
+      "lastStatusChange": "Exited by user: Mon Jul 20 2026 02:47:36 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "y0kxi560gz4pah",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Sun Jul 19 2026 13:54:14 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "qel62w43zs30av",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 12:30:29 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "6fc3ok75vbmx8t",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:56:40 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "sndodjvzktqen7",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:56:41 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "nny19q81wg17jj",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:56:41 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "w97ly7pni87ror",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:52:05 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "my3kn3lrelyjuy",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:51:56 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "v0e3xo03620xda",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:51:51 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "3kg8utz8jn287w",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:47:14 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "8ufcc52ptzkjbw",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:46:51 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "1y2s58yyjg2prt",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:46:50 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "19opqb3y8lanu4",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:42:35 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "gn97fsenmsa903",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:40:41 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "qn5xh38pmyzc9c",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:40:34 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "kk5gzdvyuj0ab9",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:31:56 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "fu248af4faufyl",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:31:54 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "igwnil5vo95p49",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 11:31:53 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "6fuccrv7232am8",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:53:03 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "gtuzuxbq7m32r1",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:49:18 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "vxds36uem1k5c4",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:44:44 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "em96g124wx518b",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:40:41 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "spgfhgeonv68ue",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:28:17 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "1t1zcv07zqit4n",
+      "name": "aria-c5-probe2",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:24:28 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "vu7p9g380lf482",
+      "name": "aria-c5-inspect",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:19:14 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "f9zjexeuxl1s8u",
+      "name": "aria-c5-probe",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 10:12:54 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 40,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "1wno45lt7n1zpc",
+      "name": "aria-cycle5-recall",
+      "lastStatusChange": "Exited by user: Thu Jul 16 2026 09:51:44 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "wa9v27c7f3y6me",
+      "name": "aria-cycle4-eval",
+      "lastStatusChange": "Exited by user: Tue Jul 14 2026 16:16:23 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "qe23fwqwdjkiby",
+      "name": "aria-cycle4",
+      "lastStatusChange": "Exited by user: Tue Jul 14 2026 15:34:54 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "fbz8mdr7037i5w",
+      "name": "aria-cycle3-finish",
+      "lastStatusChange": "Exited by user: Tue Jul 14 2026 09:15:52 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "b8qvlvdk8rr5t9",
+      "name": "aria-llm-serve",
+      "lastStatusChange": "Exited by user: Sat Jul 11 2026 15:42:10 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "lwvxmhoatf42kb",
+      "name": "aria-llm-serve",
+      "lastStatusChange": "Exited by user: Sat Jul 11 2026 14:19:01 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    },
+    {
+      "id": "y1h0p3wkrm8j2y",
+      "name": "aria-llm-serve",
+      "lastStatusChange": "Exited by user: Fri Jul 10 2026 19:39:29 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.39
+    },
+    {
+      "id": "9qqei97al7gke4",
+      "name": "aria-llm-serve",
+      "lastStatusChange": "Exited by user: Fri Jul 10 2026 01:15:15 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 2.89
+    },
+    {
+      "id": "406d2et3uwjplq",
+      "name": "aria-llm-serve",
+      "lastStatusChange": "Exited by user: Thu Jul 09 2026 17:04:24 GMT+0000 (Coordinated Universal Time)",
+      "containerDiskInGb": 100,
+      "volumeInGb": 0,
+      "costPerHr": 1.59
+    }
+  ],
+  "retained_with_volume": [
+    {
+      "id": "ydfgy06ik7fzca",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Sun Aug 23 2026 06:39:39 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "i5r1ptnsvgfyna",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Wed Aug 26 2026 10:05:43 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "n63mebr18bbfik",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Wed Aug 19 2026 07:26:45 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "0rg42ofwm9xt8q",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Tue Aug 18 2026 15:49:53 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "w0sxuirihtr1jm",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Sun Aug 16 2026 10:38:37 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "ejo6fh8fn8dj6c",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 13:26:41 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "9qexdrrs6mddiz",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 11:58:58 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "ezz6orurf6bejf",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 11:37:06 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "38igmhkkot169r",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 09:42:50 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "q4oqqjz4sktya3",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 08:52:32 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "lscdftzmut5w5b",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 08:03:06 GMT+0000 (Coordinated Universal Time)"
+    },
+    {
+      "id": "q9fh0va7juvi1e",
+      "name": "aria-v04-train",
+      "volumeInGb": 20,
+      "lastStatusChange": "Exited by user: Fri Aug 14 2026 07:21:39 GMT+0000 (Coordinated Universal Time)"
+    }
+  ],
+  "batch_2_volume_pods": {
+    "operator_directive": "delete them, not used and not storing anything we need",
+    "premise_check": "NOT startable-verified (starting risks stranding, as happened to i5r1ptnsvgfyna today). Indirect evidence: 92 eval reports harvested locally for Aug 14-24 and 12GB of checkpoints already at data/training/checkpoints.",
+    "deleted": [
+      {
+        "id": "ydfgy06ik7fzca",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Sun Aug 23 2026 06:39:39 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "n63mebr18bbfik",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Wed Aug 19 2026 07:26:45 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "0rg42ofwm9xt8q",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Tue Aug 18 2026 15:49:53 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "w0sxuirihtr1jm",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Sun Aug 16 2026 10:38:37 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "ejo6fh8fn8dj6c",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 13:26:41 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "9qexdrrs6mddiz",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 11:58:58 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "ezz6orurf6bejf",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 11:37:06 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "38igmhkkot169r",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 09:42:50 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "q4oqqjz4sktya3",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 08:52:32 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "lscdftzmut5w5b",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 08:03:06 GMT+0000 (Coordinated Universal Time)"
+      },
+      {
+        "id": "q9fh0va7juvi1e",
+        "name": "aria-v04-train",
+        "volumeInGb": 20,
+        "lastStatusChange": "Exited by user: Fri Aug 14 2026 07:21:39 GMT+0000 (Coordinated Universal Time)"
+      }
+    ],
+    "volume_freed_gb": 220
+  }
+}

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4360,
+  "next_available": 4361,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37482,6 +37482,15 @@
       "commit_sha": "e97e18c9",
       "notes": null,
       "shipped_at": "2026-08-26T11:08:16Z"
+    },
+    {
+      "r_number": "R-F4360",
+      "title": "ARIA cannot describe her own ARK-DD layer stack (C-303)",
+      "claimed_at": "2026-08-26T11:47:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

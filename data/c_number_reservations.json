@@ -3436,6 +3436,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T11:08:16Z"
+    },
+    {
+      "c_number": "C-306",
+      "title": "93 of 100 dd_layer eval rows fail; she answers OSI for Layer 2",
+      "claimed_at": "2026-08-26T11:47:15Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
