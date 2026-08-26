@@ -52,7 +52,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # R-F4366 (C-312) — the R-tag derivation scans a window of recent
           # commits; the default depth-1 checkout starves it to HEAD alone.
