@@ -3328,9 +3328,12 @@
       "title": "CLI: vLLM streaming tool-parser re-emission corrupts a correct tool call",
       "claimed_at": "2026-08-26T07:20:27Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4351"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T07:31:54Z"
     }
   ]
 }

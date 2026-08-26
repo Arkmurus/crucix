@@ -37399,9 +37399,10 @@
       "title": "streamed tool-call arguments were concatenated from vLLM partial deltas, corrupting valid calls",
       "claimed_at": "2026-08-26T07:20:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d38d3c91",
+      "notes": null,
+      "shipped_at": "2026-08-26T07:31:53Z"
     }
   ]
 }
