@@ -3286,9 +3286,12 @@
       "title": "get_coverage_nonblocking warm path leaks a task per call; drives memory growth and state_store read timeouts",
       "claimed_at": "2026-08-26T01:31:05Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4348"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T06:44:01Z"
     },
     {
       "c_number": "C-293",

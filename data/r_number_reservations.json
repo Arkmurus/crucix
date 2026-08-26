@@ -37145,9 +37145,10 @@
       "title": "a mastery floor breach must satisfy its own comparison (C-272)",
       "claimed_at": "2026-08-25T09:50:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "013c8b5f",
+      "notes": null,
+      "shipped_at": "2026-08-26T01:45:52Z"
     },
     {
       "r_number": "R-F4325",
@@ -37368,9 +37369,10 @@
       "title": "ecosystem coverage warm path leaked an unbounded get_coverage task per health poll",
       "claimed_at": "2026-08-26T01:31:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4cfb1a34",
+      "notes": null,
+      "shipped_at": "2026-08-26T06:44:01Z"
     }
   ]
 }
