@@ -77,7 +77,10 @@ echo "[eval] pushing runner + scripts + eval set + watcher…"
 for i in 1 2 3; do TSSH -p "$PORT" root@"$HOST" "mkdir -p /workspace/datasets /workspace/crucix/scripts/train /workspace/crucix/aria_service/intel /workspace/logs" 2>/dev/null && break; sleep 8; done
 RSCP scripts/train/pod_eval_only.sh         /workspace/                                  || { echo "[eval] FATAL scp runner"; exit 1; }
 RSCP scripts/train/pod_selfstop_watch_v04.sh /workspace/                                 || { echo "[eval] FATAL scp watcher"; exit 1; }
-for f in serve_eval_shim.py eval_aria_llm.py; do
+# R-F4350 (C-295) — pod_eval_only.sh now sources hf_cache_select.sh and fails
+# CLOSED without it, so the helper must ship before it runs. Its loader searches
+# /workspace/crucix/scripts/train second, which is where this loop lands.
+for f in serve_eval_shim.py eval_aria_llm.py hf_cache_select.sh; do
   RSCP "scripts/train/$f" "/workspace/crucix/scripts/train/$f" || { echo "[eval] FATAL scp $f"; exit 1; }
 done
 RSCP "$EVAL_LOCAL" /workspace/datasets/aria_eval_openbook.jsonl || { echo "[eval] FATAL scp eval set"; exit 1; }
