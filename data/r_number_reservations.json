@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4341,
+  "next_available": 4343,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37291,6 +37291,24 @@
       "r_number": "R-F4340",
       "title": "regional mastery curriculum targeting the zero cells on the live heatmap (C-285)",
       "claimed_at": "2026-08-25T23:57:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4341",
+      "title": "never re-ask into a message position the provider rejects (R-F4337 regression)",
+      "claimed_at": "2026-08-26T00:07:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4342",
+      "title": "run must not report success for a command that does not exist",
+      "claimed_at": "2026-08-26T00:07:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
