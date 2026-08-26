@@ -3352,9 +3352,12 @@
       "title": "R-F559 verifier blind to the aria_cli test tier",
       "claimed_at": "2026-08-26T08:39:37Z",
       "claimed_by": "claude",
-      "status": "open",
-      "r_numbers": [],
-      "notes": null
+      "status": "closed",
+      "r_numbers": [
+        "R-F4353"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-26T08:46:00Z"
     },
     {
       "c_number": "C-299",
