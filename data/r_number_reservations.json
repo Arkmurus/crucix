@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4349,
+  "next_available": 4350,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37374,6 +37374,15 @@
       "commit_sha": "4cfb1a34",
       "notes": null,
       "shipped_at": "2026-08-26T06:44:01Z"
+    },
+    {
+      "r_number": "R-F4349",
+      "title": "the model was told to answer only from evidence the judge already knew supported nothing (C-294)",
+      "claimed_at": "2026-08-26T06:57:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

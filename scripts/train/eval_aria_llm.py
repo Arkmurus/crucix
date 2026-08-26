@@ -234,6 +234,54 @@ def grounding_mode(context, expected_keywords=None):
     return "grounded" if cov >= _SUPPORT_THRESHOLD else "unsupported"
 
 
+def _build_model_prompt(question: str, context: str = "",
+                        expected_keywords=None) -> str:
+    """Build the prompt the CANDIDATE MODEL sees. Pure → unit-testable.
+
+    Extracted from `_eval_one` so the model-facing half of the open-book
+    decision can be tested against the judge-facing half, which has been a pure
+    function since R-F1676.
+
+    R-F4349 (C-294) — DERIVED FROM `grounding_mode`, THE SAME CALL THE JUDGE
+    USES. This half kept `if context:` — the plain non-empty boolean R-F4332
+    removed from the judge three lines above its own call site — so the two
+    halves disagreed for every question whose retrieval came back on-topic and
+    answerless. Measured on the v0.8 run: 175 of 500 rows, median
+    `evidence_coverage` 0.000. The model was ordered to answer only from that
+    evidence, obeyed by abstaining, and was then graded against a full factual
+    reference by a judge that had already (correctly) dropped its strict
+    rubric for exactly those rows. She was punished for obeying.
+
+    The instruction changes; the evidence does NOT disappear. R-F4332 keeps the
+    evidence block in front of the judge on purpose — "hiding it would make a
+    genuinely fabricated citation invisible" — and the judge prompt labels it
+    "what the candidate was given", which would become false if this half
+    dropped it.
+
+    Unknown coverage (no keywords) stays STRICT, inheriting `grounding_mode`'s
+    conservative default, so the ~390 questions R-F4332 was not written for are
+    not silently loosened by this fix either.
+    """
+    context = (context or "").strip()
+    if not context:
+        return question
+    if grounding_mode(context, expected_keywords) == "unsupported":
+        return (
+            "[CONTEXT — retrieved evidence. It may NOT contain the answer; "
+            "check before relying on it. If it does, answer from it and cite "
+            "inline as [from <source>]. If it does not, say so plainly, name "
+            "what is missing, and answer from your own knowledge only if you "
+            "actually know — never invent a fact or a citation to fill the "
+            "gap]\n"
+            f"{context}\n\n[QUESTION]\n{question}"
+        )
+    return (
+        "[CONTEXT — answer ONLY from this evidence; cite inline as "
+        "[from <source>]; if it does not contain the answer, say so]\n"
+        f"{context}\n\n[QUESTION]\n{question}"
+    )
+
+
 def _build_judge_prompt(question: str, expected: str, actual: str,
                         context: str = "", expected_keywords=None) -> tuple[str, str]:
     """R-F1676 — build the (system, user) judge prompt. GROUNDING-AWARE: when
@@ -441,14 +489,7 @@ async def _run_defence_dd_eval(
         # train/eval/serve stay format-consistent. The JUDGE always sees the bare
         # question (it grades the answer, not the evidence block).
         context = (q.get("context") or "").strip()
-        if context:
-            prompt = (
-                "[CONTEXT — answer ONLY from this evidence; cite inline as "
-                "[from <source>]; if it does not contain the answer, say so]\n"
-                f"{context}\n\n[QUESTION]\n{question}"
-            )
-        else:
-            prompt = question
+        prompt = _build_model_prompt(question, context, q.get("expected_keywords"))
         async with sem:
             try:
                 response, latency = await _call_chat(

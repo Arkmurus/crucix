@@ -3301,6 +3301,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-294",
+      "title": "open-book prompt and judge disagreed on what counts as evidence",
+      "claimed_at": "2026-08-26T06:57:11Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
