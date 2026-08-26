@@ -3334,6 +3334,15 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T07:31:54Z"
+    },
+    {
+      "c_number": "C-297",
+      "title": "pod_eval_only.sh never installed the deps it imports",
+      "claimed_at": "2026-08-26T07:41:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

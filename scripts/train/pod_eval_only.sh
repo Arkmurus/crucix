@@ -33,6 +33,39 @@ trap 'rc=$?; echo "$rc" > "$EVAL_DIR/_cycle_status" 2>/dev/null || true' EXIT
 log(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 
+# R-F4352 (C-297) — INSTALL THE DEPS THIS SCRIPT IMPORTS. It had none, and that
+# is structurally wrong for the one runner designed to execute on a RESTARTED
+# pod: RunPod restores the image layer and the /workspace VOLUME, but everything
+# pip-installed after boot lives on the container overlay and is DESTROYED by a
+# stop/start. Measured 2026-08-26 after exactly that cycle:
+#
+#     torch 2.4.1+cu124   OK   (baked into the image)
+#     transformers        MISSING
+#     peft                MISSING
+#     bitsandbytes        MISSING
+#     uvicorn / fastapi   MISSING
+#
+# So serve_eval_shim.py died on `import uvicorn`, the shim never bound the port,
+# and the runner sat in its curl-retry loop with the GPU at 0% — looking for all
+# the world like a slow model load. The eval-only path is the one MOST likely to
+# meet a cold pod, because its whole purpose is to re-evaluate an adapter that
+# is already on the volume, long after the training pod was stopped.
+#
+# Pins match v0_4_pod_run.sh EXACTLY. A LoRA adapter is loaded by the same
+# peft/transformers stack that wrote it; drifting versions here would change
+# what is being measured while every other signal still looked healthy.
+log "installing pinned serve+eval deps (the overlay is wiped by a pod restart)…"
+pip install -q "transformers==4.46.3" "peft==0.13.2" "accelerate>=0.34" \
+    bitsandbytes sentencepiece protobuf fastapi uvicorn httpx openai \
+    2>&1 | grep -viE "WARNING: Running pip|virtual environment|root-user-action" || true
+# Import-check BEFORE serving. Failing here costs one second and names the
+# module; failing at serve time costs the shim's retry window and presents as a
+# timeout, which is what sent the last diagnosis after the GPU instead.
+python - <<'PY' || fail "dep import check failed — refusing to eval with a broken stack"
+import fastapi, uvicorn, transformers, peft, bitsandbytes, accelerate  # noqa: F401
+print(f"[deps] transformers {transformers.__version__} peft {peft.__version__} OK")
+PY
+
 # --- Identify the adapter on the volume (honesty: report what we are evaling) ---
 [ -f "$SFT_OUT/adapter_config.json" ] || fail "no adapter at $SFT_OUT — nothing to eval (the v0.7 adapter is not on this volume)"
 log "adapter present at $SFT_OUT"
