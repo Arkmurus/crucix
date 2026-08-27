@@ -335,29 +335,50 @@ def main() -> None:
     # chat template into a "text" field ourselves (version-robust) and point
     # SFTConfig at it. apply_chat_template emits Mistral [INST]…[/INST], matching
     # how the shim serves the model (train/serve template consistency).
-    # R-F4377 (C-322) — resolve the tool block ONCE, and say what happened.
-    # A corpus of tool calls rendered without its tools is the defect this
-    # fixes, and it is invisible in the data: only the render differs.
+    # R-F4377 (C-322) — THE CORPUS DECLARES HOW IT WILL BE SERVED.
+    #
+    # The first version of this guard refused ANY corpus carrying tool_calls
+    # without --tool-schemas. That was too broad and would have broken a working
+    # pipeline: every DD row carries tool_calls, and `eval_tooluse` sends NO
+    # tools at inference — so training those WITHOUT tools already matches how
+    # they are served. There is no mismatch there to protect against.
+    #
+    # The mismatch is a property of the SERVING CONTRACT, not of the presence of
+    # tool_calls, and only the corpus knows its contract. So rows may carry
+    # `"tool_schemas": "coder"`, and an explicit --tool-schemas always wins. A
+    # corpus that declares nothing renders exactly as it always has.
     _tools = None
-    if args.tool_schemas:
-        if args.tool_schemas == "coder":
+    _declared = ""
+    for ex in ds:
+        d = (ex.get("tool_schemas") or "").strip() if isinstance(
+            ex.get("tool_schemas"), str) else ""
+        if d:
+            _declared = d
+            break
+    _choice = (args.tool_schemas or _declared or "").strip()
+    if _choice and _choice != "none":
+        if _choice == "coder":
             from scripts.train.coder_tool_contract import tool_schemas
             _tools = tool_schemas()
         else:
-            _tools = json.loads(pathlib.Path(args.tool_schemas).read_text(
-                encoding="utf-8"))
-        logger.info("Rendering prompts WITH %d tool schema(s)", len(_tools))
+            _tools = json.loads(pathlib.Path(_choice).read_text(encoding="utf-8"))
+        if not _tools:
+            # Fail closed: an empty block is a THIRD prompt shape, matching
+            # neither the trained nor the served one.
+            raise SystemExit(f"--tool-schemas {_choice!r} resolved to nothing")
+        logger.info("R-F4377: rendering prompts WITH %d tool schema(s) (%s)",
+                    len(_tools), "flag" if args.tool_schemas else "corpus")
     else:
         _n_tc = sum(1 for ex in ds
                     if any(m.get("tool_calls") for m in (ex.get("messages") or [])))
         if _n_tc:
-            # Refuse silently training a mismatch: this is exactly the run that
-            # scored 2.3% against an untrained 77.9%.
-            raise SystemExit(
-                f"{_n_tc} rows carry tool_calls but --tool-schemas was not "
-                f"given. Training would render prompts WITHOUT the tools block "
-                f"that inference always sends (R-F4377/C-322). Pass "
-                f"--tool-schemas coder, or a JSON path.")
+            logger.warning(
+                "R-F4377: %d rows carry tool_calls and neither the corpus nor "
+                "--tool-schemas declares a tool block. Training renders WITHOUT "
+                "one. That is correct only if inference also sends no tools "
+                "(true for eval_tooluse); if it does send them, this trains a "
+                "prompt that is never served — measured cost: acted 2.3%% "
+                "against an untrained 77.9%%.", _n_tc)
 
     ds = ds.map(
         lambda ex: {"text": _render_text(tokenizer, ex, _tools)},

@@ -112,18 +112,59 @@ def test_the_system_turn_fold_still_renders_with_tools():
         f"taking the other path would train the mismatch this fixes")
 
 
-# ── the guard: a mismatch must be refused, not trained ──────────────────────
+# ── the contract travels with the CORPUS, not a flag ───────────────────────
 
-def test_a_tool_corpus_without_schemas_is_refused(tmp_path, monkeypatch):
-    """FAIL CLOSED. Rendering tool_calls with no tools block is the exact run
-    that scored 2.3% against an untrained 77.9%. It cost an H100 cycle, and it
-    is invisible in the data — only the render differs — so the trainer must
-    refuse rather than produce a plausible-looking adapter."""
+def test_a_declaring_corpus_gets_its_tools_without_any_flag():
+    """The corpus knows how it will be served; the trainer should not need a
+    shell flag threaded through two scripts to find that out."""
+    import json as _json
+
+    row = _json.loads(
+        (ROOT / "data" / "training" / "aria_coder_tooluse_v1.jsonl")
+        .read_text(encoding="utf-8").splitlines()[0])
+    assert row.get("tool_schemas") == "coder", (
+        "the coder corpus no longer declares its serving contract — training "
+        "would render a prompt inference never sends")
+
+
+def test_the_guard_does_not_break_a_corpus_that_is_served_without_tools():
+    """THE OVER-BROAD-GUARD TRAP, and it nearly broke a working pipeline.
+
+    The first version refused ANY corpus carrying tool_calls without
+    --tool-schemas. But EVERY due-diligence row carries tool_calls, and
+    `eval_tooluse` sends NO tools at inference — so training those without tools
+    already MATCHES how they are served. There is no mismatch there, and
+    refusing would have stopped another agent's cycles for a defect they do not
+    have.
+
+    The mismatch is a property of the SERVING CONTRACT, not of the presence of
+    tool_calls.
+    """
+    import inspect
+    import json as _json
+
+    dd = _json.loads(
+        (ROOT / "data" / "training" / "aria_tooluse_v1.jsonl")
+        .read_text(encoding="utf-8").splitlines()[0])
+    assert any(m.get("tool_calls") for m in dd["messages"]), "fixture drifted"
+    assert not dd.get("tool_schemas"), "DD corpus should declare no tool block"
+
+    tok = _FakeTokenizer()
+    sft_train._render_text(tok, dd)
+    assert tok.saw_tools in (None, [], {}), "DD rows were given tools uninvited"
+
+    # The over-broad refusal must not come back. It was keyed on the mere
+    # PRESENCE of tool_calls, which every DD row has.
+    src = inspect.getsource(sft_train)
+    assert "rows carry tool_calls but --tool-schemas" not in src, (
+        "the over-broad refusal is back — it would stop DD cycles")
+
+
+def test_an_unresolvable_declaration_still_fails_closed():
+    """A declaration that resolves to nothing is a THIRD prompt shape, matching
+    neither side. That must stop the run, not render an empty block."""
     import inspect
 
     src = inspect.getsource(sft_train)
-    assert "--tool-schemas" in src
-    # The refusal must name the number, so the next reader knows it is not
-    # pedantry.
-    assert "R-F4377" in src and "tool_calls but --tool-schemas" in src
-    assert "raise SystemExit(" in src
+    assert "resolved to nothing" in src
+    assert "raise SystemExit" in src

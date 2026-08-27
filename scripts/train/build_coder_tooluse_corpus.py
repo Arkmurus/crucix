@@ -152,7 +152,13 @@ class Trajectory:
         self.messages.append({"role": "assistant", "content": text})
         return {"messages": self.messages,
                 "source": "coder_tooluse_real_execution",
-                "builder": "R-F4371"}
+                "builder": "R-F4371",
+                # R-F4377 (C-322) — the corpus DECLARES how it will be served.
+                # The coder eval and the CLI both send this tool block, so
+                # training must render it too; a row that does not say so gets
+                # trained in a prompt inference never sends, which measured
+                # acted 2.3% against an untrained 77.9%.
+                "tool_schemas": "coder"}
 
 
 # ── variant vocabulary ──────────────────────────────────────────────────────
