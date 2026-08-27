@@ -18106,3 +18106,56 @@ the same eval — 57 steps, stratified across all six families:
 
 That is the "before". The cycle evaluates base AND trained on the identical
 held-out rows, so the result will be a delta, not a bare number.
+
+## C-318 · the training pod is unidentifiable, so a healthy paid run was stopped as a stray (fixed — R-F4373)
+
+The R-F4372 coder cycle launched at 21:47 UTC, passed every gate, loaded the 32B
+onto an H100 and began its baseline evaluation. At **22:30:28** the provider
+recorded `Exited by user`. Its own self-stop watchdog still had **3h45m** on the
+clock, the cycle log was healthy, and nothing had failed.
+
+**Nothing was wrong with the run. It was correctly identified as a stray by a
+policy that had no way to tell it apart from one.**
+
+`_create_v04_pod` names every pod it creates `aria-v04-train` — a literal, in
+BOTH its GraphQL mutation and its REST payload. The fleet is therefore a list of
+identical names in which nothing says which run owns which pod:
+
+    a6cumofg9v0hfs | aria-CODER-sft-RF4372-IN-USE | RUNNING   <- after the fix
+    r2j1ifr65l93tz | aria-v04-train               | EXITED    <- stopped mid-run
+    0s340zc01cyk96 | aria-v04-train               | RUNNING   <- another agent's
+    ftswhh4b044y5l | aria-v04-train               | EXITED
+    i5r1ptnsvgfyna | aria-v04-train               | EXITED
+
+R-F4241's doctrine is "reuse, do not accumulate", and it is right. Under that
+doctrine a second identically-named pod beside the pod of record reads exactly
+like an abandoned one. **A pod cannot defend itself from a correct policy
+applied to a wrong identification** — and no amount of watchdog tuning helps,
+because the watchdog was working perfectly and was not consulted.
+
+The repo was searched first for a fleet-wide reaper, and there is none:
+`runpod_scheduler.stop_pod()` only ever stops the single configured
+`ARIA_RUNPOD_POD_ID`, and `pod_of_record`'s stops are scoped to the pod it is
+starting. So this was a deliberate, and reasonable, external stop.
+
+**The fix is the name.** `ARIA_POD_NAME` defaults to `aria-v04-train`, so every
+existing launcher keeps the name it has always used, and a run that wants to be
+identifiable can say what it is for. The coder cycle now runs on a pod called
+`aria-CODER-sft-RF4372-IN-USE`.
+
+**A work-claim was also taken** (`runpod_scheduler.claim_pod`, R-F1642) — but it
+is the weaker of the two guards and would not have prevented this on its own:
+the claim protects against the SCHEDULER, and the scheduler was never involved.
+The name is what addresses the actual mechanism.
+
+**The half-applied-fix guard is the part to keep.** The name was a literal in
+two places, and fixing one would have left the REST path silently producing the
+ambiguous name — invisible until another pod was stopped mid-run. A test counts
+the surviving literals via AST and requires exactly one (the fallback inside the
+helper). Its first version counted the name inside the helper's own DOCSTRING as
+a live literal, because it filtered `#` comments by line — a line heuristic
+reading prose as code, the class this repo has already fixed twice (R-F3597,
+R-F3858). It uses `ast` now.
+
+Cost of the lesson: ~46 minutes of H100 at $3.29/hr ≈ **$2.52**, and no
+artefacts (the container disk is ephemeral).

@@ -3582,6 +3582,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-26T21:48:33Z"
+    },
+    {
+      "c_number": "C-318",
+      "title": "the training pod is unidentifiable and gets stopped as a stray",
+      "claimed_at": "2026-08-27T06:41:08Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4373"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-27T06:48:35Z"
     }
   ]
 }

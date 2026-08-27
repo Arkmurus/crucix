@@ -109,6 +109,25 @@ def graphql_request(api_key: str, query: str) -> dict:
     return payload
 
 
+def pod_name() -> str:
+    """What this pod is FOR. Overridable with ARIA_POD_NAME.
+
+    R-F4373 (C-318) — every pod this script has ever created was called
+    "aria-v04-train", so the fleet is a list of identical names and nothing in
+    it says which run owns which pod. That is not cosmetic: R-F4241's doctrine
+    is "reuse, do not accumulate", so a second identically-named pod reads as an
+    abandoned stray, and on 2026-08-26 a coder-training pod was stopped 45
+    minutes into a paid run for exactly that reason ("Exited by user", while its
+    own watchdog had 3.75h left on the clock and the cycle was healthy).
+
+    A pod cannot defend itself from a correct policy applied to a wrong
+    identification. Naming it after the work is what makes the policy able to
+    tell the two apart. The default is unchanged, so every existing launcher
+    keeps the name it has always used.
+    """
+    return (os.getenv("ARIA_POD_NAME") or "").strip() or "aria-v04-train"
+
+
 def create_pod_graphql(
     api_key: str, public_key: str, gpu_id: str, container_disk_gb: int,
 ) -> str:
@@ -122,7 +141,7 @@ def create_pod_graphql(
         minVcpuCount: 2
         minMemoryInGb: 15
         gpuTypeId: {json.dumps(gpu_id)}
-        name: "aria-v04-train"
+        name: {json.dumps(pod_name())}
         imageName: "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
         dockerArgs: ""
         ports: "8888/http,22/tcp"
@@ -174,7 +193,10 @@ def create_pod(api_key: str, public_key: str) -> str:
     if create_api != "rest":
         raise RuntimeError(f"unsupported pod create API: {create_api}")
     body = {
-        "name": "aria-v04-train",
+        # R-F4373 (C-318) — BOTH create paths must name the pod, or the fix is
+        # half-applied and the REST path silently keeps producing the ambiguous
+        # name that got a live run stopped.
+        "name": pod_name(),
         "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
         "gpuTypeIds": available_gpus, "gpuTypePriority": "availability",
         "dataCenterPriority": "availability", "gpuCount": 1, "cloudType": "SECURE",

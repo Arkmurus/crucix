@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4373,
+  "next_available": 4374,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37607,6 +37607,16 @@
       "r_number": "R-F4372",
       "title": "base-agnostic cycle: declared signature, code base, coder eval",
       "claimed_at": "2026-08-26T21:23:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "694509bb",
+      "notes": null,
+      "shipped_at": "2026-08-26T21:49:07Z"
+    },
+    {
+      "r_number": "R-F4373",
+      "title": "name the pod after the work so it is not mistaken for a stray",
+      "claimed_at": "2026-08-27T06:41:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
