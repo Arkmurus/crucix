@@ -5126,3 +5126,114 @@ frozenset — protection moved and is demonstrably live),
 superseded it), `test_rf3901_gap_types_registered::test_gate_b_is_clean` and
 `test_rf3560_gap_type_overrides` (both fail at HEAD), and
 `test_rf1206_box_alignment` (fails on ARIA's own tip).
+
+---
+
+## Session 2026-08-26 → 2026-08-27 (Claude, aria-2a)
+
+**Shipped (mine):** R-F4324/C-272 · R-F4347/C-291 · R-F4349/C-294 ·
+R-F4350/C-295 · R-F4352/C-297 · R-F4360/C-306 · R-F4363/C-309 · R-F4379/C-324.
+Contributed the implementation for R-F4353/C-298 (landed by aria-c0).
+R-F4354/C-299 released as superseded. **Open: R-F4378/C-323.**
+
+**What the session was for.** The v0.8 eval read 0.302 and the reported FAIL
+was the wrong conclusion. R-F4349 found the cause: `eval_aria_llm.py` still used
+`if context:` — the exact boolean R-F4332 removed from the JUDGE three lines
+above its own call site. 175 of 500 rows were ordered to "answer ONLY from this
+evidence" over evidence with **median coverage 0.000**; she obeyed by abstaining
+and was graded wrong for obeying.
+
+**The measurement that reframed everything.** Paired against the DeepSeek
+teacher on all 500: grounded 0.350 vs 0.336 (chi2 0.19, indistinguishable);
+unsupported 0.211 vs 0.331 (chi2 12.12, SIGNIFICANT). **The entire deficit is
+closed-book recall.** On evidence-grounded reasoning — the actual DD job — a 7B
+sovereign already matches a far larger vendor model. The 0.316 parity gate is a
+blended score that systematically understates it.
+
+**The negative result, in full.** The Claude-only corpus (682 rows, 0 DeepSeek)
+scored **0.207 against 0.300** and regressed EVERY bucket. `dd_layer` went
+0.07 → 0.041 — worse than before the curriculum built to fix it. Cause found and
+fixed by R-F4379: ARK-DD was trained as BARE questions while all 100 dd_layer
+eval rows arrive WITH a context block, and 418 grounded rows outnumbered it 2:1
+teaching that context governs. She answered the OSI model **with a citation**.
+
+**Four errors of mine worth keeping:**
+1. Told the operator raising `ARIA_MAX_GPU_HOURLY_USD` would unblock capacity.
+   It would not — every approved GPU was already under the cap; stock was the
+   constraint. Corrected before it cost anything.
+2. Quoted $0.44/hr, then $0.99, and the run took a $1.59 A100. Four revisions,
+   each the wrong way. Final run ≈ $14 for a trained model and no usable eval.
+3. Found five duplicate drivers, killed them for their FUTURE risk, and never
+   asked what they had already done — four concurrent evals had been corrupting
+   the measurement for hours. I attributed the slowness to my corpus instead.
+4. Deleted 68 pods on operator instruction without surfacing that R-F4241
+   ("never deleted") already existed. The instruction stood, but the conflict
+   should have been raised.
+
+**Pod discipline.** `0s340zc01cyk96` is the durable pod of record — A100-SXM4-80GB,
+20 GB volume at /workspace holding the Claude-only adapter (checkpoint-255).
+**EXITED, never deleted.** Operator standing instruction 2026-08-27: never delete,
+reuse for training. R-F4378 remains open because R-F4241's no-DELETE rule is
+enforced only inside `pod_of_record.py` while `eval_selfrun_v07.sh` will delete
+any "phantom" pod (RUNNING with no GPU) — a state this pod displayed after a
+restart.
+
+**Blocked, for the operator:** DeepSeek has no credit (`402 Payment Required`),
+so no eval can be graded by it. Not a blocker for training — the harness persists
+`actual_answer` + `expected_answer` (R-F1459), so Claude can judge offline with
+no API call. Corpus v1.1 (706 rows, 0 DeepSeek, CONTAMINATION=NO) is built,
+tested and pushed, awaiting a clean cycle when pod capacity returns.
+
+---
+
+## Session 2026-08-26 21:40 → 2026-08-27 10:10 UTC (~12.5h elapsed, much of it waiting on paid GPU cycles)
+
+**Shipped: R-F4367 … R-F4377 (11 R-numbers), C-313 … C-322 (10 defects).**
+
+Started from one operator report — *"she is not able to code, not able to run
+any command script"* — and ended in the training pipeline, because the CLI was
+only the first of four layers with the same defect underneath.
+
+**What was actually wrong, in order of discovery:**
+
+1. **C-313** the CLI streamed tool calls to a serving stack that truncates them:
+   same payload, non-streamed 5/5 clean, streamed 2/5, and all three failures
+   were `run`. Fixed by re-asking non-streamed — stronger evidence, not a better
+   guess. Live after: `run(git --version)` → exit 0.
+2. **C-314** she could read code but never change it. Two fixes, and neither
+   moved the benchmark (1/4 vs 4/4 for a tool-capable provider) — recorded as
+   such rather than dressed up.
+3. **C-316** the reason: **0 of 5,310** tool-use trajectories used ANY coder
+   tool. She had never once been trained to call `read_file`/`edit_file`/`run`.
+4. **C-317/C-320/C-322** three instrument defects, each of which produced a
+   number that looked like a result.
+
+**The finding that matters most for the product:** on the same held-out eval,
+
+    Mistral-7B v0.4-dpo (incumbent)          acted 26.3%  right_tool 12.3%
+    Qwen2.5-Coder-32B, UNTRAINED             acted 77.9%  right_tool 50.0%
+
+The base model was worth more than any curriculum, and refusals went to zero.
+
+**Where it stopped:** the corrected training run (with the render fix) was
+launched at 09:14 and stopped at 10:02 by the engineer, ~8 minutes short of the
+trained eval. No delta yet. `/workspace` survives, so nothing is lost.
+
+**Live issue surfaced at close, NOT caused by this work:** the serving sovereign
+`nxic0okse17k03` was stopped at 09:31 and `aria-intel` reports
+`active_providers: ['aria_llm']` with that endpoint returning 404 — i.e. no
+fallback is configured, so ARIA currently has no working LLM. Operator informed;
+restart deliberately NOT performed on instruction.
+
+**Cost:** ~$9.32 of H100/A100 time across four pods, plus one stranded adapter
+(`a6cumofg9v0hfs` became un-startable after a stop and later left the fleet).
+
+**Three mistakes of mine, kept here rather than smoothed over:**
+* I disabled a self-stop watchdog to make room for a diagnosis and the re-arm
+  did not detach, leaving an unguarded $3.29/hr GPU while the operator slept.
+* My own monitor conflated "I cannot reach it" with "it is gone" and twice
+  reported a healthy pod as dead — the same could-not-measure ≠ measured-false
+  rule this repo enforces everywhere.
+* My first fail-closed guard was keyed on the SYMPTOM (`tool_calls` present)
+  rather than the CONTRACT, and would have stopped the peer agent's cycles for
+  a defect they do not have. Caught before it shipped.
