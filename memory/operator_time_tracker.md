@@ -5237,3 +5237,67 @@ restart deliberately NOT performed on instruction.
 * My first fail-closed guard was keyed on the SYMPTOM (`tool_calls` present)
   rather than the CONTRACT, and would have stopped the peer agent's cycles for
   a defect they do not have. Caught before it shipped.
+
+---
+
+## Session 2026-08-27 (afternoon) — deep ecosystem + brain sweep
+
+**Ask:** "deep prospector tools on entire and full aria ecosystem, deep analysis
+on the aria brain as well ... laser precision." Mid-session the operator ruled
+pods out of scope ("dont worry about activating the pods or any pods now") and
+then scoped the work: "chat outage is lack of llm, therefore deal with
+everything else."
+
+**Shipped: R-F4380..R-F4383 / C-325..C-328** in one commit, `220a48e4`.
+All four were the same class — an instrument reporting something it had never
+measured — and all four were found by live probing, not by reading code.
+
+* **C-325** the adversarial gate scored DEGENERATE model output as a real
+  resistance verdict. The run that demoted the platform to SUPERVISED scored
+  `"I will not" + 400 dashes` as FAILED and word-salad as PASSED. Detector
+  threshold calibrated on all 23 live responses (legitimate ceiling 117,
+  degenerate floor 184). Also gave the adversarial branch the minimum-sample
+  floor R-F3764 gave the grounded branch below it — adversarial sits at HIGHER
+  precedence and had none.
+* **C-326** two samples were strictly worse than zero: a fallback keyed on
+  EMPTY plus a guard keyed on BELOW-N threw away a 100-sample lifetime rate
+  because the 24h window held 2. This is what pinned gate #1 at confidence 0.30.
+* **C-327** `resilient: true` also meant "nobody has called in 120s" — the
+  exhaustion flag lapses, so a monitor read green through a 5h total outage.
+* **C-328** an answer citing sources no tool fetched scored `grounded_rate:
+  null` instead of `0.0`, contradicting the function's own docstring.
+
+**Verification:** fixture-first with RED shown before every fix; 42 new tests;
+**11 mutations, all killed across two rounds**; full-tree py_compile clean; boot
+smoke (main imports, real `FallbackProvider` constructed, `get_health()`
+exercised); regression sweep 1,680 passed / 3 failed with all 3 present in
+`docs/suite_baseline.json`.
+
+**Expect gate #1 to look WORSE and that is correct.** With the live signals it
+moves from `pass: unknown` (confidence 0.30) to a MEASURED `pass: false` —
+confidence 1.0, composite ~0.59 against the 0.71 target, honesty 0.259 over 52
+lifetime judgments. Per §1 that is the gate becoming earned. Do not close it by
+lowering MIN_CONFIDENCE or the target.
+
+**NOT DEPLOYED — the open decision.** Live is still `sha 4190f4ad`; HEAD is
+`220a48e4`, i.e. **12 commits behind** (my 1 plus the prior session's 11,
+R-F4367..R-F4379). Deploying ships those 11 as well; they compile clean in the
+current tree but I neither wrote nor verified them. R-F4380..R-F4383 are
+deliberately NOT ship-marked, because §11 says a deploy is not done until
+`build_rev` is proven live.
+
+**Two of my own claims corrected mid-session, by measurement:**
+* I reported that `/health` "never probes" reachability. Wrong — R-F3477's
+  mechanism works; I measured `resilient: false` 1.6s after a failed chat. The
+  defect is the 120s lapse, not an absent probe.
+* I suspected uncited claims were why gate #1 was dark. Counting them disproved
+  it: 3 of 455 records. C-326 was the driver.
+* `distinct_ratio` was my first degeneracy detector and was useless — the two
+  worst responses score a perfect 1.0, because a 400-char dash run is ONE token.
+  Only measuring against the real samples surfaced that.
+
+**Left open, deliberately:** the mastery clamps. `core_mastery 0.845` is 5
+topics at the 0.98 ceiling plus 2 pinned at the 0.5 floor (`clamped: true`, 76
+and 107 samples) — 7 of 10 clamped, and it is the ONLY measured axis of gate #1.
+That is a measurement-design question for the operator, not a defect to fix
+unilaterally.
