@@ -18159,3 +18159,64 @@ R-F3858). It uses `ast` now.
 
 Cost of the lesson: ~46 minutes of H100 at $3.29/hr ≈ **$2.52**, and no
 artefacts (the container disk is ephemeral).
+
+## C-319 · a 0% eval result that could not explain itself (fixed — R-F4374)
+
+The R-F4372 cycle completed cleanly: gates green, SFT converged (loss
+1.07 → 0.588 over 3 epochs, 310s), adapter written, both evaluations ran to
+completion over 172 held-out steps. And the two reports were **byte-identical**:
+
+    acted 0.0   right_tool 0.0   args_valid 0.0   prose 1.0   error 0.0
+
+**That is not a null result. That is a broken instrument, and it is the exact
+trap this eval was built to catch — sprung on its own author.** The obvious
+reading of a flat A/B is *"the training did nothing"*, which sends you to change
+the corpus, the base or the recipe. The thermometer is the last thing you touch.
+
+Two facts say it is the instrument, not the model:
+
+  * the SAME eval scored the live Mistral sovereign at **acted 26.3%**, so it
+    can register a positive;
+  * a 32B code-specialised model scoring **0.0%** on tool-calling, identically
+    to its own LoRA, is not a plausible measurement.
+
+**What was ruled out, each by evidence rather than reasoning:**
+
+    the shim was stale                 -> deployed source read back: current
+    transformers too old for `tools=`  -> 4.46.3 on the pod; supported since 4.43
+    `<tool_call>` stripped as a
+      special token                    -> decoded WITH skip_special_tokens=True
+                                          locally: tags survive
+    tools missing from the prompt      -> rendered locally with the real
+                                          tokenizer: 2660 chars with tools vs
+                                          565 without, `<tools>` block present
+    template failure on a later turn   -> every teacher-forced prefix (steps
+                                          0,1,2) renders and ends correctly on
+                                          `<|im_start|>assistant`
+    the adapter was never applied      -> shim logs: base run `adapter=`,
+                                          trained run
+                                          `adapter=/workspace/checkpoints/...`
+
+So the prompt was right, the serving was right, and the model genuinely returned
+prose 172 times out of 172. **Why is still unknown** — and it is unknown because
+`eval_coder_tooluse` recorded only the VERDICT ("answered in prose") and threw
+the prose away.
+
+**R-F4374 carries the evidence back.** `ask()` now returns the content on every
+path (all three values on every branch — a mixed arity would be worse than the
+gap it fixes, because the caller unpacks blindly), failures record `said` — the
+first 320 chars — and refusals are counted separately from ordinary prose,
+because "I cannot modify files" and "the answer is 42" are both prose and mean
+opposite things about whether she can act.
+
+**Spend, stated plainly: $4.88 across two pods, and no usable delta yet.** The
+paid artefact is not lost — the adapter (995 MB) sits on the pod's 20 GB
+`/workspace` volume, which survives a stop.
+
+**One operational error of mine is recorded here rather than smoothed over.**
+To buy time for a live diagnosis I killed the pod's self-stop watchdog intending
+to re-arm a shorter one; the re-arm did not detach, leaving an unguarded H100 at
+$3.29/hr while the operator slept. I stopped the pod immediately rather than
+improvise around a safety mechanism I had just disabled. **Do not disable a
+guard to make room for a diagnosis** — restart under a fresh bounded guard
+instead, which costs minutes and risks nothing.

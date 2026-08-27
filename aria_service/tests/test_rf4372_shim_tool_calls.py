@@ -159,3 +159,48 @@ def test_the_shim_only_parses_when_tools_were_offered():
     # And the template kwarg must be conditional too, for tokenizers whose
     # template does not accept it.
     assert '**({"tools": tools} if tools else {})' in src
+
+
+# ── R-F4374 (C-319): a 0% score must be able to explain itself ──────────────
+
+def test_the_eval_carries_the_prose_back():
+    """THE DEFECT. The R-F4372 cycle returned `acted 0.0%` for the base AND the
+    trained adapter, byte-identically, over 172 steps. The report recorded only
+    the VERDICT — "answered in prose" — so it could not say whether the model
+    refused, wrote the call inside a ```json fence, or emitted a shape the
+    parser does not know.
+
+    A measurement that cannot explain its own extreme is not finished, and an
+    unexplained extreme is exactly where a broken instrument hides: the obvious
+    reading of a flat A/B is "training did nothing", which sends you to change
+    the corpus rather than the thermometer.
+    """
+    import inspect
+
+    from scripts.train import eval_coder_tooluse as E
+
+    src = inspect.getsource(E.ask)
+    assert src.count("return") >= 4
+    # Every path returns THREE values — a mixed arity would be worse than the
+    # gap it fixes, because the caller unpacks blindly.
+    for line in src.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("return "):
+            assert stripped.count(",") >= 2, f"arity mismatch: {stripped}"
+
+    ev = inspect.getsource(E.evaluate)
+    assert '"said": content[:320]' in ev, "the prose is not recorded"
+    assert "call, err, content = ask(" in ev, "caller does not take the prose"
+
+
+def test_a_refusal_is_counted_separately_from_prose():
+    """"I cannot modify files" and "the answer is 42" are both `prose`, and they
+    mean opposite things about whether she CAN act."""
+    import inspect
+
+    from scripts.train import eval_coder_tooluse as E
+
+    assert E._looks_like_refusal("I cannot modify files.")
+    assert not E._looks_like_refusal("The file has 42 lines.")
+    ev = inspect.getsource(E.evaluate)
+    assert 'total["refused"]' in ev, "refusals are not counted"

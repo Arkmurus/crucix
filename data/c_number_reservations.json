@@ -3594,6 +3594,18 @@
       ],
       "notes": null,
       "closed_at": "2026-08-27T06:48:35Z"
+    },
+    {
+      "c_number": "C-319",
+      "title": "a 0% eval result that cannot explain itself",
+      "claimed_at": "2026-08-27T07:25:55Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4374"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-27T07:26:36Z"
     }
   ]
 }

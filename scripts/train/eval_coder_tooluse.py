@@ -78,25 +78,35 @@ def _prefixes(messages: list[dict]):
 
 
 def ask(client: httpx.Client, target: str, model: str, messages: list[dict],
-        tools: list[dict], timeout: float) -> tuple[dict, str]:
-    """Return (tool_call_or_empty, error). An error is a FAILURE, never a skip."""
+        tools: list[dict], timeout: float) -> tuple[dict, str, str]:
+    """Return (tool_call_or_empty, error, content).
+
+    An error is a FAILURE, never a skip. `content` is the model's prose, and it
+    is carried back deliberately — R-F4374. Recording only the VERDICT made a
+    0% score undiagnosable: on 2026-08-27 a cycle returned acted 0.0% for base
+    AND trained, byte-identically, and the report could not say whether the
+    model refused, wrote the call inside a ```json fence, or emitted a shape the
+    parser does not know. A measurement that cannot explain its own extreme is
+    not finished.
+    """
     payload = {"model": model, "messages": messages, "tools": tools,
                "tool_choice": "auto", "max_tokens": 320, "temperature": 0.0}
     try:
         r = client.post(f"{target.rstrip('/')}/chat/completions", json=payload,
                         timeout=timeout)
     except Exception as exc:  # noqa: BLE001
-        return {}, f"transport: {type(exc).__name__}: {exc}"
+        return {}, f"transport: {type(exc).__name__}: {exc}", ""
     if r.status_code >= 400:
-        return {}, f"http {r.status_code}: {r.text[:180]}"
+        return {}, f"http {r.status_code}: {r.text[:180]}", ""
     try:
         msg = r.json()["choices"][0]["message"]
     except Exception as exc:  # noqa: BLE001
-        return {}, f"malformed response: {type(exc).__name__}: {exc}"
+        return {}, f"malformed response: {type(exc).__name__}: {exc}", ""
+    content = msg.get("content") or ""
     calls = msg.get("tool_calls") or []
     if calls:
-        return calls[0], ""
-    return {}, ""  # answered in prose — a real result, not an error
+        return calls[0], "", content
+    return {}, "", content
 
 
 def score_call(call: dict, reference: dict) -> dict:
@@ -157,7 +167,8 @@ def evaluate(eval_file: Path, target: str, model: str, timeout: float,
             for prefix, reference in _prefixes(row["messages"]):
                 total["steps"] += 1
                 per_family[fam]["steps"] += 1
-                call, err = ask(client, target, model, prefix, tools, timeout)
+                call, err, content = ask(client, target, model, prefix, tools,
+                                         timeout)
                 if err:
                     # An unreachable or malformed endpoint is a FAILURE.
                     total["error"] += 1
@@ -168,8 +179,15 @@ def evaluate(eval_file: Path, target: str, model: str, timeout: float,
                     total["prose"] += 1
                     per_family[fam]["prose"] += 1
                     last = prefix[-1] if prefix else {}
+                    if _looks_like_refusal(content):
+                        total["refused"] += 1
+                        per_family[fam]["refused"] += 1
+                    # R-F4374 — the PROSE ITSELF, bounded. Without it a 0% score
+                    # cannot be explained, and an unexplained extreme is where a
+                    # broken instrument hides.
                     failures.append({"family": fam, "why": "answered in prose",
-                                     "after": last.get("role")})
+                                     "after": last.get("role"),
+                                     "said": content[:320]})
                     continue
                 s = score_call(call, reference)
                 for k in ("acted", "right_tool", "args_parse", "args_valid"):
@@ -196,6 +214,7 @@ def evaluate(eval_file: Path, target: str, model: str, timeout: float,
              for k in ("acted", "right_tool", "args_parse", "args_valid")}
     rates["prose"] = round(total["prose"] / steps, 4)
     rates["error"] = round(total["error"] / steps, 4)
+    rates["refused"] = round(total["refused"] / steps, 4)
     return {
         "rows": len(rows),
         "steps": steps,

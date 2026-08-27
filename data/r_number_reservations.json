@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4374,
+  "next_available": 4375,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37617,6 +37617,16 @@
       "r_number": "R-F4373",
       "title": "name the pod after the work so it is not mistaken for a stray",
       "claimed_at": "2026-08-27T06:41:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7f388cfe",
+      "notes": null,
+      "shipped_at": "2026-08-27T06:49:00Z"
+    },
+    {
+      "r_number": "R-F4374",
+      "title": "the coder eval discards the prose that would explain a 0% score",
+      "claimed_at": "2026-08-27T07:25:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
