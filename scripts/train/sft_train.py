@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import logging
 import os
 import sys
@@ -96,7 +97,34 @@ def _format_chat(record: dict) -> dict:
     }
 
 
-def _render_text(tokenizer, record: dict) -> str:
+def _tool_kwargs(tools):
+    """R-F4377 (C-322) — pass `tools` to the chat template, or train a prompt
+    inference never sends.
+
+    MEASURED on Qwen2.5-Coder-32B: rendering a tool-use row WITHOUT tools gave
+    1,397 chars and no `<tools>` block; the eval renders the same row WITH tools
+    at 2,659 chars and a full tool schema. So the model was trained to emit tool
+    calls in a context that never showed it a tool, then served in one that
+    always does — a ~1,260-char systematic difference at the head of every
+    prompt.
+
+    The cost was not subtle. The LoRA scored `acted` 2.3% against the untrained
+    base's 77.9% on the identical eval, emitting degenerate shapes
+    (`grep
+{...}`, `inspect>
+{...}`) and reciting the system prompt's rules
+    ("First, I need an R-number") instead of acting. Training made the model
+    markedly WORSE, and the only difference was the render.
+
+    Same class as R-F4325 (train/serve prompt mismatch) and R-F4338 (the Mistral
+    template silently dropping the system turn): a rendering difference nobody
+    compared. Empty/None tools passes NOTHING, so every non-tool corpus renders
+    exactly as before.
+    """
+    return {"tools": tools} if tools else {}
+
+
+def _render_text(tokenizer, record: dict, tools: list | None = None) -> str:
     """Render a chat record's `messages` into one training string via the
     tokenizer's chat template (R-F1472). Module-level so it's unit-testable.
 
@@ -132,11 +160,11 @@ def _render_text(tokenizer, record: dict) -> str:
     NL2 = chr(10) + chr(10)
     msgs = list(record.get("messages") or [])
     if not msgs:
-        return tokenizer.apply_chat_template(msgs, tokenize=False)
+        return tokenizer.apply_chat_template(msgs, tokenize=False, **_tool_kwargs(tools))
 
     sys_parts = [m.get("content") or "" for m in msgs if m.get("role") == "system"]
     if sys_parts:
-        rendered = tokenizer.apply_chat_template(msgs, tokenize=False)
+        rendered = tokenizer.apply_chat_template(msgs, tokenize=False, **_tool_kwargs(tools))
         first = (sys_parts[0] or "").strip()
         if first and first not in rendered:
             rest = [m for m in msgs if m.get("role") != "system"]
@@ -148,7 +176,7 @@ def _render_text(tokenizer, record: dict) -> str:
             else:
                 rest.insert(0, {"role": "user", "content": preamble})
             msgs = rest
-    return tokenizer.apply_chat_template(msgs, tokenize=False)
+    return tokenizer.apply_chat_template(msgs, tokenize=False, **_tool_kwargs(tools))
 
 
 # R-F3393 — ARIA's agreed base model, recorded in activate_aria_llm_v01.sh,
@@ -216,6 +244,11 @@ def main() -> None:
     ap.add_argument("--max-seq-len", type=int, default=4096)
     ap.add_argument("--load-in-4bit", action="store_true",
                     help="QLoRA — only set if running on a single GPU under 80GB")
+    ap.add_argument("--tool-schemas", default="",
+                    help="R-F4377: tool schemas to render into every prompt, so "
+                         "training matches inference. 'coder' uses "
+                         "scripts.train.coder_tool_contract; a path loads JSON; "
+                         "unset renders exactly as before.")
     ap.add_argument("--completion-only-loss", action="store_true",
                     help="mask system, user, tool, and intermediate-call tokens")
     args = ap.parse_args()
@@ -302,8 +335,32 @@ def main() -> None:
     # chat template into a "text" field ourselves (version-robust) and point
     # SFTConfig at it. apply_chat_template emits Mistral [INST]…[/INST], matching
     # how the shim serves the model (train/serve template consistency).
+    # R-F4377 (C-322) — resolve the tool block ONCE, and say what happened.
+    # A corpus of tool calls rendered without its tools is the defect this
+    # fixes, and it is invisible in the data: only the render differs.
+    _tools = None
+    if args.tool_schemas:
+        if args.tool_schemas == "coder":
+            from scripts.train.coder_tool_contract import tool_schemas
+            _tools = tool_schemas()
+        else:
+            _tools = json.loads(pathlib.Path(args.tool_schemas).read_text(
+                encoding="utf-8"))
+        logger.info("Rendering prompts WITH %d tool schema(s)", len(_tools))
+    else:
+        _n_tc = sum(1 for ex in ds
+                    if any(m.get("tool_calls") for m in (ex.get("messages") or [])))
+        if _n_tc:
+            # Refuse silently training a mismatch: this is exactly the run that
+            # scored 2.3% against an untrained 77.9%.
+            raise SystemExit(
+                f"{_n_tc} rows carry tool_calls but --tool-schemas was not "
+                f"given. Training would render prompts WITHOUT the tools block "
+                f"that inference always sends (R-F4377/C-322). Pass "
+                f"--tool-schemas coder, or a JSON path.")
+
     ds = ds.map(
-        lambda ex: {"text": _render_text(tokenizer, ex)},
+        lambda ex: {"text": _render_text(tokenizer, ex, _tools)},
         remove_columns=["messages"],
     )
     logger.info("Dataset size: %d records", len(ds))

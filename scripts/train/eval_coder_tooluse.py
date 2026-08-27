@@ -89,8 +89,15 @@ def ask(client: httpx.Client, target: str, model: str, messages: list[dict],
     parser does not know. A measurement that cannot explain its own extreme is
     not finished.
     """
+    # R-F4375 (C-320) — 900, not 320. MEASURED: at 320 the model was cut off
+    # mid-plan on 15 of 40 sampled responses, producing malformed JSON
+    # (`{name": "run"`, a stray `</script>`, an unterminated object) which the
+    # parser then correctly refused — and the eval scored as "answered in
+    # prose". The failure was mine: a generation budget too small for a
+    # multi-call plan that carries file contents manufactures the very
+    # malformation it then penalises.
     payload = {"model": model, "messages": messages, "tools": tools,
-               "tool_choice": "auto", "max_tokens": 320, "temperature": 0.0}
+               "tool_choice": "auto", "max_tokens": 900, "temperature": 0.0}
     try:
         r = client.post(f"{target.rstrip('/')}/chat/completions", json=payload,
                         timeout=timeout)

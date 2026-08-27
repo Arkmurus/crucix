@@ -71,7 +71,7 @@ import asyncio
 _gpu_lock = asyncio.Lock()
 
 
-def parse_tool_calls(text):
+def parse_tool_calls(text, offered=None):
     """R-F4372 (C-317) — recover tool calls a model wrote as TEXT.
 
     THE SHIM RETURNED ONLY `content` AND IGNORED `tools`. That was harmless for
@@ -124,6 +124,51 @@ def parse_tool_calls(text):
             return calls
         for obj in (parsed if isinstance(parsed, list) else [parsed]):
             _emit(obj)
+        return calls
+
+    # R-F4375 (C-320) — BARE JSON, no tags at all.
+    #
+    # MEASURED on Qwen2.5-Coder-32B, 172 of 172 steps. She emits a perfectly
+    # formed call and simply omits the <tool_call> wrapper:
+    #
+    #   {"name": "grep", "arguments": {"path": "calc.py", "pattern": "..."}}
+    #   {"name": "run",  "arguments": "{\"command\": \"python calc.py\"}"}
+    #
+    # Requiring the tags scored every one of those as "answered in prose" and
+    # produced a flat 0.0% for the base AND its own LoRA — a broken instrument
+    # reading as a null result.
+    #
+    # THIS IS NOT A PROSE PARSER, and the distinction is the whole safety
+    # property (R-F4329: "a fabricated `run` EXECUTES"). Three conditions, all
+    # load-bearing:
+    #   * the ENTIRE content must be JSON values and nothing else — one
+    #     character of prose outside them and we refuse, so text that merely
+    #     QUOTES a call is never executed;
+    #   * every value must be an object carrying a `name`;
+    #   * that name must be one the caller actually OFFERED — with no offer
+    #     list, any match would be invention, so we refuse outright.
+    if offered is None:
+        return calls
+    dec = _json.JSONDecoder()
+    idx, found, n = 0, [], len(body)
+    while idx < n:
+        while idx < n and body[idx].isspace():
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            obj, end = dec.raw_decode(body, idx)
+        except Exception:
+            return []          # prose present -> refuse the whole content
+        found.append(obj)
+        idx = end
+    if not found:
+        return []
+    for obj in found:
+        if not isinstance(obj, dict) or obj.get("name") not in offered:
+            return []          # one bad element rejects the whole set
+    for obj in found:
+        _emit(obj)
     return calls
 
 
@@ -234,7 +279,11 @@ async def chat(req: Request):
     message = {"role": "assistant", "content": text}
     finish = "stop"
     if tools:
-        calls = parse_tool_calls(text)
+        # Pass the OFFERED names: the bare-JSON path refuses any name the
+        # caller did not advertise, and with no list it refuses outright.
+        _offered = {(t.get('function') or {}).get('name')
+                    for t in tools if isinstance(t, dict)}
+        calls = parse_tool_calls(text, _offered)
         if calls:
             message = {"role": "assistant", "content": None, "tool_calls": calls}
             finish = "tool_calls"

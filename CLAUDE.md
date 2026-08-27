@@ -1209,3 +1209,91 @@ it. `event_loop_starved` and `event_loop_monitor_stale` (the monitor runs ON the
 loop, so a wedge silences it and the gauge then serves its last healthy numbers
 forever) are now degraded reasons. `busy` and a freshly-booted `unknown`
 deliberately are NOT — a verdict that cries wolf is one nobody reads.
+
+## 29. ARIA CODER MUST BECOME A MASTER CODER — standing goal (operator, 2026-08-27)
+
+**Operator directive, verbatim:** *"ensure you dont delete the pod for further
+coding training, we need aria to be an expert in coding via aria coder which is
+aria cli … she needs to be a master in coding"*, and earlier the same session:
+*"the aria coder is so she can carry on building herself, improving her own
+functionalities etc"*.
+
+This is a STANDING GOAL, not a closed ticket. ARIA-Coder is `aria_cli` — the
+terminal the operator types into (`aria`). Making her a master coder there is
+how she builds herself, so work that improves it is always in scope.
+
+### 29a. NEVER DELETE THE TRAINING POD — and STOPPING IS NOT FREE EITHER
+
+R-F4241 already says never delete. **What that rule does not say, and what cost
+a run on 2026-08-27, is that STOPPING can be irreversible in practice:**
+
+    POST /pods/a6cumofg9v0hfs/start
+      -> "start pod: There are not enough free GPUs on the host machine"
+
+Stopping returns the GPU to the host, which may reallocate it. The pod object
+survives, its volume survives, and it still cannot run. On a scarce card (H100
+80GB was the only 80GB type in stable stock that day) treat a stop as a bet that
+you may not win. Stop when the work is genuinely finished; do NOT stop merely to
+pause between two steps you intend to run minutes apart.
+
+**What survives a stop, measured — this asymmetry is the one to remember:**
+
+    /workspace  (the 20GB VOLUME)   SURVIVES  — adapter, datasets, scripts, logs
+    container disk                   WIPED    — pip packages AND the HF cache
+
+So a re-started pod has the checkpoint but no `uvicorn`, no `transformers`, and
+no model weights. Measured: the eval shim died in 10 seconds on
+`ModuleNotFoundError: No module named 'uvicorn'`. Any script that runs on a
+RESTARTED pod must install its own dependencies and prove the imports resolve
+BEFORE loading 65GB of weights (R-F3718's rule, which the cycle already follows
+and an ad-hoc script will not unless you make it).
+
+### 29b. Two mechanisms that quietly destroy a guarded run
+
+Both were hit on 2026-08-27; both look like something else.
+
+  * **Killing a guarded job signals COMPLETION to its guard.**
+    `pod_tooluse_cycle.sh` carries `trap finish EXIT`, which writes the
+    `_cycle_status` sentinel on ANY exit, SIGTERM included. Killing a doomed
+    eval therefore told the self-stop watchdog "cycle done", and it stopped the
+    pod ten minutes later — in the middle of the replacement run. Clear the
+    sentinel before re-arming anything.
+
+  * **`pkill -f` matches the SSH COMMAND LINE that issues it.**
+    `pkill -f '[s]elfstop_watch_v04'` still matches, because the issuing command
+    contains the plain text `selfstop_watch_v04` in the script and log names —
+    the bracket hides the literal from the regex, not the regex from its target.
+    Three re-arm attempts killed their own session and reported nothing, leaving
+    the pod UNGUARDED while appearing to have worked. Put the kill/arm in a
+    SCRIPT FILE (`bash /workspace/arm_wd.sh`), whose command line cannot match,
+    and VERIFY the watchdog by `ps`, never by the absence of an error.
+
+**And do not disable a guard to make room for a diagnosis.** Restart under a
+fresh bounded guard instead; it costs minutes and risks nothing.
+
+### 29c. Where the work stands (2026-08-27) — the starting point, not the finish
+
+Assets, all committed or on the pod volume:
+
+    scripts/train/build_coder_tooluse_corpus.py   real executed trajectories
+    data/training/aria_coder_tooluse_v1.jsonl     301 train / 51 held out
+    scripts/train/eval_coder_tooluse.py           the coder scorer
+    scripts/train/coder_tool_contract.py          one tool contract, two readers
+    pod dffwgf2z9bzm5j (aria-CODER-diag-RF4374)   adapter in /workspace
+
+Measured on the SAME held-out eval, 172 teacher-forced steps:
+
+    Mistral-7B v0.4-dpo (the incumbent sovereign)   acted 26.3%  right_tool 12.3%
+    Qwen2.5-Coder-32B, UNTRAINED                    acted 77.9%  right_tool 50.0%
+
+**The base model was worth more than any curriculum so far**, and `refused` fell
+to 0.0% — the "I cannot execute or modify files" behaviour that started this
+work does not occur on this base. The weakest family on both models is
+`ground_before_acting` (locate the file before editing it), which is the honest
+next target.
+
+**Do not read a flat or absent result as "training did nothing" without first
+proving the instrument can register a positive.** A tag-only tool-call parser
+scored 172 perfect calls as prose and produced acted 0.0% for the base AND its
+own LoRA, byte-identically (C-320). The eval now records the model's actual
+words on every prose verdict precisely so that trap cannot be sprung twice.

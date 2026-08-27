@@ -204,3 +204,176 @@ def test_a_refusal_is_counted_separately_from_prose():
     assert not E._looks_like_refusal("The file has 42 lines.")
     ev = inspect.getsource(E.evaluate)
     assert 'total["refused"]' in ev, "refusals are not counted"
+
+
+# ── R-F4375 (C-320): bare JSON, no tags — the shape Qwen actually emits ─────
+
+OFFERED = {"read_file", "write_file", "edit_file", "list_dir", "grep", "run"}
+
+#: VERBATIM from the pod, 2026-08-27. Qwen2.5-Coder-32B emits a perfectly formed
+#: call and simply omits the <tool_call> wrapper. Requiring the tags scored 172
+#: of 172 such calls as "answered in prose" and produced a flat 0.0% for the
+#: base AND its own LoRA.
+#: Built with json.dumps rather than hand-written: the wire string contains a
+#: regex full of backslashes, and escaping it through the test source produced a
+#: literal that was NOT valid JSON — so the test failed while the parser was
+#: correct. Constructing it guarantees the fixture is what the model can send.
+LIVE_BARE = json.dumps({
+    "name": "grep",
+    "arguments": {"path": "calc.py",
+                  "pattern": r"def add\(.*?\):.*?return.*?",
+                  "context": "3"},
+}) + "\n"
+LIVE_TWO = ('{"name": "edit_file", "arguments": "{\\"new_string\\": \\"return a + b\\", '
+            '\\"old_string\\": \\"return a - b\\", \\"path\\": \\"calc.py\\"}"}\n'
+            '{"name": "run", "arguments": "{\\"command\\": \\"python calc.py\\"}"}\n')
+
+
+def test_the_bare_call_the_model_actually_emits_is_recovered():
+    """THE DEFECT, from the wire."""
+    calls = parse_tool_calls(LIVE_BARE, OFFERED)
+
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "grep"
+    assert json.loads(calls[0]["function"]["arguments"])["path"] == "calc.py"
+
+
+def test_two_newline_separated_bare_calls_are_both_recovered():
+    """She plans several steps at once — measured. Taking only the first would
+    silently drop half the plan."""
+    calls = parse_tool_calls(LIVE_TWO, OFFERED)
+
+    assert [c["function"]["name"] for c in calls] == ["edit_file", "run"]
+    assert json.loads(calls[1]["function"]["arguments"]) == {"command": "python calc.py"}
+
+
+def test_arguments_as_a_nested_json_string_survive():
+    """`arguments` arrives BOTH as an object and as a JSON string, in the same
+    run. A client that assumes one shape drops the other."""
+    calls = parse_tool_calls(LIVE_TWO, OFFERED)
+    assert isinstance(calls[0]["function"]["arguments"], str)
+    assert json.loads(calls[0]["function"]["arguments"])["old_string"] == "return a - b"
+
+
+# ── and it must still refuse everything R-F4329 forbids ────────────────────
+
+def test_prose_around_a_quoted_call_is_refused():
+    """THE SAFETY PROPERTY. One character of prose outside the JSON and the
+    whole content is refused — text that merely QUOTES a call must never be
+    executed, because a fabricated `run` runs."""
+    text = ('I would call {"name": "run", "arguments": {"command": "rm -rf /"}} '
+            'but I need your approval first.')
+    assert parse_tool_calls(text, OFFERED) == []
+
+
+def test_a_bare_call_naming_an_unoffered_tool_is_refused():
+    text = '{"name": "delete_everything", "arguments": {"path": "/"}}'
+    assert parse_tool_calls(text, OFFERED) == []
+
+
+def test_one_bad_element_rejects_the_whole_set():
+    """Partial recovery would run half a plan the model never intended as a
+    half — R-F4329's all-or-nothing rule."""
+    text = ('{"name": "read_file", "arguments": {"path": "a.py"}}\n'
+            '{"name": "not_a_tool", "arguments": {}}\n')
+    assert parse_tool_calls(text, OFFERED) == []
+
+
+def test_bare_json_is_refused_when_no_tools_were_offered():
+    """With no offer list any match is invention. The DD path passes none."""
+    assert parse_tool_calls(LIVE_BARE, None) == []
+
+
+def test_plain_prose_is_still_prose():
+    assert parse_tool_calls(
+        "I cannot execute or modify files.", OFFERED) == []
+    assert parse_tool_calls("The file has 42 lines.", OFFERED) == []
+
+
+def test_a_bare_json_object_that_is_not_a_call_is_refused():
+    """Valid JSON is not a tool call. A config blob has no `name`."""
+    assert parse_tool_calls('{"path": "a.py", "lines": 3}', OFFERED) == []
+
+
+def test_tagged_forms_still_win_and_are_unaffected():
+    """The tagged paths return before the bare-JSON path is reached."""
+    calls = parse_tool_calls(
+        '<tool_call>{"name": "run", "arguments": {"command": "ls"}}</tool_call>',
+        OFFERED)
+    assert [c["function"]["name"] for c in calls] == ["run"]
+
+
+# ── the strongest guard: the REAL wire output, not a hand-written fixture ───
+
+def _reference_is_wellformed(text, offered):
+    """An INDEPENDENT reading of "is this content entirely tool calls?".
+
+    Deliberately not the parser under test: comparing the parser to itself
+    proves nothing. This is the plain-English rule written a second way — decode
+    every JSON value in the content, and require that they are all objects
+    naming an offered tool, with nothing else present.
+    """
+    dec = json.JSONDecoder()
+    body = (text or "").strip()
+    idx, found = 0, []
+    while idx < len(body):
+        while idx < len(body) and body[idx].isspace():
+            idx += 1
+        if idx >= len(body):
+            break
+        try:
+            obj, idx = dec.raw_decode(body, idx)
+        except Exception:
+            return False
+        found.append(obj)
+    return bool(found) and all(
+        isinstance(o, dict) and o.get("name") in offered for o in found)
+
+
+def test_the_parser_agrees_exactly_with_the_rule_on_live_output():
+    """R-F4375 (C-320) — 40 responses captured from Qwen2.5-Coder-32B on the
+    pod, every one of which the tag-only parser scored as "answered in prose".
+
+    NO THRESHOLD. An earlier version of this test asserted "at least 90%
+    recovered", which is a number I made up; the measured rate was 62.5%, and
+    the 15 misses were genuinely malformed — truncated mid-plan by the eval's
+    own 320-token budget, which R-F4375 raised. A rate would have to be
+    re-tuned every time that budget changes, and would hide a real regression
+    behind a slack threshold.
+
+    So this asserts AGREEMENT with the rule instead: the parser recovers a
+    response exactly when the content really is nothing but tool calls naming
+    offered tools. That is exact, and it stays true whatever the truncation
+    rate happens to be.
+
+    The fixture is real bytes because a hand-escaped copy of one of these
+    strings was not valid JSON, and the resulting test failed while the parser
+    was already correct.
+    """
+    fixture = json.loads(
+        (ROOT / "aria_service" / "tests" / "fixtures" /
+         "qwen_bare_tool_calls.json").read_text(encoding="utf-8"))
+    samples = fixture["samples"]
+    assert len(samples) >= 20, "fixture too small to be evidence"
+
+    disagreements = []
+    recovered = 0
+    for s in samples:
+        got = bool(parse_tool_calls(s, OFFERED))
+        want = _reference_is_wellformed(s, OFFERED)
+        recovered += got
+        if got != want:
+            disagreements.append((want, got, s[:120]))
+    assert not disagreements, f"parser disagrees with the rule: {disagreements[:3]}"
+
+    # And the fixture must actually EXERCISE recovery, or agreement is vacuous:
+    # a parser that returned [] for everything would "agree" on an all-malformed
+    # set.
+    assert recovered >= 10, (
+        f"only {recovered}/{len(samples)} recovered — the fixture no longer "
+        f"demonstrates that recovery works")
+
+    for s in samples:
+        for c in parse_tool_calls(s, OFFERED):
+            assert c["function"]["name"] in OFFERED
+            json.loads(c["function"]["arguments"])

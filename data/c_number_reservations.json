@@ -3606,6 +3606,51 @@
       ],
       "notes": null,
       "closed_at": "2026-08-27T07:26:36Z"
+    },
+    {
+      "c_number": "C-320",
+      "title": "the shim scored 172 perfect tool calls as prose",
+      "claimed_at": "2026-08-27T07:59:09Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4375"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-27T09:02:37Z"
+    },
+    {
+      "c_number": "C-321",
+      "title": "the autonomous coder has no training in its own edit format",
+      "claimed_at": "2026-08-27T08:56:15Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4376"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-27T09:02:37Z"
+    },
+    {
+      "c_number": "C-322",
+      "title": "SFT renders tool-use rows without the tools block that inference always sends",
+      "claimed_at": "2026-08-27T09:00:16Z",
+      "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F4377"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-27T09:02:38Z"
+    },
+    {
+      "c_number": "C-323",
+      "title": "phantom-pod terminate can delete the durable pod of record",
+      "claimed_at": "2026-08-27T09:01:46Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }

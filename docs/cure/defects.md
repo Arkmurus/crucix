@@ -18220,3 +18220,113 @@ $3.29/hr while the operator slept. I stopped the pod immediately rather than
 improvise around a safety mechanism I had just disabled. **Do not disable a
 guard to make room for a diagnosis** — restart under a fresh bounded guard
 instead, which costs minutes and risks nothing.
+
+## C-320 · the shim scored 172 perfect tool calls as prose (fixed — R-F4375)
+
+The 0.0% of C-319 had a cause, and it was the parser. Qwen2.5-Coder-32B emits a
+perfectly formed call and simply omits the `<tool_call>` wrapper:
+
+    {"name": "grep", "arguments": {"path": "calc.py", "pattern": "def add\(...", "context": "3"}}
+
+`parse_tool_calls` accepted only `<tool_call>…</tool_call>` or `[TOOL_CALLS]`, so
+172 of 172 real calls were scored "answered in prose". The model was right; the
+instrument was not. After the fix, on the SAME 172 steps, the untrained base
+scores **acted 77.9%, right_tool 50.0%, args_valid 77.3%, refused 0.0%** — the
+proof the thermometer can register a positive.
+
+**The bare-JSON path is not a prose parser** (R-F4329: "a fabricated `run`
+EXECUTES"). Three conditions, all load-bearing: the ENTIRE content must be JSON
+values and nothing else, so text that merely QUOTES a call is refused; every
+value must carry a `name`; and that name must be one the caller actually
+OFFERED — with no offer list it refuses outright, which is what keeps the DD
+path (which sends no tools) unchanged.
+
+**A second defect of mine surfaced in the same evidence.** Of 40 sampled
+responses, 15 were genuinely malformed — truncated mid-plan, yielding
+`{name": "run"` and a stray `</script>`. The cause was the eval's own
+`max_tokens: 320`: too small for a multi-call plan carrying file contents, so it
+manufactured the malformation it then penalised. Raised to 900.
+
+**The test bar was also wrong and is worth recording.** The first version
+asserted "≥90% of live responses recovered" — a number invented, not measured
+(the real rate was 62.5%). It now asserts AGREEMENT with the rule: the parser
+recovers a response exactly when the content really is nothing but offered tool
+calls. Exact, and it stays true whatever the truncation rate is. The fixture is
+40 REAL captured responses, because a hand-escaped copy of one of them was not
+valid JSON and made the first test fail while the parser was already correct.
+
+## C-321 · the autonomous coder has no training in its own edit format (built — R-F4376)
+
+Operator: *"we need to ensure the aria autonomous coder is trained as well, so
+she can actually build her infrastructure and fix issues, bugs etc"*.
+
+**It is a different interface, and the CLI corpus does not transfer.**
+`self_coder.fix_gap` → `sovereign_llm._build_edit_prompt` does not call tools: it
+is handed a plan and a file and must return surgical search/replace JSON, where
+each `old` must match EXACTLY ONCE or `apply_search_replace` rejects it and the
+caller falls back to rewriting the whole file.
+
+R-F4376 converts `mine_git_fixes.py`'s VERIFIED fail→pass rows (real R-F commits,
+the commit's own test run against parent and fix) into that format. **Every row
+is proved by reconstruction**: applying the derived edits through the PRODUCTION
+applier must reproduce the after-file byte for byte. A row cannot be subtly wrong
+and still pass, and no teacher model is involved.
+
+**And it immediately exposed an architectural problem, which is the real
+finding.** `write_edit` embeds the WHOLE file. Measured over the mined fixes:
+
+    median before-file   91,689 chars  (~23,000 tokens)
+    largest           1,162,705 chars (~290,000 tokens)
+    fit in ~4k tokens        22.9%
+    fit in ~50k tokens       66.7%
+
+So for the MEDIAN ARIA module the autonomous coder ships ~23k tokens of context,
+and for the tail it cannot be served on any 32k-window model at all. The failure
+path then falls back to WHOLE-FILE generation — larger still — and R-F904's
+truncation guard blocks the result. That is a plausible reason the autonomous
+coder underperforms on ARIA's big modules regardless of training. **Send a
+window around the change, not the whole file**; that is a production change to
+`self_coder` and is recorded here rather than made unilaterally. Yield today is
+8 provable rows from 35 mined; the miner can reach ~4,300 R-numbered commits.
+
+## C-322 · SFT trained a prompt that inference never sends (fixed — R-F4377)
+
+**The trained adapter was markedly WORSE than the model it started from**, on the
+identical 172-step eval, same settings, same parser:
+
+    untrained base   acted 77.9%   right_tool 50.0%   prose 22.1%
+    after SFT        acted  2.3%   right_tool  1.7%   prose 97.7%
+
+This measurement is trustworthy where C-319's was not: the base registered 77.9%
+in the SAME run, so the instrument was demonstrably alive.
+
+**Cause, proven by rendering one corpus row both ways:**
+
+    training render    1,397 chars   <tools> block ABSENT
+    inference render   2,659 chars   <tools> block present
+
+`sft_train._render_text` called `apply_chat_template(msgs)` with no `tools=`. The
+model was trained to emit tool calls in a context that never showed it a tool,
+then served in one that always does — a ~1,260-char systematic difference at the
+head of every prompt. The LoRA's output degenerated into `grep\n{...}`,
+`inspect>\n{...}`, and recitation of the system prompt's own rules ("First, I
+need an R-number") instead of acting.
+
+Same class as R-F4325 (train/serve prompt mismatch) and R-F4338 (the Mistral
+template silently dropping the system turn): **a rendering difference nobody
+compared.** All three renders inside `_render_text` now carry the tools — a test
+asserts the count of template calls equals the count that pass tools, because
+the R-F4338 system-turn fold re-renders, and a fix applied to one path and not
+the other would train the mismatch on some rows while looking correct.
+
+**And it fails closed.** A corpus carrying `tool_calls` with no `--tool-schemas`
+now REFUSES to train, naming R-F4377. This defect is invisible in the data —
+only the render differs — so the trainer must not be able to produce a
+plausible-looking adapter from it again. Empty/None tools passes nothing, so all
+45 existing non-tool corpora render exactly as before (19 existing SFT tests
+green).
+
+**Spend across this investigation: ~$9.32 over three pods.** What it bought: a
+working coder eval, a proven-correct parser, the measured superiority of the
+code-specialised base, and a defect in shared training infrastructure that would
+have silently degraded every future tool-use adapter.
