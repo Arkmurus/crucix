@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4380,
+  "next_available": 4384,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37676,6 +37676,43 @@
       "r_number": "R-F4379",
       "title": "ARK-DD self-knowledge lost to retrieved evidence at eval time (C-324)",
       "claimed_at": "2026-08-27T09:17:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a648f011",
+      "notes": null,
+      "shipped_at": "2026-08-27T09:21:41Z"
+    },
+    {
+      "r_number": "R-F4380",
+      "title": "adversarial degenerate-output guard + min-sample (C-325)",
+      "claimed_at": "2026-08-27T14:28:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4381",
+      "title": "verification fallback on insufficient not empty (C-326)",
+      "claimed_at": "2026-08-27T14:28:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4382",
+      "title": "llm_chain health probes reachability (C-327)",
+      "claimed_at": "2026-08-27T14:28:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4383",
+      "title": "no_tool with citations is 0.0 grounded not null (C-328)",
+      "claimed_at": "2026-08-27T14:28:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

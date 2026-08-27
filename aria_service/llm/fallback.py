@@ -2065,6 +2065,10 @@ class FallbackProvider(LLMProvider):
     def _record_chain_success(self) -> None:
         """A request was served. Clear immediately: proof beats a stale flag."""
         self._chain_exhausted_at = 0.0
+        # R-F4382 (C-327) — remember WHEN, not just that the failure flag is
+        # clear. A cleared flag cannot distinguish "served 2s ago" from "nobody
+        # has called since boot"; see `_chain_evidence`.
+        self._chain_last_success_at = time.time()
 
     def _chain_exhaustion_age(self) -> float | None:
         """Seconds since the chain last exhausted every provider, or None."""
@@ -2075,6 +2079,57 @@ class FallbackProvider(LLMProvider):
         if age > _CHAIN_EXHAUSTION_TTL_S:
             return None
         return round(age, 1)
+
+    def _chain_success_age(self) -> float | None:
+        """Seconds since the chain last served a request, or None if never.
+
+        R-F4382 — deliberately NOT TTL-capped, unlike `_chain_exhaustion_age`.
+        The age itself is the signal: a caller needs to know that the last proof
+        of life was five hours ago, which a None would hide.
+        """
+        at = getattr(self, "_chain_last_success_at", 0.0) or 0.0
+        if at <= 0:
+            return None
+        return round(time.time() - at, 1)
+
+    def _chain_evidence(self) -> str:
+        """What the `resilient` verdict actually rests on.
+
+        R-F4382 (C-327) — `resilient` was TRAFFIC-DEPENDENT and nothing said so.
+        `_chain_exhausted_at` is set on total failure, cleared on success, and
+        LAPSES after `_CHAIN_EXHAUSTION_TTL_S` (120s). So during the 2026-08-27
+        outage — the sole provider EXITED, every path returning HTTP 404 — the
+        live surface read:
+
+            idle chain              resilient: true,  last_exhaustion_age_s: null
+            right after one chat    resilient: false, last_exhaustion_age_s: 1.6
+
+        Both readings describe the SAME continuous outage. With sparse traffic
+        the verdict laps back to green every two minutes, so a monitor polling
+        `/health` sees healthy for most of an ongoing outage. That is the
+        absence-reads-as-health shape §1 records against three Phase A gates.
+
+        Four states, and `stale` is the one that was previously unsayable:
+
+            fresh_failure   the chain exhausted within the TTL — real evidence
+            fresh_success   a request was actually served within the TTL
+            stale           an outcome was recorded, but too long ago to trust
+            never_observed  nothing has been dialled since boot
+
+        `resilient` is NOT redefined here — `self_introspect_guard` and the
+        admission path both read it, and changing a live safety field to close a
+        reporting gap is how the next defect gets introduced. This reports the
+        provenance beside it so the two can never again be confused.
+        """
+        exh_age = self._chain_exhaustion_age()
+        succ_age = self._chain_success_age()
+        if exh_age is not None and (succ_age is None or exh_age < succ_age):
+            return "fresh_failure"
+        if succ_age is not None and succ_age <= _CHAIN_EXHAUSTION_TTL_S:
+            return "fresh_success"
+        if (getattr(self, "_chain_exhausted_at", 0.0) or 0.0) > 0 or succ_age is not None:
+            return "stale"
+        return "never_observed"
 
     @fail_wire(module="fallback", gap_type="engine_failure")
     def get_health(self) -> dict:
@@ -2135,6 +2190,12 @@ class FallbackProvider(LLMProvider):
             # is what made admission refuse what dispatch would have served.
             "can_dispatch_now": self.can_dispatch_now(),
             "last_exhaustion_age_s": _exhausted_age,
+            # R-F4382 (C-327) — what `resilient` above actually rests on.
+            # `stale` / `never_observed` mean the verdict is UNPROVEN, not
+            # healthy: during the 2026-08-27 outage this surface read
+            # resilient=true whenever the 120s exhaustion flag had lapsed.
+            "chain_evidence": self._chain_evidence(),
+            "last_success_age_s": self._chain_success_age(),
             "primary_active": bool(active and chain_order and active[0] == chain_order[0]),
             "serving_provider": active[0] if active else None,
             "chain_order": chain_order,

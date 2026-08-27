@@ -494,7 +494,30 @@ def verify_response(response_text: str, tool_context: str, *, support_judgment: 
             "fetched_urls": [],
             "grounded": [],
             "unverified": cited,  # No tool ran — nothing to verify against
-            "grounded_rate": None,
+            # ── R-F4383 (C-328) — honour this function's OWN contract ────────
+            # The docstring above says "grounded / cited (None if no
+            # citations)". This branch returned None even when the response
+            # carried citations, while putting those same URLs in `unverified`
+            # two lines up — classifying them as unverified and then declining
+            # to score it. An answer asserting sources that no tool fetched is
+            # the WORST grounding outcome available, and it was being recorded
+            # as no signal at all, indistinguishable from an ordinary turn that
+            # never needed a citation. Live 2026-08-27: `verdict no_tool,
+            # cited_count 5, unverified_count 5, grounded_rate null`.
+            #
+            # `grounded` is empty here by construction, so the documented
+            # arithmetic is 0/len(cited) = 0.0.
+            #
+            # NOTE the consequence, which is intended: `avg_grounded_rate` gates
+            # external delivery (operating_modes degrades below 30%), so these
+            # samples can only lower it. They are genuinely ungrounded answers —
+            # excluding them flattered the gate — and R-F3764's minimum-sample
+            # floor already stops a lone sample taking delivery offline.
+            #
+            # No citations still yields None: absence of a claim is not a
+            # measured zero, and scoring every ordinary conversational turn 0.0
+            # would drag the delivery gate down on answers that asserted nothing.
+            "grounded_rate": 0.0 if cited else None,
             "suspicious_count": sum(1 for u in cited if _looks_suspicious(u)),
             "tool_refs": tool_refs,
             "verdict": "no_tool",

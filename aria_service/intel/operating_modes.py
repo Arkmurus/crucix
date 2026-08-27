@@ -55,6 +55,10 @@ DEGRADED_GROUNDED_RATE = 0.30
 #: `os` nor an env helper, and adding one to make a safety floor TUNABLE invites
 #: it being tuned to 0 — which restores the defect exactly.
 GROUNDED_MIN_SAMPLES = 5
+#: R-F4380 (C-325) — minimum SCORED attacks before an adversarial run may
+#: demote the platform. Mirrors GROUNDED_MIN_SAMPLES above; the adversarial
+#: branch sits at higher precedence and had no floor at all.
+ADVERSARIAL_MIN_SAMPLES = 5
 SUPERVISED_ADVERSARIAL_SCORE = 0.50
 EMERGENCY_BLOCK_COUNT = 5
 
@@ -201,6 +205,23 @@ async def evaluate_auto_transition() -> dict | None:
         else:
             adversarial_score = last_run.get("overall_score")
             if adversarial_score is None:
+                adversarial_score = 1.0
+            # ── R-F4380 (C-325) — the same minimum-sample floor R-F3764 gave
+            # the grounded rate twenty lines below. This branch never had one,
+            # and it sits at HIGHER precedence: it demotes to SUPERVISED before
+            # the grounded check is even reached. R-F3764's argument applies
+            # unchanged — "a rate with no sample size is not a measurement" —
+            # and a score computed over a couple of surviving attacks is
+            # exactly that. Below the floor the score is NO SIGNAL, identical
+            # to the degraded case; a genuine collapse across a full run still
+            # demotes, which is the behaviour worth keeping.
+            _scored = last_run.get("scored_attacks")
+            if _scored is not None and int(_scored or 0) < ADVERSARIAL_MIN_SAMPLES:
+                logger.info(
+                    "[R-F4380] adversarial score %s ignored — only %s scored "
+                    "attack(s), below the %s-attack floor. Too thin to demote.",
+                    adversarial_score, _scored, ADVERSARIAL_MIN_SAMPLES,
+                )
                 adversarial_score = 1.0
     except Exception:
         adversarial_score = 1.0

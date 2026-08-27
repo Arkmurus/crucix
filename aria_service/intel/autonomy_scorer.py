@@ -106,6 +106,44 @@ TIER_THRESHOLDS = [
 PREDICTOR_BLOCK_OVERRIDE = 5
 
 
+def _prefer_better_sampled(val, sample, source, *, lifetime_val, lifetime_n):
+    """R-F4381 (C-326) — a thin window must not DISCARD better lifetime evidence.
+
+    Two rules composed badly and made the outcome NON-MONOTONIC: two
+    observations were strictly worse than zero. R-F590's fallback in
+    `source_verifier` fires only when the 24h window is EMPTY, while R-F1907's
+    guard here discards anything below `_MIN_SIGNAL_SAMPLES`. With exactly 2
+    samples the window is non-empty (so no fallback) and then fails the guard —
+    throwing away a 100-sample lifetime rate. At ZERO samples the fallback
+    would have fired and the gate would have been decidable. Measured live
+    2026-08-27: gate #1 confidence 0.30, verification and honesty both dark,
+    against `lifetime_sample_size` 100 and 52.
+
+    R-F3696 fixed the adjacent half — it aligned the sample COUNT with the
+    WINDOW the rate came from — but left the trigger keyed on ABSENT rather
+    than INSUFFICIENT, so the gate stayed dark for a new reason.
+
+    This MEASURES MORE, not less (§1). The guard is untouched when there is no
+    better evidence: the fallback is taken only to a sample that is BOTH above
+    the floor AND strictly larger than the one being rejected, so it can never
+    manufacture a signal, never lower the evidentiary bar, and never pass a
+    gate on thin data. A missing lifetime rate rescues nothing.
+
+    The label is preserved so a consumer can always see which window served —
+    a silent substitution would be the same unreadable-provenance defect this
+    repo has recorded against three Phase A gates.
+    """
+    sample = int(sample or 0)
+    if val is not None and sample >= _MIN_SIGNAL_SAMPLES:
+        return val, sample, source
+    lt_n = int(lifetime_n or 0)
+    if lifetime_val is not None and lt_n >= _MIN_SIGNAL_SAMPLES and lt_n > sample:
+        return lifetime_val, lt_n, f"lifetime_fallback_rf4381:{source}"
+    if val is None:
+        return None, sample, source
+    return None, sample, f"insufficient_samples_n{sample}"
+
+
 async def compute_composite() -> dict:
     """Compute the composite autonomy score from all four signals."""
     # R-F1350: predictor_gate is no longer a weighted signal (override-only).
@@ -183,9 +221,13 @@ async def compute_composite() -> dict:
                 source = "no_data_neutral_prior"
         # R-F1907 — same min-sample guard as honesty: don't let an under-sampled
         # grounded-rate determine 45% of the composite.
-        if val is not None and sample < _MIN_SIGNAL_SAMPLES:
-            source = f"insufficient_samples_n{sample}"
-            val = None
+        # R-F4381 (C-326) — ...but prefer a better-sampled lifetime rate over
+        # discarding outright, so 2 samples can never be worse than 0.
+        val, sample, source = _prefer_better_sampled(
+            val, sample, source,
+            lifetime_val=stats.get("lifetime_grounded_rate"),
+            lifetime_n=stats.get("lifetime_sample_size"),
+        )
         signals["verification"] = val
         details["verification_source"] = source
         details["verification_samples"] = sample
@@ -246,9 +288,14 @@ async def compute_composite() -> dict:
         # recent judgments is too noisy to weight (a single 0.0 sample deflated
         # the composite ~0.80->0.60 despite 91% all-time honesty). Exclude it
         # (None -> renormalised + confidence flagged), never inflate.
-        if val is not None and sample < _MIN_SIGNAL_SAMPLES:
-            source = f"insufficient_samples_n{sample}"
-            val = None
+        # R-F4381 (C-326) — same shape, twenty lines apart. Live, honesty had 52
+        # lifetime judgments and used NONE of them because the 24h window held 1.
+        # Fixing only the member that was measured is how an allow-list rots.
+        val, sample, source = _prefer_better_sampled(
+            val, sample, source,
+            lifetime_val=h_stats.get("lifetime_honesty_score"),
+            lifetime_n=h_stats.get("lifetime_sample_size"),
+        )
         signals["honesty_rate"] = val
         details["honesty_rate_source"] = source
         details["honesty_rate_samples"] = sample
