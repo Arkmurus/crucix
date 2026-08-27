@@ -337,6 +337,55 @@ def test_the_augmentation_is_proportionate_to_the_corpus(rows):
         f"repeats the dilution that produced the last null result")
 
 
+def test_precedence_rows_exist_in_the_format_the_eval_actually_uses(rows):
+    """R-F4379 / C-324 — THE DEFECT THAT BEAT THIS CURRICULUM ONCE ALREADY.
+
+    Measured on the v1.0 run: `dd_layer` scored 0.041, WORSE than the 0.07 it
+    was built to fix, and the failure changed shape — she answered the OSI model
+    WITH A CITATION (`[from Decnet/osi protocols]`).
+
+    Counted, not guessed: all 200 ARK-DD rows were bare questions, all 418
+    grounded rows carried `[CONTEXT ...]`, and all 100 dd_layer EVAL rows arrive
+    WITH a context block. She was trained on her architecture as bare recall and
+    then asked about it under "answer ONLY from this evidence", while a corpus
+    outnumbering this one 2:1 taught that the context governs. The curriculum
+    did not lose on content — it was never asked in the format that was tested.
+    """
+    pre = [r for r in rows if r["mode"] == "precedence"]
+    assert len(pre) >= 12, (
+        f"only {len(pre)} precedence rows — the curriculum is again trained "
+        f"only in a format the eval never uses")
+    for r in pre:
+        assert "[CONTEXT" in r["messages"][1]["content"], (
+            f"{r['topic']}: precedence row is not in the grounded format")
+
+
+def test_precedence_rows_refuse_to_cite_the_distractor(rows):
+    """A citation attached to a wrong answer is MORE dangerous than a bare wrong
+    answer, because it reads as sourced and the operator has no signal. The
+    observed failure was exactly this, so the row must not reproduce it."""
+    import re
+    for r in [x for x in rows if x["mode"] == "precedence"]:
+        src = re.search(r"\[Source: ([^\]]+)\]", r["messages"][1]["content"])
+        assert src, r["topic"]
+        assert f"[from {src.group(1)}]" not in r["messages"][2]["content"], (
+            f"{r['topic']}: cites the distractor — this is the exact failure "
+            f"(a confidently sourced wrong answer)")
+
+
+def test_precedence_rows_still_state_the_architecture(rows):
+    """Refusing the distractor is only half. A row that declines without
+    answering leaves the operator with nothing, and teaches abstention on a
+    question she is supposed to know."""
+    for r in [x for x in rows if x["mode"] == "precedence"]:
+        a = r["messages"][2]["content"]
+        assert "no document in the store is authoritative" in a, (
+            f"{r['topic']}: does not state WHY retrieval cannot settle this")
+        assert len(a) > 700, (
+            f"{r['topic']}: too short to carry the architecture answer as well "
+            f"as the refusal")
+
+
 def test_rows_are_valid_chat_training_rows(rows):
     for r in rows:
         assert [m["role"] for m in r["messages"]] == ["system", "user", "assistant"]

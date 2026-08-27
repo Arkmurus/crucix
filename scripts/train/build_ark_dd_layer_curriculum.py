@@ -696,6 +696,126 @@ def _questions_for(p: dict) -> list[str]:
     return out
 
 
+#: R-F4379 (C-324) — THE TRAIN/EVAL MISMATCH THAT BEAT THIS CURRICULUM.
+#:
+#: Measured on the v1.0 Claude-only run: `dd_layer` scored 0.041, WORSE than the
+#: 0.07 it was built to fix, and the failure changed shape in a revealing way.
+#: Before, she answered the OSI model from nowhere. After, she answered it
+#: WITH A CITATION:
+#:
+#:     "Layer 2 is the data link layer in the OSI networking model, responsible
+#:      for node-to-node delivery over a physical link.
+#:      [from Decnet/osi protocols: The physical, data link and network layers]"
+#:
+#: The cause is a format mismatch, not bad content. Verified by counting:
+#:   * all 200 ARK-DD rows were BARE questions — zero context blocks;
+#:   * all 418 grounded rows carried `[CONTEXT ...]`;
+#:   * all 100 `dd_layer` EVAL rows arrive WITH a context block.
+#:
+#: So she was trained on her architecture as bare recall, then asked about it
+#: under a header that says "answer ONLY from this evidence" — while a corpus
+#: outnumbering this one 2:1 taught that the context governs. Retrieval handed
+#: her a DECnet/OSI document and the grounding training did exactly what it was
+#: trained to do. The curriculum did not lose on content; it never got asked.
+#:
+#: THE FIX IS PRECEDENCE, TAUGHT EXPLICITLY. Her own architecture is not a fact
+#: retrieval can supply or overrule — no source in the store is authoritative
+#: about how ARK-DD is built. These rows put the question under a context block
+#: carrying plausible-but-wrong material and teach three moves: state the
+#: architecture from her own knowledge, NAME why the retrieved document does not
+#: govern, and avoid the trap of citing it. That last part matters most: a
+#: citation attached to a wrong answer is more dangerous than a bare wrong
+#: answer, because it reads as sourced.
+_DISTRACTORS = {
+    "2": ("web:decnet_osi_protocols",
+          "The physical, data link and network layers of the DECnet/OSI "
+          "protocol stack handle node-to-node delivery over a physical link."),
+    "3": ("web:tcp_ip_layering",
+          "In the TCP/IP model the third layer is the internet layer, "
+          "responsible for addressing and routing packets between hosts."),
+    "4": ("web:iso_osi_transport",
+          "OSI layer 4 is the transport layer, providing end-to-end "
+          "connection control and reliable segment delivery."),
+    "1": ("web:osi_physical_layer",
+          "The first layer of the OSI model is the physical layer, covering "
+          "electrical signalling and cabling."),
+    "5": ("web:osi_session_layer",
+          "OSI layer 5 is the session layer, which establishes and terminates "
+          "connections between applications."),
+}
+
+def _lc(s: str) -> str:
+    """Lowercase the first letter, but never an acronym or a bare 'Layer N'.
+
+    A blind lowercase produced "jSC" in the sibling corpus (R-F4363); the same
+    rule applies here, where the first token is very often "Layer" followed by
+    a number or "What does Layer 4 (Compliance)...". Leave anything alone whose
+    first token carries a capital past position 0.
+    """
+    if not s:
+        return s
+    first = s.split(" ", 1)[0].rstrip(",.;:")
+    if len(first) > 1 and any(c.isupper() for c in first[1:]):
+        return s
+    return s[0].lower() + s[1:]
+
+
+#: EVERY ask names its subject. A context-free follow-up ("The evidence above
+#: says otherwise — which is right?") collides across every layer that has a
+#: distractor, mapping one question to several different answers — the same
+#: defect the variant templates already had to fix once.
+_PRECEDENCE_ASKS = [
+    "{q}",
+    "{q} The evidence above seems to say otherwise — which is right?",
+    "Answer only from the evidence: {q_lc}",
+    "{q} Reconcile that with the retrieved document.",
+]
+
+
+def _precedence_rows() -> list[dict]:
+    """ARK-DD questions asked UNDER a context block that contradicts them."""
+    rows: list[dict] = []
+    for p in PAIRS:
+        d = _DISTRACTORS.get(p["layer"])
+        if not d or p["mode"] not in ("describe", "disambiguation"):
+            continue
+        src, text = d
+        ref, _short = _REF.get(p["layer"], ("the ARK-DD stack", "report"))
+        ctx = (f"[CONTEXT — answer ONLY from this evidence; cite inline as "
+               f"[from <source>]; if it does not contain the answer, say so]\n"
+               f"- {text} [Source: {src}]\n\n")
+        answer = (
+            f"The retrieved document does not answer this, and I am not going to "
+            f"cite it as though it did.\n\n"
+            f"It describes a NETWORKING model — a different subject that happens "
+            f"to share the word 'layer'. ARK-DD is the due-diligence stack I run, "
+            f"and no document in the store is authoritative about how it is "
+            f"built; that is my own architecture, not a fact retrieval supplies.\n\n"
+            f"{p['a']}\n\n"
+            f"Note what I avoided: citing that networking document as the "
+            f"source for an answer about ARK-DD would have produced a "
+            f"confidently sourced wrong answer, which is worse than an "
+            f"unsourced one because the operator has no signal that it is "
+            f"wrong."
+        )
+        for tpl in _PRECEDENCE_ASKS:
+            q = tpl.format(q=p["q"], q_lc=_lc(p["q"]), ref=ref)
+            rows.append({
+                "messages": [
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": ctx + q},
+                    {"role": "assistant", "content": answer},
+                ],
+                "topic": f"ark_dd_precedence_{p['layer']}_{p['id']}",
+                "layer": p["layer"],
+                "mode": "precedence",
+                "external": False,
+                "confidence": "high",
+                "source": "claude_authored:R-F4379",
+            })
+    return rows
+
+
 def _rows() -> list[dict]:
     rows = []
     for p in PAIRS:
@@ -714,6 +834,10 @@ def _rows() -> list[dict]:
         "confidence": "high",
         "source": "claude_authored:R-F4360",
             })
+    # R-F4379 — the same knowledge asked UNDER a contradicting context block.
+    # Without these the curriculum is only ever exercised in a format the eval
+    # never uses, which is how 200 correct rows lost to a DECnet document.
+    rows.extend(_precedence_rows())
     return rows
 
 

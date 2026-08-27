@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 4379,
+  "next_available": 4380,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -37638,32 +37638,44 @@
       "title": "recover bare-JSON tool calls the model emits without tags",
       "claimed_at": "2026-08-27T07:59:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f829cfa",
+      "notes": null,
+      "shipped_at": "2026-08-27T09:03:07Z"
     },
     {
       "r_number": "R-F4376",
       "title": "build a verified search/replace edit corpus from real R-F fixes",
       "claimed_at": "2026-08-27T08:56:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f829cfa",
+      "notes": null,
+      "shipped_at": "2026-08-27T09:03:08Z"
     },
     {
       "r_number": "R-F4377",
       "title": "render training prompts with the same tools block inference uses",
       "claimed_at": "2026-08-27T09:00:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f829cfa",
+      "notes": null,
+      "shipped_at": "2026-08-27T09:03:08Z"
     },
     {
       "r_number": "R-F4378",
       "title": "the no-DELETE rule was scoped to one module while two scripts could still destroy the pod of record (C-310)",
       "claimed_at": "2026-08-27T09:01:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F4379",
+      "title": "ARK-DD self-knowledge lost to retrieved evidence at eval time (C-324)",
+      "claimed_at": "2026-08-27T09:17:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -3651,6 +3651,15 @@
       "status": "open",
       "r_numbers": [],
       "notes": null
+    },
+    {
+      "c_number": "C-324",
+      "title": "trained bare, evaluated grounded: the OSI doc beat her own architecture",
+      "claimed_at": "2026-08-27T09:17:08Z",
+      "claimed_by": "claude",
+      "status": "open",
+      "r_numbers": [],
+      "notes": null
     }
   ]
 }
