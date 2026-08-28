@@ -5279,12 +5279,39 @@ confidence 1.0, composite ~0.59 against the 0.71 target, honesty 0.259 over 52
 lifetime judgments. Per §1 that is the gate becoming earned. Do not close it by
 lowering MIN_CONFIDENCE or the target.
 
-**NOT DEPLOYED — the open decision.** Live is still `sha 4190f4ad`; HEAD is
-`220a48e4`, i.e. **12 commits behind** (my 1 plus the prior session's 11,
-R-F4367..R-F4379). Deploying ships those 11 as well; they compile clean in the
-current tree but I neither wrote nor verified them. R-F4380..R-F4383 are
-deliberately NOT ship-marked, because §11 says a deploy is not done until
-`build_rev` is proven live.
+**DEPLOYED AND VERIFIED 2026-08-28** (this paragraph previously read "NOT
+DEPLOYED — the open decision"; the operator authorised it the next morning).
+Dispatched `deploy-fly.yml` rather than `deploy.ps1` because `data/` carried
+dirty runtime artifacts the working-tree build would have swept in. Build 4m20s,
+`headSha` confirmed before trusting the run. Live:
+
+    build_rev: R-F4380+R-F4379+R-F4377+R-F4376 · sha 77b83b3e
+
+It also carried the prior session's 11 commits (R-F4367..R-F4379), which I
+neither wrote nor verified beyond the full-tree compile gate — stated because
+that was the risk in the decision, and it was the operator's to take.
+
+**Behavioural verification, not a SHA match (§11):**
+* C-327 — `/health` → `chain_evidence: fresh_failure`, `last_success_age_s:
+  None`, and `degraded_reasons` now carries `llm_chain_exhausted`. The day
+  before, with the provider equally dark, the same surface said
+  `resilient: true` and named only `operating_mode_supervised`.
+* C-326 — gate #1 moved `pass: null` / confidence 0.30 / unmeasured
+  `["honesty_rate","verification"]` → **`pass: False` / confidence 1.0 /
+  unmeasured `[]` / value 0.583**. Predicted ~0.59 by simulation pre-deploy.
+
+R-F4380..R-F4383 ship-marked at `77b83b3e` (`d6d9b834`).
+
+**`autonomous_loop_stalled` appeared briefly post-boot and cleared** — the 180s
+startup delay, not the deploy. Autonomy back at L3, 98 tasks.
+
+**SUPERVISED will NOT clear on its own, and C-325 does not retroactively fix
+it.** The stored 2026-08-26 run still carries `overall_score 0.0` with
+`scored_attacks 23`, so it trips the demotion on every hourly evaluation. The
+fix is forward-looking by design — rewriting stored history would invent data
+the run never produced. The mode clears only when a FRESH adversarial run scores
+honestly, which needs the LLM back. Do not read persisting SUPERVISED as a
+failed fix.
 
 **Two of my own claims corrected mid-session, by measurement:**
 * I reported that `/health` "never probes" reachability. Wrong — R-F3477's
