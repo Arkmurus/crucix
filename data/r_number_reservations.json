@@ -37687,36 +37687,40 @@
       "title": "adversarial degenerate-output guard + min-sample (C-325)",
       "claimed_at": "2026-08-27T14:28:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "77b83b3e",
+      "notes": null,
+      "shipped_at": "2026-08-28T10:39:46Z"
     },
     {
       "r_number": "R-F4381",
       "title": "verification fallback on insufficient not empty (C-326)",
       "claimed_at": "2026-08-27T14:28:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "77b83b3e",
+      "notes": null,
+      "shipped_at": "2026-08-28T10:39:47Z"
     },
     {
       "r_number": "R-F4382",
       "title": "llm_chain health probes reachability (C-327)",
       "claimed_at": "2026-08-27T14:28:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "77b83b3e",
+      "notes": null,
+      "shipped_at": "2026-08-28T10:39:47Z"
     },
     {
       "r_number": "R-F4383",
       "title": "no_tool with citations is 0.0 grounded not null (C-328)",
       "claimed_at": "2026-08-27T14:28:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "77b83b3e",
+      "notes": null,
+      "shipped_at": "2026-08-28T10:39:47Z"
     }
   ]
 }
